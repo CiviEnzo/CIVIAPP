@@ -1,0 +1,16 @@
+CONTESTO BREVE:
+- Obiettivo: nella dashboard cliente voglio  implementare il sistema di prenotazione di un appuntamento
+
+
+
+
+VINCOLI:
+- Mantieni l ' as is lato admin
+- Mantieni stile/eslint/formatter del progetto.
+- Non mostrare appuntamenti degli altri clienti
+
+RICHIESTA:
+- Implementa il sistema di prenotazione lato cliente, sia direttamente dal servizio sia dal Prenota ora
+- Non permettere prenotazioni in slot non disponibili ( slot già occupati, ferie, permessi, malattie, pausa pranzo)
+- Scelta servizio
+- Scelta operatore

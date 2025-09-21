@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "442062945154",
+    "project_id": "civiapp-38b51",
+    "storage_bucket": "civiapp-38b51.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:442062945154:android:e97a840ba6fd0b554e6d9b",
+        "android_client_info": {
+          "package_name": "com.cividevops.civiapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDgWb1Ikb5ocDN73eL2ledLo0OjvOgGnUA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

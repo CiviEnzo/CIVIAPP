@@ -1,0 +1,45 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "civiapp-38b51",
+          "appId": "1:442062945154:android:8edeace19236d4b44e6d9b",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "ios": {
+        "default": {
+          "projectId": "civiapp-38b51",
+          "appId": "1:442062945154:ios:6aba05c66d9e5dd94e6d9b",
+          "uploadDebugSymbols": false,
+          "fileOutput": "ios/Runner/GoogleService-Info.plist"
+        }
+      },
+      "macos": {
+        "default": {
+          "projectId": "civiapp-38b51",
+          "appId": "1:442062945154:ios:6aba05c66d9e5dd94e6d9b",
+          "uploadDebugSymbols": false,
+          "fileOutput": "macos/Runner/GoogleService-Info.plist"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "civiapp-38b51",
+          "configurations": {
+            "android": "1:442062945154:android:8edeace19236d4b44e6d9b",
+            "ios": "1:442062945154:ios:6aba05c66d9e5dd94e6d9b",
+            "macos": "1:442062945154:ios:6aba05c66d9e5dd94e6d9b",
+            "web": "1:442062945154:web:080fdd048a96cdb84e6d9b",
+            "windows": "1:442062945154:web:d9af5142c43e56ce4e6d9b"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  }
+}

@@ -1,0 +1,17 @@
+STAFF & TURNAZIONI
+
+Obiettivo
+
+-Determinare la turnazione di ogni membro dello staff
+
+-Come admin voglio programmare la turnazione del mio staff
+
+-Posso inserire un turno giornaliero, settimanale, mensile e anche per tutto l’ anno.
+
+-Voglio scegliere orario invio e fine, orario di pausa.
+
+-Ripetizione delle settimane, possibilità di scegliere settimane alternate
+
+-Per ogni staff voglio segnare i giorni di malattia, i permessi e le ferie
+
+- La turanzione deve essere visibile nel calendario degli appuntamenti 

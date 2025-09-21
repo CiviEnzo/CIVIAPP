@@ -1,0 +1,9 @@
+Gestione sessioni
+
+- voglio automatizzare il meccanismo per scalare automaticamente le sessioni di un pacchetto
+
+
+Vincoli
+-l' as is deve rimanere
+- al momento della prenotazione, se l' utente ha delle sessioni disponibili per quel servizio, posso flaggare una checkbox che indica che sarà scalata la sessione dal pacchetto
+- quando prendo un appuntamento, se per quel servizio ho delle sessioni rimanenti presi dal mio pacchetto in corso, una volta che l' appuntamento è completato devo scalare la sessione

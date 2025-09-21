@@ -1,0 +1,262 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function currentUserDoc() {
+      return isSignedIn()
+          ? get(/databases/$(database)/documents/users/$(request.auth.uid))
+          : null;
+    }
+
+    function currentUserData() {
+      return currentUserDoc() != null ? currentUserDoc().data : null;
+    }
+
+    function currentUserRole() {
+      return currentUserData() != null && currentUserData().role is string
+          ? currentUserData().role
+          : null;
+    }
+
+    function isAdmin() {
+      return currentUserRole() == 'admin';
+    }
+
+    function isStaff() {
+      return currentUserRole() == 'staff';
+    }
+
+    function isClient() {
+      return currentUserRole() == 'client';
+    }
+
+    function currentSalonIds() {
+      let data = currentUserData();
+      return data == null
+          ? []
+          : data.salonIds is list
+              ? data.salonIds
+              : data.salonId is string
+                  ? [data.salonId]
+                  : [];
+    }
+
+    function hasSalonAccess(salonId) {
+      return salonId is string && currentSalonIds().hasAny([salonId]);
+    }
+
+    function canReadSalonDocument(salonId) {
+      return hasSalonAccess(salonId) && (isAdmin() || isStaff() || isClient());
+    }
+
+    function canManageSalonDocument(salonId) {
+      return (isAdmin() || isStaff()) && hasSalonAccess(salonId);
+    }
+
+    function canViewAllSalons() {
+      return isSignedIn() &&
+          (currentSalonIds().size() == 0 || !isUserInitialized());
+    }
+
+    function currentClientId() {
+      let data = currentUserData();
+      return data != null && data.clientId is string ? data.clientId : null;
+    }
+
+    function isOwnClient(clientId) {
+      return isClient() && currentClientId() != null && currentClientId() == clientId;
+    }
+
+    function isUserInitialized() {
+      return currentUserRole() != null;
+    }
+
+    function resourceSalonId() {
+      return resource != null && resource.data != null && resource.data.salonId is string
+          ? resource.data.salonId
+          : null;
+    }
+
+    function requestSalonId() {
+      return request.resource != null && request.resource.data != null &&
+          request.resource.data.salonId is string
+          ? request.resource.data.salonId
+          : null;
+    }
+
+    function requestClientId() {
+      return request.resource != null && request.resource.data != null &&
+          request.resource.data.clientId is string
+          ? request.resource.data.clientId
+          : null;
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && (
+        request.auth.uid == userId ||
+        ((isAdmin() || isStaff()) && resource != null && resource.data != null && (
+          (resource.data.salonIds is list && currentSalonIds().hasAny(resource.data.salonIds)) ||
+          (resource.data.salonId is string && hasSalonAccess(resource.data.salonId))
+        ))
+      );
+
+      allow list: if isSignedIn() && (isAdmin() || isStaff());
+
+      allow create: if isSignedIn() && request.auth.uid == userId;
+
+      allow update: if isSignedIn() && request.auth.uid == userId;
+
+      allow delete: if false;
+    }
+
+    match /salons/{salonId} {
+      allow read: if isSignedIn() && (canReadSalonDocument(salonId) || canViewAllSalons());
+      allow create: if isSignedIn() && isAdmin();
+      allow update, delete: if isSignedIn() && isAdmin() && canReadSalonDocument(salonId);
+    }
+
+    match /staff/{staffId} {
+      allow read: if isSignedIn() && canReadSalonDocument(resourceSalonId());
+      allow create: if isSignedIn() && (
+        (isAdmin() && canManageSalonDocument(requestSalonId())) ||
+        (!isUserInitialized() && requestSalonId() is string)
+      );
+      allow update, delete: if isSignedIn() && isAdmin() && canManageSalonDocument(resourceSalonId());
+    }
+
+    match /clients/{clientId} {
+      allow read: if isSignedIn() && (
+        (resourceSalonId() != null && canManageSalonDocument(resourceSalonId())) ||
+        isOwnClient(clientId)
+      );
+
+      allow create: if isSignedIn() && (
+        ((isAdmin() || isStaff()) && canManageSalonDocument(requestSalonId())) ||
+        (!isUserInitialized() && requestSalonId() is string) ||
+        (isClient() && currentClientId() == null && requestSalonId() is string) ||
+        (isOwnClient(clientId) && requestSalonId() != null && hasSalonAccess(requestSalonId()))
+      );
+
+      allow update: if isSignedIn() && (
+        ((isAdmin() || isStaff()) && resourceSalonId() != null &&
+            canManageSalonDocument(resourceSalonId()) &&
+            requestSalonId() == resourceSalonId()) ||
+        (isOwnClient(clientId) && resourceSalonId() != null &&
+            requestSalonId() == resourceSalonId() && hasSalonAccess(resourceSalonId()))
+      );
+
+      allow delete: if isSignedIn() && (isAdmin() || isStaff()) &&
+          resourceSalonId() != null && canManageSalonDocument(resourceSalonId());
+    }
+
+    match /services/{serviceId} {
+      allow read: if isSignedIn() && canReadSalonDocument(resourceSalonId());
+      allow create, update, delete: if isSignedIn() &&
+          canManageSalonDocument(request.resource != null && request.resource.data != null &&
+              request.resource.data.salonId is string
+              ? request.resource.data.salonId
+              : resourceSalonId());
+    }
+
+    match /packages/{packageId} {
+      allow read: if isSignedIn() && canReadSalonDocument(resourceSalonId());
+      allow create, update, delete: if isSignedIn() &&
+          canManageSalonDocument(request.resource != null && request.resource.data != null &&
+              request.resource.data.salonId is string
+              ? request.resource.data.salonId
+              : resourceSalonId());
+    }
+
+    match /appointments/{appointmentId} {
+      allow read: if isSignedIn() && (
+        (resourceSalonId() != null && canManageSalonDocument(resourceSalonId())) ||
+        (resource != null && resource.data != null &&
+            resource.data.clientId is string && isOwnClient(resource.data.clientId))
+      );
+
+      allow create: if isSignedIn() && requestSalonId() != null && (
+        canManageSalonDocument(requestSalonId()) ||
+        (requestClientId() != null && isOwnClient(requestClientId()) &&
+            hasSalonAccess(requestSalonId()))
+      );
+
+      allow update: if isSignedIn() && resourceSalonId() != null && requestSalonId() == resourceSalonId() && (
+        canManageSalonDocument(resourceSalonId()) ||
+        (resource != null && resource.data != null &&
+            resource.data.clientId is string && isOwnClient(resource.data.clientId))
+      );
+
+      allow delete: if isSignedIn() && resourceSalonId() != null && (
+        canManageSalonDocument(resourceSalonId()) ||
+        (resource != null && resource.data != null &&
+            resource.data.clientId is string && isOwnClient(resource.data.clientId))
+      );
+    }
+
+    match /inventory/{itemId} {
+      allow read: if isSignedIn() && canManageSalonDocument(resourceSalonId());
+      allow create, update, delete: if isSignedIn() &&
+          canManageSalonDocument(request.resource != null && request.resource.data != null &&
+              request.resource.data.salonId is string
+              ? request.resource.data.salonId
+              : resourceSalonId());
+    }
+
+    match /sales/{saleId} {
+      allow read: if isSignedIn() && (
+        canManageSalonDocument(resourceSalonId()) ||
+        (resource != null && resource.data != null &&
+            resource.data.clientId is string &&
+            isOwnClient(resource.data.clientId))
+      );
+      allow create, update, delete: if isSignedIn() &&
+          canManageSalonDocument(request.resource != null && request.resource.data != null &&
+              request.resource.data.salonId is string
+              ? request.resource.data.salonId
+              : resourceSalonId());
+    }
+
+    match /cash_flows/{entryId} {
+      allow read: if isSignedIn() && canManageSalonDocument(resourceSalonId());
+      allow create, update, delete: if isSignedIn() &&
+          canManageSalonDocument(request.resource != null && request.resource.data != null &&
+              request.resource.data.salonId is string
+              ? request.resource.data.salonId
+              : resourceSalonId());
+    }
+
+    match /message_templates/{templateId} {
+      allow read: if isSignedIn() && canManageSalonDocument(resourceSalonId());
+      allow create, update, delete: if isSignedIn() &&
+          canManageSalonDocument(request.resource != null && request.resource.data != null &&
+              request.resource.data.salonId is string
+              ? request.resource.data.salonId
+              : resourceSalonId());
+    }
+
+    match /shifts/{shiftId} {
+      allow read: if isSignedIn() && canReadSalonDocument(resourceSalonId());
+      allow create, update, delete: if isSignedIn() &&
+          canManageSalonDocument(request.resource != null && request.resource.data != null &&
+              request.resource.data.salonId is string
+              ? request.resource.data.salonId
+              : resourceSalonId());
+    }
+
+    match /staff_absences/{absenceId} {
+      allow read: if isSignedIn() && canManageSalonDocument(resourceSalonId());
+      allow create, update, delete: if isSignedIn() &&
+          canManageSalonDocument(request.resource != null && request.resource.data != null &&
+              request.resource.data.salonId is string
+              ? request.resource.data.salonId
+              : resourceSalonId());
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

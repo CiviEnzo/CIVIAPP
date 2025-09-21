@@ -1,0 +1,77 @@
+CIVI APP GESTIONALE
+
+1.Obiettivo & Ambito
+
+Scopo dell’ app: App gestionale che mi permetta, AD OGNI UTENTE di gestire i suoi saloni di centri estetici, il suo staff, i suoi clienti, gestione turni, gestione  cabine. 
+
+App clienti : prenotazioni da parte dei  clienti tramite app apposita a un salone specifico.
+
+MVP: tutte le funzionalità
+
+Ruoli utente: Admin, operatore/STAFF , cliente
+
+
+2.Flussi principali
+
+. Come admin voglio creare i miei saloni
+. Come admin voglio creare il mio staff
+. Come admin voglio emettere lo scontrino fiscale elettronico in Italia reale.
+. Come Operatore voglio fissare/modificare appuntamenti.
+. Come Operatore voglio aggiungere modificare ed eliminare elementi nel magazzino
+. Come Operatore voglio inserire, modificare, eliminare movimenti monetari in entrata e in uscita
+. Come Operatore voglio creare pacchetti e servizi
+. Come Cliente voglio cercare ed iscrivermi ad un salone
+. Come Cliente voglio prenotare un appuntamento, scegliere il tipo di servizio, scegliere il personale dello staff che eroga il servizio.
+. Come Cliente voglio essere informato tramite whatsapp
+. Come Cliente voglio consultare il mio storico pacchetti, appuntamenti e servizi
+
+
+3.Dati & Permessi
+
+STAFF
+MAGAZZINO
+APPUNTAMENTI
+CLIENTI
+SALONE
+VENDITE
+SERVIZI
+PACCHETTI
+
+
+Admin può leggere e scrivere tutto dei suoi saloni
+
+Operatore può leggere e scrivere su [MAGAZZINO, CLIENTI, VENDITE, SERVIZI, APPUNTAMENTI, PACCHETTI] dei suoi saloni
+Operatore può leggere su [SALONE, STAFF] di appartenenza 
+
+Cliente può leggere e scrivere solo i suoi dati e i suoi appuntamenti 
+Cliente può leggere [STAFF, SALONE, SERVIZI, PACCHETTI] dei suoi saloni
+
+
+
+
+4.Requisiti non funzionali
+
+Privacy GDRP per il consenso dei dati personali (nome, cognome, età, numero di telefono, email)
+
+
+5.Stack & Versioni
+-Flutter 3.29.3 • channel stable • https://github.com/flutter/flutter.git
+Framework • revision ea121f8859 (5 months ago) • 2025-04-11 19:10:07 +0000
+Engine • revision cf56914b32
+Tools • Dart 3.7.2 • DevTools 2.42.3
+iOS 16
+Android API 35
+Librerie note (calendar, QR/Barcode, PDF, WhatsApp Business API).
+
+
+6.Roadmap
+
+salone, staff, clienti, appuntamenti, vendite, servizi, magazzino, messaggi, report
+
+Non ho scadenze particolari (1 anno)
+
+
+
+
+
+		
