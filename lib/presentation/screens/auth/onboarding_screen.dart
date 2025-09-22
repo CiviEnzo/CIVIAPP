@@ -3,6 +3,7 @@ import 'package:civiapp/data/models/app_user.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
+import 'package:civiapp/domain/entities/staff_role.dart';
 import 'package:civiapp/domain/entities/user_role.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +11,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+
+const String _defaultStaffRoleId = 'estetista';
 
 class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
@@ -21,7 +24,7 @@ class OnboardingScreen extends ConsumerStatefulWidget {
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   UserRole? _role;
   String? _selectedSalon;
-  StaffRole _staffRole = StaffRole.estetista;
+  String? _staffRoleId;
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
   final _phoneController = TextEditingController();
@@ -86,6 +89,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final session = ref.watch(sessionControllerProvider);
     final data = ref.watch(appDataProvider);
     final salons = data.salons;
+    final staffRoles = data.staffRoles;
     final user = session.user;
     final roleLocked = user?.role != null;
     final role = _role ?? user?.role;
@@ -100,6 +104,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             : data.clients.firstWhereOrNull(
               (client) => client.id == user!.clientId,
             );
+
+    _ensureStaffRoleDefault(staffRoles);
 
     if (existingClient != null) {
       if (_firstNameController.text.isEmpty) {
@@ -317,7 +323,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                       const SizedBox(height: 24),
                     ],
                     if (role == UserRole.staff)
-                      _buildStaffExtras(theme.textTheme),
+                      _buildStaffExtras(theme.textTheme, staffRoles),
                     if (role == UserRole.client)
                       _buildClientExtras(theme.textTheme),
                     const SizedBox(height: 32),
@@ -349,7 +355,42 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     );
   }
 
-  Widget _buildStaffExtras(TextTheme textTheme) {
+  void _ensureStaffRoleDefault(List<StaffRole> roles) {
+    final currentId = _staffRoleId;
+    if (roles.isEmpty) {
+      if (currentId != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) {
+            return;
+          }
+          setState(() => _staffRoleId = null);
+        });
+      }
+      return;
+    }
+    if (currentId != null && roles.any((role) => role.id == currentId)) {
+      return;
+    }
+    final fallback =
+        roles.firstWhereOrNull((role) => role.id == _defaultStaffRoleId) ??
+        roles.first;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _staffRoleId = fallback.id);
+    });
+  }
+
+  Widget _buildStaffExtras(TextTheme textTheme, List<StaffRole> roles) {
+    final hasRoles = roles.isNotEmpty;
+    final sortedRoles = roles.sorted((a, b) {
+      final priority = a.sortPriority.compareTo(b.sortPriority);
+      if (priority != 0) {
+        return priority;
+      }
+      return a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
+    });
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -371,23 +412,31 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           ),
         ),
         const SizedBox(height: 12),
-        DropdownButtonFormField<StaffRole>(
-          value: _staffRole,
-          decoration: const InputDecoration(
-            labelText: 'Ruolo operativo',
-            border: OutlineInputBorder(),
+        if (hasRoles)
+          DropdownButtonFormField<String>(
+            value: _staffRoleId,
+            decoration: const InputDecoration(
+              labelText: 'Ruolo operativo',
+              border: OutlineInputBorder(),
+            ),
+            items:
+                sortedRoles
+                    .map(
+                      (role) => DropdownMenuItem(
+                        value: role.id,
+                        child: Text(role.displayName),
+                      ),
+                    )
+                    .toList(),
+            onChanged: (value) => setState(() => _staffRoleId = value),
+          )
+        else
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              'Configura prima una mansione per completare il profilo operatore.',
+            ),
           ),
-          items:
-              StaffRole.values
-                  .map(
-                    (role) =>
-                        DropdownMenuItem(value: role, child: Text(role.label)),
-                  )
-                  .toList(),
-          onChanged:
-              (value) =>
-                  setState(() => _staffRole = value ?? StaffRole.estetista),
-        ),
       ],
     );
   }
@@ -541,6 +590,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       _showMessage('Seleziona un salone.');
       return;
     }
+    if (role == UserRole.staff && (_staffRoleId?.isEmpty ?? true)) {
+      _showMessage('Seleziona una mansione per il nuovo operatore.');
+      return;
+    }
 
     final composedName = _composeName();
     if (role != UserRole.admin && composedName.isEmpty) {
@@ -591,11 +644,19 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         final staffMember = StaffMember(
           id: resolvedStaffId,
           salonId: selectedSalonId,
-          fullName: composedName,
-          role: _staffRole,
+          firstName: _firstNameController.text.trim(),
+          lastName: _lastNameController.text.trim(),
+          roleId: _staffRoleId ?? _defaultStaffRoleId,
           phone: existingStaff?.phone ?? user?.email,
           email: user?.email ?? existingStaff?.email,
+          dateOfBirth: existingStaff?.dateOfBirth,
           skills: existingStaff?.skills ?? const [],
+          vacationAllowance:
+              existingStaff?.vacationAllowance ??
+              StaffMember.defaultVacationAllowance,
+          permissionAllowance:
+              existingStaff?.permissionAllowance ??
+              StaffMember.defaultPermissionAllowance,
         );
         await dataStore.upsertStaff(staffMember);
         ref.read(sessionControllerProvider.notifier).setUser(resolvedStaffId);

@@ -1,0 +1,20 @@
+Staff 
+Crea un nuovo membro dello staff (da fare)/ possibilità di modifica di un membro dello staff
+
+Nome 
+Cognome 
+Telefono 
+Email 
+Data di nascita (da aggiungere)
+
+- [ ] Tipo di mansione: 
+Nel tab staff di fianco al bottone nuovo membro ( aggiungi un bottone per aggiungere. modificare, eliminare i ruoli dello staff)
+
+- [ ] Turni di lavoro 
+- Inserisci l’orario di lavoro per 1 anno ( gia presente)
+- eliminazione massiva e/o selezionata
+
+- [ ] Ferie e permessi (da fare)
+-Inserimento, modifica ed eliminazione di ferie e permessi per un anno lavorativo per ogni membro dello staff
+-Visualizza quante giornate residue di ferie e permessi per ogni membro dello staff
+-Storico giornate di ferie e permessi già effettuate per ogni membro dello staff

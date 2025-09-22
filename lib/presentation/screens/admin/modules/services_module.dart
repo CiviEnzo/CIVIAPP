@@ -2,6 +2,7 @@ import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/domain/entities/package.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
+import 'package:civiapp/domain/entities/staff_role.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:civiapp/presentation/screens/admin/forms/package_form_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/service_form_sheet.dart';
@@ -19,6 +20,7 @@ class ServicesModule extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final data = ref.watch(appDataProvider);
     final salons = data.salons;
+    final staffRoles = data.staffRoles;
     final services =
         data.services
             .where((service) => salonId == null || service.salonId == salonId)
@@ -44,6 +46,7 @@ class ServicesModule extends ConsumerWidget {
                   context,
                   ref,
                   salons: salons,
+                  roles: staffRoles,
                   defaultSalonId: salonId,
                 ),
           ),
@@ -60,6 +63,7 @@ class ServicesModule extends ConsumerWidget {
                     context,
                     ref,
                     salons: salons,
+                    roles: staffRoles,
                     defaultSalonId: salonId,
                     existing: service,
                   ),
@@ -106,6 +110,7 @@ class ServicesModule extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref, {
     required List<Salon> salons,
+    required List<StaffRole> roles,
     String? defaultSalonId,
     Service? existing,
   }) async {
@@ -122,6 +127,7 @@ class ServicesModule extends ConsumerWidget {
       builder:
           (ctx) => ServiceFormSheet(
             salons: salons,
+            roles: roles,
             defaultSalonId: defaultSalonId,
             initial: existing,
           ),

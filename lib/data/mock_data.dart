@@ -10,6 +10,7 @@ import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/shift.dart';
 import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
+import 'package:civiapp/domain/entities/staff_role.dart';
 
 class MockData {
   MockData._();
@@ -75,30 +76,77 @@ class MockData {
     ),
   ];
 
+  static final staffRoles = <StaffRole>[
+    const StaffRole(
+      id: 'manager',
+      name: 'Manager',
+      isDefault: true,
+      sortPriority: 10,
+    ),
+    const StaffRole(
+      id: 'receptionist',
+      name: 'Receptionist',
+      isDefault: true,
+      sortPriority: 20,
+    ),
+    const StaffRole(
+      id: 'estetista',
+      name: 'Estetista',
+      isDefault: true,
+      sortPriority: 30,
+    ),
+    const StaffRole(
+      id: 'massaggiatore',
+      name: 'Massaggiatore',
+      isDefault: true,
+      sortPriority: 40,
+    ),
+    const StaffRole(
+      id: 'nail_artist',
+      name: 'Nail Artist',
+      isDefault: true,
+      sortPriority: 50,
+    ),
+    const StaffRole(
+      id: 'staff-role-unknown',
+      name: 'Ruolo non assegnato',
+      isDefault: true,
+      sortPriority: 1000,
+    ),
+  ];
+
   static final staffMembers = <StaffMember>[
     StaffMember(
       id: 'staff-001',
       salonId: 'salon-001',
-      fullName: 'Laura Conti',
-      role: StaffRole.manager,
+      firstName: 'Laura',
+      lastName: 'Conti',
+      roleId: 'manager',
       phone: '+39 320 111 2233',
       email: 'laura.conti@civibeauty.it',
+      dateOfBirth: DateTime(1990, 3, 14),
       skills: const ['Coordinamento', 'Analisi vendite'],
+      vacationAllowance: 28,
+      permissionAllowance: 15,
     ),
     StaffMember(
       id: 'staff-002',
       salonId: 'salon-001',
-      fullName: 'Giulia Serra',
-      role: StaffRole.estetista,
+      firstName: 'Giulia',
+      lastName: 'Serra',
+      roleId: 'estetista',
       phone: '+39 333 444 5566',
+      dateOfBirth: DateTime(1994, 8, 23),
       skills: const ['Trattamenti viso', 'Massaggi decontratturanti'],
     ),
     StaffMember(
       id: 'staff-003',
       salonId: 'salon-002',
-      fullName: 'Marco Bianchi',
-      role: StaffRole.massaggiatore,
+      firstName: 'Marco',
+      lastName: 'Bianchi',
+      roleId: 'massaggiatore',
       phone: '+39 340 777 8899',
+      dateOfBirth: DateTime(1988, 12, 2),
       skills: const ['Massaggi sportivi', 'Linfodrenaggio'],
     ),
   ];
@@ -208,7 +256,7 @@ class MockData {
       price: 40,
       description:
           'Trattamento completo con maschera idratante e smalto semipermanente.',
-      staffRoles: const ['nailArtist'],
+      staffRoles: const ['nail_artist'],
     ),
     Service(
       id: 'srv-spa',

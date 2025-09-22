@@ -195,6 +195,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                       services: services,
                       shifts: filteredShifts,
                       absences: filteredAbsences,
+                      roles: data.staffRoles,
                       schedule: selectedSalon?.schedule,
                       roomsById: roomsById,
                       visibleWeekdays: _visibleWeekdays,

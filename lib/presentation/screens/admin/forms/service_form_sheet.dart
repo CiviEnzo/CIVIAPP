@@ -1,6 +1,7 @@
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
-import 'package:civiapp/domain/entities/staff_member.dart';
+import 'package:civiapp/domain/entities/staff_role.dart';
+import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
@@ -8,11 +9,13 @@ class ServiceFormSheet extends StatefulWidget {
   const ServiceFormSheet({
     super.key,
     required this.salons,
+    required this.roles,
     this.initial,
     this.defaultSalonId,
   });
 
   final List<Salon> salons;
+  final List<StaffRole> roles;
   final Service? initial;
   final String? defaultSalonId;
 
@@ -39,9 +42,16 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
     _category = TextEditingController(text: initial?.category ?? '');
     _description = TextEditingController(text: initial?.description ?? '');
     _price = TextEditingController(text: initial?.price.toString() ?? '0');
-    _duration = TextEditingController(text: initial?.duration.inMinutes.toString() ?? '60');
+    _duration = TextEditingController(
+      text: initial?.duration.inMinutes.toString() ?? '60',
+    );
     _roles = List<String>.from(initial?.staffRoles ?? []);
-    _salonId = initial?.salonId ?? widget.defaultSalonId ?? (widget.salons.isNotEmpty ? widget.salons.first.id : null);
+    final availableRoleIds = widget.roles.map((role) => role.id).toSet();
+    _roles.retainWhere(availableRoleIds.contains);
+    _salonId =
+        initial?.salonId ??
+        widget.defaultSalonId ??
+        (widget.salons.isNotEmpty ? widget.salons.first.id : null);
   }
 
   @override
@@ -56,6 +66,14 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final sortedRoles = widget.roles.sorted((a, b) {
+      final priority = a.sortPriority.compareTo(b.sortPriority);
+      if (priority != 0) {
+        return priority;
+      }
+      return a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
+    });
+    final hasRoles = sortedRoles.isNotEmpty;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Form(
@@ -72,7 +90,11 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
             TextFormField(
               controller: _name,
               decoration: const InputDecoration(labelText: 'Nome'),
-              validator: (value) => value == null || value.trim().isEmpty ? 'Inserisci il nome del servizio' : null,
+              validator:
+                  (value) =>
+                      value == null || value.trim().isEmpty
+                          ? 'Inserisci il nome del servizio'
+                          : null,
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -83,21 +105,24 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
             DropdownButtonFormField<String>(
               value: _salonId,
               decoration: const InputDecoration(labelText: 'Salone'),
-              items: widget.salons
-                  .map(
-                    (salon) => DropdownMenuItem(
-                      value: salon.id,
-                      child: Text(salon.name),
-                    ),
-                  )
-                  .toList(),
+              items:
+                  widget.salons
+                      .map(
+                        (salon) => DropdownMenuItem(
+                          value: salon.id,
+                          child: Text(salon.name),
+                        ),
+                      )
+                      .toList(),
               onChanged: (value) => setState(() => _salonId = value),
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _price,
               decoration: const InputDecoration(labelText: 'Prezzo (€)'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -112,27 +137,41 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
               maxLines: 3,
             ),
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: StaffRole.values
-                  .map(
-                    (role) => FilterChip(
-                      label: Text(role.label),
-                      selected: _roles.contains(role.name),
-                      onSelected: (selected) {
-                        setState(() {
-                          if (selected) {
-                            _roles.add(role.name);
-                          } else {
-                            _roles.remove(role.name);
-                          }
-                        });
-                      },
-                    ),
-                  )
-                  .toList(),
-            ),
+            if (hasRoles)
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children:
+                    sortedRoles
+                        .map(
+                          (role) => FilterChip(
+                            label: Text(role.displayName),
+                            selected: _roles.contains(role.id),
+                            onSelected: (selected) {
+                              setState(() {
+                                if (selected) {
+                                  if (!_roles.contains(role.id)) {
+                                    _roles.add(role.id);
+                                  }
+                                } else {
+                                  _roles.remove(role.id);
+                                }
+                              });
+                            },
+                          ),
+                        )
+                        .toList(),
+              )
+            else
+              Card(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                child: const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text(
+                    'Nessuna mansione disponibile. Aggiungi ruoli per assegnare gli operatori al servizio.',
+                  ),
+                ),
+              ),
             const SizedBox(height: 24),
             Align(
               alignment: Alignment.centerRight,
@@ -152,9 +191,9 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
       return;
     }
     if (_salonId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Seleziona un salone')), 
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Seleziona un salone')));
       return;
     }
 
@@ -162,10 +201,12 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
       id: widget.initial?.id ?? _uuid.v4(),
       salonId: _salonId!,
       name: _name.text.trim(),
-      category: _category.text.trim().isEmpty ? 'Generale' : _category.text.trim(),
+      category:
+          _category.text.trim().isEmpty ? 'Generale' : _category.text.trim(),
       duration: Duration(minutes: int.tryParse(_duration.text.trim()) ?? 60),
       price: double.tryParse(_price.text.replaceAll(',', '.')) ?? 0,
-      description: _description.text.trim().isEmpty ? null : _description.text.trim(),
+      description:
+          _description.text.trim().isEmpty ? null : _description.text.trim(),
       staffRoles: _roles,
     );
 

@@ -16,10 +16,12 @@ import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/shift.dart';
 import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
+import 'package:civiapp/domain/entities/staff_role.dart';
 import 'package:civiapp/domain/entities/user_role.dart';
 import 'package:collection/collection.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -37,6 +39,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
             : AppDataState(
               salons: List.unmodifiable(MockData.salons),
               staff: List.unmodifiable(MockData.staffMembers),
+              staffRoles: List.unmodifiable(MockData.staffRoles),
               clients: List.unmodifiable(MockData.clients),
               services: List.unmodifiable(MockData.services),
               packages: List.unmodifiable(MockData.packages),
@@ -61,11 +64,15 @@ class AppDataStore extends StateNotifier<AppDataState> {
   final FirebaseFirestore? _firestore;
   final AppUser? _currentUser;
   final bool _hasAuthenticatedUser;
+  FirebaseAuth? _adminAuth;
+  Future<FirebaseAuth?>? _adminAuthFuture;
   late final List<StreamSubscription> _subscriptions;
   bool _onboardingSyncScheduled = false;
   bool _isSyncingOnboardingStatus = false;
 
   static const int _firestoreChunkSize = 10;
+  static const String _defaultStaffRoleId = 'estetista';
+  static const String _unknownStaffRoleId = 'staff-role-unknown';
 
   List<StreamSubscription> _initializeSubscriptions(AppUser currentUser) {
     final firestore = _firestore;
@@ -98,6 +105,38 @@ class AppDataStore extends StateNotifier<AppDataState> {
           fromDoc: salonFromDoc,
           onData: (items) => state = state.copyWith(salons: items),
         ),
+      );
+    }
+
+    if (role == null || role == UserRole.admin) {
+      subscriptions.add(
+        _listenCollection<StaffRole>(
+          firestore.collection('staff_roles'),
+          staffRoleFromDoc,
+          (items) {
+            final merged = <String, StaffRole>{
+              for (final roleItem in MockData.staffRoles) roleItem.id: roleItem,
+            };
+            for (final roleItem in items) {
+              merged[roleItem.id] = roleItem;
+            }
+            final sorted =
+                merged.values.toList()..sort((a, b) {
+                  final priorityCompare = a.sortPriority.compareTo(
+                    b.sortPriority,
+                  );
+                  if (priorityCompare != 0) {
+                    return priorityCompare;
+                  }
+                  return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+                });
+            state = state.copyWith(staffRoles: List.unmodifiable(sorted));
+          },
+        ),
+      );
+    } else if (state.staffRoles.isEmpty) {
+      state = state.copyWith(
+        staffRoles: List.unmodifiable(MockData.staffRoles),
       );
     }
 
@@ -360,8 +399,8 @@ class AppDataStore extends StateNotifier<AppDataState> {
     final now = DateTime.now();
     final dayStart = DateTime(now.year, now.month, now.day);
     final horizon = DateTime(
-      now.year,
-      now.month + 3,
+      now.year + 1,
+      now.month,
       now.day,
     ).add(const Duration(days: 1));
     final lowerBound = Timestamp.fromDate(dayStart);
@@ -845,6 +884,12 @@ class AppDataStore extends StateNotifier<AppDataState> {
       batch: batch,
     );
     await _deleteCollectionWhere(
+      'staff_roles',
+      'salonId',
+      salonId,
+      batch: batch,
+    );
+    await _deleteCollectionWhere(
       'message_templates',
       'salonId',
       salonId,
@@ -860,16 +905,108 @@ class AppDataStore extends StateNotifier<AppDataState> {
     await batch.commit();
   }
 
+  Future<void> upsertStaffRole(StaffRole role) async {
+    final userRole = _currentUser?.role;
+    final firestore = _firestore;
+    if (firestore == null || userRole != UserRole.admin) {
+      _upsertLocal(staffRoles: [role]);
+      return;
+    }
+    try {
+      await firestore
+          .collection('staff_roles')
+          .doc(role.id)
+          .set(staffRoleToMap(role));
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied') {
+        debugPrint(
+          'Permission denied writing staff role ${role.id}. Falling back to local update.',
+        );
+        _upsertLocal(staffRoles: [role]);
+        return;
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> deleteStaffRole(String roleId) async {
+    final userRole = _currentUser?.role;
+    final firestore = _firestore;
+    final fallbackRoleId = _resolveFallbackRoleId(roleId);
+    if (firestore == null || userRole != UserRole.admin) {
+      _deleteStaffRoleLocal(roleId, fallbackRoleId: fallbackRoleId);
+      return;
+    }
+
+    try {
+      final batch = firestore.batch();
+      final rolesRef = firestore.collection('staff_roles').doc(roleId);
+      batch.delete(rolesRef);
+
+      final staffQuery =
+          await firestore
+              .collection('staff')
+              .where('roleId', isEqualTo: roleId)
+              .get();
+      for (final doc in staffQuery.docs) {
+        batch.update(doc.reference, {
+          'roleId': fallbackRoleId,
+          'role': fallbackRoleId,
+        });
+      }
+
+      final servicesQuery =
+          await firestore
+              .collection('services')
+              .where('staffRoles', arrayContains: roleId)
+              .get();
+      for (final doc in servicesQuery.docs) {
+        final data = doc.data();
+        final rawRoles = data['staffRoles'];
+        final updatedRoles =
+            rawRoles is Iterable
+                ? rawRoles
+                    .map((dynamic value) => value.toString())
+                    .where((value) => value != roleId)
+                    .toList()
+                : const <String>[];
+        batch.update(doc.reference, {'staffRoles': updatedRoles});
+      }
+
+      await batch.commit();
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied') {
+        debugPrint(
+          'Permission denied deleting staff role $roleId. Applying local fallback.',
+        );
+        _deleteStaffRoleLocal(roleId, fallbackRoleId: fallbackRoleId);
+        return;
+      }
+      rethrow;
+    }
+  }
+
   Future<void> upsertStaff(StaffMember staffMember) async {
+    final existingStaff = state.staff.firstWhereOrNull(
+      (member) => member.id == staffMember.id,
+    );
+    final trimmedRoleId = staffMember.roleId.trim();
+    final resolvedRoleId =
+        trimmedRoleId.isEmpty ? _resolveFallbackRoleId('') : trimmedRoleId;
+    final normalizedStaff =
+        resolvedRoleId == staffMember.roleId
+            ? staffMember
+            : staffMember.copyWith(roleId: resolvedRoleId);
     final firestore = _firestore;
     if (firestore == null) {
-      _upsertLocal(staff: [staffMember]);
+      _upsertLocal(staff: [normalizedStaff]);
       return;
     }
     await firestore
         .collection('staff')
-        .doc(staffMember.id)
-        .set(staffToMap(staffMember));
+        .doc(normalizedStaff.id)
+        .set(staffToMap(normalizedStaff));
+    await _ensureStaffUser(normalizedStaff, previous: existingStaff);
   }
 
   Future<void> deleteStaff(String staffId) async {
@@ -878,38 +1015,169 @@ class AppDataStore extends StateNotifier<AppDataState> {
       _deleteStaffLocal(staffId);
       return;
     }
-    await firestore.collection('staff').doc(staffId).delete();
-    final appointments =
-        await firestore
-            .collection('appointments')
-            .where('staffId', isEqualTo: staffId)
-            .get();
-    for (final doc in appointments.docs) {
-      await doc.reference.update({'staffId': ''});
+    try {
+      await firestore.collection('staff').doc(staffId).delete();
+      final appointments =
+          await firestore
+              .collection('appointments')
+              .where('staffId', isEqualTo: staffId)
+              .get();
+      for (final doc in appointments.docs) {
+        await doc.reference.update({'staffId': ''});
+      }
+      final shifts =
+          await firestore
+              .collection('shifts')
+              .where('staffId', isEqualTo: staffId)
+              .get();
+      for (final doc in shifts.docs) {
+        await doc.reference.delete();
+      }
+      final absences =
+          await firestore
+              .collection('staff_absences')
+              .where('staffId', isEqualTo: staffId)
+              .get();
+      for (final doc in absences.docs) {
+        await doc.reference.delete();
+      }
+      final cashFlows =
+          await firestore
+              .collection('cash_flows')
+              .where('staffId', isEqualTo: staffId)
+              .get();
+      for (final doc in cashFlows.docs) {
+        await doc.reference.update({'staffId': null});
+      }
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied') {
+        debugPrint(
+          'Permission denied deleting staff $staffId. Applying local fallback.',
+        );
+        _deleteStaffLocal(staffId);
+        return;
+      }
+      rethrow;
     }
-    final shifts =
-        await firestore
-            .collection('shifts')
-            .where('staffId', isEqualTo: staffId)
-            .get();
-    for (final doc in shifts.docs) {
-      await doc.reference.delete();
+  }
+
+  Future<void> _ensureStaffUser(
+    StaffMember staff, {
+    StaffMember? previous,
+  }) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      return;
     }
-    final absences =
-        await firestore
-            .collection('staff_absences')
-            .where('staffId', isEqualTo: staffId)
-            .get();
-    for (final doc in absences.docs) {
-      await doc.reference.delete();
+    final email = staff.email?.trim();
+    if (email == null || email.isEmpty) {
+      return;
     }
-    final cashFlows =
-        await firestore
-            .collection('cash_flows')
-            .where('staffId', isEqualTo: staffId)
-            .get();
-    for (final doc in cashFlows.docs) {
-      await doc.reference.update({'staffId': null});
+
+    final usersCollection = firestore.collection('users');
+    DocumentSnapshot<Map<String, dynamic>>? existingUserDoc;
+
+    try {
+      final existingByStaff =
+          await usersCollection
+              .where('staffId', isEqualTo: staff.id)
+              .limit(1)
+              .get();
+      if (existingByStaff.docs.isNotEmpty) {
+        existingUserDoc = existingByStaff.docs.first;
+      } else {
+        final existingByEmail =
+            await usersCollection
+                .where('email', isEqualTo: email)
+                .limit(1)
+                .get();
+        if (existingByEmail.docs.isNotEmpty) {
+          existingUserDoc = existingByEmail.docs.first;
+        }
+      }
+
+      if (existingUserDoc != null) {
+        await usersCollection.doc(existingUserDoc.id).set({
+          'staffId': staff.id,
+          'displayName': staff.fullName,
+          'email': email,
+          'role': UserRole.staff.name,
+          'roles': FieldValue.arrayUnion(<String>[UserRole.staff.name]),
+          'availableRoles': FieldValue.arrayUnion(<String>[
+            UserRole.staff.name,
+          ]),
+          'salonId': staff.salonId,
+          'salonIds': FieldValue.arrayUnion(<String>[staff.salonId]),
+        }, SetOptions(merge: true));
+        return;
+      }
+
+      // Skip creating a new auth user if this is an update and we couldn't find
+      // an existing account — assume onboarding will handle it.
+      if (previous != null) {
+        return;
+      }
+
+      final auth = await _getAdminAuth();
+      if (auth == null) {
+        return;
+      }
+
+      String? uid;
+      try {
+        final credential = await auth.createUserWithEmailAndPassword(
+          email: email,
+          password: _generateTemporaryPassword(),
+        );
+        uid = credential.user?.uid;
+      } on FirebaseAuthException catch (error) {
+        if (error.code == 'email-already-in-use') {
+          final existingByEmail =
+              await usersCollection
+                  .where('email', isEqualTo: email)
+                  .limit(1)
+                  .get();
+          if (existingByEmail.docs.isNotEmpty) {
+            uid = existingByEmail.docs.first.id;
+          }
+        } else {
+          debugPrint('Failed to create staff auth user: ${error.message}');
+        }
+      }
+
+      if (uid == null) {
+        return;
+      }
+
+      await usersCollection.doc(uid).set({
+        'role': UserRole.staff.name,
+        'roles': <String>[UserRole.staff.name],
+        'availableRoles': <String>[UserRole.staff.name],
+        'staffId': staff.id,
+        'salonIds': <String>[staff.salonId],
+        'salonId': staff.salonId,
+        'displayName': staff.fullName,
+        'email': email,
+      });
+
+      try {
+        await auth.sendPasswordResetEmail(email: email);
+      } on FirebaseAuthException catch (error) {
+        debugPrint('Unable to send reset email to $email: ${error.message}');
+      }
+    } catch (error, stackTrace) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'AppDataStore',
+          informationCollector:
+              () => [
+                DiagnosticsProperty<String>('Context', 'ensureStaffUser'),
+                DiagnosticsProperty<String>('Staff ID', staff.id),
+              ],
+        ),
+      );
     }
   }
 
@@ -1306,6 +1574,26 @@ class AppDataStore extends StateNotifier<AppDataState> {
     await firestore.collection('shifts').doc(shiftId).delete();
   }
 
+  Future<void> deleteShiftsByIds(Iterable<String> shiftIds) async {
+    final normalized =
+        shiftIds.map((id) => id.trim()).where((id) => id.isNotEmpty).toSet();
+    if (normalized.isEmpty) {
+      return;
+    }
+    final firestore = _firestore;
+    if (firestore == null) {
+      for (final id in normalized) {
+        _deleteShiftLocal(id);
+      }
+      return;
+    }
+    final batch = firestore.batch();
+    for (final id in normalized) {
+      batch.delete(firestore.collection('shifts').doc(id));
+    }
+    await batch.commit();
+  }
+
   Future<void> upsertStaffAbsence(StaffAbsence absence) async {
     final firestore = _firestore;
     if (firestore == null) {
@@ -1348,6 +1636,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
 
     for (final salon in MockData.salons) {
       await upsertSalon(salon);
+    }
+    for (final role in MockData.staffRoles) {
+      await upsertStaffRole(role);
     }
     for (final staff in MockData.staffMembers) {
       await upsertStaff(staff);
@@ -1413,6 +1704,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
   void _upsertLocal({
     List<Salon>? salons,
     List<StaffMember>? staff,
+    List<StaffRole>? staffRoles,
     List<Client>? clients,
     List<Service>? services,
     List<ServicePackage>? packages,
@@ -1431,6 +1723,10 @@ class AppDataStore extends StateNotifier<AppDataState> {
               : state.salons,
       staff:
           staff != null ? _merge(state.staff, staff, (e) => e.id) : state.staff,
+      staffRoles:
+          staffRoles != null
+              ? _merge(state.staffRoles, staffRoles, (e) => e.id)
+              : state.staffRoles,
       clients:
           clients != null
               ? _merge(state.clients, clients, (e) => e.id)
@@ -1472,6 +1768,115 @@ class AppDataStore extends StateNotifier<AppDataState> {
     );
   }
 
+  void _deleteStaffRoleLocal(String roleId, {required String fallbackRoleId}) {
+    final updatedStaff =
+        state.staff
+            .map(
+              (member) =>
+                  member.roleId == roleId
+                      ? member.copyWith(roleId: fallbackRoleId)
+                      : member,
+            )
+            .toList();
+    final updatedServices =
+        state.services.map((service) {
+          if (!service.staffRoles.contains(roleId)) {
+            return service;
+          }
+          final filteredRoles = service.staffRoles
+              .where((value) => value != roleId)
+              .toList(growable: false);
+          return service.copyWith(staffRoles: filteredRoles);
+        }).toList();
+
+    state = state.copyWith(
+      staffRoles: List.unmodifiable(
+        state.staffRoles.where((role) => role.id != roleId),
+      ),
+      staff: List.unmodifiable(updatedStaff),
+      services: List.unmodifiable(updatedServices),
+    );
+  }
+
+  String _resolveFallbackRoleId(String removedRoleId) {
+    final candidates = state.staffRoles
+        .where((role) => role.id != removedRoleId)
+        .toList(growable: false);
+    if (candidates.isEmpty) {
+      return removedRoleId == _unknownStaffRoleId
+          ? _defaultStaffRoleId
+          : _unknownStaffRoleId;
+    }
+    final preferredDefault = candidates.firstWhereOrNull(
+      (role) => role.id == _defaultStaffRoleId,
+    );
+    if (preferredDefault != null) {
+      return preferredDefault.id;
+    }
+    final defaultRole = candidates.firstWhereOrNull(
+      (role) => role.isDefault && role.id != _unknownStaffRoleId,
+    );
+    if (defaultRole != null) {
+      return defaultRole.id;
+    }
+    final nonUnknown = candidates.firstWhereOrNull(
+      (role) => role.id != _unknownStaffRoleId,
+    );
+    if (nonUnknown != null) {
+      return nonUnknown.id;
+    }
+    return candidates.first.id;
+  }
+
+  Future<FirebaseAuth?> _getAdminAuth() {
+    final cached = _adminAuthFuture;
+    if (cached != null) {
+      return cached;
+    }
+
+    final completer = Completer<FirebaseAuth?>();
+    _adminAuthFuture = completer.future;
+
+    Future<FirebaseAuth?> initialize() async {
+      if (Firebase.apps.isEmpty) {
+        return null;
+      }
+      if (_adminAuth != null) {
+        return _adminAuth;
+      }
+      FirebaseApp adminApp;
+      try {
+        adminApp = Firebase.app('civiapp-admin');
+      } on FirebaseException {
+        final defaultApp = Firebase.app();
+        adminApp = await Firebase.initializeApp(
+          name: 'civiapp-admin',
+          options: defaultApp.options,
+        );
+      }
+      final auth = FirebaseAuth.instanceFor(app: adminApp);
+      try {
+        await auth.setLanguageCode('it');
+      } catch (_) {
+        // Ignore failures to set the language.
+      }
+      _adminAuth = auth;
+      return auth;
+    }
+
+    initialize().then(completer.complete).catchError((error, stackTrace) {
+      _adminAuthFuture = null;
+      completer.completeError(error, stackTrace);
+    });
+
+    return completer.future;
+  }
+
+  String _generateTemporaryPassword() {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    return 'Civi${timestamp}*';
+  }
+
   void _deleteSalonLocal(String salonId) {
     state = state.copyWith(
       salons: List.unmodifiable(
@@ -1479,6 +1884,15 @@ class AppDataStore extends StateNotifier<AppDataState> {
       ),
       staff: List.unmodifiable(
         state.staff.where((element) => element.salonId != salonId),
+      ),
+      staffRoles: List.unmodifiable(
+        state.staffRoles.where((element) {
+          final roleSalonId = element.salonId?.trim();
+          if (roleSalonId == null || roleSalonId.isEmpty) {
+            return true;
+          }
+          return roleSalonId != salonId;
+        }),
       ),
       clients: List.unmodifiable(
         state.clients.where((element) => element.salonId != salonId),

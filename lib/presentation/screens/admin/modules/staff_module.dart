@@ -1,12 +1,18 @@
+import 'dart:math' as math;
+
 import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/shift.dart';
 import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
+import 'package:civiapp/domain/entities/staff_role.dart';
+import 'package:civiapp/domain/entities/user_role.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:civiapp/presentation/screens/admin/forms/shift_form_sheet.dart';
+import 'package:civiapp/presentation/screens/admin/forms/shift_bulk_delete_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/staff_absence_form_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/staff_form_sheet.dart';
+import 'package:civiapp/presentation/screens/admin/forms/staff_role_manager_sheet.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,11 +25,14 @@ class StaffModule extends ConsumerWidget {
 
   static final _dayLabel = DateFormat('EEE dd MMM', 'it_IT');
   static final _timeLabel = DateFormat('HH:mm', 'it_IT');
+  static final _birthLabel = DateFormat('dd MMM yyyy', 'it_IT');
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final session = ref.watch(sessionControllerProvider);
     final data = ref.watch(appDataProvider);
     final salons = data.salons;
+    final staffRoles = data.staffRoles;
     final staffMembers = data.staff
         .where((member) => salonId == null || member.salonId == salonId)
         .sortedBy((member) => member.fullName.toLowerCase());
@@ -34,6 +43,8 @@ class StaffModule extends ConsumerWidget {
         .where((absence) => salonId == null || absence.salonId == salonId)
         .sortedBy((absence) => absence.start);
     final now = DateTime.now();
+    final canManageRoles = session.role == UserRole.admin;
+    final rolesById = {for (final role in staffRoles) role.id: role};
 
     final roomsBySalon = <String, Map<String, String>>{};
     for (final salon in salons) {
@@ -63,10 +74,23 @@ class StaffModule extends ConsumerWidget {
                         context,
                         ref,
                         salons: salons,
+                        roles: staffRoles,
                         defaultSalonId: salonId,
+                        defaultRoleId: staffRoles.firstOrNull?.id,
                       ),
                   icon: const Icon(Icons.person_add_alt_1_rounded),
                   label: const Text('Nuovo membro'),
+                ),
+                OutlinedButton.icon(
+                  onPressed:
+                      () => _openRoleManager(
+                        context,
+                        ref,
+                        roles: staffRoles,
+                        canManageRoles: canManageRoles,
+                      ),
+                  icon: const Icon(Icons.tune_rounded),
+                  label: const Text('Gestisci ruoli'),
                 ),
               ],
             ),
@@ -76,17 +100,32 @@ class StaffModule extends ConsumerWidget {
         final staff = staffMembers[index - 1];
         final staffShifts =
             shifts.where((shift) => shift.staffId == staff.id).toList();
-        final upcoming =
+        final futureShifts =
             staffShifts
                 .where((shift) => shift.end.isAfter(now))
-                .take(6)
+                .sortedBy((shift) => shift.start)
                 .toList();
+        final upcoming = futureShifts.take(6).toList();
         final roomNames = roomsBySalon[staff.salonId] ?? const {};
-        final staffAbsences =
-            (absencesByStaff[staff.id] ?? const <StaffAbsence>[])
+        final allStaffAbsences =
+            absencesByStaff[staff.id] ?? const <StaffAbsence>[];
+        final upcomingAbsences =
+            allStaffAbsences
                 .where((absence) => !absence.end.isBefore(now))
                 .sortedBy((absence) => absence.start)
                 .toList();
+        final pastAbsences =
+            allStaffAbsences
+                .where((absence) => absence.end.isBefore(now))
+                .sortedBy((absence) => absence.start)
+                .toList()
+                .reversed
+                .toList();
+        final absenceSummary = _calculateAbsenceSummary(
+          staff: staff,
+          absences: allStaffAbsences,
+          referenceYear: now.year,
+        );
 
         return Card(
           child: Padding(
@@ -115,9 +154,16 @@ class StaffModule extends ConsumerWidget {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            staff.role.label,
+                            rolesById[staff.roleId]?.displayName ?? 'Mansione',
                             style: Theme.of(context).textTheme.bodyMedium,
                           ),
+                          if (staff.dateOfBirth != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Nato il ${_birthLabel.format(staff.dateOfBirth!)}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
                           if (staff.skills.isNotEmpty) ...[
                             const SizedBox(height: 8),
                             Wrap(
@@ -142,10 +188,23 @@ class StaffModule extends ConsumerWidget {
                                 context,
                                 ref,
                                 salons: salons,
+                                roles: staffRoles,
                                 defaultSalonId: salonId,
+                                defaultRoleId: staff.roleId,
                                 existing: staff,
                               ),
                           icon: const Icon(Icons.edit_rounded),
+                        ),
+                        IconButton(
+                          tooltip: 'Elimina membro',
+                          onPressed:
+                              () => _confirmDeleteStaff(
+                                context,
+                                ref,
+                                staff: staff,
+                                hasUpcomingShifts: futureShifts.isNotEmpty,
+                              ),
+                          icon: const Icon(Icons.delete_outline_rounded),
                         ),
                         if (staff.phone != null || staff.email != null)
                           Column(
@@ -199,18 +258,36 @@ class StaffModule extends ConsumerWidget {
                             'Turni programmati',
                             style: Theme.of(context).textTheme.titleSmall,
                           ),
-                          TextButton.icon(
-                            onPressed:
-                                () => _openShiftForm(
-                                  context,
-                                  ref,
-                                  salons: salons,
-                                  staff: staffMembers,
-                                  defaultSalonId: staff.salonId,
-                                  defaultStaffId: staff.id,
+                          Wrap(
+                            spacing: 8,
+                            children: [
+                              TextButton.icon(
+                                onPressed:
+                                    () => _openShiftForm(
+                                      context,
+                                      ref,
+                                      salons: salons,
+                                      staff: staffMembers,
+                                      defaultSalonId: staff.salonId,
+                                      defaultStaffId: staff.id,
+                                    ),
+                                icon: const Icon(Icons.add_rounded),
+                                label: const Text('Nuovo turno'),
+                              ),
+                              if (futureShifts.isNotEmpty)
+                                TextButton.icon(
+                                  onPressed:
+                                      () => _openShiftBulkDelete(
+                                        context,
+                                        ref,
+                                        staff: staff,
+                                        shifts: futureShifts,
+                                        roomNames: roomNames,
+                                      ),
+                                  icon: const Icon(Icons.delete_sweep_rounded),
+                                  label: const Text('Elimina turni'),
                                 ),
-                            icon: const Icon(Icons.add_rounded),
-                            label: const Text('Nuovo turno'),
+                            ],
                           ),
                         ],
                       ),
@@ -291,15 +368,43 @@ class StaffModule extends ConsumerWidget {
                         ],
                       ),
                       const SizedBox(height: 8),
-                      if (staffAbsences.isEmpty)
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _AllowanceChip(
+                            label: 'Ferie',
+                            usedLabel: 'Usate',
+                            remainingLabel: 'Residue',
+                            used: absenceSummary.vacationUsed,
+                            remaining: absenceSummary.vacationRemaining,
+                            total: staff.vacationAllowance.toDouble(),
+                          ),
+                          _AllowanceChip(
+                            label: 'Permessi',
+                            usedLabel: 'Usati',
+                            remainingLabel: 'Residui',
+                            used: absenceSummary.permissionUsed,
+                            remaining: absenceSummary.permissionRemaining,
+                            total: staff.permissionAllowance.toDouble(),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Assenze in programma',
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                      const SizedBox(height: 6),
+                      if (upcomingAbsences.isEmpty)
                         Text(
-                          'Nessuna assenza registrata. Aggiungi ferie, permessi o malattia per tenere aggiornato il calendario.',
+                          'Nessuna assenza pianificata. Usa "Nuova assenza" per registrare ferie, permessi o malattia.',
                           style: Theme.of(context).textTheme.bodySmall,
                         )
                       else
                         Column(
                           children:
-                              staffAbsences
+                              upcomingAbsences
                                   .take(4)
                                   .map(
                                     (absence) => _AbsenceTile(
@@ -322,14 +427,55 @@ class StaffModule extends ConsumerWidget {
                                   )
                                   .toList(),
                         ),
-                      if (staffAbsences.length > 4)
+                      if (upcomingAbsences.length > 4)
                         Padding(
                           padding: const EdgeInsets.only(top: 12),
                           child: Text(
-                            'Sono presenti altre ${staffAbsences.length - 4} assenze registrate.',
+                            'Sono presenti altre ${upcomingAbsences.length - 4} assenze pianificate.',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ),
+                      if (pastAbsences.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        Text(
+                          'Storico ${now.year}',
+                          style: Theme.of(context).textTheme.labelLarge,
+                        ),
+                        const SizedBox(height: 6),
+                        Column(
+                          children:
+                              pastAbsences
+                                  .take(3)
+                                  .map(
+                                    (absence) => _AbsenceTile(
+                                      absence: absence,
+                                      onEdit:
+                                          () => _openAbsenceForm(
+                                            context,
+                                            ref,
+                                            salons: salons,
+                                            staff: staffMembers,
+                                            initial: absence,
+                                          ),
+                                      onDelete:
+                                          () => _confirmDeleteAbsence(
+                                            context,
+                                            ref,
+                                            absence,
+                                          ),
+                                    ),
+                                  )
+                                  .toList(),
+                        ),
+                        if (pastAbsences.length > 3)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: Text(
+                              'Sono presenti altre ${pastAbsences.length - 3} assenze concluse.',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                      ],
                     ],
                   ),
                 ),
@@ -345,7 +491,9 @@ class StaffModule extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref, {
     required List<Salon> salons,
+    required List<StaffRole> roles,
     String? defaultSalonId,
+    String? defaultRoleId,
     StaffMember? existing,
   }) async {
     if (salons.isEmpty) {
@@ -361,13 +509,31 @@ class StaffModule extends ConsumerWidget {
       builder:
           (ctx) => StaffFormSheet(
             salons: salons,
+            roles: roles,
             defaultSalonId: defaultSalonId,
+            defaultRoleId: defaultRoleId,
             initial: existing,
           ),
     );
     if (result != null) {
       await ref.read(appDataProvider.notifier).upsertStaff(result);
     }
+  }
+
+  Future<void> _openRoleManager(
+    BuildContext context,
+    WidgetRef ref, {
+    required List<StaffRole> roles,
+    required bool canManageRoles,
+  }) async {
+    await showAppModalSheet<void>(
+      context: context,
+      builder:
+          (_) => StaffRoleManagerSheet(
+            roles: roles,
+            canManageRoles: canManageRoles,
+          ),
+    );
   }
 
   Future<void> _openShiftForm(
@@ -412,6 +578,88 @@ class StaffModule extends ConsumerWidget {
           context,
         ).showSnackBar(SnackBar(content: Text(label)));
       }
+    }
+  }
+
+  Future<void> _openShiftBulkDelete(
+    BuildContext context,
+    WidgetRef ref, {
+    required StaffMember staff,
+    required List<Shift> shifts,
+    required Map<String, String> roomNames,
+  }) async {
+    if (shifts.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Non ci sono turni da eliminare.')),
+      );
+      return;
+    }
+    final ids = await showAppModalSheet<List<String>>(
+      context: context,
+      builder:
+          (_) => ShiftBulkDeleteSheet(
+            shifts: shifts,
+            staff: staff,
+            roomNames: roomNames,
+          ),
+    );
+    if (ids == null || ids.isEmpty) {
+      return;
+    }
+    await ref.read(appDataProvider.notifier).deleteShiftsByIds(ids);
+    if (context.mounted) {
+      final label =
+          ids.length > 1
+              ? 'Eliminati ${ids.length} turni.'
+              : 'Turno eliminato.';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(label)));
+    }
+  }
+
+  Future<void> _confirmDeleteStaff(
+    BuildContext context,
+    WidgetRef ref, {
+    required StaffMember staff,
+    required bool hasUpcomingShifts,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final buffer = StringBuffer('Vuoi eliminare ${staff.fullName}?');
+        if (hasUpcomingShifts) {
+          buffer.write('\nI turni futuri verranno eliminati automaticamente.');
+        }
+        buffer.write(
+          '\nGli appuntamenti resteranno senza operatore assegnato.',
+        );
+        return AlertDialog(
+          title: const Text('Elimina membro dello staff'),
+          content: Text(buffer.toString()),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Annulla'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Elimina'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    await ref.read(appDataProvider.notifier).deleteStaff(staff.id);
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${staff.fullName} eliminato.')));
     }
   }
 
@@ -533,6 +781,119 @@ class StaffModule extends ConsumerWidget {
         );
       }
     }
+  }
+
+  static _AbsenceSummary _calculateAbsenceSummary({
+    required StaffMember staff,
+    required Iterable<StaffAbsence> absences,
+    required int referenceYear,
+  }) {
+    double vacation = 0;
+    double permissions = 0;
+    for (final absence in absences) {
+      final days = _absenceDaysWithinYear(absence, referenceYear);
+      if (days <= 0) {
+        continue;
+      }
+      switch (absence.type) {
+        case StaffAbsenceType.vacation:
+          vacation += days;
+          break;
+        case StaffAbsenceType.permission:
+          permissions += days;
+          break;
+        case StaffAbsenceType.sickLeave:
+          break;
+      }
+    }
+    final vacationRemaining = math.max(
+      0.0,
+      staff.vacationAllowance.toDouble() - vacation,
+    );
+    final permissionRemaining = math.max(
+      0.0,
+      staff.permissionAllowance.toDouble() - permissions,
+    );
+    return _AbsenceSummary(
+      vacationUsed: vacation,
+      permissionUsed: permissions,
+      vacationRemaining: vacationRemaining,
+      permissionRemaining: permissionRemaining,
+    );
+  }
+
+  static double _absenceDaysWithinYear(StaffAbsence absence, int year) {
+    final rangeStart = DateTime(year, 1, 1);
+    final rangeEnd = DateTime(year + 1, 1, 1);
+    var start = absence.start;
+    var end = absence.end;
+    if (end.isBefore(rangeStart) || !start.isBefore(rangeEnd)) {
+      return 0;
+    }
+    if (start.isBefore(rangeStart)) {
+      start = rangeStart;
+    }
+    if (end.isAfter(rangeEnd)) {
+      end = rangeEnd.subtract(const Duration(minutes: 1));
+    }
+    if (!end.isAfter(start)) {
+      return 0;
+    }
+    if (absence.isAllDay) {
+      final startDate = DateTime(start.year, start.month, start.day);
+      final endDate = DateTime(end.year, end.month, end.day);
+      return (endDate.difference(startDate).inDays + 1).toDouble();
+    }
+    const workdayMinutes = 8 * 60;
+    final minutes = end.difference(start).inMinutes;
+    return minutes / workdayMinutes;
+  }
+}
+
+class _AbsenceSummary {
+  const _AbsenceSummary({
+    required this.vacationUsed,
+    required this.permissionUsed,
+    required this.vacationRemaining,
+    required this.permissionRemaining,
+  });
+
+  final double vacationUsed;
+  final double permissionUsed;
+  final double vacationRemaining;
+  final double permissionRemaining;
+}
+
+class _AllowanceChip extends StatelessWidget {
+  const _AllowanceChip({
+    required this.label,
+    required this.usedLabel,
+    required this.remainingLabel,
+    required this.used,
+    required this.remaining,
+    required this.total,
+  });
+
+  final String label;
+  final String usedLabel;
+  final String remainingLabel;
+  final double used;
+  final double remaining;
+  final double total;
+
+  String _format(double value) {
+    if ((value - value.round()).abs() < 0.05) {
+      return value.round().toString();
+    }
+    return value.toStringAsFixed(1);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final text =
+        '$label · $usedLabel ${_format(used)} · $remainingLabel ${_format(remaining)} / ${_format(total)}';
+    return InputChip(label: Text(text, style: theme.textTheme.bodySmall));
   }
 }
 

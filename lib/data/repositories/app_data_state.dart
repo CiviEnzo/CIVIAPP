@@ -11,11 +11,13 @@ import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/shift.dart';
 import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
+import 'package:civiapp/domain/entities/staff_role.dart';
 
 class AppDataState {
   const AppDataState({
     required this.salons,
     required this.staff,
+    required this.staffRoles,
     required this.clients,
     required this.services,
     required this.packages,
@@ -33,6 +35,7 @@ class AppDataState {
     return const AppDataState(
       salons: [],
       staff: [],
+      staffRoles: [],
       clients: [],
       services: [],
       packages: [],
@@ -49,6 +52,7 @@ class AppDataState {
 
   final List<Salon> salons;
   final List<StaffMember> staff;
+  final List<StaffRole> staffRoles;
   final List<Client> clients;
   final List<Service> services;
   final List<ServicePackage> packages;
@@ -64,6 +68,7 @@ class AppDataState {
   AppDataState copyWith({
     List<Salon>? salons,
     List<StaffMember>? staff,
+    List<StaffRole>? staffRoles,
     List<Client>? clients,
     List<Service>? services,
     List<ServicePackage>? packages,
@@ -79,6 +84,7 @@ class AppDataState {
     return AppDataState(
       salons: salons ?? this.salons,
       staff: staff ?? this.staff,
+      staffRoles: staffRoles ?? this.staffRoles,
       clients: clients ?? this.clients,
       services: services ?? this.services,
       packages: packages ?? this.packages,

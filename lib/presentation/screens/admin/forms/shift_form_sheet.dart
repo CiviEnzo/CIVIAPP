@@ -45,6 +45,11 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
     DateTime.sunday,
   ];
   static final DateFormat _weekdayFormatter = DateFormat('EEE', 'it_IT');
+  static const List<ShiftRecurrenceFrequency> _availableFrequencies =
+      <ShiftRecurrenceFrequency>[
+        ShiftRecurrenceFrequency.daily,
+        ShiftRecurrenceFrequency.weekly,
+      ];
 
   final _formKey = GlobalKey<FormState>();
   final _uuid = const Uuid();
@@ -62,7 +67,7 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
 
   ShiftRecurrenceFrequency? _recurrenceFrequency;
   int _recurrenceInterval = 1;
-  DateTime? _recurrenceEnd;
+  int _recurrenceMonths = 1;
   late Set<int> _recurrenceWeekdays;
   int _weeklyActiveWeeks = 1;
   int _weeklyBreakWeeks = 0;
@@ -101,7 +106,6 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
 
     if (recurrence != null) {
       _recurrenceFrequency = recurrence.frequency;
-      _recurrenceEnd = recurrence.until;
       if (recurrence.frequency == ShiftRecurrenceFrequency.weekly) {
         _weeklyActiveWeeks = _clampWeekCount(
           recurrence.activeWeeks ?? 1,
@@ -119,6 +123,8 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
         _recurrenceInterval = recurrence.interval;
       }
     }
+
+    _ensureWeekdaySelection();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _ensureDefaults();
@@ -147,7 +153,7 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
         value: null,
         child: Text('Nessuna ripetizione'),
       ),
-      ...ShiftRecurrenceFrequency.values.map(
+      ..._availableFrequencies.map(
         (frequency) => DropdownMenuItem<ShiftRecurrenceFrequency?>(
           value: frequency,
           child: Text(_labelForFrequency(frequency)),
@@ -185,6 +191,7 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
                   _salonId = value;
                   _staffId = null;
                   _roomId = null;
+                  _ensureWeekdaySelection();
                 });
               },
             ),
@@ -225,17 +232,31 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
             const SizedBox(height: 12),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Data e ora di inizio'),
-              subtitle: Text(dateTimeFormat.format(_start)),
+              title: const Text('Data di inizio'),
+              subtitle: Text(dateFormat.format(_start)),
               trailing: const Icon(Icons.calendar_today_rounded),
-              onTap: _pickStart,
+              onTap: _pickStartDate,
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Data e ora di fine'),
-              subtitle: Text(dateTimeFormat.format(_end)),
+              title: const Text('Ora di inizio'),
+              subtitle: Text(timeFormat.format(_start)),
               trailing: const Icon(Icons.schedule_rounded),
-              onTap: _pickEnd,
+              onTap: _pickStartTime,
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Data di fine'),
+              subtitle: Text(dateFormat.format(_end)),
+              trailing: const Icon(Icons.event),
+              onTap: _pickEndDate,
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Ora di fine'),
+              subtitle: Text(timeFormat.format(_end)),
+              trailing: const Icon(Icons.schedule),
+              onTap: _pickEndTime,
             ),
             const SizedBox(height: 12),
             SwitchListTile.adaptive(
@@ -305,7 +326,7 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
                     _recurrenceFrequency = value;
                     if (value == null) {
                       _recurrenceInterval = 1;
-                      _recurrenceEnd = null;
+                      _recurrenceMonths = 1;
                       return;
                     }
                     if (value != ShiftRecurrenceFrequency.weekly) {
@@ -313,15 +334,12 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
                       _weeklyActiveWeeks = 1;
                       _weeklyBreakWeeks = 0;
                     }
-                    _recurrenceEnd ??= _defaultRecurrenceEnd();
                     if (value == ShiftRecurrenceFrequency.weekly) {
                       _recurrenceInterval = _clampWeekCount(
                         _weeklyActiveWeeks + _weeklyBreakWeeks,
                         min: 1,
                       );
-                      if (_recurrenceWeekdays.isEmpty) {
-                        _ensureWeekdaySelection();
-                      }
+                      _ensureWeekdaySelection();
                     }
                   });
                 },
@@ -393,34 +411,53 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children:
-                      _weekdayOrder.map((weekday) {
-                        final label = _weekdayLabel(weekday);
-                        final isSelected = _recurrenceWeekdays.contains(
-                          weekday,
-                        );
-                        return FilterChip(
-                          label: Text(label),
-                          selected: isSelected,
-                          onSelected: (selected) {
-                            setState(() {
-                              if (selected) {
-                                _recurrenceWeekdays.add(weekday);
-                              } else {
-                                _recurrenceWeekdays.remove(weekday);
-                              }
-                            });
-                          },
-                        );
-                      }).toList(),
+                Builder(
+                  builder: (context) {
+                    final allowedWeekdays = _allowedWeekdays();
+                    final selectableWeekdays =
+                        _weekdayOrder
+                            .where(
+                              (weekday) =>
+                                  allowedWeekdays.contains(weekday) ||
+                                  _recurrenceWeekdays.contains(weekday),
+                            )
+                            .toList();
+                    return Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children:
+                          selectableWeekdays.map((weekday) {
+                            final label = _weekdayLabel(weekday);
+                            final isSelected = _recurrenceWeekdays.contains(
+                              weekday,
+                            );
+                            final isAllowed = allowedWeekdays.contains(weekday);
+                            final canToggle = isAllowed || isSelected;
+                            return FilterChip(
+                              label: Text(label),
+                              selected: isSelected,
+                              onSelected:
+                                  canToggle
+                                      ? (selected) {
+                                        setState(() {
+                                          if (selected && isAllowed) {
+                                            _recurrenceWeekdays.add(weekday);
+                                          } else {
+                                            _recurrenceWeekdays.remove(weekday);
+                                          }
+                                        });
+                                      }
+                                      : null,
+                            );
+                          }).toList(),
+                    );
+                  },
                 ),
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
-                    'Seleziona i giorni in cui il turno verrà ripetuto.',
+                    'Seleziona i giorni in cui il turno verrà ripetuto. '
+                    'Puoi scegliere solo i giorni in cui il centro è aperto.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color:
                           _recurrenceWeekdays.isEmpty
@@ -432,19 +469,27 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
               ],
               if (_recurrenceFrequency != null) ...[
                 const SizedBox(height: 12),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Ripeti fino al'),
-                  subtitle: Text(
-                    _recurrenceEnd != null
-                        ? dateFormat.format(_recurrenceEnd!)
-                        : 'Seleziona una data',
+                DropdownButtonFormField<int>(
+                  value: _recurrenceMonths,
+                  decoration: const InputDecoration(
+                    labelText: 'Durata ripetizione (mesi)',
                   ),
-                  trailing: const Icon(Icons.event_repeat_rounded),
-                  onTap: _pickRecurrenceEnd,
+                  items: List<DropdownMenuItem<int>>.generate(12, (index) {
+                    final value = index + 1;
+                    final label = value == 1 ? '1 mese' : '$value mesi';
+                    return DropdownMenuItem(value: value, child: Text(label));
+                  }),
+                  onChanged: (value) {
+                    if (value == null) {
+                      return;
+                    }
+                    setState(() {
+                      _recurrenceMonths = _clampMonthCount(value);
+                    });
+                  },
                 ),
                 Text(
-                  'I turni saranno generati fino alla data selezionata (compresa).',
+                  'I turni saranno generati per il numero di mesi selezionato.',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
@@ -463,35 +508,97 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
     );
   }
 
-  Future<void> _pickStart() async {
-    final picked = await _pickDateTime(initial: _start);
+  Future<void> _pickStartDate() async {
+    final initialDate = DateTime(_start.year, _start.month, _start.day);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime.now().subtract(const Duration(days: 30)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      locale: const Locale('it', 'IT'),
+    );
     if (picked == null) {
       return;
     }
-    setState(() {
-      final previousStart = _start;
-      _start = picked;
-      if (!_end.isAfter(_start)) {
-        _end = _start.add(const Duration(hours: 4));
-      }
-      _adjustBreakForNewStart(previousStart: previousStart);
-      _ensureBreakWithinShift();
-      _ensureRecurrenceEndAfterStart();
-    });
+    if (!mounted) {
+      return;
+    }
+    final updated = DateTime(
+      picked.year,
+      picked.month,
+      picked.day,
+      _start.hour,
+      _start.minute,
+    );
+    _updateStart(updated);
   }
 
-  Future<void> _pickEnd() async {
-    final picked = await _pickDateTime(initial: _end, firstDate: _start);
+  Future<void> _pickStartTime() async {
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_start),
+    );
+    if (time == null) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    final updated = DateTime(
+      _start.year,
+      _start.month,
+      _start.day,
+      time.hour,
+      time.minute,
+    );
+    _updateStart(updated);
+  }
+
+  Future<void> _pickEndDate() async {
+    final initialDate = DateTime(_end.year, _end.month, _end.day);
+    final firstDate = DateTime(_start.year, _start.month, _start.day);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate.isBefore(firstDate) ? firstDate : initialDate,
+      firstDate: firstDate,
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      locale: const Locale('it', 'IT'),
+    );
     if (picked == null) {
       return;
     }
-    setState(() {
-      _end =
-          picked.isAfter(_start)
-              ? picked
-              : _start.add(const Duration(hours: 2));
-      _ensureBreakWithinShift();
-    });
+    if (!mounted) {
+      return;
+    }
+    final updated = DateTime(
+      picked.year,
+      picked.month,
+      picked.day,
+      _end.hour,
+      _end.minute,
+    );
+    _updateEnd(updated);
+  }
+
+  Future<void> _pickEndTime() async {
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_end),
+    );
+    if (time == null) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    final updated = DateTime(
+      _end.year,
+      _end.month,
+      _end.day,
+      time.hour,
+      time.minute,
+    );
+    _updateEnd(updated);
   }
 
   Future<void> _pickBreakStart() async {
@@ -557,55 +664,27 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
     });
   }
 
-  Future<void> _pickRecurrenceEnd() async {
-    final firstDate = DateTime(_start.year, _start.month, _start.day);
-    final initialDate =
-        _recurrenceEnd == null || _recurrenceEnd!.isBefore(firstDate)
-            ? firstDate.add(const Duration(days: 7))
-            : _recurrenceEnd!;
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: firstDate,
-      lastDate: firstDate.add(const Duration(days: 365 * 2)),
-      locale: const Locale('it', 'IT'),
-    );
-    if (picked != null) {
-      setState(() {
-        _recurrenceEnd = picked;
-      });
-    }
+  void _updateStart(DateTime newStart) {
+    setState(() {
+      final previousStart = _start;
+      _start = newStart;
+      if (!_end.isAfter(_start)) {
+        _end = _start.add(const Duration(hours: 4));
+      }
+      _adjustBreakForNewStart(previousStart: previousStart);
+      _ensureBreakWithinShift();
+      _ensureWeekdaySelection();
+    });
   }
 
-  Future<DateTime?> _pickDateTime({
-    required DateTime initial,
-    DateTime? firstDate,
-  }) async {
-    final initialDate = DateTime(initial.year, initial.month, initial.day);
-    final date = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: firstDate ?? DateTime.now().subtract(const Duration(days: 30)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-      locale: const Locale('it', 'IT'),
-    );
-    if (!mounted) {
-      return null;
-    }
-    if (date == null) {
-      return null;
-    }
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(initial),
-    );
-    if (!mounted) {
-      return null;
-    }
-    if (time == null) {
-      return null;
-    }
-    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+  void _updateEnd(DateTime newEnd) {
+    setState(() {
+      _end =
+          newEnd.isAfter(_start)
+              ? newEnd
+              : _start.add(const Duration(hours: 2));
+      _ensureBreakWithinShift();
+    });
   }
 
   void _submit() {
@@ -645,12 +724,14 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
 
     final notes = _notes.text.trim().isEmpty ? null : _notes.text.trim();
 
-    if (_recurrenceFrequency == ShiftRecurrenceFrequency.weekly &&
-        _recurrenceWeekdays.isEmpty) {
-      _showError(
-        'Seleziona almeno un giorno della settimana per la ripetizione.',
-      );
-      return;
+    if (_recurrenceFrequency == ShiftRecurrenceFrequency.weekly) {
+      _ensureWeekdaySelection(rebuildIfChanged: true);
+      if (_recurrenceWeekdays.isEmpty) {
+        _showError(
+          'Seleziona almeno un giorno della settimana in cui il centro è aperto.',
+        );
+        return;
+      }
     }
 
     if (_isEditing) {
@@ -675,21 +756,10 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
     ShiftRecurrence? recurrence;
     String? seriesId;
     if (_recurrenceFrequency != null) {
-      final recurrenceEndDate = _recurrenceEnd;
-      if (recurrenceEndDate == null) {
-        _showError('Seleziona una data di fine per la ripetizione.');
-        return;
-      }
-      final normalizedUntil = DateTime(
-        recurrenceEndDate.year,
-        recurrenceEndDate.month,
-        recurrenceEndDate.day,
-        _start.hour,
-        _start.minute,
-      );
+      final normalizedUntil = _computeRecurrenceUntil();
       if (!normalizedUntil.isAfter(_start)) {
         _showError(
-          'La data di fine ripetizione deve essere successiva all\'inizio del turno.',
+          'Il periodo di ripetizione deve essere successivo all\'inizio del turno.',
         );
         return;
       }
@@ -771,21 +841,28 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
       final currentBreakEnd =
           breakEndOffset != null ? currentStart.add(breakEndOffset) : null;
 
-      occurrences.add(
-        Shift(
-          id: _uuid.v4(),
-          salonId: salonId,
-          staffId: staffId,
-          start: currentStart,
-          end: currentEnd,
-          roomId: roomId,
-          notes: notes,
-          breakStart: currentBreakStart,
-          breakEnd: currentBreakEnd,
-          seriesId: seriesId,
-          recurrence: recurrence,
-        ),
-      );
+      final isDailyRecurrence =
+          recurrence?.frequency == ShiftRecurrenceFrequency.daily;
+      final isSalonOpen =
+          !isDailyRecurrence || _isSalonOpenOn(currentStart.weekday);
+
+      if (isSalonOpen) {
+        occurrences.add(
+          Shift(
+            id: _uuid.v4(),
+            salonId: salonId,
+            staffId: staffId,
+            start: currentStart,
+            end: currentEnd,
+            roomId: roomId,
+            notes: notes,
+            breakStart: currentBreakStart,
+            breakEnd: currentBreakEnd,
+            seriesId: seriesId,
+            recurrence: recurrence,
+          ),
+        );
+      }
 
       if (recurrence == null) {
         break;
@@ -798,6 +875,11 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
     }
 
     return occurrences;
+  }
+
+  bool _isSalonOpenOn(int weekday) {
+    final allowed = _allowedWeekdays();
+    return allowed.contains(weekday);
   }
 
   List<Shift> _generateWeeklyOccurrences({
@@ -824,14 +906,12 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
 
     while (!cycleWeekStart.isAfter(until)) {
       for (var weekOffset = 0; weekOffset < activeWeeks; weekOffset++) {
-        final weekStart = cycleWeekStart.add(Duration(days: 7 * weekOffset));
+        final weekStart = _addDays(cycleWeekStart, 7 * weekOffset);
         if (weekStart.isAfter(until)) {
           return occurrences;
         }
         for (final weekday in sortedWeekdays) {
-          final candidateDay = weekStart.add(
-            Duration(days: weekday - DateTime.monday),
-          );
+          final candidateDay = _addDays(weekStart, weekday - DateTime.monday);
           final candidateStart = DateTime(
             candidateDay.year,
             candidateDay.month,
@@ -872,7 +952,7 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
           );
         }
       }
-      cycleWeekStart = cycleWeekStart.add(Duration(days: 7 * cycleWeeks));
+      cycleWeekStart = _addDays(cycleWeekStart, 7 * cycleWeeks);
     }
 
     return occurrences;
@@ -881,9 +961,27 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
   DateTime _advanceDate(DateTime date, ShiftRecurrence recurrence) {
     switch (recurrence.frequency) {
       case ShiftRecurrenceFrequency.daily:
-        return date.add(Duration(days: recurrence.interval));
+        return DateTime(
+          date.year,
+          date.month,
+          date.day + recurrence.interval,
+          date.hour,
+          date.minute,
+          date.second,
+          date.millisecond,
+          date.microsecond,
+        );
       case ShiftRecurrenceFrequency.weekly:
-        return date.add(Duration(days: 7 * recurrence.interval));
+        return DateTime(
+          date.year,
+          date.month,
+          date.day + 7 * recurrence.interval,
+          date.hour,
+          date.minute,
+          date.second,
+          date.millisecond,
+          date.microsecond,
+        );
       case ShiftRecurrenceFrequency.monthly:
         return DateTime(
           date.year,
@@ -912,6 +1010,11 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
     ).subtract(Duration(days: difference < 0 ? 0 : difference));
   }
 
+  DateTime _addDays(DateTime date, int days) {
+    // Build a new instance from date components to avoid DST drift when adding days.
+    return DateTime(date.year, date.month, date.day + days);
+  }
+
   String _weekdayLabel(int weekday) {
     final reference = DateTime(
       2024,
@@ -932,6 +1035,26 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
     return selectedSalon?.rooms ?? const [];
   }
 
+  Set<int> _allowedWeekdays() {
+    final selectedSalon = widget.salons.firstWhereOrNull(
+      (salon) => salon.id == _salonId,
+    );
+    final schedule = selectedSalon?.schedule;
+    if (schedule == null || schedule.isEmpty) {
+      return _weekdayOrder.toSet();
+    }
+    final openDays =
+        schedule
+            .where((daily) => daily.isOpen)
+            .map((daily) => daily.weekday)
+            .where(
+              (weekday) =>
+                  weekday >= DateTime.monday && weekday <= DateTime.sunday,
+            )
+            .toSet();
+    return openDays.isEmpty ? _weekdayOrder.toSet() : openDays;
+  }
+
   void _ensureDefaults() {
     final filteredStaff =
         widget.staff
@@ -948,11 +1071,27 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
         _roomId = rooms.first.id;
       });
     }
+    _ensureWeekdaySelection(rebuildIfChanged: true);
   }
 
-  void _ensureWeekdaySelection() {
-    if (_recurrenceWeekdays.isEmpty) {
-      _recurrenceWeekdays.add(_start.weekday);
+  void _ensureWeekdaySelection({bool rebuildIfChanged = false}) {
+    final allowed = _allowedWeekdays();
+    final previous = Set<int>.from(_recurrenceWeekdays);
+    _recurrenceWeekdays.removeWhere((weekday) => !allowed.contains(weekday));
+    if (_recurrenceWeekdays.isEmpty && allowed.isNotEmpty) {
+      final fallback =
+          allowed.contains(_start.weekday)
+              ? _start.weekday
+              : _weekdayOrder.firstWhere(
+                allowed.contains,
+                orElse: () => allowed.first,
+              );
+      _recurrenceWeekdays.add(fallback);
+    }
+    final hasChanged =
+        !const SetEquality<int>().equals(previous, _recurrenceWeekdays);
+    if (hasChanged && rebuildIfChanged && mounted) {
+      setState(() {});
     }
   }
 
@@ -986,16 +1125,6 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
     }
   }
 
-  void _ensureRecurrenceEndAfterStart() {
-    if (_recurrenceEnd == null) {
-      return;
-    }
-    final startDate = DateTime(_start.year, _start.month, _start.day);
-    if (!_recurrenceEnd!.isAfter(startDate)) {
-      _recurrenceEnd = _defaultRecurrenceEnd();
-    }
-  }
-
   void _setDefaultBreak() {
     final duration = _end.difference(_start);
     final midPoint = _start.add(duration ~/ 2);
@@ -1004,9 +1133,15 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
     _ensureBreakWithinShift();
   }
 
-  DateTime _defaultRecurrenceEnd() {
-    final base = DateTime(_start.year, _start.month, _start.day);
-    return base.add(const Duration(days: 28));
+  DateTime _computeRecurrenceUntil() {
+    final months = _clampMonthCount(_recurrenceMonths);
+    return DateTime(
+      _start.year,
+      _start.month + months,
+      _start.day,
+      _start.hour,
+      _start.minute,
+    );
   }
 
   void _showError(String message) {
@@ -1019,6 +1154,16 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
   }
 
   int _clampWeekCount(int value, {int min = 0, int max = 52}) {
+    if (value < min) {
+      return min;
+    }
+    if (value > max) {
+      return max;
+    }
+    return value;
+  }
+
+  int _clampMonthCount(int value, {int min = 1, int max = 12}) {
     if (value < min) {
       return min;
     }

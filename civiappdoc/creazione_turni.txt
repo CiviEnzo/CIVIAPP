@@ -1,0 +1,32 @@
+CREAZIONE TURNI STAFF
+
+Obiettivo: come admin posso creare e pianificare i turni del mio staff in modo coerente con gli orari di apertura del centro.
+
+Passaggi principali
+1. Seleziona il salone: determina operatori, stanze e calendario disponibili.
+2. Scegli l'operatore e la stanza: entrambi sono obbligatori per poter salvare.
+3. Imposta data e orari: seleziona separatamente data e ora per l'inizio e la fine (il turno rimane nello stesso giorno).
+4. (Opzionale) Aggiungi una pausa programmata: deve essere compresa all'interno del turno.
+5. (Opzionale) Inserisci delle note interne per lo staff.
+
+Gestione della ripetizione
+- La ripetizione è disponibile solo nella creazione di un nuovo turno.
+- Frequenze disponibili: nessuna ripetizione, giornaliera o settimanale (le opzioni mensile/annuale sono state rimosse).
+- La ripetizione giornaliera genera automaticamente solo i turni nei giorni in cui il salone è aperto.
+- Itervallo di ripetizione: per le serie settimanali è possibile definire settimane attive e settimane di pausa.
+- Durata: scegli da un menu quante mensilità (1-12) copre la serie, calcolate a partire dalla data di inizio.
+
+Selezione dei giorni (ripetizione settimanale)
+- I giorni selezionabili vengono filtrati automaticamente in base ai giorni di apertura del salone.
+- È sempre necessario avere almeno un giorno attivo; in caso contrario il sistema suggerisce un giorno disponibile.
+- Cambiando salone o aggiornando la data di inizio vengono adeguati i giorni selezionati alla nuova disponibilità.
+
+Salvataggio e validazioni
+- Il turno richiede salone, operatore, stanza, orario di inizio e di fine coerente.
+- La pausa deve avere inizio e fine validi e rientrare nella durata del turno.
+- Per le serie settimanali si può confermare solo se almeno un giorno aperto è selezionato.
+
+Note operative
+- La ripetizione viene generata fino alla data indicata, includendo il giorno finale.
+- I turni generati conservano eventuali note e pause configurate.
+ripeti fino a ()- Il calendario sincronizza automaticamente i turni futuri fino a 12 mesi in avanti.

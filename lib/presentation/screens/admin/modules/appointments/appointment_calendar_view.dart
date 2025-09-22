@@ -7,6 +7,7 @@ import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/shift.dart';
 import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
+import 'package:civiapp/domain/entities/staff_role.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -60,6 +61,7 @@ class AppointmentCalendarView extends StatefulWidget {
     required this.services,
     required this.shifts,
     required this.absences,
+    required this.roles,
     this.schedule,
     required this.visibleWeekdays,
     required this.roomsById,
@@ -73,6 +75,7 @@ class AppointmentCalendarView extends StatefulWidget {
   final AppointmentCalendarScope scope;
   final List<Appointment> appointments;
   final List<StaffMember> staff;
+  final List<StaffRole> roles;
   final List<Client> clients;
   final List<Service> services;
   final List<Shift> shifts;
@@ -161,6 +164,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           absences: widget.absences,
           schedule: widget.schedule,
           staff: widget.staff,
+          roles: widget.roles,
           clientsById: clientsById,
           servicesById: servicesById,
           roomsById: widget.roomsById,
@@ -181,6 +185,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           schedule: widget.schedule,
           visibleWeekdays: widget.visibleWeekdays,
           staff: widget.staff,
+          roles: widget.roles,
           clientsById: clientsById,
           servicesById: servicesById,
           roomsById: widget.roomsById,
@@ -204,6 +209,7 @@ class _DaySchedule extends StatelessWidget {
     required this.absences,
     required this.schedule,
     required this.staff,
+    required this.roles,
     required this.clientsById,
     required this.servicesById,
     required this.roomsById,
@@ -222,6 +228,7 @@ class _DaySchedule extends StatelessWidget {
   final List<StaffAbsence> absences;
   final List<SalonDailySchedule>? schedule;
   final List<StaffMember> staff;
+  final List<StaffRole> roles;
   final Map<String, Client> clientsById;
   final Map<String, Service> servicesById;
   final Map<String, String> roomsById;
@@ -317,6 +324,7 @@ class _DaySchedule extends StatelessWidget {
       dayAbsences,
       (absence) => absence.staffId,
     );
+    final rolesById = {for (final role in roles) role.id: role};
 
     final dateLabel = DateFormat('EEEE dd MMMM', 'it_IT').format(dayStart);
 
@@ -483,7 +491,9 @@ class _DaySchedule extends StatelessWidget {
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
-                                        staff[staffIndex].role.label,
+                                        rolesById[staff[staffIndex].roleId]
+                                                ?.displayName ??
+                                            'Mansione',
                                         style: theme.textTheme.bodySmall,
                                         textAlign: TextAlign.center,
                                       ),
@@ -624,6 +634,7 @@ class _WeekSchedule extends StatelessWidget {
     required this.schedule,
     required this.visibleWeekdays,
     required this.staff,
+    required this.roles,
     required this.clientsById,
     required this.servicesById,
     required this.roomsById,
@@ -643,6 +654,7 @@ class _WeekSchedule extends StatelessWidget {
   final List<SalonDailySchedule>? schedule;
   final Set<int> visibleWeekdays;
   final List<StaffMember> staff;
+  final List<StaffRole> roles;
   final Map<String, Client> clientsById;
   final Map<String, Service> servicesById;
   final Map<String, String> roomsById;
@@ -806,6 +818,7 @@ class _WeekSchedule extends StatelessWidget {
     final dayBodyColor = theme.colorScheme.surfaceContainerLowest.withValues(
       alpha: 0.45,
     );
+    final rolesById = {for (final role in roles) role.id: role};
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -898,7 +911,10 @@ class _WeekSchedule extends StatelessWidget {
                                               ),
                                               const SizedBox(height: 2),
                                               Text(
-                                                staff[columnIndex].role.label,
+                                                rolesById[staff[columnIndex]
+                                                            .roleId]
+                                                        ?.displayName ??
+                                                    'Mansione',
                                                 style:
                                                     theme.textTheme.bodySmall,
                                                 textAlign: TextAlign.center,

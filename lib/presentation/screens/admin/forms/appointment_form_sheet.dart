@@ -222,12 +222,14 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           (packagesForService.isNotEmpty ? packagesForService.first : null);
 
       dropdownPackages = List<ClientPackagePurchase>.from(eligiblePackages);
-      if (selectedPackage != null &&
-          dropdownPackages.every(
-            (purchase) =>
-                purchase.item.referenceId != selectedPackage!.item.referenceId,
-          )) {
-        dropdownPackages.insert(0, selectedPackage!);
+      if (selectedPackage != null) {
+        final activeSelection = selectedPackage;
+        if (dropdownPackages.every(
+          (purchase) =>
+              purchase.item.referenceId != activeSelection.item.referenceId,
+        )) {
+          dropdownPackages.insert(0, activeSelection);
+        }
       }
 
       if (packagesForService.isNotEmpty) {

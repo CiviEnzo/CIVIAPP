@@ -94,6 +94,32 @@ service cloud.firestore {
           : null;
     }
 
+    function dataSalonIds(data) {
+      return data == null
+          ? []
+          : data.salonIds is list
+              ? data.salonIds
+              : data.salonId is string
+                  ? [data.salonId]
+                  : [];
+    }
+
+    function resourceSalonIdsList() {
+      return resource != null && resource.data != null
+          ? dataSalonIds(resource.data)
+          : [];
+    }
+
+    function requestSalonIdsList() {
+      return request.resource != null && request.resource.data != null
+          ? dataSalonIds(request.resource.data)
+          : [];
+    }
+
+    function isStaffUserData(data) {
+      return data != null && data.role is string && data.role == 'staff';
+    }
+
     match /users/{userId} {
       allow get: if isSignedIn() && (
         request.auth.uid == userId ||
@@ -105,11 +131,30 @@ service cloud.firestore {
 
       allow list: if isSignedIn() && (isAdmin() || isStaff());
 
-      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isSignedIn() && (
+        request.auth.uid == userId ||
+        (isAdmin() &&
+            isStaffUserData(request.resource != null ? request.resource.data : null) &&
+            requestSalonIdsList().size() > 0 &&
+            requestSalonIdsList().hasOnly(currentSalonIds()))
+      );
 
-      allow update: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && (
+        request.auth.uid == userId ||
+        (isAdmin() &&
+            isStaffUserData(request.resource != null ? request.resource.data : null) &&
+            isStaffUserData(resource != null ? resource.data : null) &&
+            requestSalonIdsList().size() > 0 &&
+            requestSalonIdsList().hasOnly(currentSalonIds()) &&
+            resourceSalonIdsList().hasOnly(currentSalonIds()))
+      );
 
-      allow delete: if false;
+      allow delete: if isSignedIn() && (
+        request.auth.uid == userId ||
+        (isAdmin() &&
+            isStaffUserData(resource != null ? resource.data : null) &&
+            resourceSalonIdsList().hasOnly(currentSalonIds()))
+      );
     }
 
     match /salons/{salonId} {
@@ -125,6 +170,18 @@ service cloud.firestore {
         (!isUserInitialized() && requestSalonId() is string)
       );
       allow update, delete: if isSignedIn() && isAdmin() && canManageSalonDocument(resourceSalonId());
+    }
+
+    match /staff_roles/{roleId} {
+      allow read: if isSignedIn() && canReadSalonDocument(resourceSalonId());
+      allow create: if isSignedIn() && isAdmin() &&
+          requestSalonId() != null && canManageSalonDocument(requestSalonId());
+      allow update: if isSignedIn() && isAdmin() &&
+          resourceSalonId() != null &&
+          requestSalonId() == resourceSalonId() &&
+          canManageSalonDocument(resourceSalonId());
+      allow delete: if isSignedIn() && isAdmin() &&
+          resourceSalonId() != null && canManageSalonDocument(resourceSalonId());
     }
 
     match /clients/{clientId} {

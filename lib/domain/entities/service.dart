@@ -18,4 +18,26 @@ class Service {
   final double price;
   final String? description;
   final List<String> staffRoles;
+
+  Service copyWith({
+    String? id,
+    String? salonId,
+    String? name,
+    String? category,
+    Duration? duration,
+    double? price,
+    String? description,
+    List<String>? staffRoles,
+  }) {
+    return Service(
+      id: id ?? this.id,
+      salonId: salonId ?? this.salonId,
+      name: name ?? this.name,
+      category: category ?? this.category,
+      duration: duration ?? this.duration,
+      price: price ?? this.price,
+      description: description ?? this.description,
+      staffRoles: staffRoles ?? this.staffRoles,
+    );
+  }
 }

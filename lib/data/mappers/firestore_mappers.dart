@@ -10,6 +10,7 @@ import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/shift.dart';
 import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
+import 'package:civiapp/domain/entities/staff_role.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
 
@@ -90,30 +91,121 @@ Map<String, dynamic> salonToMap(Salon salon) {
 
 StaffMember staffFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final data = doc.data() ?? <String, dynamic>{};
+  final firstNameRaw = (data['firstName'] as String?)?.trim();
+  final lastNameRaw = (data['lastName'] as String?)?.trim();
+  final fullNameRaw = (data['fullName'] as String?)?.trim();
+
+  String resolveFirstName() {
+    if (firstNameRaw != null && firstNameRaw.isNotEmpty) {
+      return firstNameRaw;
+    }
+    if (fullNameRaw != null && fullNameRaw.isNotEmpty) {
+      final parts = fullNameRaw.split(RegExp(r'\s+'));
+      if (parts.length > 1) {
+        return parts.sublist(0, parts.length - 1).join(' ');
+      }
+      return fullNameRaw;
+    }
+    return '';
+  }
+
+  String resolveLastName() {
+    if (lastNameRaw != null && lastNameRaw.isNotEmpty) {
+      return lastNameRaw;
+    }
+    if (fullNameRaw != null && fullNameRaw.isNotEmpty) {
+      final parts = fullNameRaw.split(RegExp(r'\s+'));
+      if (parts.length > 1) {
+        return parts.last;
+      }
+    }
+    return '';
+  }
+
+  final roleIdRaw = (data['roleId'] as String?)?.trim();
+  final legacyRole = (data['role'] as String?)?.trim();
+  final roleId =
+      roleIdRaw != null && roleIdRaw.isNotEmpty
+          ? roleIdRaw
+          : (legacyRole != null && legacyRole.isNotEmpty)
+          ? legacyRole
+          : 'staff-role-unknown';
+
+  final dateOfBirthRaw = data['dateOfBirth'];
+  final dateOfBirth =
+      dateOfBirthRaw is Timestamp
+          ? dateOfBirthRaw.toDate()
+          : dateOfBirthRaw is DateTime
+          ? dateOfBirthRaw
+          : null;
+
+  final vacationAllowance =
+      (data['vacationAllowance'] as num?)?.toInt() ??
+      StaffMember.defaultVacationAllowance;
+  final permissionAllowance =
+      (data['permissionAllowance'] as num?)?.toInt() ??
+      StaffMember.defaultPermissionAllowance;
+
   return StaffMember(
     id: doc.id,
     salonId: data['salonId'] as String? ?? '',
-    fullName: data['fullName'] as String? ?? '',
-    role: _stringToStaffRole(data['role'] as String?),
-    phone: data['phone'] as String?,
-    email: data['email'] as String?,
+    firstName: resolveFirstName(),
+    lastName: resolveLastName(),
+    roleId: roleId,
+    phone: (data['phone'] as String?)?.trim(),
+    email: (data['email'] as String?)?.trim(),
+    dateOfBirth: dateOfBirth,
     skills:
         (data['skills'] as List<dynamic>? ?? const [])
             .map((e) => e.toString())
+            .where((value) => value.isNotEmpty)
             .toList(),
     isActive: data['isActive'] as bool? ?? true,
+    vacationAllowance: vacationAllowance,
+    permissionAllowance: permissionAllowance,
   );
 }
 
 Map<String, dynamic> staffToMap(StaffMember staff) {
   return {
     'salonId': staff.salonId,
+    'firstName': staff.firstName,
+    'lastName': staff.lastName,
     'fullName': staff.fullName,
-    'role': staff.role.name,
+    'roleId': staff.roleId,
+    'role': staff.roleId,
     'phone': staff.phone,
     'email': staff.email,
+    if (staff.dateOfBirth != null)
+      'dateOfBirth': Timestamp.fromDate(staff.dateOfBirth!),
     'skills': staff.skills,
     'isActive': staff.isActive,
+    'vacationAllowance': staff.vacationAllowance,
+    'permissionAllowance': staff.permissionAllowance,
+  };
+}
+
+StaffRole staffRoleFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+  final data = doc.data() ?? <String, dynamic>{};
+  return StaffRole(
+    id: doc.id,
+    name: (data['name'] as String? ?? '').trim(),
+    salonId: (data['salonId'] as String?)?.trim(),
+    description: (data['description'] as String?)?.trim(),
+    color: (data['color'] as num?)?.toInt(),
+    isDefault: data['isDefault'] as bool? ?? false,
+    sortPriority: (data['sortPriority'] as num?)?.toInt() ?? 0,
+  );
+}
+
+Map<String, dynamic> staffRoleToMap(StaffRole role) {
+  return {
+    'name': role.name,
+    'salonId': role.salonId,
+    'description': role.description,
+    'color': role.color,
+    'isDefault': role.isDefault,
+    'sortPriority': role.sortPriority,
   };
 }
 
@@ -361,8 +453,9 @@ Sale saleFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final data = doc.data() ?? <String, dynamic>{};
   final createdAt =
       ((data['createdAt'] as Timestamp?) ?? Timestamp.now()).toDate();
-  final salePaymentMethod =
-      _stringToPaymentMethod(data['paymentMethod'] as String?);
+  final salePaymentMethod = _stringToPaymentMethod(
+    data['paymentMethod'] as String?,
+  );
   final itemsRaw = data['items'] as List<dynamic>? ?? const [];
   return Sale(
     id: doc.id,
@@ -376,9 +469,10 @@ Sale saleFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
               depositsRaw.map((entry) {
                 final depositMap = entry as Map<String, dynamic>;
                 final methodValue = depositMap['paymentMethod'] as String?;
-                final method = methodValue == null
-                    ? salePaymentMethod
-                    : _stringToPaymentMethod(methodValue);
+                final method =
+                    methodValue == null
+                        ? salePaymentMethod
+                        : _stringToPaymentMethod(methodValue);
                 return PackageDeposit(
                   id: depositMap['id'] as String? ?? const Uuid().v4(),
                   amount: (depositMap['amount'] as num?)?.toDouble() ?? 0,
@@ -684,13 +778,6 @@ Map<String, dynamic> staffAbsenceToMap(StaffAbsence absence) {
     'end': Timestamp.fromDate(absence.end),
     'notes': absence.notes,
   };
-}
-
-StaffRole _stringToStaffRole(String? value) {
-  return StaffRole.values.firstWhere(
-    (role) => role.name == value,
-    orElse: () => StaffRole.estetista,
-  );
 }
 
 StaffAbsenceType _stringToStaffAbsenceType(String? value) {

@@ -1,0 +1,40 @@
+CREAZIONE E GESTIONE SALONI
+
+Obiettivo
+- Permettere all'amministratore di configurare saloni e sedi dove erogare i servizi.
+- Ogni salone rappresenta un punto vendita con propri orari, macchinari, postazioni e staff.
+
+Attributi del salone
+- Nome obbligatorio e univoco per account.
+- Indirizzo completo (via, città, CAP) e coordinate facoltative per mappe.
+- Contatti principali: telefono, email, link prenotazione esterna.
+- Orari standard per giorno della settimana e gestione chiusure straordinarie.
+- Catalogo servizi disponibili nella sede, con durata e macchinari richiesti.
+- Elenco macchinari presenti, quantità e stato (operativo, manutenzione).
+- Postazioni per categoria (es. lavaggio, taglio, estetica) con capacità per slot.
+- Staff associato con ruolo, competenze e orari di lavoro legati al salone.
+- Stato del salone: attivo, sospeso, archiviato.
+
+Creazione e modifica
+1. L'amministratore accede alla sezione Saloni e seleziona "Nuovo salone".
+2. Compila dati anagrafici obbligatori e carica eventuali media (logo, foto).
+3. Definisce orari e eccezioni, collegandoli al calendario generale.
+4. Associa macchinari disponibili nella sede con relative competenze richieste.
+5. Aggiunge postazioni, staff e servizi disponibili per la sede.
+6. Salva: il sistema valida i campi, segnala conflitti di orari o macchinari.
+7. In modifica, le stesse regole devono garantire coerenza con appuntamenti già fissati.
+
+Gestione operativa
+- Cambio stato: attivo (prenotabile), sospeso (blocco temporaneo), archiviato (storico non prenotabile).
+- Duplicazione di un salone per creare nuove sedi partendo da una configurazione esistente.
+- Dashboard dedicata con KPI: ore prenotate, utilizzo macchinari, performance staff.
+- Log delle modifiche con audit su chi aggiorna orari, staff o macchinari.
+- Notifiche a staff e clienti quando cambiano orari, chiusure o disponibilità servizi.
+- Possibilità di assegnare campagne marketing o promozioni specifiche alla sede.
+
+Relazioni con macchinari e servizi
+- Ogni servizio legato a un macchinario deve essere erogabile solo nei saloni che lo possiedono.
+- Il motore di prenotazione verifica la disponibilità combinando salone, macchinari e competenze staff.
+- Macchinari in manutenzione riducono automaticamente gli slot disponibili nel calendario.
+- Lo staff può operare in più saloni solo se il macchinario e le competenze coincidono nella sede assegnata.
+- Report di utilizzo macchinari per salone per pianificare acquisti o manutenzioni.

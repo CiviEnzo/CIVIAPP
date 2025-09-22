@@ -553,7 +553,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
           (member) =>
               member.salonId == widget.client.salonId &&
               member.isActive &&
-              (allowedRoles.isEmpty || allowedRoles.contains(member.role.name)),
+              (allowedRoles.isEmpty || allowedRoles.contains(member.roleId)),
         )
         .toList()
       ..sort((a, b) => a.fullName.compareTo(b.fullName));
