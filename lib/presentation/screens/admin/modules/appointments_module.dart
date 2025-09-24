@@ -1557,6 +1557,7 @@ Future<void> _openForm(
           suggestedStart: initialStart,
           suggestedEnd: initialEnd,
           suggestedStaffId: initialStaffId,
+          enableDelete: existing != null,
         ),
   );
   if (result != null) {

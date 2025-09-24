@@ -9,6 +9,7 @@ import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:civiapp/presentation/shared/client_package_purchase.dart';
 import 'package:civiapp/presentation/screens/admin/forms/client_form_sheet.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:collection/collection.dart';
@@ -27,6 +28,7 @@ class AppointmentFormSheet extends ConsumerStatefulWidget {
     this.suggestedStart,
     this.suggestedEnd,
     this.suggestedStaffId,
+    this.enableDelete = false,
   });
 
   final List<Salon> salons;
@@ -38,6 +40,7 @@ class AppointmentFormSheet extends ConsumerStatefulWidget {
   final DateTime? suggestedStart;
   final DateTime? suggestedEnd;
   final String? suggestedStaffId;
+  final bool enableDelete;
 
   @override
   ConsumerState<AppointmentFormSheet> createState() =>
@@ -57,6 +60,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
   late TextEditingController _notes;
   bool _usePackageSession = false;
   String? _selectedPackageId;
+  bool _isDeleting = false;
 
   @override
   void initState() {
@@ -550,12 +554,32 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
               maxLines: 3,
             ),
             const SizedBox(height: 24),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                onPressed: _submit,
-                child: const Text('Salva'),
-              ),
+            Row(
+              children: [
+                if (widget.enableDelete && widget.initial != null) ...[
+                  TextButton.icon(
+                    onPressed: _isDeleting ? null : _confirmDelete,
+                    icon:
+                        _isDeleting
+                            ? SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                            : const Icon(Icons.delete_outline_rounded),
+                    label: Text(_isDeleting ? 'Eliminazione...' : 'Elimina'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                  const Spacer(),
+                ] else
+                  const Spacer(),
+                FilledButton(
+                  onPressed: _isDeleting ? null : _submit,
+                  child: const Text('Salva'),
+                ),
+              ],
             ),
           ],
         ),
@@ -770,6 +794,83 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     }
 
     Navigator.of(context).pop(appointment);
+  }
+
+  Future<void> _confirmDelete() async {
+    if (!mounted || _isDeleting) {
+      return;
+    }
+    final appointment = widget.initial;
+    if (appointment == null) {
+      return;
+    }
+    final dateFormat = DateFormat('dd MMMM yyyy HH:mm', 'it_IT');
+    final appointmentLabel = dateFormat.format(appointment.start);
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        return AlertDialog(
+          title: const Text('Elimina appuntamento'),
+          content: Text(
+            'Confermi l\'eliminazione dell\'appuntamento del $appointmentLabel? L\'operazione è definitiva.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Annulla'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.error,
+                foregroundColor: theme.colorScheme.onError,
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Elimina'),
+            ),
+          ],
+        );
+      },
+    );
+    if (shouldDelete != true || !mounted) {
+      return;
+    }
+    setState(() => _isDeleting = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref
+          .read(appDataProvider.notifier)
+          .deleteAppointment(appointment.id);
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Appuntamento del $appointmentLabel eliminato.'),
+        ),
+      );
+      Navigator.of(context).pop();
+    } on FirebaseException catch (error) {
+      if (!mounted) return;
+      final message =
+          error.code == 'permission-denied'
+              ? 'Non hai i permessi per eliminare questo appuntamento.'
+              : (error.message?.isNotEmpty == true
+                  ? error.message!
+                  : 'Impossibile eliminare l\'appuntamento. Riprova.');
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+      setState(() => _isDeleting = false);
+    } on StateError catch (error) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+      setState(() => _isDeleting = false);
+    } catch (error) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Errore durante l\'eliminazione: $error')),
+      );
+      setState(() => _isDeleting = false);
+    }
   }
 
   Future<void> _createClient() async {

@@ -24,6 +24,7 @@ Ruoli utente: Admin, operatore/STAFF , cliente
 . Come Cliente voglio prenotare un appuntamento, scegliere il tipo di servizio, scegliere il personale dello staff che eroga il servizio.
 . Come Cliente voglio essere informato tramite whatsapp
 . Come Cliente voglio consultare il mio storico pacchetti, appuntamenti e servizi
+- Come Cliente voglio poter modificare e cancellare un mio appuntamento 
 
 
 3.Dati & Permessi
