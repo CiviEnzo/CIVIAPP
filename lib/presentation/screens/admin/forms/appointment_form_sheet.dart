@@ -1,4 +1,6 @@
 import 'package:civiapp/app/providers.dart';
+import 'package:civiapp/domain/availability/appointment_conflicts.dart';
+import 'package:civiapp/domain/availability/equipment_availability.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/salon.dart';
@@ -81,6 +83,10 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     }
     _end = end;
     _notes = TextEditingController(text: initial?.notes ?? '');
+    if (_start.isAfter(DateTime.now()) &&
+        _status == AppointmentStatus.completed) {
+      _status = AppointmentStatus.scheduled;
+    }
   }
 
   @override
@@ -102,20 +108,37 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         clients
             .where((client) => _salonId == null || client.salonId == _salonId)
             .toList();
-    final filteredStaff =
-        staffMembers
-            .where((member) => _salonId == null || member.salonId == _salonId)
-            .toList();
     final filteredServices =
         services
             .where((service) => _salonId == null || service.salonId == _salonId)
             .toList();
+    final selectedService = services.firstWhereOrNull(
+      (service) => service.id == _serviceId,
+    );
+    final filteredStaff =
+        staffMembers.where((member) {
+          if (_salonId != null && member.salonId != _salonId) {
+            return false;
+          }
+          if (selectedService != null) {
+            final allowedRoles = selectedService.staffRoles;
+            if (allowedRoles.isNotEmpty &&
+                !allowedRoles.contains(member.roleId)) {
+              return false;
+            }
+          }
+          return true;
+        }).toList();
+    if (_staffId != null &&
+        filteredStaff.every((member) => member.id != _staffId)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() => _staffId = null);
+      });
+    }
 
     final selectedClient = clients.firstWhereOrNull(
       (client) => client.id == _clientId,
-    );
-    final selectedService = services.firstWhereOrNull(
-      (service) => service.id == _serviceId,
     );
 
     var packagesForService = <ClientPackagePurchase>[];
@@ -125,6 +148,28 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     String? fallbackPackageId;
     var eligiblePackages = <ClientPackagePurchase>[];
     var dropdownPackages = <ClientPackagePurchase>[];
+
+    final staffFieldValue =
+        _staffId != null && filteredStaff.any((member) => member.id == _staffId)
+            ? _staffId
+            : null;
+
+    final now = DateTime.now();
+    final isFutureStart = _start.isAfter(now);
+    final statusItems =
+        AppointmentStatus.values.map((status) {
+          final isDisabled =
+              isFutureStart && status == AppointmentStatus.completed;
+          final label =
+              isDisabled
+                  ? '${_statusLabel(status)} (non disponibile per appuntamenti futuri)'
+                  : _statusLabel(status);
+          return DropdownMenuItem<AppointmentStatus>(
+            value: status,
+            enabled: !isDisabled,
+            child: Text(label),
+          );
+        }).toList();
 
     if (selectedClient == null || selectedService == null) {
       if (_usePackageSession || _selectedPackageId != null) {
@@ -344,7 +389,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _staffId,
+              value: staffFieldValue,
               decoration: const InputDecoration(labelText: 'Operatore'),
               items:
                   filteredStaff
@@ -383,6 +428,16 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                     );
                     if (service != null) {
                       _end = _start.add(service.duration);
+                      final allowedRoles = service.staffRoles;
+                      if (_staffId != null && allowedRoles.isNotEmpty) {
+                        final staffMember = staffMembers.firstWhereOrNull(
+                          (member) => member.id == _staffId,
+                        );
+                        if (staffMember == null ||
+                            !allowedRoles.contains(staffMember.roleId)) {
+                          _staffId = null;
+                        }
+                      }
                     }
                   }
                 });
@@ -470,19 +525,23 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             DropdownButtonFormField<AppointmentStatus>(
               value: _status,
               decoration: const InputDecoration(labelText: 'Stato'),
-              items:
-                  AppointmentStatus.values
-                      .map(
-                        (status) => DropdownMenuItem(
-                          value: status,
-                          child: Text(_statusLabel(status)),
-                        ),
-                      )
-                      .toList(),
-              onChanged:
-                  (value) => setState(
-                    () => _status = value ?? AppointmentStatus.scheduled,
-                  ),
+              items: statusItems,
+              onChanged: (value) {
+                if (value == null) {
+                  return;
+                }
+                if (isFutureStart && value == AppointmentStatus.completed) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Non puoi impostare lo stato "Completato" per un appuntamento futuro.',
+                      ),
+                    ),
+                  );
+                  return;
+                }
+                setState(() => _status = value);
+              },
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -530,6 +589,10 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       if (_end.isBefore(_start)) {
         _end = _start.add(const Duration(hours: 1));
       }
+      if (_start.isAfter(DateTime.now()) &&
+          _status == AppointmentStatus.completed) {
+        _status = AppointmentStatus.scheduled;
+      }
     });
   }
 
@@ -559,6 +622,10 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       if (_end.isBefore(_start)) {
         _end = _start.add(const Duration(hours: 1));
       }
+      if (_start.isAfter(DateTime.now()) &&
+          _status == AppointmentStatus.completed) {
+        _status = AppointmentStatus.scheduled;
+      }
     });
   }
 
@@ -580,6 +647,41 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       return;
     }
 
+    final data = ref.read(appDataProvider);
+    final salons = data.salons.isNotEmpty ? data.salons : widget.salons;
+    final services = data.services.isNotEmpty ? data.services : widget.services;
+    final staffMembers = data.staff.isNotEmpty ? data.staff : widget.staff;
+
+    final service = services.firstWhereOrNull((item) => item.id == _serviceId);
+    if (service == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Servizio non valido.')));
+      return;
+    }
+
+    final staffMember = staffMembers.firstWhereOrNull(
+      (member) => member.id == _staffId,
+    );
+    if (staffMember == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Operatore non valido.')));
+      return;
+    }
+
+    final allowedRoles = service.staffRoles;
+    if (allowedRoles.isNotEmpty && !allowedRoles.contains(staffMember.roleId)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'L\'operatore selezionato non può erogare il servizio scelto.',
+          ),
+        ),
+      );
+      return;
+    }
+
     final appointment = Appointment(
       id: widget.initial?.id ?? _uuid.v4(),
       salonId: _salonId!,
@@ -594,18 +696,27 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       roomId: widget.initial?.roomId,
     );
 
-    final existingAppointments = ref.read(appDataProvider).appointments;
-    final hasOverlap = existingAppointments.any((existing) {
-      if (existing.id == appointment.id) {
-        return false;
-      }
-      if (existing.staffId != appointment.staffId) {
-        return false;
-      }
-      return existing.start.isBefore(appointment.end) &&
-          existing.end.isAfter(appointment.start);
-    });
-    if (hasOverlap) {
+    if (appointment.start.isAfter(DateTime.now()) &&
+        appointment.status == AppointmentStatus.completed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Non puoi impostare lo stato "Completato" per un appuntamento futuro.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final existingAppointments = data.appointments;
+    final hasStaffConflict = hasStaffBookingConflict(
+      appointments: existingAppointments,
+      staffId: appointment.staffId,
+      start: appointment.start,
+      end: appointment.end,
+      excludeAppointmentId: appointment.id,
+    );
+    if (hasStaffConflict) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -613,6 +724,48 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           ),
         ),
       );
+      return;
+    }
+
+    final hasClientConflict = hasClientBookingConflict(
+      appointments: existingAppointments,
+      clientId: appointment.clientId,
+      start: appointment.start,
+      end: appointment.end,
+      excludeAppointmentId: appointment.id,
+    );
+    if (hasClientConflict) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Impossibile salvare: il cliente ha già un appuntamento in quel periodo',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final salon = salons.firstWhereOrNull(
+      (item) => item.id == appointment.salonId,
+    );
+    final equipmentCheck = EquipmentAvailabilityChecker.check(
+      salon: salon,
+      service: service,
+      allServices: services,
+      appointments: existingAppointments,
+      start: appointment.start,
+      end: appointment.end,
+      excludeAppointmentId: appointment.id,
+    );
+    if (equipmentCheck.hasConflicts) {
+      final equipmentLabel = equipmentCheck.blockingEquipment.join(', ');
+      final message =
+          equipmentLabel.isEmpty
+              ? 'Macchinario non disponibile per questo orario.'
+              : 'Macchinario non disponibile per questo orario: $equipmentLabel.';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$message Scegli un altro slot.')));
       return;
     }
 

@@ -40,19 +40,54 @@ class MockData {
       city: 'Milano',
       phone: '+39 02 1234 5678',
       email: 'milano@civibeauty.it',
+      postalCode: '20121',
+      bookingLink: 'https://civibeauty.it/milano',
+      latitude: 45.4674,
+      longitude: 9.1895,
       description: 'Flagship store con focus su trattamenti viso e benessere.',
+      status: SalonStatus.active,
       rooms: const [
         SalonRoom(
           id: 'room-1',
           name: 'Cabina Relax',
           capacity: 1,
+          category: 'Massaggi',
           services: ['srv-massage'],
         ),
         SalonRoom(
           id: 'room-2',
           name: 'Sala Estetica',
           capacity: 2,
+          category: 'Estetica',
           services: ['srv-skincare', 'srv-manicure'],
+        ),
+      ],
+      equipment: const [
+        SalonEquipment(
+          id: 'eq-pressoterapia',
+          name: 'Pressoterapia',
+          quantity: 2,
+          status: SalonEquipmentStatus.operational,
+        ),
+        SalonEquipment(
+          id: 'eq-laser',
+          name: 'Laser diodo 808',
+          quantity: 1,
+          status: SalonEquipmentStatus.maintenance,
+          notes: 'Manutenzione programmata il prossimo lunedì.',
+        ),
+        SalonEquipment(
+          id: 'eq-manipolo',
+          name: 'Manipolo radiofrequenza',
+          quantity: 3,
+        ),
+      ],
+      closures: [
+        SalonClosure(
+          id: 'closure-milano-01',
+          start: DateTime(_now.year, _now.month, _now.day + 20),
+          end: DateTime(_now.year, _now.month, _now.day + 21),
+          reason: 'Formazione staff su nuovi macchinari',
         ),
       ],
       schedule: _defaultWeeklySchedule,
@@ -64,14 +99,36 @@ class MockData {
       city: 'Roma',
       phone: '+39 06 9876 5432',
       email: 'roma@civibeauty.it',
+      postalCode: '00186',
+      bookingLink: 'https://civibeauty.it/roma',
+      latitude: 41.9009,
+      longitude: 12.4795,
+      status: SalonStatus.active,
       rooms: const [
         SalonRoom(
           id: 'room-3',
           name: 'Cabina Benessere',
           capacity: 1,
+          category: 'SPA',
           services: ['srv-massage', 'srv-spa'],
         ),
       ],
+      equipment: const [
+        SalonEquipment(id: 'eq-sauna', name: 'Sauna Finlandese', quantity: 1),
+        SalonEquipment(
+          id: 'eq-vasca-idro',
+          name: 'Vasca idromassaggio',
+          quantity: 1,
+        ),
+        SalonEquipment(
+          id: 'eq-laser-compact',
+          name: 'Laser compatto per epilazione',
+          quantity: 1,
+          status: SalonEquipmentStatus.outOfOrder,
+          notes: 'In attesa di pezzo di ricambio.',
+        ),
+      ],
+      closures: const [],
       schedule: _defaultWeeklySchedule,
     ),
   ];
@@ -235,6 +292,7 @@ class MockData {
       description:
           'Pulizia profonda, maschera e massaggio viso personalizzato.',
       staffRoles: const ['estetista'],
+      requiredEquipmentIds: const ['eq-manipolo'],
     ),
     Service(
       id: 'srv-massage',
@@ -246,6 +304,7 @@ class MockData {
       description:
           'Massaggio mirato per alleviare tensioni muscolari e stress.',
       staffRoles: const ['massaggiatore', 'estetista'],
+      requiredEquipmentIds: const ['eq-pressoterapia'],
     ),
     Service(
       id: 'srv-manicure',
@@ -257,6 +316,7 @@ class MockData {
       description:
           'Trattamento completo con maschera idratante e smalto semipermanente.',
       staffRoles: const ['nail_artist'],
+      requiredEquipmentIds: const [],
     ),
     Service(
       id: 'srv-spa',
@@ -268,6 +328,7 @@ class MockData {
       description:
           'Percorso spa completo con sauna, bagno turco e massaggio aromatico.',
       staffRoles: const ['massaggiatore'],
+      requiredEquipmentIds: const ['eq-sauna', 'eq-vasca-idro'],
     ),
   ];
 
@@ -516,4 +577,18 @@ class MockData {
       notes: 'Influenza stagionale',
     ),
   ];
+
+  static List<StaffAbsence> get publicStaffAbsences =>
+      staffAbsences
+          .map(
+            (absence) => StaffAbsence(
+              id: absence.id,
+              salonId: absence.salonId,
+              staffId: absence.staffId,
+              type: absence.type,
+              start: absence.start,
+              end: absence.end,
+            ),
+          )
+          .toList();
 }

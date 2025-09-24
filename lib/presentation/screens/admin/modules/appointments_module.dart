@@ -1,5 +1,7 @@
 import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/data/repositories/app_data_state.dart';
+import 'package:civiapp/domain/availability/appointment_conflicts.dart';
+import 'package:civiapp/domain/availability/equipment_availability.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/salon.dart';
@@ -10,6 +12,7 @@ import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:civiapp/presentation/screens/admin/forms/appointment_form_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/modules/appointments/appointment_calendar_view.dart';
+import 'package:civiapp/presentation/screens/admin/modules/appointments/appointment_anomaly.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -67,6 +70,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   Widget build(BuildContext context) {
     final data = ref.watch(appDataProvider);
     final salons = data.salons;
+    final salonsById = {for (final salon in salons) salon.id: salon};
     final clients = data.clients;
     final staffMembers = data.staff
         .where(
@@ -93,14 +97,66 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     final visibleStaff = currentStaff != null ? [currentStaff] : staffMembers;
     final staffIds = visibleStaff.map((member) => member.id).toSet();
 
-    final rangeStart = _rangeStart(_anchorDate, _scope);
-    final rangeEnd = _rangeEnd(rangeStart, _scope);
-
-    final appointments = data.appointments
+    final now = DateTime.now();
+    final relevantAppointments = data.appointments
         .where(
           (appointment) =>
               widget.salonId == null || appointment.salonId == widget.salonId,
         )
+        .sortedBy((appointment) => appointment.start);
+    final relevantShifts =
+        data.shifts
+            .where(
+              (shift) =>
+                  widget.salonId == null || shift.salonId == widget.salonId,
+            )
+            .toList();
+    final relevantAbsencesAll =
+        data.staffAbsences
+            .where(
+              (absence) =>
+                  widget.salonId == null || absence.salonId == widget.salonId,
+            )
+            .toList();
+
+    final rangeStart = _rangeStart(_anchorDate, _scope);
+    final rangeEnd = _rangeEnd(rangeStart, _scope);
+
+    final anomalies = _detectAppointmentAnomalies(
+      appointments: relevantAppointments,
+      shifts: relevantShifts,
+      absences: relevantAbsencesAll,
+      now: now,
+    );
+
+    final Map<String, String> lockedAppointmentReasons = {};
+    for (final appointment in relevantAppointments) {
+      final reason = _modificationRestrictionReason(appointment, now);
+      if (reason != null) {
+        lockedAppointmentReasons[appointment.id] = reason;
+      }
+    }
+
+    final attentionAppointments =
+        relevantAppointments
+            .where(
+              (appointment) =>
+                  anomalies.containsKey(appointment.id) &&
+                  (staffIds.isEmpty || staffIds.contains(appointment.staffId)),
+            )
+            .toList();
+
+    final allSalonAppointments = relevantAppointments
+        .where(
+          (appointment) => _dateRangesOverlap(
+            appointment.start,
+            appointment.end,
+            rangeStart,
+            rangeEnd,
+          ),
+        )
+        .sortedBy((appointment) => appointment.start);
+    final appointments = allSalonAppointments
         .where(
           (appointment) =>
               staffIds.isEmpty || staffIds.contains(appointment.staffId),
@@ -121,10 +177,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
             )
             .toList();
 
-    final List<Shift> shifts = data.shifts
-        .where(
-          (shift) => widget.salonId == null || shift.salonId == widget.salonId,
-        )
+    final List<Shift> shifts = relevantShifts
         .where((shift) => staffIds.isEmpty || staffIds.contains(shift.staffId))
         .where(
           (shift) =>
@@ -135,11 +188,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         shifts
             .where((shift) => _isWeekdayVisible(shift.start.weekday))
             .toList();
-    final List<StaffAbsence> absences = data.staffAbsences
-        .where(
-          (absence) =>
-              widget.salonId == null || absence.salonId == widget.salonId,
-        )
+    final List<StaffAbsence> absences = relevantAbsencesAll
         .where(
           (absence) => staffIds.isEmpty || staffIds.contains(absence.staffId),
         )
@@ -190,6 +239,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                       anchorDate: rangeStart,
                       scope: _scope,
                       appointments: filteredAppointments,
+                      allAppointments: allSalonAppointments,
                       staff: visibleStaff,
                       clients: clients,
                       services: services,
@@ -198,18 +248,21 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                       roles: data.staffRoles,
                       schedule: selectedSalon?.schedule,
                       roomsById: roomsById,
+                      salonsById: salonsById,
                       visibleWeekdays: _visibleWeekdays,
+                      lockedAppointmentReasons: lockedAppointmentReasons,
+                      anomalies: anomalies,
                       statusColor: (status) => _colorForStatus(context, status),
                       onReschedule:
                           _isRescheduling ? (_) async {} : _onReschedule,
                       onEdit:
-                          (appointment) => _openAppointmentForm(
+                          (appointment) => _handleEditAppointment(
                             context,
+                            appointment,
                             salons: salons,
                             clients: clients,
                             staff: staffMembers,
                             services: services,
-                            existing: appointment,
                           ),
                       onCreate:
                           (selection) => _onSlotSelected(
@@ -229,14 +282,17 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                       data: data,
                       rangeStart: rangeStart,
                       rangeEnd: rangeEnd,
+                      lockedReasons: lockedAppointmentReasons,
+                      anomalies: anomalies,
+                      attentionAppointments: attentionAppointments,
                       onEdit:
-                          (appointment) => _openAppointmentForm(
+                          (appointment) => _handleEditAppointment(
                             context,
+                            appointment,
                             salons: salons,
                             clients: clients,
                             staff: staffMembers,
                             services: services,
-                            existing: appointment,
                           ),
                     ),
           ),
@@ -641,11 +697,59 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     );
   }
 
+  void _handleEditAppointment(
+    BuildContext context,
+    Appointment appointment, {
+    required List<Salon> salons,
+    required List<Client> clients,
+    required List<StaffMember> staff,
+    required List<Service> services,
+  }) {
+    final now = DateTime.now();
+    final restriction = _modificationRestrictionReason(appointment, now);
+    if (restriction != null) {
+      _showAppointmentDetails(
+        context,
+        appointment,
+        salons: salons,
+        clients: clients,
+        staff: staff,
+        services: services,
+        infoMessage: restriction,
+      );
+      return;
+    }
+    _openAppointmentForm(
+      context,
+      salons: salons,
+      clients: clients,
+      staff: staff,
+      services: services,
+      existing: appointment,
+    );
+  }
+
   Future<void> _onReschedule(AppointmentRescheduleRequest request) async {
     final appointment = request.appointment;
     final newStaffId = request.newStaffId ?? appointment.staffId;
     final newRoomId = request.newRoomId ?? appointment.roomId;
+    final messenger = ScaffoldMessenger.of(context);
     if (!mounted || _isRescheduling) {
+      return;
+    }
+    final now = DateTime.now();
+    final restriction = _modificationRestrictionReason(appointment, now);
+    if (restriction != null) {
+      final data = ref.read(appDataProvider);
+      _showAppointmentDetails(
+        context,
+        appointment,
+        salons: data.salons,
+        clients: data.clients,
+        staff: data.staff,
+        services: data.services,
+        infoMessage: restriction,
+      );
       return;
     }
     if (appointment.start == request.newStart &&
@@ -661,6 +765,89 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       end: request.newEnd,
       roomId: newRoomId,
     );
+
+    final data = ref.read(appDataProvider);
+    final existingAppointments = data.appointments;
+    final hasStaffConflict = hasStaffBookingConflict(
+      appointments: existingAppointments,
+      staffId: updated.staffId,
+      start: updated.start,
+      end: updated.end,
+      excludeAppointmentId: updated.id,
+    );
+    if (hasStaffConflict) {
+      if (mounted) {
+        setState(() => _isRescheduling = false);
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Impossibile spostare: operatore già occupato in quel periodo',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+    final hasClientConflict = hasClientBookingConflict(
+      appointments: existingAppointments,
+      clientId: updated.clientId,
+      start: updated.start,
+      end: updated.end,
+      excludeAppointmentId: updated.id,
+    );
+    if (hasClientConflict) {
+      if (mounted) {
+        setState(() => _isRescheduling = false);
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Impossibile spostare: il cliente ha già un appuntamento in quel periodo',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+    final allServices = data.services;
+    final allSalons = data.salons;
+    final service = allServices.firstWhereOrNull(
+      (item) => item.id == updated.serviceId,
+    );
+    if (service == null) {
+      if (mounted) {
+        setState(() => _isRescheduling = false);
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Servizio non valido.')),
+        );
+      }
+      return;
+    }
+    final salon = allSalons.firstWhereOrNull(
+      (item) => item.id == updated.salonId,
+    );
+    final equipmentCheck = EquipmentAvailabilityChecker.check(
+      salon: salon,
+      service: service,
+      allServices: allServices,
+      appointments: existingAppointments,
+      start: updated.start,
+      end: updated.end,
+      excludeAppointmentId: updated.id,
+    );
+    if (equipmentCheck.hasConflicts) {
+      if (mounted) {
+        final equipmentLabel = equipmentCheck.blockingEquipment.join(', ');
+        final message =
+            equipmentLabel.isEmpty
+                ? 'Macchinario non disponibile per questo orario.'
+                : 'Macchinario non disponibile per questo orario: $equipmentLabel.';
+        setState(() => _isRescheduling = false);
+        messenger.showSnackBar(
+          SnackBar(content: Text('$message Scegli un altro slot.')),
+        );
+      }
+      return;
+    }
     try {
       await ref.read(appDataProvider.notifier).upsertAppointment(updated);
       if (!mounted) {
@@ -670,12 +857,16 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         'dd MMM HH:mm',
         'it_IT',
       ).format(request.newStart);
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(content: Text('Appuntamento spostato a $label.')),
       );
+    } on StateError catch (error) {
+      if (mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(error.message)));
+      }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(content: Text('Errore durante lo spostamento: $error')),
         );
       }
@@ -683,6 +874,117 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       if (mounted) {
         setState(() => _isRescheduling = false);
       }
+    }
+  }
+
+  Future<void> _showAppointmentDetails(
+    BuildContext context,
+    Appointment appointment, {
+    required List<Salon> salons,
+    required List<Client> clients,
+    required List<StaffMember> staff,
+    required List<Service> services,
+    String? infoMessage,
+  }) {
+    final client = clients.firstWhereOrNull(
+      (item) => item.id == appointment.clientId,
+    );
+    final staffMember = staff.firstWhereOrNull(
+      (item) => item.id == appointment.staffId,
+    );
+    final service = services.firstWhereOrNull(
+      (item) => item.id == appointment.serviceId,
+    );
+    final salon = salons.firstWhereOrNull(
+      (item) => item.id == appointment.salonId,
+    );
+    final dateLabel = DateFormat(
+      'EEEE dd MMMM yyyy HH:mm',
+      'it_IT',
+    ).format(appointment.start);
+    final endLabel = DateFormat(
+      'EEEE dd MMMM yyyy HH:mm',
+      'it_IT',
+    ).format(appointment.end);
+
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        final body = <Widget>[
+          _buildAppointmentDetailRow('Cliente', client?.fullName ?? 'Cliente'),
+          _buildAppointmentDetailRow('Servizio', service?.name ?? 'Servizio'),
+          _buildAppointmentDetailRow(
+            'Operatore',
+            staffMember?.fullName ?? 'Staff',
+          ),
+          if (salon != null) _buildAppointmentDetailRow('Salone', salon.name),
+          _buildAppointmentDetailRow('Inizio', dateLabel),
+          _buildAppointmentDetailRow('Fine', endLabel),
+          _buildAppointmentDetailRow('Stato', _statusLabel(appointment.status)),
+          if (appointment.notes != null && appointment.notes!.isNotEmpty)
+            _buildAppointmentDetailRow('Note', appointment.notes!),
+        ];
+
+        return AlertDialog(
+          title: const Text('Dettagli appuntamento'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (infoMessage != null) ...[
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(infoMessage, style: theme.textTheme.bodyMedium),
+                  ),
+                ],
+                ...body,
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Chiudi'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildAppointmentDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 2),
+          Text(value),
+        ],
+      ),
+    );
+  }
+
+  String _statusLabel(AppointmentStatus status) {
+    switch (status) {
+      case AppointmentStatus.scheduled:
+        return 'Programmato';
+      case AppointmentStatus.confirmed:
+        return 'Confermato';
+      case AppointmentStatus.completed:
+        return 'Completato';
+      case AppointmentStatus.cancelled:
+        return 'Annullato';
+      case AppointmentStatus.noShow:
+        return 'No show';
     }
   }
 
@@ -774,6 +1076,124 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     return base.subtract(Duration(days: weekday - DateTime.monday));
   }
 
+  Map<String, Set<AppointmentAnomalyType>> _detectAppointmentAnomalies({
+    required List<Appointment> appointments,
+    required List<Shift> shifts,
+    required List<StaffAbsence> absences,
+    required DateTime now,
+  }) {
+    if (appointments.isEmpty) {
+      return <String, Set<AppointmentAnomalyType>>{};
+    }
+
+    final shiftsByStaff = groupBy<Shift, String>(
+      shifts,
+      (shift) => shift.staffId,
+    );
+    final absencesByStaff = groupBy<StaffAbsence, String>(
+      absences,
+      (absence) => absence.staffId,
+    );
+
+    final Map<String, Set<AppointmentAnomalyType>> result = {};
+
+    for (final appointment in appointments) {
+      final isLocked = _modificationRestrictionReason(appointment, now) != null;
+      if (isLocked) {
+        continue;
+      }
+      final issues = <AppointmentAnomalyType>{};
+
+      final staffShifts = shiftsByStaff[appointment.staffId] ?? const [];
+      final coveringShift = staffShifts.firstWhereOrNull(
+        (shift) =>
+            !shift.start.isAfter(appointment.start) &&
+            !shift.end.isBefore(appointment.end),
+      );
+      if (coveringShift == null) {
+        issues.add(AppointmentAnomalyType.noShift);
+      } else if (_overlapsBreak(appointment, coveringShift)) {
+        issues
+          ..add(AppointmentAnomalyType.breakOverlap)
+          ..add(AppointmentAnomalyType.noShift);
+      }
+
+      final staffAbsences = absencesByStaff[appointment.staffId] ?? const [];
+      final hasAbsenceOverlap = staffAbsences.any(
+        (absence) => _rangesOverlap(
+          appointment.start,
+          appointment.end,
+          absence.start,
+          absence.end,
+        ),
+      );
+      if (hasAbsenceOverlap) {
+        issues
+          ..add(AppointmentAnomalyType.absenceOverlap)
+          ..add(AppointmentAnomalyType.noShift);
+      }
+
+      final hasOutdatedStatus =
+          appointment.end.isBefore(now) &&
+          (appointment.status == AppointmentStatus.scheduled ||
+              appointment.status == AppointmentStatus.confirmed);
+      if (hasOutdatedStatus) {
+        issues.add(AppointmentAnomalyType.outdatedStatus);
+      }
+
+      if (issues.isNotEmpty) {
+        result[appointment.id] = issues;
+      }
+    }
+
+    return result;
+  }
+
+  static bool _overlapsBreak(Appointment appointment, Shift shift) {
+    final breakStart = shift.breakStart;
+    final breakEnd = shift.breakEnd;
+    if (breakStart == null || breakEnd == null) {
+      return false;
+    }
+    return _rangesOverlap(
+      appointment.start,
+      appointment.end,
+      breakStart,
+      breakEnd,
+    );
+  }
+
+  static bool _rangesOverlap(
+    DateTime start,
+    DateTime end,
+    DateTime otherStart,
+    DateTime otherEnd,
+  ) {
+    return _dateRangesOverlap(start, end, otherStart, otherEnd);
+  }
+
+  String? _modificationRestrictionReason(
+    Appointment appointment,
+    DateTime now,
+  ) {
+    final today = DateUtils.dateOnly(now);
+    final appointmentDay = DateUtils.dateOnly(appointment.start);
+    if (!appointmentDay.isBefore(today)) {
+      return null;
+    }
+    switch (appointment.status) {
+      case AppointmentStatus.completed:
+        return 'Appuntamento completato: non è possibile modificarlo.';
+      case AppointmentStatus.cancelled:
+        return 'Appuntamento annullato: non è possibile modificarlo.';
+      case AppointmentStatus.noShow:
+        return 'Appuntamento segnato come no show: non è possibile modificarlo.';
+      case AppointmentStatus.scheduled:
+      case AppointmentStatus.confirmed:
+        return null;
+    }
+  }
+
   Color _colorForStatus(BuildContext context, AppointmentStatus status) {
     final scheme = Theme.of(context).colorScheme;
     switch (status) {
@@ -841,6 +1261,9 @@ class _ListAppointmentsView extends StatelessWidget {
     required this.data,
     required this.rangeStart,
     required this.rangeEnd,
+    required this.lockedReasons,
+    required this.anomalies,
+    required this.attentionAppointments,
     required this.onEdit,
   });
 
@@ -848,11 +1271,14 @@ class _ListAppointmentsView extends StatelessWidget {
   final AppDataState data;
   final DateTime rangeStart;
   final DateTime rangeEnd;
+  final Map<String, String> lockedReasons;
+  final Map<String, Set<AppointmentAnomalyType>> anomalies;
+  final List<Appointment> attentionAppointments;
   final ValueChanged<Appointment> onEdit;
 
   @override
   Widget build(BuildContext context) {
-    if (appointments.isEmpty) {
+    if (appointments.isEmpty && attentionAppointments.isEmpty) {
       return const Center(
         child: Text('Nessun appuntamento pianificato per questo periodo.'),
       );
@@ -864,54 +1290,102 @@ class _ListAppointmentsView extends StatelessWidget {
     );
     final orderedDates = grouped.keys.toList()..sort((a, b) => a.compareTo(b));
     final dateFormat = DateFormat('EEEE dd MMMM', 'it_IT');
+    final items = <Widget>[];
+    if (attentionAppointments.isNotEmpty) {
+      items.add(
+        _AttentionAppointmentsCard(
+          appointments: attentionAppointments,
+          data: data,
+          anomalies: anomalies,
+          lockedReasons: lockedReasons,
+          onEdit: onEdit,
+        ),
+      );
+    }
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children:
-          orderedDates
-              .map(
-                (day) => Card(
-                  margin: const EdgeInsets.only(bottom: 16),
-                  child: ExpansionTile(
-                    initiallyExpanded: DateUtils.isSameDay(day, DateTime.now()),
-                    title: Text(
-                      dateFormat.format(day),
-                      style: Theme.of(context).textTheme.titleMedium,
+    items.addAll(
+      orderedDates.map((day) {
+        final entries = grouped[day] ?? const <Appointment>[];
+        if (entries.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        return Card(
+          margin: const EdgeInsets.only(bottom: 16),
+          child: ExpansionTile(
+            initiallyExpanded: DateUtils.isSameDay(day, DateTime.now()),
+            title: Text(
+              dateFormat.format(day),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            children:
+                entries.map((appointment) {
+                  final issues =
+                      anomalies[appointment.id] ??
+                      const <AppointmentAnomalyType>{};
+                  final hasIssues = issues.isNotEmpty;
+                  final List<AppointmentAnomalyType> issueSummary =
+                      hasIssues
+                          ? (issues.toList()
+                            ..sort((a, b) => a.index.compareTo(b.index)))
+                          : const <AppointmentAnomalyType>[];
+                  final attentionLine =
+                      hasIssues
+                          ? 'Attenzione: ${issueSummary.map((issue) => issue.label).join(', ')}'
+                          : null;
+                  final subtitleLines = <String>[
+                    _buildSubtitle(appointment, data),
+                  ];
+                  if (attentionLine != null) {
+                    subtitleLines.add(attentionLine);
+                  }
+                  final lockReason = lockedReasons[appointment.id];
+                  if (lockReason != null) {
+                    subtitleLines.add(lockReason);
+                  }
+                  final theme = Theme.of(context);
+                  final iconData =
+                      hasIssues
+                          ? AppointmentAnomalyType.noShift.icon
+                          : lockReason != null
+                          ? Icons.lock_rounded
+                          : Icons.spa_rounded;
+                  final iconColor =
+                      hasIssues
+                          ? theme.colorScheme.error
+                          : lockReason != null
+                          ? theme.colorScheme.outline
+                          : theme.colorScheme.primary;
+                  return ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
                     ),
-                    children:
-                        grouped[day]!
-                            .map(
-                              (appointment) => ListTile(
-                                leading: Icon(
-                                  Icons.spa_rounded,
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
-                                title: Text(_buildTitle(appointment, data)),
-                                subtitle: Text(
-                                  _buildSubtitle(appointment, data),
-                                ),
-                                trailing: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      '${_AppointmentsModuleState._timeLabel.format(appointment.start)} - ${_AppointmentsModuleState._timeLabel.format(appointment.end)}',
-                                    ),
-                                    const SizedBox(height: 4),
-                                    _StatusPill(status: appointment.status),
-                                  ],
-                                ),
-                                onTap: () => onEdit(appointment),
-                              ),
-                            )
-                            .toList(),
-                  ),
-                ),
-              )
-              .toList(),
+                    leading: Icon(iconData, color: iconColor),
+                    title: Text(_buildTitle(appointment, data)),
+                    subtitle: Text(subtitleLines.join('\n')),
+                    trailing: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          '${_AppointmentsModuleState._timeLabel.format(appointment.start)} - ${_AppointmentsModuleState._timeLabel.format(appointment.end)}',
+                        ),
+                        const SizedBox(height: 4),
+                        _StatusPill(status: appointment.status),
+                      ],
+                    ),
+                    onTap: () => onEdit(appointment),
+                  );
+                }).toList(),
+          ),
+        );
+      }),
     );
+
+    return ListView(padding: const EdgeInsets.all(16), children: items);
   }
 
-  String _buildTitle(Appointment appointment, AppDataState data) {
+  static String _buildTitle(Appointment appointment, AppDataState data) {
     final client =
         data.clients
             .firstWhereOrNull((client) => client.id == appointment.clientId)
@@ -925,7 +1399,7 @@ class _ListAppointmentsView extends StatelessWidget {
     return '$client • $service';
   }
 
-  String _buildSubtitle(Appointment appointment, AppDataState data) {
+  static String _buildSubtitle(Appointment appointment, AppDataState data) {
     final staff =
         data.staff
             .firstWhereOrNull((member) => member.id == appointment.staffId)
@@ -948,6 +1422,106 @@ class _ListAppointmentsView extends StatelessWidget {
   }
 }
 
+class _AttentionAppointmentsCard extends StatelessWidget {
+  const _AttentionAppointmentsCard({
+    required this.appointments,
+    required this.data,
+    required this.anomalies,
+    required this.lockedReasons,
+    required this.onEdit,
+  });
+
+  final List<Appointment> appointments;
+  final AppDataState data;
+  final Map<String, Set<AppointmentAnomalyType>> anomalies;
+  final Map<String, String> lockedReasons;
+  final ValueChanged<Appointment> onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final sorted =
+        appointments.toList()..sort((a, b) => a.start.compareTo(b.start));
+    final attentionTiles =
+        ListTile.divideTiles(
+          context: context,
+          tiles: sorted.map((appointment) {
+            final issues =
+                anomalies[appointment.id] ?? const <AppointmentAnomalyType>{};
+            final issueList =
+                issues.toList()..sort((a, b) => a.index.compareTo(b.index));
+            final issueDescriptions =
+                issueList.map((issue) => issue.description).toList();
+            final dateLabel = DateFormat(
+              'dd MMM yyyy',
+              'it_IT',
+            ).format(appointment.start);
+            final timeLabel =
+                '${_AppointmentsModuleState._timeLabel.format(appointment.start)} - ${_AppointmentsModuleState._timeLabel.format(appointment.end)}';
+            final subtitleLines =
+                <String>[
+                  _ListAppointmentsView._buildSubtitle(appointment, data),
+                  ...issueDescriptions,
+                  if (lockedReasons.containsKey(appointment.id))
+                    lockedReasons[appointment.id]!,
+                ].where((line) => line.trim().isNotEmpty).toList();
+            final subtitleText = subtitleLines.join('\n');
+            return ListTile(
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 12,
+              ),
+              leading: Icon(
+                AppointmentAnomalyType.noShift.icon,
+                color: theme.colorScheme.error,
+              ),
+              title: Text(_ListAppointmentsView._buildTitle(appointment, data)),
+              subtitle: Text(subtitleText),
+              trailing: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(dateLabel),
+                  const SizedBox(height: 4),
+                  Text(timeLabel),
+                ],
+              ),
+              onTap: () => onEdit(appointment),
+            );
+          }),
+        ).toList();
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Row(
+              children: [
+                Icon(
+                  AppointmentAnomalyType.noShift.icon,
+                  color: theme.colorScheme.error,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Appuntamenti da gestire (${sorted.length})',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (attentionTiles.isNotEmpty) const Divider(height: 1),
+          ...attentionTiles,
+        ],
+      ),
+    );
+  }
+}
+
 Future<void> _openForm(
   BuildContext context,
   WidgetRef ref, {
@@ -961,8 +1535,9 @@ Future<void> _openForm(
   DateTime? initialEnd,
   String? initialStaffId,
 }) async {
+  final messenger = ScaffoldMessenger.of(context);
   if (salons.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    messenger.showSnackBar(
       const SnackBar(
         content: Text('Crea un salone prima di pianificare appuntamenti.'),
       ),
@@ -985,19 +1560,19 @@ Future<void> _openForm(
         ),
   );
   if (result != null) {
-    final existingAppointments = ref.read(appDataProvider).appointments;
-    final hasOverlap = existingAppointments.any((appointment) {
-      if (appointment.id == result.id) {
-        return false;
-      }
-      if (appointment.staffId != result.staffId) {
-        return false;
-      }
-      return appointment.start.isBefore(result.end) &&
-          appointment.end.isAfter(result.start);
-    });
-    if (hasOverlap) {
-      ScaffoldMessenger.of(context).showSnackBar(
+    final data = ref.read(appDataProvider);
+    final existingAppointments = data.appointments;
+    final allServices = data.services.isNotEmpty ? data.services : services;
+    final allSalons = data.salons.isNotEmpty ? data.salons : salons;
+    final hasStaffConflict = hasStaffBookingConflict(
+      appointments: existingAppointments,
+      staffId: result.staffId,
+      start: result.start,
+      end: result.end,
+      excludeAppointmentId: result.id,
+    );
+    if (hasStaffConflict) {
+      messenger.showSnackBar(
         const SnackBar(
           content: Text(
             'Impossibile salvare: operatore già occupato in quel periodo',
@@ -1006,7 +1581,66 @@ Future<void> _openForm(
       );
       return;
     }
-    await ref.read(appDataProvider.notifier).upsertAppointment(result);
+    final hasClientConflict = hasClientBookingConflict(
+      appointments: existingAppointments,
+      clientId: result.clientId,
+      start: result.start,
+      end: result.end,
+      excludeAppointmentId: result.id,
+    );
+    if (hasClientConflict) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Impossibile salvare: il cliente ha già un appuntamento in quel periodo',
+          ),
+        ),
+      );
+      return;
+    }
+    final service = allServices.firstWhereOrNull(
+      (item) => item.id == result.serviceId,
+    );
+    if (service == null) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Servizio non valido.')),
+      );
+      return;
+    }
+    final salon = allSalons.firstWhereOrNull(
+      (item) => item.id == result.salonId,
+    );
+    final equipmentCheck = EquipmentAvailabilityChecker.check(
+      salon: salon,
+      service: service,
+      allServices: allServices,
+      appointments: existingAppointments,
+      start: result.start,
+      end: result.end,
+      excludeAppointmentId: result.id,
+    );
+    if (equipmentCheck.hasConflicts) {
+      final equipmentLabel = equipmentCheck.blockingEquipment.join(', ');
+      final message =
+          equipmentLabel.isEmpty
+              ? 'Macchinario non disponibile per questo orario.'
+              : 'Macchinario non disponibile per questo orario: $equipmentLabel.';
+      messenger.showSnackBar(
+        SnackBar(content: Text('$message Scegli un altro slot.')),
+      );
+      return;
+    }
+    try {
+      await ref.read(appDataProvider.notifier).upsertAppointment(result);
+    } on StateError catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+      return;
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Errore durante il salvataggio: $error')),
+      );
+      return;
+    }
   }
 }
 

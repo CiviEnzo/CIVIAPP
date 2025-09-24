@@ -70,6 +70,24 @@ service cloud.firestore {
       return isClient() && currentClientId() != null && currentClientId() == clientId;
     }
 
+    function appointmentDocument(appointmentId) {
+      return get(/databases/$(database)/documents/appointments/$(appointmentId));
+    }
+
+    function appointmentSalonId(appointmentId) {
+      let doc = appointmentDocument(appointmentId);
+      return doc != null && doc.data != null && doc.data.salonId is string
+          ? doc.data.salonId
+          : null;
+    }
+
+    function appointmentClient(appointmentId) {
+      let doc = appointmentDocument(appointmentId);
+      return doc != null && doc.data != null && doc.data.clientId is string
+          ? doc.data.clientId
+          : null;
+    }
+
     function isUserInitialized() {
       return currentUserRole() != null;
     }
@@ -310,6 +328,35 @@ service cloud.firestore {
               request.resource.data.salonId is string
               ? request.resource.data.salonId
               : resourceSalonId());
+    }
+
+    match /public_appointments/{appointmentId} {
+      allow read: if isSignedIn() && resourceSalonId() != null && hasSalonAccess(resourceSalonId());
+
+      allow create, update: if isSignedIn() && requestSalonId() != null && hasSalonAccess(requestSalonId()) &&
+          appointmentSalonId(appointmentId) != null &&
+          appointmentSalonId(appointmentId) == requestSalonId() &&
+          (
+            canManageSalonDocument(requestSalonId()) ||
+            (appointmentClient(appointmentId) != null &&
+                isOwnClient(appointmentClient(appointmentId)))
+          );
+
+      allow delete: if isSignedIn() && appointmentSalonId(appointmentId) != null &&
+          hasSalonAccess(appointmentSalonId(appointmentId)) &&
+          (
+            canManageSalonDocument(appointmentSalonId(appointmentId)) ||
+            (appointmentClient(appointmentId) != null &&
+                isOwnClient(appointmentClient(appointmentId)))
+          );
+    }
+
+    match /public_staff_absences/{absenceId} {
+      allow read: if isSignedIn() && resourceSalonId() != null && hasSalonAccess(resourceSalonId());
+      allow create, update, delete: if isSignedIn() && (
+        (requestSalonId() != null && canManageSalonDocument(requestSalonId())) ||
+        (requestSalonId() == null && resourceSalonId() != null && canManageSalonDocument(resourceSalonId()))
+      );
     }
 
     match /{document=**} {

@@ -28,6 +28,7 @@ class AppDataState {
     required this.messageTemplates,
     required this.shifts,
     required this.staffAbsences,
+    required this.publicStaffAbsences,
     required this.users,
   });
 
@@ -46,6 +47,7 @@ class AppDataState {
       messageTemplates: [],
       shifts: [],
       staffAbsences: [],
+      publicStaffAbsences: [],
       users: [],
     );
   }
@@ -63,6 +65,7 @@ class AppDataState {
   final List<MessageTemplate> messageTemplates;
   final List<Shift> shifts;
   final List<StaffAbsence> staffAbsences;
+  final List<StaffAbsence> publicStaffAbsences;
   final List<AppUser> users;
 
   AppDataState copyWith({
@@ -79,6 +82,7 @@ class AppDataState {
     List<MessageTemplate>? messageTemplates,
     List<Shift>? shifts,
     List<StaffAbsence>? staffAbsences,
+    List<StaffAbsence>? publicStaffAbsences,
     List<AppUser>? users,
   }) {
     return AppDataState(
@@ -95,6 +99,7 @@ class AppDataState {
       messageTemplates: messageTemplates ?? this.messageTemplates,
       shifts: shifts ?? this.shifts,
       staffAbsences: staffAbsences ?? this.staffAbsences,
+      publicStaffAbsences: publicStaffAbsences ?? this.publicStaffAbsences,
       users: users ?? this.users,
     );
   }

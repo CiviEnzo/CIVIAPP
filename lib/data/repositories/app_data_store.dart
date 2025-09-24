@@ -4,6 +4,7 @@ import 'package:civiapp/data/mappers/firestore_mappers.dart';
 import 'package:civiapp/data/mock_data.dart';
 import 'package:civiapp/data/models/app_user.dart';
 import 'package:civiapp/data/repositories/app_data_state.dart';
+import 'package:civiapp/domain/availability/appointment_conflicts.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/cash_flow_entry.dart';
 import 'package:civiapp/domain/entities/client.dart';
@@ -50,12 +51,16 @@ class AppDataStore extends StateNotifier<AppDataState> {
               messageTemplates: List.unmodifiable(MockData.messageTemplates),
               shifts: List.unmodifiable(MockData.shifts),
               staffAbsences: List.unmodifiable(MockData.staffAbsences),
+              publicStaffAbsences: List.unmodifiable(
+                MockData.publicStaffAbsences,
+              ),
               users: const [],
             ),
       ) {
     final firestore = _firestore;
     if (firestore != null && currentUser != null) {
       _subscriptions = _initializeSubscriptions(currentUser);
+      _ensurePublicMirrorsIfNeeded(currentUser);
     } else {
       _subscriptions = <StreamSubscription>[];
     }
@@ -69,6 +74,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
   late final List<StreamSubscription> _subscriptions;
   bool _onboardingSyncScheduled = false;
   bool _isSyncingOnboardingStatus = false;
+  bool _hasEnsuredPublicMirrors = false;
 
   static const int _firestoreChunkSize = 10;
   static const String _defaultStaffRoleId = 'estetista';
@@ -271,45 +277,74 @@ class AppDataStore extends StateNotifier<AppDataState> {
         _updateUsers(const <AppUser>[]);
       }
     } else if (role == UserRole.client) {
-      addAll(
-        _listenCollectionBySalonIds<StaffMember>(
-          firestore: firestore,
-          collectionPath: 'staff',
-          salonIds: salonIds,
-          fromDoc: staffFromDoc,
-          onData: (items) => state = state.copyWith(staff: items),
-        ),
-      );
+      bool hasSalonSubscriptions = false;
 
-      addAll(
-        _listenCollectionBySalonIds<Service>(
-          firestore: firestore,
-          collectionPath: 'services',
-          salonIds: salonIds,
-          fromDoc: serviceFromDoc,
-          onData: (items) => state = state.copyWith(services: items),
-        ),
-      );
+      void subscribeSalonCollections(List<String> rawSalonIds) {
+        if (hasSalonSubscriptions) {
+          return;
+        }
+        final normalizedSalonIds = rawSalonIds
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty)
+            .toSet()
+            .toList(growable: false);
+        if (normalizedSalonIds.isEmpty) {
+          return;
+        }
+        hasSalonSubscriptions = true;
+        addAll(
+          _listenCollectionBySalonIds<StaffMember>(
+            firestore: firestore,
+            collectionPath: 'staff',
+            salonIds: normalizedSalonIds,
+            fromDoc: staffFromDoc,
+            onData: (items) => state = state.copyWith(staff: items),
+          ),
+        );
 
-      addAll(
-        _listenCollectionBySalonIds<ServicePackage>(
-          firestore: firestore,
-          collectionPath: 'packages',
-          salonIds: salonIds,
-          fromDoc: packageFromDoc,
-          onData: (items) => state = state.copyWith(packages: items),
-        ),
-      );
+        addAll(
+          _listenCollectionBySalonIds<Service>(
+            firestore: firestore,
+            collectionPath: 'services',
+            salonIds: normalizedSalonIds,
+            fromDoc: serviceFromDoc,
+            onData: (items) => state = state.copyWith(services: items),
+          ),
+        );
 
-      addAll(
-        _listenCollectionBySalonIds<Shift>(
-          firestore: firestore,
-          collectionPath: 'shifts',
-          salonIds: salonIds,
-          fromDoc: shiftFromDoc,
-          onData: (items) => state = state.copyWith(shifts: items),
-        ),
-      );
+        addAll(
+          _listenCollectionBySalonIds<ServicePackage>(
+            firestore: firestore,
+            collectionPath: 'packages',
+            salonIds: normalizedSalonIds,
+            fromDoc: packageFromDoc,
+            onData: (items) => state = state.copyWith(packages: items),
+          ),
+        );
+
+        addAll(
+          _listenCollectionBySalonIds<Shift>(
+            firestore: firestore,
+            collectionPath: 'shifts',
+            salonIds: normalizedSalonIds,
+            fromDoc: shiftFromDoc,
+            onData: (items) => state = state.copyWith(shifts: items),
+          ),
+        );
+
+        addAll(
+          _listenCollectionBySalonIds<StaffAbsence>(
+            firestore: firestore,
+            collectionPath: 'public_staff_absences',
+            salonIds: normalizedSalonIds,
+            fromDoc: staffAbsenceFromDoc,
+            onData:
+                (items) => state = state.copyWith(publicStaffAbsences: items),
+          ),
+        );
+      }
+
+      subscribeSalonCollections(salonIds);
 
       final clientId = currentUser.clientId;
       if (clientId != null && clientId.isNotEmpty) {
@@ -317,24 +352,20 @@ class AppDataStore extends StateNotifier<AppDataState> {
           _listenDocument<Client>(
             firestore.collection('clients').doc(clientId),
             clientFromDoc,
-            (client) {
+            (Client? client) {
               state = state.copyWith(
                 clients:
                     client == null
                         ? const <Client>[]
                         : List.unmodifiable(<Client>[client]),
               );
+              if (!hasSalonSubscriptions && client != null) {
+                final salonId = client.salonId.trim();
+                if (salonId.isNotEmpty) {
+                  subscribeSalonCollections(<String>[salonId]);
+                }
+              }
             },
-          ),
-        );
-
-        subscriptions.add(
-          _listenCollection<Appointment>(
-            firestore
-                .collection('appointments')
-                .where('clientId', isEqualTo: clientId),
-            appointmentFromDoc,
-            (items) => state = state.copyWith(appointments: items),
           ),
         );
 
@@ -345,6 +376,16 @@ class AppDataStore extends StateNotifier<AppDataState> {
                 .where('clientId', isEqualTo: clientId),
             saleFromDoc,
             (items) => state = state.copyWith(sales: items),
+          ),
+        );
+
+        subscriptions.add(
+          _listenCollection<Appointment>(
+            firestore
+                .collection('appointments')
+                .where('clientId', isEqualTo: clientId),
+            appointmentFromDoc,
+            (items) => state = state.copyWith(appointments: items),
           ),
         );
       } else {
@@ -590,6 +631,95 @@ class AppDataStore extends StateNotifier<AppDataState> {
       chunks.add(values.sublist(index, end));
     }
     return chunks;
+  }
+
+  StaffAbsence _publicStaffAbsenceForCache(StaffAbsence absence) {
+    return StaffAbsence(
+      id: absence.id,
+      salonId: absence.salonId,
+      staffId: absence.staffId,
+      type: absence.type,
+      start: absence.start,
+      end: absence.end,
+      notes: null,
+    );
+  }
+
+  Map<String, dynamic> _publicStaffAbsenceToMap(StaffAbsence absence) {
+    return {
+      'salonId': absence.salonId,
+      'staffId': absence.staffId,
+      'type': absence.type.name,
+      'start': Timestamp.fromDate(absence.start),
+      'end': Timestamp.fromDate(absence.end),
+    };
+  }
+
+  Future<void> _syncPublicStaffAbsenceRemote(StaffAbsence absence) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      return;
+    }
+    await firestore
+        .collection('public_staff_absences')
+        .doc(absence.id)
+        .set(_publicStaffAbsenceToMap(absence));
+  }
+
+  void _ensurePublicMirrorsIfNeeded(AppUser user) {
+    if (_hasEnsuredPublicMirrors) {
+      return;
+    }
+    if (_firestore == null) {
+      return;
+    }
+    if (user.role == UserRole.client || user.role == null) {
+      return;
+    }
+    _hasEnsuredPublicMirrors = true;
+    unawaited(_backfillPublicCollections(user));
+  }
+
+  Future<void> _backfillPublicCollections(AppUser user) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      return;
+    }
+    final salonIds = _normalizedSalonIds(user);
+    if (salonIds.isEmpty) {
+      return;
+    }
+    try {
+      for (final chunk in _splitIntoChunks(salonIds)) {
+        final absencesSnapshot =
+            await firestore
+                .collection('staff_absences')
+                .where('salonId', whereIn: chunk)
+                .get();
+        if (absencesSnapshot.docs.isNotEmpty) {
+          final batch = firestore.batch();
+          for (final doc in absencesSnapshot.docs) {
+            final absence = staffAbsenceFromDoc(doc);
+            batch.set(
+              firestore.collection('public_staff_absences').doc(absence.id),
+              _publicStaffAbsenceToMap(absence),
+            );
+          }
+          await batch.commit();
+        }
+      }
+    } on FirebaseException catch (error, stackTrace) {
+      debugPrint('Failed to backfill public availability: ${error.message}');
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'AppDataStore',
+          informationCollector:
+              () => [DiagnosticsProperty<List<String>>('Salon IDs', salonIds)],
+        ),
+      );
+    }
   }
 
   StreamSubscription _listenDocument<T>(
@@ -1263,6 +1393,29 @@ class AppDataStore extends StateNotifier<AppDataState> {
     final previous = state.appointments.firstWhereOrNull(
       (item) => item.id == appointment.id,
     );
+    final now = DateTime.now();
+    if (appointment.end.isAfter(now)) {
+      final hasStaffConflict = hasStaffBookingConflict(
+        appointments: state.appointments,
+        staffId: appointment.staffId,
+        start: appointment.start,
+        end: appointment.end,
+        excludeAppointmentId: appointment.id,
+      );
+      if (hasStaffConflict) {
+        throw StateError('Operatore già occupato in quel periodo');
+      }
+      final hasClientConflict = hasClientBookingConflict(
+        appointments: state.appointments,
+        clientId: appointment.clientId,
+        start: appointment.start,
+        end: appointment.end,
+        excludeAppointmentId: appointment.id,
+      );
+      if (hasClientConflict) {
+        throw StateError('Cliente già impegnato in quel periodo');
+      }
+    }
     final shouldConsumeSession =
         appointment.packageId != null &&
         appointment.status == AppointmentStatus.completed &&
@@ -1462,6 +1615,11 @@ class AppDataStore extends StateNotifier<AppDataState> {
       return;
     }
     await firestore.collection('appointments').doc(appointmentId).delete();
+    await firestore
+        .collection('public_appointments')
+        .doc(appointmentId)
+        .delete();
+    _deleteAppointmentLocal(appointmentId);
   }
 
   Future<void> upsertInventoryItem(InventoryItem item) async {
@@ -1597,13 +1755,17 @@ class AppDataStore extends StateNotifier<AppDataState> {
   Future<void> upsertStaffAbsence(StaffAbsence absence) async {
     final firestore = _firestore;
     if (firestore == null) {
-      _upsertLocal(staffAbsences: [absence]);
+      _upsertLocal(
+        staffAbsences: [absence],
+        publicStaffAbsences: [_publicStaffAbsenceForCache(absence)],
+      );
       return;
     }
     await firestore
         .collection('staff_absences')
         .doc(absence.id)
         .set(staffAbsenceToMap(absence));
+    await _syncPublicStaffAbsenceRemote(absence);
   }
 
   Future<void> deleteStaffAbsence(String absenceId) async {
@@ -1613,6 +1775,8 @@ class AppDataStore extends StateNotifier<AppDataState> {
       return;
     }
     await firestore.collection('staff_absences').doc(absenceId).delete();
+    await firestore.collection('public_staff_absences').doc(absenceId).delete();
+    _deleteStaffAbsenceLocal(absenceId);
   }
 
   Future<void> seedWithMockDataIfEmpty() async {
@@ -1715,6 +1879,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     List<MessageTemplate>? messageTemplates,
     List<Shift>? shifts,
     List<StaffAbsence>? staffAbsences,
+    List<StaffAbsence>? publicStaffAbsences,
   }) {
     state = state.copyWith(
       salons:
@@ -1765,6 +1930,14 @@ class AppDataStore extends StateNotifier<AppDataState> {
           staffAbsences != null
               ? _merge(state.staffAbsences, staffAbsences, (e) => e.id)
               : state.staffAbsences,
+      publicStaffAbsences:
+          publicStaffAbsences != null
+              ? _merge(
+                state.publicStaffAbsences,
+                publicStaffAbsences,
+                (e) => e.id,
+              )
+              : state.publicStaffAbsences,
     );
   }
 
@@ -2083,6 +2256,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
     state = state.copyWith(
       staffAbsences: List.unmodifiable(
         state.staffAbsences.where((element) => element.id != absenceId),
+      ),
+      publicStaffAbsences: List.unmodifiable(
+        state.publicStaffAbsences.where((element) => element.id != absenceId),
       ),
     );
   }

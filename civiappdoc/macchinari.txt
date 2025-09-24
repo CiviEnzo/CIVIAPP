@@ -34,7 +34,7 @@ Gestione operativa
 
 Relazioni con macchinari e servizi
 - Ogni servizio legato a un macchinario deve essere erogabile solo nei saloni che lo possiedono.
-- Il motore di prenotazione verifica la disponibilità combinando salone, macchinari e competenze staff.
+- Il motore di prenotazione verifica la disponibilità combinando salone, disponibilità macchinari e competenze staff.
+- Programmando un appuntamento per uno  slot di tempo il macchinario non è disponibile per altri appuntamenti
 - Macchinari in manutenzione riducono automaticamente gli slot disponibili nel calendario.
-- Lo staff può operare in più saloni solo se il macchinario e le competenze coincidono nella sede assegnata.
 - Report di utilizzo macchinari per salone per pianificare acquisti o manutenzioni.

@@ -8,6 +8,7 @@ class Service {
     required this.price,
     this.description,
     this.staffRoles = const [],
+    this.requiredEquipmentIds = const [],
   });
 
   final String id;
@@ -18,6 +19,7 @@ class Service {
   final double price;
   final String? description;
   final List<String> staffRoles;
+  final List<String> requiredEquipmentIds;
 
   Service copyWith({
     String? id,
@@ -28,6 +30,7 @@ class Service {
     double? price,
     String? description,
     List<String>? staffRoles,
+    List<String>? requiredEquipmentIds,
   }) {
     return Service(
       id: id ?? this.id,
@@ -38,6 +41,7 @@ class Service {
       price: price ?? this.price,
       description: description ?? this.description,
       staffRoles: staffRoles ?? this.staffRoles,
+      requiredEquipmentIds: requiredEquipmentIds ?? this.requiredEquipmentIds,
     );
   }
 }

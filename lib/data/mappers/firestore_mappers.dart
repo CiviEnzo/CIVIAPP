@@ -18,6 +18,8 @@ Salon salonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final data = doc.data() ?? <String, dynamic>{};
   final roomsRaw = data['rooms'] as List<dynamic>? ?? const [];
   final scheduleRaw = data['schedule'] as List<dynamic>? ?? const [];
+  final equipmentRaw = data['equipment'] as List<dynamic>? ?? const [];
+  final closuresRaw = data['closures'] as List<dynamic>? ?? const [];
   return Salon(
     id: doc.id,
     name: data['name'] as String? ?? '',
@@ -25,31 +27,44 @@ Salon salonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     city: data['city'] as String? ?? '',
     phone: data['phone'] as String? ?? '',
     email: data['email'] as String? ?? '',
+    postalCode: data['postalCode'] as String?,
+    bookingLink: data['bookingLink'] as String?,
+    latitude: (data['latitude'] as num?)?.toDouble(),
+    longitude: (data['longitude'] as num?)?.toDouble(),
     description: data['description'] as String?,
+    status: _stringToSalonStatus(data['status'] as String?),
     rooms:
-        roomsRaw
-            .map(
-              (room) => SalonRoom(
-                id: (room as Map<String, dynamic>)['id'] as String? ?? '',
-                name: room['name'] as String? ?? '',
-                capacity: ((room['capacity'] as num?) ?? 0).toInt(),
-                services:
-                    (room['services'] as List<dynamic>? ?? const [])
-                        .map((service) => service.toString())
-                        .toList(),
-              ),
-            )
+        roomsRaw.map((roomRaw) {
+          final room = roomRaw as Map<String, dynamic>;
+          return SalonRoom(
+            id: room['id'] as String? ?? '',
+            name: room['name'] as String? ?? '',
+            capacity: ((room['capacity'] as num?) ?? 0).toInt(),
+            category: room['category'] as String?,
+            services:
+                (room['services'] as List<dynamic>? ?? const [])
+                    .map((service) => service.toString())
+                    .toList(),
+          );
+        }).toList(),
+    equipment:
+        equipmentRaw
+            .map(_mapToSalonEquipment)
+            .whereType<SalonEquipment>()
             .toList(),
+    closures:
+        closuresRaw.map(_mapToSalonClosure).whereType<SalonClosure>().toList(),
     schedule:
         scheduleRaw
             .map(
-              (entry) => SalonDailySchedule(
+              (entryRaw) => SalonDailySchedule(
                 weekday:
-                    (entry as Map<String, dynamic>)['weekday'] as int? ??
+                    (entryRaw as Map<String, dynamic>)['weekday'] as int? ??
                     DateTime.monday,
-                isOpen: entry['isOpen'] as bool? ?? false,
-                openMinuteOfDay: (entry['openMinuteOfDay'] as num?)?.toInt(),
-                closeMinuteOfDay: (entry['closeMinuteOfDay'] as num?)?.toInt(),
+                isOpen: entryRaw['isOpen'] as bool? ?? false,
+                openMinuteOfDay: (entryRaw['openMinuteOfDay'] as num?)?.toInt(),
+                closeMinuteOfDay:
+                    (entryRaw['closeMinuteOfDay'] as num?)?.toInt(),
               ),
             )
             .toList(),
@@ -63,7 +78,12 @@ Map<String, dynamic> salonToMap(Salon salon) {
     'city': salon.city,
     'phone': salon.phone,
     'email': salon.email,
+    'postalCode': salon.postalCode,
+    'bookingLink': salon.bookingLink,
+    'latitude': salon.latitude,
+    'longitude': salon.longitude,
     'description': salon.description,
+    'status': salon.status.name,
     'rooms':
         salon.rooms
             .map(
@@ -71,7 +91,31 @@ Map<String, dynamic> salonToMap(Salon salon) {
                 'id': room.id,
                 'name': room.name,
                 'capacity': room.capacity,
+                'category': room.category,
                 'services': room.services,
+              },
+            )
+            .toList(),
+    'equipment':
+        salon.equipment
+            .map(
+              (item) => {
+                'id': item.id,
+                'name': item.name,
+                'quantity': item.quantity,
+                'status': item.status.name,
+                'notes': item.notes,
+              },
+            )
+            .toList(),
+    'closures':
+        salon.closures
+            .map(
+              (closure) => {
+                'id': closure.id,
+                'start': Timestamp.fromDate(closure.start),
+                'end': Timestamp.fromDate(closure.end),
+                'reason': closure.reason,
               },
             )
             .toList(),
@@ -87,6 +131,82 @@ Map<String, dynamic> salonToMap(Salon salon) {
             )
             .toList(),
   };
+}
+
+SalonStatus _stringToSalonStatus(String? value) {
+  if (value == null) {
+    return SalonStatus.active;
+  }
+  final normalized = value.toLowerCase();
+  return SalonStatus.values.firstWhere(
+    (status) => status.name.toLowerCase() == normalized,
+    orElse: () => SalonStatus.active,
+  );
+}
+
+SalonEquipmentStatus _stringToEquipmentStatus(String? value) {
+  if (value == null) {
+    return SalonEquipmentStatus.operational;
+  }
+  final normalized = value.toLowerCase();
+  return SalonEquipmentStatus.values.firstWhere(
+    (status) => status.name.toLowerCase() == normalized,
+    orElse: () => SalonEquipmentStatus.operational,
+  );
+}
+
+SalonEquipment? _mapToSalonEquipment(dynamic raw) {
+  if (raw is! Map<String, dynamic>) {
+    return null;
+  }
+  return SalonEquipment(
+    id: raw['id'] as String? ?? const Uuid().v4(),
+    name: raw['name'] as String? ?? '',
+    quantity: ((raw['quantity'] as num?) ?? 0).toInt(),
+    status: _stringToEquipmentStatus(raw['status'] as String?),
+    notes: raw['notes'] as String?,
+  );
+}
+
+SalonClosure? _mapToSalonClosure(dynamic raw) {
+  if (raw is! Map<String, dynamic>) {
+    return null;
+  }
+  final start = _coerceToDateTime(raw['start']);
+  final end = _coerceToDateTime(raw['end']) ?? start;
+  if (start == null || end == null) {
+    return null;
+  }
+  final id = raw['id'] as String? ?? const Uuid().v4();
+  final reason = raw['reason'] as String?;
+  try {
+    return SalonClosure(id: id, start: start, end: end, reason: reason);
+  } catch (_) {
+    return null;
+  }
+}
+
+DateTime? _coerceToDateTime(dynamic raw) {
+  if (raw is Timestamp) {
+    return raw.toDate();
+  }
+  if (raw is DateTime) {
+    return raw;
+  }
+  if (raw is num) {
+    final value = raw.toInt();
+    if (value > 1000000000000) {
+      return DateTime.fromMillisecondsSinceEpoch(value);
+    }
+    if (value > 1000000000) {
+      return DateTime.fromMillisecondsSinceEpoch(value * 1000);
+    }
+    return DateTime.fromMillisecondsSinceEpoch(value);
+  }
+  if (raw is String) {
+    return DateTime.tryParse(raw);
+  }
+  return null;
 }
 
 StaffMember staffFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -326,6 +446,10 @@ Service serviceFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
         (data['staffRoles'] as List<dynamic>? ?? const [])
             .map((e) => e.toString())
             .toList(),
+    requiredEquipmentIds:
+        (data['requiredEquipmentIds'] as List<dynamic>? ?? const [])
+            .map((e) => e.toString())
+            .toList(),
   );
 }
 
@@ -338,6 +462,7 @@ Map<String, dynamic> serviceToMap(Service service) {
     'price': service.price,
     'description': service.description,
     'staffRoles': service.staffRoles,
+    'requiredEquipmentIds': service.requiredEquipmentIds,
   };
 }
 

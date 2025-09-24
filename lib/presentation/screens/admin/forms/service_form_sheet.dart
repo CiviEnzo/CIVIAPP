@@ -32,6 +32,7 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
   late TextEditingController _price;
   late TextEditingController _duration;
   List<String> _roles = [];
+  List<String> _requiredEquipment = [];
   String? _salonId;
 
   @override
@@ -48,10 +49,12 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
     _roles = List<String>.from(initial?.staffRoles ?? []);
     final availableRoleIds = widget.roles.map((role) => role.id).toSet();
     _roles.retainWhere(availableRoleIds.contains);
+    _requiredEquipment = List<String>.from(initial?.requiredEquipmentIds ?? []);
     _salonId =
         initial?.salonId ??
         widget.defaultSalonId ??
         (widget.salons.isNotEmpty ? widget.salons.first.id : null);
+    _retainValidEquipment();
   }
 
   @override
@@ -64,6 +67,22 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
     super.dispose();
   }
 
+  List<SalonEquipment> _equipmentForSalon(String? salonId) {
+    if (salonId == null) {
+      return const <SalonEquipment>[];
+    }
+    return widget.salons
+            .firstWhereOrNull((salon) => salon.id == salonId)
+            ?.equipment ??
+        const <SalonEquipment>[];
+  }
+
+  void _retainValidEquipment() {
+    final availableIds =
+        _equipmentForSalon(_salonId).map((equipment) => equipment.id).toSet();
+    _requiredEquipment.retainWhere(availableIds.contains);
+  }
+
   @override
   Widget build(BuildContext context) {
     final sortedRoles = widget.roles.sorted((a, b) {
@@ -74,6 +93,7 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
       return a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
     });
     final hasRoles = sortedRoles.isNotEmpty;
+    final equipmentOptions = _equipmentForSalon(_salonId);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Form(
@@ -114,7 +134,11 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
                         ),
                       )
                       .toList(),
-              onChanged: (value) => setState(() => _salonId = value),
+              onChanged:
+                  (value) => setState(() {
+                    _salonId = value;
+                    _retainValidEquipment();
+                  }),
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -173,6 +197,49 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
                 ),
               ),
             const SizedBox(height: 24),
+            Text(
+              'Macchinari richiesti',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            if (equipmentOptions.isEmpty)
+              Card(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                child: const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text(
+                    'Nessun macchinario configurato per il salone selezionato. Aggiungili dalla sezione Saloni.',
+                  ),
+                ),
+              )
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children:
+                    equipmentOptions
+                        .map(
+                          (equipment) => FilterChip(
+                            label: Text(equipment.name),
+                            selected: _requiredEquipment.contains(equipment.id),
+                            onSelected: (selected) {
+                              setState(() {
+                                if (selected) {
+                                  if (!_requiredEquipment.contains(
+                                    equipment.id,
+                                  )) {
+                                    _requiredEquipment.add(equipment.id);
+                                  }
+                                } else {
+                                  _requiredEquipment.remove(equipment.id);
+                                }
+                              });
+                            },
+                          ),
+                        )
+                        .toList(),
+              ),
+            const SizedBox(height: 24),
             Align(
               alignment: Alignment.centerRight,
               child: FilledButton(
@@ -207,7 +274,8 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
       price: double.tryParse(_price.text.replaceAll(',', '.')) ?? 0,
       description:
           _description.text.trim().isEmpty ? null : _description.text.trim(),
-      staffRoles: _roles,
+      staffRoles: List<String>.unmodifiable(_roles),
+      requiredEquipmentIds: List<String>.unmodifiable(_requiredEquipment),
     );
 
     Navigator.of(context).pop(service);

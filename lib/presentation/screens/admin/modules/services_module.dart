@@ -58,6 +58,7 @@ class ServicesModule extends ConsumerWidget {
           else
             _ServicesList(
               services: services,
+              salons: salons,
               onEdit:
                   (service) => _openServiceForm(
                     context,
@@ -207,9 +208,14 @@ class _SectionHeader extends StatelessWidget {
 }
 
 class _ServicesList extends StatelessWidget {
-  const _ServicesList({required this.services, required this.onEdit});
+  const _ServicesList({
+    required this.services,
+    required this.salons,
+    required this.onEdit,
+  });
 
   final List<Service> services;
+  final List<Salon> salons;
   final ValueChanged<Service> onEdit;
 
   @override
@@ -222,6 +228,19 @@ class _ServicesList extends StatelessWidget {
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
         final service = services[index];
+        final salon = salons.firstWhereOrNull(
+          (item) => item.id == service.salonId,
+        );
+        final equipmentNames =
+            service.requiredEquipmentIds
+                .map(
+                  (id) =>
+                      salon?.equipment
+                          .firstWhereOrNull((eq) => eq.id == id)
+                          ?.name ??
+                      id,
+                )
+                .toList();
         return Card(
           child: ListTile(
             title: Text(service.name),
@@ -248,6 +267,25 @@ class _ServicesList extends StatelessWidget {
                     ),
                   ],
                 ),
+                if (equipmentNames.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children:
+                        equipmentNames
+                            .map(
+                              (name) => Chip(
+                                avatar: const Icon(
+                                  Icons.precision_manufacturing_rounded,
+                                  size: 18,
+                                ),
+                                label: Text(name),
+                              ),
+                            )
+                            .toList(),
+                  ),
+                ],
               ],
             ),
             trailing: IconButton(

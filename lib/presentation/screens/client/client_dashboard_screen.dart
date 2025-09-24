@@ -42,6 +42,82 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     );
   }
 
+  Future<void> _rescheduleAppointment(
+    Client client,
+    Appointment appointment,
+  ) async {
+    final updated = await ClientBookingSheet.show(
+      context,
+      client: client,
+      existingAppointment: appointment,
+    );
+    if (!mounted || updated == null) {
+      return;
+    }
+    final format = DateFormat('dd MMMM yyyy HH:mm', 'it_IT');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Appuntamento aggiornato al ${format.format(updated.start)}.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _cancelAppointment(Appointment appointment) async {
+    final format = DateFormat('dd MMMM yyyy HH:mm', 'it_IT');
+    final appointmentLabel = format.format(appointment.start);
+    final shouldCancel = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Annulla appuntamento'),
+          content: Text(
+            'Vuoi annullare l\'appuntamento del $appointmentLabel?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('No'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Sì, annulla'),
+            ),
+          ],
+        );
+      },
+    );
+    if (shouldCancel != true) {
+      return;
+    }
+    try {
+      await ref
+          .read(appDataProvider.notifier)
+          .upsertAppointment(
+            appointment.copyWith(status: AppointmentStatus.cancelled),
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Appuntamento del $appointmentLabel annullato.'),
+        ),
+      );
+    } on StateError catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Errore durante l\'annullamento. Riprova.'),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final data = ref.watch(appDataProvider);
@@ -95,13 +171,24 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
             .where((appointment) => appointment.clientId == currentClient.id)
             .toList()
           ..sort((a, b) => b.start.compareTo(a.start));
+    final now = DateTime.now();
     final upcoming =
         appointments
-            .where((appointment) => appointment.start.isAfter(DateTime.now()))
+            .where(
+              (appointment) =>
+                  appointment.start.isAfter(now) &&
+                  appointment.status != AppointmentStatus.cancelled &&
+                  appointment.status != AppointmentStatus.noShow,
+            )
             .toList();
     final history =
         appointments
-            .where((appointment) => appointment.start.isBefore(DateTime.now()))
+            .where(
+              (appointment) =>
+                  appointment.start.isBefore(now) ||
+                  appointment.status == AppointmentStatus.cancelled ||
+                  appointment.status == AppointmentStatus.noShow,
+            )
             .toList();
 
     final salonServices =
@@ -188,7 +275,12 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
             )
           else
             ...upcoming.map(
-              (appointment) => _AppointmentCard(appointment: appointment),
+              (appointment) => _AppointmentCard(
+                appointment: appointment,
+                onReschedule:
+                    () => _rescheduleAppointment(currentClient, appointment),
+                onCancel: () => _cancelAppointment(appointment),
+              ),
             ),
           const SizedBox(height: 24),
           Text('Storico', style: Theme.of(context).textTheme.titleLarge),
@@ -256,9 +348,15 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
 }
 
 class _AppointmentCard extends ConsumerWidget {
-  const _AppointmentCard({required this.appointment});
+  const _AppointmentCard({
+    required this.appointment,
+    this.onReschedule,
+    this.onCancel,
+  });
 
   final Appointment appointment;
+  final VoidCallback? onReschedule;
+  final VoidCallback? onCancel;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -273,6 +371,53 @@ class _AppointmentCard extends ConsumerWidget {
       'dd/MM/yyyy HH:mm',
       'it_IT',
     ).format(appointment.start);
+    final actionsAvailable = onReschedule != null || onCancel != null;
+    final statusChip = _statusChip(context, appointment.status);
+    final trailing =
+        actionsAvailable
+            ? Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                statusChip,
+                const SizedBox(height: 4),
+                PopupMenuButton<_AppointmentAction>(
+                  tooltip: 'Azioni appuntamento',
+                  onSelected: (action) {
+                    switch (action) {
+                      case _AppointmentAction.reschedule:
+                        onReschedule?.call();
+                        break;
+                      case _AppointmentAction.cancel:
+                        onCancel?.call();
+                        break;
+                    }
+                  },
+                  itemBuilder: (menuContext) {
+                    final items = <PopupMenuEntry<_AppointmentAction>>[];
+                    if (onReschedule != null) {
+                      items.add(
+                        const PopupMenuItem<_AppointmentAction>(
+                          value: _AppointmentAction.reschedule,
+                          child: Text('Modifica'),
+                        ),
+                      );
+                    }
+                    if (onCancel != null) {
+                      items.add(
+                        const PopupMenuItem<_AppointmentAction>(
+                          value: _AppointmentAction.cancel,
+                          child: Text('Annulla'),
+                        ),
+                      );
+                    }
+                    return items;
+                  },
+                  icon: const Icon(Icons.more_vert_rounded),
+                ),
+              ],
+            )
+            : statusChip;
     return Card(
       child: ListTile(
         leading: const Icon(Icons.spa_rounded),
@@ -280,7 +425,7 @@ class _AppointmentCard extends ConsumerWidget {
         subtitle: Text(
           '$date\nOperatore: ${staff?.fullName ?? 'Da assegnare'}',
         ),
-        trailing: _statusChip(context, appointment.status),
+        trailing: trailing,
       ),
     );
   }
@@ -316,6 +461,8 @@ class _AppointmentCard extends ConsumerWidget {
     }
   }
 }
+
+enum _AppointmentAction { reschedule, cancel }
 
 class _ServicesCarousel extends StatelessWidget {
   const _ServicesCarousel({required this.services, required this.onBook});
@@ -516,34 +663,26 @@ class _ClientPackageGroup extends StatelessWidget {
                         const SizedBox(height: 4),
                         Column(
                           children:
-                              purchase.deposits
-                                  .map(
-                                    (deposit) {
-                                      final subtitleBuffer = StringBuffer(
-                                        '${DateFormat('dd/MM/yyyy HH:mm').format(deposit.date)} • ${_paymentMethodLabel(deposit.paymentMethod)}',
-                                      );
-                                      if (deposit.note != null &&
-                                          deposit.note!.isNotEmpty) {
-                                        subtitleBuffer
-                                          ..write('\n')
-                                          ..write(deposit.note);
-                                      }
-                                      return ListTile(
-                                        contentPadding: EdgeInsets.zero,
-                                        dense: true,
-                                        leading: const Icon(
-                                          Icons.receipt_long_rounded,
-                                        ),
-                                        title: Text(
-                                          currency.format(deposit.amount),
-                                        ),
-                                        subtitle: Text(
-                                          subtitleBuffer.toString(),
-                                        ),
-                                      );
-                                    },
-                                  )
-                                  .toList(),
+                              purchase.deposits.map((deposit) {
+                                final subtitleBuffer = StringBuffer(
+                                  '${DateFormat('dd/MM/yyyy HH:mm').format(deposit.date)} • ${_paymentMethodLabel(deposit.paymentMethod)}',
+                                );
+                                if (deposit.note != null &&
+                                    deposit.note!.isNotEmpty) {
+                                  subtitleBuffer
+                                    ..write('\n')
+                                    ..write(deposit.note);
+                                }
+                                return ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  dense: true,
+                                  leading: const Icon(
+                                    Icons.receipt_long_rounded,
+                                  ),
+                                  title: Text(currency.format(deposit.amount)),
+                                  subtitle: Text(subtitleBuffer.toString()),
+                                );
+                              }).toList(),
                         ),
                       ],
                     ],

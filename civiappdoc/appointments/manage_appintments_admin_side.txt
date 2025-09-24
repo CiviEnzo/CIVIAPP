@@ -1,0 +1,55 @@
+GESTIONE appuntamento LATO ADMIN
+
+Come admin voglio visualizzare e  gestire eventualie anomalie.
+
+Tipo tipo di anomalia 1 :
+
+- Inserisco un appuntamento in un orario in cui non è presente il turno dello staff, notificare che c'è l' anomalia ma chiedere se si vuole proseguire
+Proseguendo segnalare quell' appuntamento come "Da gestire"
+L' inserimento, modifica e drag & drop seguono le stesse regole
+
+Gli slot occupati da permessi, ferie, malattie, pause sono da considerare come senza turno, e quindi da gestire come anomalia
+
+Tipo di anomalia 2:
+
+- Se sono già presenti appuntamenti in orari in cui non è presente il turno dello staff
+Segnalare quell' appuntamento come "Da gestire"
+Modifica e Drag & drop segueno le stesse regole
+
+Tipo di anomalia 3:
+
+- un appuntamento che si trova in una data passata in stato "Programmato" e/o "Confermato" è da segnalare come "Da gestire"
+
+
+VISUALIZZAZIONE APPUNTAMENTI "Da Gestire"
+
+Nel calendario degli appuntamenti
+- Visualizzazione Calendario
+    La card dell' appuntamento appuntamento viene evidenziato con un icona di avviso
+
+
+- Visualizzaizone Lista
+    -Nella lista degli appuntamenti vedo gli elementi da gestire evidenziati  con un icona di avviso
+    -Nuova lista degli elementi di tutti gli appuntamenti "Da gestire" in una nuova card, questa card è sempre visibile indipendetemente dalla data selezionata
+
+
+Altre funzionalità
+
+Modifica e Cancellazione appuntamento :
+
+ Posso sempre cancellare e/o modificare un appuntamento quando  - L' appuntamento si trova  nella data odierna o futura
+     - La modfica di appuntamenti futuri non deve permettere di impostare lo Stato in "Completato"
+
+Posso cancellare e/o modificare un appuntamento  passato quando: 
+
+ -  Lo stato  è diverso da "Completato" "Annullato" "No show"
+
+    
+
+Lo spostamento tramite drag & drop segue le regole della modifica
+
+al click di un appuntamento bloccato voglio vedere il dettaglio
+
+un appuntamento passato che è bloccato non rappresenta un anomalia da gestire
+
+

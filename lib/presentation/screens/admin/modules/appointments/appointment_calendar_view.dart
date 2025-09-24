@@ -1,5 +1,7 @@
 import 'dart:math';
 
+import 'package:civiapp/domain/availability/appointment_conflicts.dart';
+import 'package:civiapp/domain/availability/equipment_availability.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/salon.dart';
@@ -8,6 +10,7 @@ import 'package:civiapp/domain/entities/shift.dart';
 import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/domain/entities/staff_role.dart';
+import 'package:civiapp/presentation/screens/admin/modules/appointments/appointment_anomaly.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -56,6 +59,7 @@ class AppointmentCalendarView extends StatefulWidget {
     required this.anchorDate,
     required this.scope,
     required this.appointments,
+    required this.allAppointments,
     required this.staff,
     required this.clients,
     required this.services,
@@ -65,15 +69,19 @@ class AppointmentCalendarView extends StatefulWidget {
     this.schedule,
     required this.visibleWeekdays,
     required this.roomsById,
+    required this.salonsById,
+    required this.lockedAppointmentReasons,
     required this.onReschedule,
     required this.onEdit,
     required this.onCreate,
+    required this.anomalies,
     required this.statusColor,
   });
 
   final DateTime anchorDate;
   final AppointmentCalendarScope scope;
   final List<Appointment> appointments;
+  final List<Appointment> allAppointments;
   final List<StaffMember> staff;
   final List<StaffRole> roles;
   final List<Client> clients;
@@ -83,9 +91,12 @@ class AppointmentCalendarView extends StatefulWidget {
   final List<SalonDailySchedule>? schedule;
   final Set<int> visibleWeekdays;
   final Map<String, String> roomsById;
+  final Map<String, Salon> salonsById;
+  final Map<String, String> lockedAppointmentReasons;
   final AppointmentRescheduleCallback onReschedule;
   final AppointmentTapCallback onEdit;
   final AppointmentSlotSelectionCallback onCreate;
+  final Map<String, Set<AppointmentAnomalyType>> anomalies;
   final Color Function(AppointmentStatus status) statusColor;
 
   @override
@@ -160,6 +171,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
         return _DaySchedule(
           anchorDate: widget.anchorDate,
           appointments: widget.appointments,
+          allAppointments: widget.allAppointments,
           shifts: widget.shifts,
           absences: widget.absences,
           schedule: widget.schedule,
@@ -169,9 +181,12 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           servicesById: servicesById,
           roomsById: widget.roomsById,
           statusColor: widget.statusColor,
+          salonsById: widget.salonsById,
+          lockedAppointmentReasons: widget.lockedAppointmentReasons,
           onReschedule: widget.onReschedule,
           onEdit: widget.onEdit,
           onCreate: widget.onCreate,
+          anomalies: widget.anomalies,
           horizontalHeaderController: _horizontalHeaderController,
           horizontalBodyController: _horizontalBodyController,
           verticalController: _verticalController,
@@ -180,6 +195,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
         return _WeekSchedule(
           anchorDate: widget.anchorDate,
           appointments: widget.appointments,
+          allAppointments: widget.allAppointments,
           shifts: widget.shifts,
           absences: widget.absences,
           schedule: widget.schedule,
@@ -190,9 +206,12 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           servicesById: servicesById,
           roomsById: widget.roomsById,
           statusColor: widget.statusColor,
+          salonsById: widget.salonsById,
+          lockedAppointmentReasons: widget.lockedAppointmentReasons,
           onReschedule: widget.onReschedule,
           onEdit: widget.onEdit,
           onCreate: widget.onCreate,
+          anomalies: widget.anomalies,
           horizontalHeaderController: _horizontalHeaderController,
           horizontalBodyController: _horizontalBodyController,
           verticalController: _verticalController,
@@ -205,6 +224,7 @@ class _DaySchedule extends StatelessWidget {
   const _DaySchedule({
     required this.anchorDate,
     required this.appointments,
+    required this.allAppointments,
     required this.shifts,
     required this.absences,
     required this.schedule,
@@ -214,9 +234,12 @@ class _DaySchedule extends StatelessWidget {
     required this.servicesById,
     required this.roomsById,
     required this.statusColor,
+    required this.salonsById,
+    required this.lockedAppointmentReasons,
     required this.onReschedule,
     required this.onEdit,
     required this.onCreate,
+    required this.anomalies,
     required this.horizontalHeaderController,
     required this.horizontalBodyController,
     required this.verticalController,
@@ -224,6 +247,7 @@ class _DaySchedule extends StatelessWidget {
 
   final DateTime anchorDate;
   final List<Appointment> appointments;
+  final List<Appointment> allAppointments;
   final List<Shift> shifts;
   final List<StaffAbsence> absences;
   final List<SalonDailySchedule>? schedule;
@@ -232,10 +256,13 @@ class _DaySchedule extends StatelessWidget {
   final Map<String, Client> clientsById;
   final Map<String, Service> servicesById;
   final Map<String, String> roomsById;
+  final Map<String, Salon> salonsById;
+  final Map<String, String> lockedAppointmentReasons;
   final Color Function(AppointmentStatus status) statusColor;
   final AppointmentRescheduleCallback onReschedule;
   final AppointmentTapCallback onEdit;
   final AppointmentSlotSelectionCallback onCreate;
+  final Map<String, Set<AppointmentAnomalyType>> anomalies;
   final ScrollController horizontalHeaderController;
   final ScrollController horizontalBodyController;
   final ScrollController verticalController;
@@ -308,7 +335,7 @@ class _DaySchedule extends StatelessWidget {
     final slotCount = max(1, (totalMinutes / _slotMinutes).ceil());
     final gridHeight = slotCount * _slotExtent;
     final timeSlots = List.generate(
-      slotCount + 1,
+      slotCount,
       (index) => bounds.start.add(Duration(minutes: index * _slotMinutes)),
     );
 
@@ -435,15 +462,14 @@ class _DaySchedule extends StatelessWidget {
                             ),
                           ),
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: List.generate(slotCount, (index) {
                               final slotTime = timeSlots[index];
-                              final showLabel = slotTime.minute == 0;
-                              final label =
-                                  showLabel ? timeFormat.format(slotTime) : '';
+                              final label = timeFormat.format(slotTime);
                               return SizedBox(
                                 height: _slotExtent,
-                                child: Center(
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
                                   child: Text(
                                     label,
                                     style: theme.textTheme.bodySmall,
@@ -534,10 +560,15 @@ class _DaySchedule extends StatelessWidget {
                                       clientsById: clientsById,
                                       servicesById: servicesById,
                                       roomsById: roomsById,
+                                      salonsById: salonsById,
+                                      allAppointments: allAppointments,
                                       statusColor: statusColor,
+                                      lockedAppointmentReasons:
+                                          lockedAppointmentReasons,
                                       onReschedule: onReschedule,
                                       onEdit: onEdit,
                                       onCreate: onCreate,
+                                      anomalies: anomalies,
                                       openStart: openingStart,
                                       openEnd: closingEnd,
                                     ),
@@ -593,15 +624,19 @@ class _DaySchedule extends StatelessWidget {
       latest = _maxDate(latest, end);
     }
 
-    DateTime fallbackStart = dayStart.add(const Duration(hours: 8));
-    if (openingStart != null) {
-      final candidate = openingStart.subtract(const Duration(minutes: 30));
-      fallbackStart = candidate.isBefore(dayStart) ? dayStart : candidate;
+    DateTime fallbackStart =
+        openingStart != null && openingStart.isAfter(dayStart)
+            ? openingStart
+            : dayStart.add(const Duration(hours: 8));
+    if (fallbackStart.isBefore(dayStart)) {
+      fallbackStart = dayStart;
     }
-    DateTime fallbackEnd = dayStart.add(const Duration(hours: 20));
-    if (closingEnd != null) {
-      final candidate = closingEnd.add(const Duration(minutes: 30));
-      fallbackEnd = candidate.isAfter(dayEnd) ? dayEnd : candidate;
+    DateTime fallbackEnd =
+        closingEnd != null && closingEnd.isBefore(dayEnd)
+            ? closingEnd
+            : dayStart.add(const Duration(hours: 20));
+    if (fallbackEnd.isAfter(dayEnd)) {
+      fallbackEnd = dayEnd;
     }
 
     var start = earliest ?? fallbackStart;
@@ -618,8 +653,8 @@ class _DaySchedule extends StatelessWidget {
       end = start.add(const Duration(hours: 1));
     }
 
-    start = _floorToSlot(start.subtract(const Duration(minutes: 15)));
-    end = _ceilToSlot(end.add(const Duration(minutes: 15)));
+    start = _floorToSlot(start);
+    end = _ceilToSlot(end);
 
     return _TimelineBounds(start: start, end: end);
   }
@@ -629,6 +664,7 @@ class _WeekSchedule extends StatelessWidget {
   const _WeekSchedule({
     required this.anchorDate,
     required this.appointments,
+    required this.allAppointments,
     required this.shifts,
     required this.absences,
     required this.schedule,
@@ -639,16 +675,20 @@ class _WeekSchedule extends StatelessWidget {
     required this.servicesById,
     required this.roomsById,
     required this.statusColor,
+    required this.salonsById,
+    required this.lockedAppointmentReasons,
     required this.onReschedule,
     required this.onEdit,
     required this.onCreate,
     required this.horizontalHeaderController,
     required this.horizontalBodyController,
     required this.verticalController,
+    required this.anomalies,
   });
 
   final DateTime anchorDate;
   final List<Appointment> appointments;
+  final List<Appointment> allAppointments;
   final List<Shift> shifts;
   final List<StaffAbsence> absences;
   final List<SalonDailySchedule>? schedule;
@@ -658,6 +698,8 @@ class _WeekSchedule extends StatelessWidget {
   final Map<String, Client> clientsById;
   final Map<String, Service> servicesById;
   final Map<String, String> roomsById;
+  final Map<String, Salon> salonsById;
+  final Map<String, String> lockedAppointmentReasons;
   final Color Function(AppointmentStatus status) statusColor;
   final AppointmentRescheduleCallback onReschedule;
   final AppointmentTapCallback onEdit;
@@ -665,6 +707,7 @@ class _WeekSchedule extends StatelessWidget {
   final ScrollController horizontalHeaderController;
   final ScrollController horizontalBodyController;
   final ScrollController verticalController;
+  final Map<String, Set<AppointmentAnomalyType>> anomalies;
 
   static const _slotMinutes = _AppointmentCalendarViewState._slotMinutes;
   static const _slotExtent = _AppointmentCalendarViewState._slotExtent;
@@ -804,7 +847,7 @@ class _WeekSchedule extends StatelessWidget {
       Duration(minutes: minMinute),
     );
     final timeSlots = List.generate(
-      slotCount + 1,
+      slotCount,
       (index) =>
           referenceTimelineStart.add(Duration(minutes: index * _slotMinutes)),
     );
@@ -1066,10 +1109,15 @@ class _WeekSchedule extends StatelessWidget {
                                           clientsById: clientsById,
                                           servicesById: servicesById,
                                           roomsById: roomsById,
+                                          salonsById: salonsById,
+                                          allAppointments: allAppointments,
                                           statusColor: statusColor,
                                           onReschedule: onReschedule,
                                           onEdit: onEdit,
                                           onCreate: onCreate,
+                                          anomalies: anomalies,
+                                          lockedAppointmentReasons:
+                                              lockedAppointmentReasons,
                                           openStart:
                                               dayData[dayIndex].openStart,
                                           openEnd: dayData[dayIndex].openEnd,
@@ -1137,6 +1185,7 @@ class _StaffDayColumn extends StatefulWidget {
   const _StaffDayColumn({
     required this.staffMember,
     required this.appointments,
+    required this.allAppointments,
     required this.shifts,
     required this.absences,
     required this.timelineStart,
@@ -1146,16 +1195,20 @@ class _StaffDayColumn extends StatefulWidget {
     required this.clientsById,
     required this.servicesById,
     required this.roomsById,
+    required this.salonsById,
     required this.statusColor,
+    required this.lockedAppointmentReasons,
     required this.onReschedule,
     required this.onEdit,
     required this.onCreate,
+    required this.anomalies,
     this.openStart,
     this.openEnd,
   });
 
   final StaffMember staffMember;
   final List<Appointment> appointments;
+  final List<Appointment> allAppointments;
   final List<Shift> shifts;
   final List<StaffAbsence> absences;
   final DateTime timelineStart;
@@ -1165,10 +1218,13 @@ class _StaffDayColumn extends StatefulWidget {
   final Map<String, Client> clientsById;
   final Map<String, Service> servicesById;
   final Map<String, String> roomsById;
+  final Map<String, Salon> salonsById;
   final Color Function(AppointmentStatus status) statusColor;
+  final Map<String, String> lockedAppointmentReasons;
   final AppointmentRescheduleCallback onReschedule;
   final AppointmentTapCallback onEdit;
   final AppointmentSlotSelectionCallback onCreate;
+  final Map<String, Set<AppointmentAnomalyType>> anomalies;
   final DateTime? openStart;
   final DateTime? openEnd;
 
@@ -1183,6 +1239,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
   Duration? _dragPreviewDuration;
   bool _dragPreviewHasConflict = false;
   bool _isDragging = false;
+  Appointment? _dragPreviewAppointment;
 
   double get _totalMinutes =>
       widget.timelineEnd.difference(widget.timelineStart).inMinutes.toDouble();
@@ -1195,6 +1252,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
           _dragPreviewStart = null;
           _dragPreviewDuration = null;
           _dragPreviewHasConflict = false;
+          _dragPreviewAppointment = null;
         } else {
           _hoverStart = null;
         }
@@ -1272,17 +1330,68 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
     );
   }
 
-  bool _hasOverlap(
+  String? _slotConflictMessage(
     DateTime start,
     DateTime end,
     Appointment movingAppointment,
+    StaffMember targetStaff,
   ) {
-    return widget.appointments.any((appointment) {
-      if (appointment.id == movingAppointment.id) {
-        return false;
+    final service = widget.servicesById[movingAppointment.serviceId];
+    if (service != null && service.staffRoles.isNotEmpty) {
+      final allowed = service.staffRoles.contains(targetStaff.roleId);
+      if (!allowed) {
+        return 'L\'operatore selezionato non può erogare il servizio scelto. Scegli un altro operatore.';
       }
-      return appointment.start.isBefore(end) && appointment.end.isAfter(start);
-    });
+    }
+
+    final hasStaffOverlap = hasStaffBookingConflict(
+      appointments: widget.allAppointments,
+      staffId: targetStaff.id,
+      start: start,
+      end: end,
+      excludeAppointmentId: movingAppointment.id,
+    );
+    if (hasStaffOverlap) {
+      return 'Impossibile riprogrammare: operatore già occupato in quel periodo';
+    }
+
+    final hasClientOverlap = hasClientBookingConflict(
+      appointments: widget.allAppointments,
+      clientId: movingAppointment.clientId,
+      start: start,
+      end: end,
+      excludeAppointmentId: movingAppointment.id,
+    );
+    if (hasClientOverlap) {
+      return 'Impossibile riprogrammare: il cliente ha già un appuntamento in quel periodo';
+    }
+
+    if (service == null || service.requiredEquipmentIds.isEmpty) {
+      return null;
+    }
+    final salon = widget.salonsById[movingAppointment.salonId];
+    if (salon == null) {
+      return null;
+    }
+
+    final result = EquipmentAvailabilityChecker.check(
+      salon: salon,
+      service: service,
+      allServices: widget.servicesById.values,
+      appointments: widget.allAppointments,
+      start: start,
+      end: end,
+      excludeAppointmentId: movingAppointment.id,
+    );
+    if (!result.hasConflicts) {
+      return null;
+    }
+    final equipmentLabel = result.blockingEquipment.join(', ');
+    final baseMessage =
+        equipmentLabel.isEmpty
+            ? 'Macchinario non disponibile per questo orario.'
+            : 'Macchinario non disponibile per questo orario: $equipmentLabel.';
+    return '$baseMessage Scegli un altro slot.';
   }
 
   @override
@@ -1327,8 +1436,9 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
 
     final dragStart = _dragPreviewStart;
     final dragDuration = _dragPreviewDuration;
+    final dragAppointment = _dragPreviewAppointment;
     Widget? dragOverlay;
-    if (dragStart != null && dragDuration != null) {
+    if (dragStart != null && dragDuration != null && dragAppointment != null) {
       final dragEnd = dragStart.add(dragDuration);
       final segment = _segmentWithinTimeline(
         dragStart,
@@ -1347,24 +1457,37 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
               widget.slotMinutes *
               widget.slotExtent,
         );
-        final fillColor =
-            _dragPreviewHasConflict
-                ? theme.colorScheme.error.withValues(alpha: 0.08)
-                : theme.colorScheme.primary.withValues(alpha: 0.12);
-        final outlineColor =
-            _dragPreviewHasConflict
-                ? theme.colorScheme.error.withValues(alpha: 0.45)
-                : theme.colorScheme.primary.withValues(alpha: 0.35);
+        final previewed = dragAppointment.copyWith(
+          start: dragStart,
+          end: dragEnd,
+        );
+        final anomalies =
+            widget.anomalies[dragAppointment.id] ??
+            const <AppointmentAnomalyType>{};
+        final roomName =
+            previewed.roomId != null
+                ? widget.roomsById[previewed.roomId!]
+                : null;
         dragOverlay = Positioned(
           top: top,
           left: 0,
           right: 0,
-          child: Container(
+          child: SizedBox(
             height: height,
-            decoration: BoxDecoration(
-              color: fillColor,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: outlineColor, width: 2),
+            child: Opacity(
+              opacity: _dragPreviewHasConflict ? 0.65 : 1,
+              child: _AppointmentCard(
+                appointment: previewed,
+                client: widget.clientsById[previewed.clientId],
+                service: widget.servicesById[previewed.serviceId],
+                staff: widget.staffMember,
+                roomName: roomName,
+                statusColor: widget.statusColor,
+                height: height,
+                anomalies: anomalies,
+                lockReason: null,
+                highlight: true,
+              ),
             ),
           ),
         );
@@ -1459,18 +1582,23 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
               Duration(minutes: clampedMinutes),
             );
             final previewEnd = previewStart.add(payload.duration);
-            final hasConflict = _hasOverlap(
-              previewStart,
-              previewEnd,
-              payload.appointment,
-            );
+            final hasConflict =
+                _slotConflictMessage(
+                  previewStart,
+                  previewEnd,
+                  payload.appointment,
+                  widget.staffMember,
+                ) !=
+                null;
             if (_dragPreviewStart != previewStart ||
                 _dragPreviewDuration != payload.duration ||
-                _dragPreviewHasConflict != hasConflict) {
+                _dragPreviewHasConflict != hasConflict ||
+                _dragPreviewAppointment != payload.appointment) {
               setState(() {
                 _dragPreviewStart = previewStart;
                 _dragPreviewDuration = payload.duration;
                 _dragPreviewHasConflict = hasConflict;
+                _dragPreviewAppointment = payload.appointment;
               });
             }
           },
@@ -1690,6 +1818,32 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                         appointment.roomId != null
                             ? widget.roomsById[appointment.roomId!]
                             : null;
+                    final issues =
+                        widget.anomalies[appointment.id] ??
+                        const <AppointmentAnomalyType>{};
+                    final lockReason =
+                        widget.lockedAppointmentReasons[appointment.id];
+                    final isLocked = lockReason != null;
+                    final card = _AppointmentCard(
+                      appointment: appointment,
+                      client: client,
+                      service: service,
+                      staff: widget.staffMember,
+                      roomName: roomName,
+                      statusColor: widget.statusColor,
+                      onTap: () => widget.onEdit(appointment),
+                      height: height,
+                      anomalies: issues,
+                      lockReason: lockReason,
+                    );
+                    if (isLocked) {
+                      return Positioned(
+                        top: top,
+                        left: 4,
+                        right: 4,
+                        child: card,
+                      );
+                    }
                     return Positioned(
                       top: top,
                       left: 4,
@@ -1702,15 +1856,18 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                         onDragEnd: (_) => _setDragging(false),
                         onDraggableCanceled: (_, __) => _setDragging(false),
                         feedback: _DragFeedback(
-                          child: _AppointmentCard(
+                          child: _DragPreviewCard(
                             appointment: appointment,
                             client: client,
                             service: service,
                             staff: widget.staffMember,
                             roomName: roomName,
                             statusColor: widget.statusColor,
-                            isPreview: true,
                             height: height,
+                            anomalies: issues,
+                            previewStart: _dragPreviewStart,
+                            previewDuration: _dragPreviewDuration,
+                            slotMinutes: widget.slotMinutes,
                           ),
                         ),
                         childWhenDragging: Opacity(
@@ -1723,18 +1880,11 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                             roomName: roomName,
                             statusColor: widget.statusColor,
                             height: height,
+                            anomalies: issues,
+                            lockReason: lockReason,
                           ),
                         ),
-                        child: _AppointmentCard(
-                          appointment: appointment,
-                          client: client,
-                          service: service,
-                          staff: widget.staffMember,
-                          roomName: roomName,
-                          statusColor: widget.statusColor,
-                          onTap: () => widget.onEdit(appointment),
-                          height: height,
-                        ),
+                        child: card,
                       ),
                     );
                   }),
@@ -1804,13 +1954,17 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
             );
             final newEnd = newStart.add(payload.duration);
 
-            if (_hasOverlap(newStart, newEnd, payload.appointment)) {
+            final conflictMessage = _slotConflictMessage(
+              newStart,
+              newEnd,
+              payload.appointment,
+              widget.staffMember,
+            );
+            if (conflictMessage != null) {
               _setDragging(false);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Impossibile riprogrammare: slot già occupato'),
-                ),
-              );
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text(conflictMessage)));
               return;
             }
 
@@ -1841,7 +1995,9 @@ class _AppointmentCard extends StatelessWidget {
     required this.height,
     this.roomName,
     this.onTap,
-    this.isPreview = false,
+    this.anomalies = const <AppointmentAnomalyType>{},
+    this.lockReason,
+    this.highlight = false,
   });
 
   final Appointment appointment;
@@ -1852,7 +2008,9 @@ class _AppointmentCard extends StatelessWidget {
   final double height;
   final String? roomName;
   final VoidCallback? onTap;
-  final bool isPreview;
+  final Set<AppointmentAnomalyType> anomalies;
+  final String? lockReason;
+  final bool highlight;
 
   @override
   Widget build(BuildContext context) {
@@ -1861,6 +2019,21 @@ class _AppointmentCard extends StatelessWidget {
     final timeLabel =
         '${DateFormat('HH:mm').format(appointment.start)} - ${DateFormat('HH:mm').format(appointment.end)}';
     final color = statusColor(status);
+    final hasAnomalies = anomalies.isNotEmpty;
+    final isLocked = lockReason != null;
+    final borderColor =
+        hasAnomalies
+            ? theme.colorScheme.error.withValues(alpha: 0.6)
+            : isLocked
+            ? theme.colorScheme.outline.withValues(alpha: 0.8)
+            : color.withValues(alpha: 0.2);
+    final borderWidth = hasAnomalies || isLocked ? 1.5 : 1.0;
+    final tooltipMessage =
+        hasAnomalies
+            ? (anomalies.toList()..sort((a, b) => a.index.compareTo(b.index)))
+                .map((issue) => issue.description)
+                .join('\n')
+            : null;
     final double verticalPadding;
     if (height < 56) {
       verticalPadding = 4;
@@ -1879,14 +2052,14 @@ class _AppointmentCard extends StatelessWidget {
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
-          if (isPreview)
+          if (highlight)
             BoxShadow(
               color: theme.colorScheme.shadow.withValues(alpha: 0.25),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),
         ],
-        border: Border.all(color: color.withValues(alpha: 0.2)),
+        border: Border.all(color: borderColor, width: borderWidth),
       ),
       padding: padding,
       child: LayoutBuilder(
@@ -2033,20 +2206,53 @@ class _AppointmentCard extends StatelessWidget {
       ),
     );
 
-    if (isPreview) {
-      return Material(
-        elevation: 6,
-        borderRadius: BorderRadius.circular(12),
-        child: card,
+    final overlayWidgets = <Widget>[];
+    if (hasAnomalies) {
+      overlayWidgets.add(
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Tooltip(
+            message: tooltipMessage ?? 'Appuntamento da gestire',
+            waitDuration: const Duration(milliseconds: 250),
+            child: Icon(
+              AppointmentAnomalyType.noShift.icon,
+              color: theme.colorScheme.error,
+              size: 20,
+            ),
+          ),
+        ),
       );
     }
+    if (isLocked) {
+      overlayWidgets.add(
+        Positioned(
+          top: 8,
+          left: 8,
+          child: Tooltip(
+            message: lockReason ?? 'Appuntamento non modificabile',
+            waitDuration: const Duration(milliseconds: 250),
+            child: Icon(
+              Icons.lock_rounded,
+              color: theme.colorScheme.outline,
+              size: 18,
+            ),
+          ),
+        ),
+      );
+    }
+
+    Widget decoratedCard =
+        overlayWidgets.isEmpty
+            ? card
+            : Stack(children: [card, ...overlayWidgets]);
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
-        child: card,
+        child: decoratedCard,
       ),
     );
   }
@@ -2065,6 +2271,56 @@ class _DragFeedback extends StatelessWidget {
         constraints: const BoxConstraints(maxWidth: 240),
         child: child,
       ),
+    );
+  }
+}
+
+class _DragPreviewCard extends StatelessWidget {
+  const _DragPreviewCard({
+    required this.appointment,
+    required this.client,
+    required this.service,
+    required this.staff,
+    required this.statusColor,
+    required this.height,
+    this.roomName,
+    this.anomalies = const <AppointmentAnomalyType>{},
+    this.previewStart,
+    this.previewDuration,
+    this.slotMinutes = _AppointmentCalendarViewState._slotMinutes,
+  });
+
+  final Appointment appointment;
+  final Client? client;
+  final Service? service;
+  final StaffMember staff;
+  final Color Function(AppointmentStatus status) statusColor;
+  final double height;
+  final String? roomName;
+  final Set<AppointmentAnomalyType> anomalies;
+  final DateTime? previewStart;
+  final Duration? previewDuration;
+  final int slotMinutes;
+
+  @override
+  Widget build(BuildContext context) {
+    final start = previewStart ?? appointment.start;
+    final end =
+        previewDuration != null ? start.add(previewDuration!) : appointment.end;
+    final normalizedEnd =
+        end.isBefore(start) ? start.add(Duration(minutes: slotMinutes)) : end;
+    final previewed = appointment.copyWith(start: start, end: normalizedEnd);
+    return _AppointmentCard(
+      appointment: previewed,
+      client: client,
+      service: service,
+      staff: staff,
+      roomName: roomName,
+      statusColor: statusColor,
+      height: height,
+      anomalies: anomalies,
+      lockReason: null,
+      highlight: true,
     );
   }
 }

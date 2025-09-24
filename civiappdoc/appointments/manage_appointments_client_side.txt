@@ -1,0 +1,33 @@
+GESTIONE appuntamento LATO CLIENTE
+
+Come cliente voglio prenotare un appuntamento in un orario disponibile
+
+Un orario non è disponibile quando:
+
+
+- un orario in cui non è presente il turno dello staff, lo slot non è disponibile assenza di turno staff > non sarà visibile
+- Gli slot occupati da permessi, ferie, malattie, pause sono da considerare come senza turno, > non sarà visibile
+- Gli orari in cui il cliente ha altri appuntamenti non sono disponibili
+
+
+
+Visualizzazione Storico appuntamenti
+
+- Come cliente voglio visualizzare il mio storico appuntamenti
+
+
+
+appuntamenti futuri
+
+- Come cliente voglio vedere i miei appuntamenti futuri
+- Come cliente voglio poter modificare e eliminare un appuntamento futuro 
+
+
+
+
+    
+
+
+
+
+

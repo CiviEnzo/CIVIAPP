@@ -1,7 +1,10 @@
 import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/data/repositories/app_data_state.dart';
+import 'package:civiapp/domain/availability/appointment_conflicts.dart';
+import 'package:civiapp/domain/availability/equipment_availability.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/client.dart';
+import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/shift.dart';
 import 'package:civiapp/domain/entities/staff_absence.dart';
@@ -9,6 +12,7 @@ import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/presentation/shared/client_package_purchase.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:flutter/material.dart';
+import 'package:collection/collection.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
@@ -18,15 +22,18 @@ class ClientBookingSheet extends ConsumerStatefulWidget {
     super.key,
     required this.client,
     this.initialServiceId,
+    this.initialAppointment,
   });
 
   final Client client;
   final String? initialServiceId;
+  final Appointment? initialAppointment;
 
   static Future<Appointment?> show(
     BuildContext context, {
     required Client client,
     Service? preselectedService,
+    Appointment? existingAppointment,
   }) {
     return showAppModalSheet<Appointment>(
       context: context,
@@ -34,6 +41,7 @@ class ClientBookingSheet extends ConsumerStatefulWidget {
           (ctx) => ClientBookingSheet(
             client: client,
             initialServiceId: preselectedService?.id,
+            initialAppointment: existingAppointment,
           ),
     );
   }
@@ -58,7 +66,15 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
   @override
   void initState() {
     super.initState();
-    _selectedServiceId = widget.initialServiceId;
+    final appointment = widget.initialAppointment;
+    _selectedServiceId = widget.initialServiceId ?? appointment?.serviceId;
+    _selectedStaffId = appointment?.staffId;
+    if (appointment != null) {
+      _selectedDay = _dayFrom(appointment.start);
+      _selectedSlotStart = appointment.start;
+      _usePackageSession = appointment.packageId != null;
+      _selectedPackageId = appointment.packageId;
+    }
   }
 
   @override
@@ -105,10 +121,14 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             )
             : const <DateTime, List<_AvailableSlot>>{};
 
+    final visibleAppointments = _visibleAppointments(
+      data,
+      excludeAppointmentId: widget.initialAppointment?.id,
+    );
     final packagePurchases = resolveClientPackagePurchases(
       sales: data.sales,
       packages: data.packages,
-      appointments: data.appointments,
+      appointments: visibleAppointments,
       services: data.services,
       clientId: widget.client.id,
       salonId: widget.client.salonId,
@@ -458,9 +478,17 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     );
     final slotStart = _selectedSlotStart!;
     final slotEnd = slotStart.add(service.duration);
+    final salon = data.salons.firstWhereOrNull(
+      (item) => item.id == widget.client.salonId,
+    );
 
+    final editingAppointmentId = widget.initialAppointment?.id;
+    final allAppointments = _visibleAppointments(
+      data,
+      excludeAppointmentId: editingAppointmentId,
+    );
     final appointments =
-        data.appointments.where((existing) {
+        allAppointments.where((existing) {
           if (existing.staffId != staff.id) return false;
           if (existing.status == AppointmentStatus.cancelled ||
               existing.status == AppointmentStatus.noShow) {
@@ -488,22 +516,70 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       return;
     }
 
+    final equipmentCheck = EquipmentAvailabilityChecker.check(
+      salon: salon,
+      service: service,
+      allServices: data.services,
+      appointments: allAppointments,
+      start: slotStart,
+      end: slotEnd,
+    );
+    if (equipmentCheck.hasConflicts) {
+      final equipmentLabel = equipmentCheck.blockingEquipment.join(', ');
+      final message =
+          equipmentLabel.isEmpty
+              ? 'Macchinario non disponibile per questo orario.'
+              : 'Macchinario non disponibile per questo orario: $equipmentLabel';
+      _showError('$message. Scegli un altro orario.');
+      return;
+    }
+
+    final hasClientConflict = hasClientBookingConflict(
+      appointments: data.appointments,
+      clientId: widget.client.id,
+      start: slotStart,
+      end: slotEnd,
+      excludeAppointmentId: editingAppointmentId,
+    );
+    if (hasClientConflict) {
+      _showError(
+        'Hai già un appuntamento in questo orario. Scegli un altro slot.',
+      );
+      return;
+    }
+
     setState(() => _isSubmitting = true);
     try {
-      final appointment = Appointment(
-        id: _uuid.v4(),
-        salonId: widget.client.salonId,
-        clientId: widget.client.id,
-        staffId: staff.id,
-        serviceId: service.id,
-        start: slotStart,
-        end: slotEnd,
-        status: AppointmentStatus.scheduled,
-        packageId: _usePackageSession ? _selectedPackageId : null,
-      );
+      final packageId = _usePackageSession ? _selectedPackageId : null;
+      final existing = widget.initialAppointment;
+      final appointment =
+          existing?.copyWith(
+            staffId: staff.id,
+            serviceId: service.id,
+            start: slotStart,
+            end: slotEnd,
+            packageId: packageId,
+          ) ??
+          Appointment(
+            id: _uuid.v4(),
+            salonId: widget.client.salonId,
+            clientId: widget.client.id,
+            staffId: staff.id,
+            serviceId: service.id,
+            start: slotStart,
+            end: slotEnd,
+            status: AppointmentStatus.scheduled,
+            packageId: packageId,
+          );
       await ref.read(appDataProvider.notifier).upsertAppointment(appointment);
       if (!mounted) return;
       Navigator.of(context).pop(appointment);
+    } on StateError catch (error) {
+      if (!mounted) return;
+      _showError(error.message);
+    } catch (_) {
+      if (!mounted) return;
+      _showError('Non è stato possibile completare la prenotazione. Riprova.');
     } finally {
       if (mounted) {
         setState(() => _isSubmitting = false);
@@ -570,6 +646,40 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       now.month + 3,
       now.day,
     ).add(const Duration(days: 1));
+    final salon = data.salons.firstWhereOrNull(
+      (item) => item.id == widget.client.salonId,
+    );
+    final editingAppointmentId = widget.initialAppointment?.id;
+    final allAppointments = _visibleAppointments(
+      data,
+      excludeAppointmentId: editingAppointmentId,
+    );
+    final equipmentAvailability = _EquipmentAvailability.resolve(
+      salon: salon,
+      service: service,
+      allServices: data.services,
+      appointments: allAppointments,
+      now: now,
+      horizon: horizon,
+    );
+    if (!equipmentAvailability.canOfferService) {
+      return const <DateTime, List<_AvailableSlot>>{};
+    }
+    const slotStep = Duration(minutes: _slotIntervalMinutes);
+    final clientAppointments =
+        data.appointments.where((appointment) {
+          if (appointment.clientId != widget.client.id) {
+            return false;
+          }
+          if (editingAppointmentId != null &&
+              appointment.id == editingAppointmentId) {
+            return false;
+          }
+          if (!appointmentBlocksAvailability(appointment)) {
+            return false;
+          }
+          return appointment.end.isAfter(now);
+        }).toList();
     final relevantShifts =
         data.shifts.where((shift) {
             if (shift.staffId != staffId) return false;
@@ -581,10 +691,14 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
           ..sort((a, b) => a.start.compareTo(b.start));
 
     final busyAppointments =
-        data.appointments.where((appointment) {
+        allAppointments.where((appointment) {
           if (appointment.staffId != staffId) return false;
           if (appointment.status == AppointmentStatus.cancelled ||
               appointment.status == AppointmentStatus.noShow) {
+            return false;
+          }
+          if (editingAppointmentId != null &&
+              appointment.id == editingAppointmentId) {
             return false;
           }
           if (!appointment.end.isAfter(now)) {
@@ -594,7 +708,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
         }).toList();
 
     final busyAbsences =
-        data.staffAbsences.where((absence) {
+        _visibleStaffAbsences(data).where((absence) {
           if (absence.staffId != staffId) return false;
           if (!absence.end.isAfter(now)) return false;
           return true;
@@ -631,7 +745,24 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             break;
           }
           if (slotStart.isBefore(now)) {
-            slotStart = slotStart.add(Duration(minutes: _slotIntervalMinutes));
+            slotStart = slotStart.add(slotStep);
+            continue;
+          }
+          if (!equipmentAvailability.isSlotAvailable(
+            start: slotStart,
+            end: slotEnd,
+          )) {
+            slotStart = slotStart.add(slotStep);
+            continue;
+          }
+          final hasClientConflict = hasClientBookingConflict(
+            appointments: clientAppointments,
+            clientId: widget.client.id,
+            start: slotStart,
+            end: slotEnd,
+          );
+          if (hasClientConflict) {
+            slotStart = slotStart.add(slotStep);
             continue;
           }
           final dayKey = DateTime(
@@ -643,7 +774,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
           slots.add(
             _AvailableSlot(start: slotStart, end: slotEnd, shiftId: shift.id),
           );
-          slotStart = slotStart.add(Duration(minutes: _slotIntervalMinutes));
+          slotStart = slotStart.add(slotStep);
         }
       }
     }
@@ -719,6 +850,32 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
         .map((window) => window.trim(from: from))
         .whereType<_TimeRange>()
         .toList();
+  }
+
+  List<Appointment> _visibleAppointments(
+    AppDataState data, {
+    String? excludeAppointmentId,
+  }) {
+    final appointments = data.appointments;
+    if (excludeAppointmentId == null) {
+      return List.unmodifiable(appointments);
+    }
+    return List.unmodifiable(
+      appointments.where(
+        (appointment) => appointment.id != excludeAppointmentId,
+      ),
+    );
+  }
+
+  List<StaffAbsence> _visibleStaffAbsences(AppDataState data) {
+    final map = <String, StaffAbsence>{};
+    for (final absence in data.publicStaffAbsences) {
+      map[absence.id] = absence;
+    }
+    for (final absence in data.staffAbsences) {
+      map[absence.id] = absence;
+    }
+    return List.unmodifiable(map.values);
   }
 
   void _subtractRange(List<_TimeRange> windows, _TimeRange busy) {
@@ -827,4 +984,144 @@ class _TimeRange {
     final boundedStart = start.isBefore(from) ? from : start;
     return _TimeRange(start: boundedStart, end: end);
   }
+}
+
+class _EquipmentAvailability {
+  const _EquipmentAvailability._({
+    required this.requiredEquipmentIds,
+    required Map<String, _EquipmentInventory> inventory,
+  }) : _inventory = inventory;
+
+  final List<String> requiredEquipmentIds;
+  final Map<String, _EquipmentInventory> _inventory;
+
+  static _EquipmentAvailability resolve({
+    required Salon? salon,
+    required Service service,
+    required List<Service> allServices,
+    required List<Appointment> appointments,
+    required DateTime now,
+    required DateTime horizon,
+  }) {
+    final requiredIds = List<String>.unmodifiable(service.requiredEquipmentIds);
+    if (requiredIds.isEmpty) {
+      return _EquipmentAvailability._(
+        requiredEquipmentIds: requiredIds,
+        inventory: const <String, _EquipmentInventory>{},
+      );
+    }
+    if (salon == null) {
+      return _EquipmentAvailability._(
+        requiredEquipmentIds: requiredIds,
+        inventory: const <String, _EquipmentInventory>{},
+      );
+    }
+
+    final equipmentById = {
+      for (final equipment in salon.equipment) equipment.id: equipment,
+    };
+    final servicesById = {for (final item in allServices) item.id: item};
+
+    final busyByEquipment = <String, List<_TimeRange>>{};
+    for (final appointment in appointments) {
+      if (appointment.salonId != salon.id) continue;
+      if (!appointment.end.isAfter(now)) continue;
+      if (!appointment.start.isBefore(horizon)) continue;
+      if (appointment.status == AppointmentStatus.cancelled ||
+          appointment.status == AppointmentStatus.noShow) {
+        continue;
+      }
+
+      final appointmentService = servicesById[appointment.serviceId];
+      if (appointmentService == null ||
+          appointmentService.requiredEquipmentIds.isEmpty) {
+        continue;
+      }
+
+      final range = _TimeRange(start: appointment.start, end: appointment.end);
+      for (final equipmentId in appointmentService.requiredEquipmentIds) {
+        final entries = busyByEquipment.putIfAbsent(equipmentId, () => []);
+        entries.add(range);
+      }
+    }
+
+    for (final entries in busyByEquipment.values) {
+      entries.sort((a, b) => a.start.compareTo(b.start));
+    }
+
+    final inventory = <String, _EquipmentInventory>{};
+    for (final equipmentId in requiredIds) {
+      final equipment = equipmentById[equipmentId];
+      final capacity = _effectiveCapacity(equipment);
+      final busySlots = List<_TimeRange>.unmodifiable(
+        busyByEquipment[equipmentId] ?? const <_TimeRange>[],
+      );
+      inventory[equipmentId] = _EquipmentInventory(
+        capacity: capacity,
+        busySlots: busySlots,
+      );
+    }
+
+    return _EquipmentAvailability._(
+      requiredEquipmentIds: requiredIds,
+      inventory: inventory,
+    );
+  }
+
+  bool get canOfferService {
+    if (requiredEquipmentIds.isEmpty) {
+      return true;
+    }
+    for (final equipmentId in requiredEquipmentIds) {
+      final inventory = _inventory[equipmentId];
+      if (inventory == null || inventory.capacity <= 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool isSlotAvailable({required DateTime start, required DateTime end}) {
+    if (requiredEquipmentIds.isEmpty) {
+      return true;
+    }
+    final slotRange = _TimeRange(start: start, end: end);
+    for (final equipmentId in requiredEquipmentIds) {
+      final inventory = _inventory[equipmentId];
+      if (inventory == null || inventory.capacity <= 0) {
+        return false;
+      }
+      var overlaps = 0;
+      for (final busy in inventory.busySlots) {
+        if (!busy.overlaps(slotRange)) {
+          continue;
+        }
+        overlaps += 1;
+        if (overlaps >= inventory.capacity) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  static int _effectiveCapacity(SalonEquipment? equipment) {
+    if (equipment == null) {
+      return 0;
+    }
+    if (equipment.quantity <= 0) {
+      return 0;
+    }
+    if (equipment.status != SalonEquipmentStatus.operational) {
+      return 0;
+    }
+    return equipment.quantity;
+  }
+}
+
+class _EquipmentInventory {
+  const _EquipmentInventory({required this.capacity, required this.busySlots});
+
+  final int capacity;
+  final List<_TimeRange> busySlots;
 }
