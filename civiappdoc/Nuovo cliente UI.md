@@ -26,9 +26,12 @@ Appuntamenti passati
 
 - [ ] Pacchetti
 Poter aggiungere un nuovo pacchetto 
-Gestisci pagamento pacchetto 
+
 Visualizza:
 -Pacchetto in corso (n di sedute, tipo di servizio, costo, tipo di pagamento, inizio, scadenza)  
 -Pacchetti passati 
+
+- [] Fatturazione
+ Poter visualizzare lo storico pagamenti, Pagamenti da saldare
 
 

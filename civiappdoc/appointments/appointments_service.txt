@@ -1,0 +1,9 @@
+GESTIONE APPUNTAMENTI POST SERVIZIO
+
+Obiettivo: Come admin voglio poter definire un tempo extra (legata al servizio) che mi permette di creare uno slot in cui non è possibile prenotare altri appuntamenti.
+Esempio
+Ho un servizio di massaggio che dura 60 min. Dopo questi 60 min lo staff ha bisogno di 15 min per sistemare la cabina per la prossima cliente.
+ Dobbiamo fare in modo quando si prenota un servizio ( sia lato cliente che lato admin) se il servizio ha questa durata extra venga occupato lo slot di tempo, 
+ in modo tale che non possa essere prenotato. L’ admin avrà sempre la facoltà di eliminarlo nel calendario.
+
+

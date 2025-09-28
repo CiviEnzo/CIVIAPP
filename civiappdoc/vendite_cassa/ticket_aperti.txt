@@ -1,0 +1,11 @@
+Creazione ticket aperti
+
+PAGAMENTO DELL’ APPUNTAMENTO CONFERMATO
+
+
+Obiettivo: Quando un appuntamento passa in stato "Completato" si deve generare un “Ticket di pagamento”, 
+visibile in una nuova lista “Ticket aperti" all’ interno della sezione “Vendite & Cassa”.
+Al click di un ticket aperto si aprirà la modale di “Registra vendita”  
+con i dati già precompilati.
+
+

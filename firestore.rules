@@ -294,6 +294,21 @@ service cloud.firestore {
               : resourceSalonId());
     }
 
+    match /payment_tickets/{ticketId} {
+      allow read: if isSignedIn() && (
+        canManageSalonDocument(resourceSalonId()) ||
+        (resource != null && resource.data != null &&
+            resource.data.clientId is string &&
+            isOwnClient(resource.data.clientId))
+      );
+      allow create, update, delete: if isSignedIn() &&
+          canManageSalonDocument(request.resource != null && request.resource.data != null &&
+              request.resource.data.salonId is string
+              ? request.resource.data.salonId
+              : resourceSalonId()) &&
+          (request.method != 'update' || requestSalonId() == resourceSalonId());
+    }
+
     match /cash_flows/{entryId} {
       allow read: if isSignedIn() && canManageSalonDocument(resourceSalonId());
       allow create, update, delete: if isSignedIn() &&

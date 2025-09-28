@@ -53,3 +53,18 @@ al click di un appuntamento bloccato voglio vedere il dettaglio
 un appuntamento passato che è bloccato non rappresenta un anomalia da gestire
 
 
+
+
+NUOVO APPUNTAMENTO DA Calendario
+
+La modale di creazione utilizza ora gli stessi controlli di disponibilità della prenotazione client. Flusso consigliato:
+
+- Seleziona il salone: il filtro clienti, operatori e servizi si aggiorna di conseguenza.
+- Scegli il cliente dall'elenco; il bottone accanto permette di crearne uno nuovo al volo.
+- Scegli l'operatore: dopo la selezione, la lista servizi mostra **solo** quelli eseguibili dall'operatore (ruoli non compatibili vengono nascosti). Se cambi operatore e il servizio scelto non è più disponibile viene azzerato automaticamente.
+- Scegli il servizio: al cambio servizio la durata proposta dell'appuntamento viene aggiornata.
+- Sezione data/ora: il pulsante "Data e ora di inizio" apre prima il date picker e, per la data scelta, mostra un elenco di slot liberi calcolati in base a turni, ferie/assenze, appuntamenti già registrati e disponibilità macchinari. Basta toccare lo slot desiderato per compilare in automatico inizio/fine dell'appuntamento.
+- Se non esistono slot per la combinazione selezionata viene mostrato un messaggio e occorre scegliere un altro giorno/operatore/servizio.
+
+
+

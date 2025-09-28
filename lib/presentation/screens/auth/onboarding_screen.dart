@@ -270,7 +270,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                         style: theme.textTheme.titleMedium,
                       ),
                       const SizedBox(height: 8),
-                      if (salons.isEmpty)
+                      if (!salons.isEmpty)
                         Text(
                           'Nessun salone disponibile. Contatta un amministratore per farti invitare.',
                           style: theme.textTheme.bodyMedium,

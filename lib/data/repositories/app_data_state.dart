@@ -5,6 +5,7 @@ import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/inventory_item.dart';
 import 'package:civiapp/domain/entities/message_template.dart';
 import 'package:civiapp/domain/entities/package.dart';
+import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
@@ -22,6 +23,7 @@ class AppDataState {
     required this.services,
     required this.packages,
     required this.appointments,
+    required this.paymentTickets,
     required this.inventoryItems,
     required this.sales,
     required this.cashFlowEntries,
@@ -41,6 +43,7 @@ class AppDataState {
       services: [],
       packages: [],
       appointments: [],
+      paymentTickets: [],
       inventoryItems: [],
       sales: [],
       cashFlowEntries: [],
@@ -59,6 +62,7 @@ class AppDataState {
   final List<Service> services;
   final List<ServicePackage> packages;
   final List<Appointment> appointments;
+  final List<PaymentTicket> paymentTickets;
   final List<InventoryItem> inventoryItems;
   final List<Sale> sales;
   final List<CashFlowEntry> cashFlowEntries;
@@ -76,6 +80,7 @@ class AppDataState {
     List<Service>? services,
     List<ServicePackage>? packages,
     List<Appointment>? appointments,
+    List<PaymentTicket>? paymentTickets,
     List<InventoryItem>? inventoryItems,
     List<Sale>? sales,
     List<CashFlowEntry>? cashFlowEntries,
@@ -93,6 +98,7 @@ class AppDataState {
       services: services ?? this.services,
       packages: packages ?? this.packages,
       appointments: appointments ?? this.appointments,
+      paymentTickets: paymentTickets ?? this.paymentTickets,
       inventoryItems: inventoryItems ?? this.inventoryItems,
       sales: sales ?? this.sales,
       cashFlowEntries: cashFlowEntries ?? this.cashFlowEntries,

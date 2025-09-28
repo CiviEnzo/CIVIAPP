@@ -601,9 +601,37 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
     if (paymentStatus == PackagePaymentStatus.paid && deposits.isNotEmpty) {
       final lastDeposit = deposits.last;
       if (lastDeposit.note != 'Saldato') {
-        deposits[deposits.length - 1] =
-            lastDeposit.copyWith(note: 'Saldato');
+        deposits[deposits.length - 1] = lastDeposit.copyWith(note: 'Saldato');
       }
+    }
+
+    final salePaymentStatus =
+        paymentStatus == PackagePaymentStatus.deposit
+            ? SalePaymentStatus.deposit
+            : SalePaymentStatus.paid;
+    final salePaidAmount =
+        salePaymentStatus == SalePaymentStatus.deposit
+            ? (depositAmount ?? 0)
+            : total;
+
+    final salePaymentMovements = <SalePaymentMovement>[];
+    if (salePaidAmount > 0) {
+      final movementType =
+          salePaymentStatus == SalePaymentStatus.paid
+              ? SalePaymentType.settlement
+              : SalePaymentType.deposit;
+      salePaymentMovements.add(
+        SalePaymentMovement(
+          id: _uuid.v4(),
+          amount: salePaidAmount,
+          type: movementType,
+          date: _saleDate,
+          paymentMethod: _paymentMethod,
+          note: movementType == SalePaymentType.deposit
+              ? 'Acconto iniziale'
+              : 'Saldo iniziale',
+        ),
+      );
     }
 
     final sale = Sale(
@@ -629,6 +657,8 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
       total: total,
       createdAt: _saleDate,
       paymentMethod: _paymentMethod,
+      paymentStatus: salePaymentStatus,
+      paidAmount: salePaidAmount,
       invoiceNumber:
           _invoiceController.text.trim().isEmpty
               ? null
@@ -637,6 +667,7 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
           _notesController.text.trim().isEmpty
               ? null
               : _notesController.text.trim(),
+      paymentHistory: salePaymentMovements,
     );
 
     Navigator.of(context).pop(sale);

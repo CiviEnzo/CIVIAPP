@@ -259,8 +259,13 @@ class _ServicesList extends StatelessWidget {
                     ),
                     _InfoChip(
                       icon: Icons.timer_rounded,
-                      label: '${service.duration.inMinutes} min',
+                      label: 'Totale ${service.totalDuration.inMinutes} min',
                     ),
+                    if (service.extraDuration > Duration.zero)
+                      _InfoChip(
+                        icon: Icons.hourglass_bottom_rounded,
+                        label: '+${service.extraDuration.inMinutes} min extra',
+                      ),
                     _InfoChip(
                       icon: Icons.euro_rounded,
                       label: currency.format(service.price),

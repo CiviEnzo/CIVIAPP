@@ -31,6 +31,7 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
   late TextEditingController _description;
   late TextEditingController _price;
   late TextEditingController _duration;
+  late TextEditingController _extraDuration;
   List<String> _roles = [];
   List<String> _requiredEquipment = [];
   String? _salonId;
@@ -45,6 +46,9 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
     _price = TextEditingController(text: initial?.price.toString() ?? '0');
     _duration = TextEditingController(
       text: initial?.duration.inMinutes.toString() ?? '60',
+    );
+    _extraDuration = TextEditingController(
+      text: initial?.extraDuration.inMinutes.toString() ?? '0',
     );
     _roles = List<String>.from(initial?.staffRoles ?? []);
     final availableRoleIds = widget.roles.map((role) => role.id).toSet();
@@ -64,6 +68,7 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
     _description.dispose();
     _price.dispose();
     _duration.dispose();
+    _extraDuration.dispose();
     super.dispose();
   }
 
@@ -152,6 +157,15 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
             TextFormField(
               controller: _duration,
               decoration: const InputDecoration(labelText: 'Durata (minuti)'),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _extraDuration,
+              decoration: const InputDecoration(
+                labelText: 'Tempo extra post-servizio (minuti)',
+                helperText: 'Minuti da riservare per sistemazione o pulizia',
+              ),
               keyboardType: TextInputType.number,
             ),
             const SizedBox(height: 12),
@@ -271,6 +285,9 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
       category:
           _category.text.trim().isEmpty ? 'Generale' : _category.text.trim(),
       duration: Duration(minutes: int.tryParse(_duration.text.trim()) ?? 60),
+      extraDuration: Duration(
+        minutes: _parseNonNegativeInt(_extraDuration.text.trim()),
+      ),
       price: double.tryParse(_price.text.replaceAll(',', '.')) ?? 0,
       description:
           _description.text.trim().isEmpty ? null : _description.text.trim(),
@@ -279,5 +296,10 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
     );
 
     Navigator.of(context).pop(service);
+  }
+
+  int _parseNonNegativeInt(String value) {
+    final parsed = int.tryParse(value) ?? 0;
+    return parsed < 0 ? 0 : parsed;
   }
 }

@@ -4,6 +4,7 @@ import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/inventory_item.dart';
 import 'package:civiapp/domain/entities/message_template.dart';
 import 'package:civiapp/domain/entities/package.dart';
+import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
@@ -133,6 +134,54 @@ Map<String, dynamic> salonToMap(Salon salon) {
   };
 }
 
+PaymentTicket paymentTicketFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+  final data = doc.data() ?? <String, dynamic>{};
+  final createdAt = _coerceToDateTime(data['createdAt']) ?? DateTime.now();
+  final appointmentStart =
+      _coerceToDateTime(data['appointmentStart']) ?? createdAt;
+  final appointmentEnd =
+      _coerceToDateTime(data['appointmentEnd']) ?? appointmentStart;
+  return PaymentTicket(
+    id: doc.id,
+    salonId: data['salonId'] as String? ?? '',
+    appointmentId: data['appointmentId'] as String? ?? '',
+    clientId: data['clientId'] as String? ?? '',
+    serviceId: data['serviceId'] as String? ?? '',
+    staffId: data['staffId'] as String?,
+    appointmentStart: appointmentStart,
+    appointmentEnd: appointmentEnd,
+    createdAt: createdAt,
+    status: _stringToTicketStatus(data['status'] as String?),
+    closedAt: _coerceToDateTime(data['closedAt']),
+    saleId: data['saleId'] as String?,
+    expectedTotal: (data['expectedTotal'] as num?)?.toDouble(),
+    serviceName: data['serviceName'] as String?,
+    notes: data['notes'] as String?,
+  );
+}
+
+Map<String, dynamic> paymentTicketToMap(PaymentTicket ticket) {
+  final map = <String, dynamic>{
+    'salonId': ticket.salonId,
+    'appointmentId': ticket.appointmentId,
+    'clientId': ticket.clientId,
+    'serviceId': ticket.serviceId,
+    'staffId': ticket.staffId,
+    'appointmentStart': Timestamp.fromDate(ticket.appointmentStart),
+    'appointmentEnd': Timestamp.fromDate(ticket.appointmentEnd),
+    'createdAt': Timestamp.fromDate(ticket.createdAt),
+    'status': ticket.status.name,
+    'closedAt':
+        ticket.closedAt != null ? Timestamp.fromDate(ticket.closedAt!) : null,
+    'saleId': ticket.saleId,
+    'expectedTotal': ticket.expectedTotal,
+    'serviceName': ticket.serviceName,
+    'notes': ticket.notes,
+  };
+  map.removeWhere((_, value) => value == null);
+  return map;
+}
+
 SalonStatus _stringToSalonStatus(String? value) {
   if (value == null) {
     return SalonStatus.active;
@@ -141,6 +190,17 @@ SalonStatus _stringToSalonStatus(String? value) {
   return SalonStatus.values.firstWhere(
     (status) => status.name.toLowerCase() == normalized,
     orElse: () => SalonStatus.active,
+  );
+}
+
+PaymentTicketStatus _stringToTicketStatus(String? value) {
+  if (value == null) {
+    return PaymentTicketStatus.open;
+  }
+  final normalized = value.toLowerCase();
+  return PaymentTicketStatus.values.firstWhere(
+    (status) => status.name.toLowerCase() == normalized,
+    orElse: () => PaymentTicketStatus.open,
   );
 }
 
@@ -450,6 +510,9 @@ Service serviceFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
         (data['requiredEquipmentIds'] as List<dynamic>? ?? const [])
             .map((e) => e.toString())
             .toList(),
+    extraDuration: Duration(
+      minutes: (data['extraDurationMinutes'] as num?)?.toInt() ?? 0,
+    ),
   );
 }
 
@@ -463,6 +526,7 @@ Map<String, dynamic> serviceToMap(Service service) {
     'description': service.description,
     'staffRoles': service.staffRoles,
     'requiredEquipmentIds': service.requiredEquipmentIds,
+    'extraDurationMinutes': service.extraDuration.inMinutes,
   };
 }
 
@@ -582,6 +646,52 @@ Sale saleFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     data['paymentMethod'] as String?,
   );
   final itemsRaw = data['items'] as List<dynamic>? ?? const [];
+  final total = (data['total'] as num?)?.toDouble() ?? 0;
+  final paidAmountRaw = (data['paidAmount'] as num?)?.toDouble();
+  final storedStatus = _salePaymentStatusFromString(
+    data['paymentStatus'] as String?,
+  );
+  final paymentStatus =
+      storedStatus ??
+      (paidAmountRaw != null && (total - paidAmountRaw).abs() > 0.01
+          ? SalePaymentStatus.deposit
+          : SalePaymentStatus.paid);
+  final paidAmount =
+      paidAmountRaw ?? (paymentStatus == SalePaymentStatus.deposit ? 0 : total);
+  final paymentHistoryRaw = data['paymentHistory'] as List<dynamic>? ?? const [];
+  final paymentHistory =
+      paymentHistoryRaw
+          .map((entry) => entry as Map<String, dynamic>?)
+          .where((entry) => entry != null)
+          .map((entry) {
+            final map = entry!;
+            final movementType = _salePaymentTypeFromString(
+              map['type'] as String?,
+            );
+            if (movementType == null) {
+              return null;
+            }
+            final method = _stringToPaymentMethod(
+              map['paymentMethod'] as String?,
+            );
+            final timestamp = map['date'];
+            final date = _timestampToDate(timestamp) ?? createdAt;
+            final amountRaw = (map['amount'] as num?)?.toDouble();
+            if (amountRaw == null) {
+              return null;
+            }
+            return SalePaymentMovement(
+              id: map['id'] as String? ?? const Uuid().v4(),
+              amount: amountRaw,
+              type: movementType,
+              date: date,
+              paymentMethod: method,
+              recordedBy: map['recordedBy'] as String?,
+              note: map['note'] as String?,
+            );
+          })
+          .whereType<SalePaymentMovement>()
+          .toList();
   return Sale(
     id: doc.id,
     salonId: data['salonId'] as String? ?? '',
@@ -644,11 +754,16 @@ Sale saleFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
             ),
           );
         }).toList(),
-    total: (data['total'] as num?)?.toDouble() ?? 0,
+    total: total,
     createdAt: createdAt,
     paymentMethod: salePaymentMethod,
+    paymentStatus: paymentStatus,
+    paidAmount: paidAmount,
     invoiceNumber: data['invoiceNumber'] as String?,
     notes: data['notes'] as String?,
+    discountAmount: (data['discountAmount'] as num?)?.toDouble() ?? 0,
+    staffId: data['staffId'] as String?,
+    paymentHistory: paymentHistory,
   );
 }
 
@@ -705,8 +820,30 @@ Map<String, dynamic> saleToMap(Sale sale) {
     'total': sale.total,
     'createdAt': Timestamp.fromDate(sale.createdAt),
     'paymentMethod': sale.paymentMethod.name,
+    'paymentStatus': sale.paymentStatus.name,
+    if (sale.paymentStatus == SalePaymentStatus.deposit ||
+        (sale.paidAmount - sale.total).abs() > 0.01)
+      'paidAmount': sale.paidAmount,
     'invoiceNumber': sale.invoiceNumber,
     'notes': sale.notes,
+    if (sale.discountAmount != 0) 'discountAmount': sale.discountAmount,
+    if (sale.staffId != null) 'staffId': sale.staffId,
+    'paymentHistory':
+        sale.paymentHistory
+            .map(
+              (movement) => {
+                'id': movement.id,
+                'amount': movement.amount,
+                'type': movement.type.name,
+                'date': Timestamp.fromDate(movement.date),
+                'paymentMethod': movement.paymentMethod.name,
+                if (movement.recordedBy != null)
+                  'recordedBy': movement.recordedBy,
+                if (movement.note != null && movement.note!.isNotEmpty)
+                  'note': movement.note,
+              },
+            )
+            .toList(),
   };
 }
 
@@ -747,6 +884,28 @@ PackagePaymentStatus? _packagePaymentStatusFromString(String? value) {
       return PackagePaymentStatus.deposit;
     case 'paid':
       return PackagePaymentStatus.paid;
+    default:
+      return null;
+  }
+}
+
+SalePaymentStatus? _salePaymentStatusFromString(String? value) {
+  switch (value) {
+    case 'deposit':
+      return SalePaymentStatus.deposit;
+    case 'paid':
+      return SalePaymentStatus.paid;
+    default:
+      return null;
+  }
+}
+
+SalePaymentType? _salePaymentTypeFromString(String? value) {
+  switch (value) {
+    case 'deposit':
+      return SalePaymentType.deposit;
+    case 'settlement':
+      return SalePaymentType.settlement;
     default:
       return null;
   }

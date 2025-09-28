@@ -4,6 +4,7 @@ import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/inventory_item.dart';
 import 'package:civiapp/domain/entities/message_template.dart';
 import 'package:civiapp/domain/entities/package.dart';
+import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
@@ -288,6 +289,7 @@ class MockData {
       name: 'Trattamento Viso Rigenerante',
       category: 'Skincare',
       duration: const Duration(minutes: 60),
+      extraDuration: const Duration(minutes: 10),
       price: 75,
       description:
           'Pulizia profonda, maschera e massaggio viso personalizzato.',
@@ -300,6 +302,7 @@ class MockData {
       name: 'Massaggio Decontratturante',
       category: 'Massaggi',
       duration: const Duration(minutes: 50),
+      extraDuration: const Duration(minutes: 15),
       price: 65,
       description:
           'Massaggio mirato per alleviare tensioni muscolari e stress.',
@@ -312,6 +315,7 @@ class MockData {
       name: 'Manicure Deluxe',
       category: 'Unghie',
       duration: const Duration(minutes: 45),
+      extraDuration: const Duration(minutes: 5),
       price: 40,
       description:
           'Trattamento completo con maschera idratante e smalto semipermanente.',
@@ -324,6 +328,7 @@ class MockData {
       name: 'Percorso Spa Relax',
       category: 'Benessere',
       duration: const Duration(minutes: 90),
+      extraDuration: const Duration(minutes: 20),
       price: 95,
       description:
           'Percorso spa completo con sauna, bagno turco e massaggio aromatico.',
@@ -395,6 +400,36 @@ class MockData {
       status: AppointmentStatus.scheduled,
       roomId: 'room-3',
     ),
+    Appointment(
+      id: 'app-004',
+      salonId: 'salon-001',
+      clientId: 'client-001',
+      staffId: 'staff-002',
+      serviceId: 'srv-skincare',
+      start: _now.subtract(const Duration(hours: 3)),
+      end: _now.subtract(const Duration(hours: 2)),
+      status: AppointmentStatus.completed,
+      notes: 'Pagamento da registrare',
+      roomId: 'room-2',
+    ),
+  ];
+
+  static final paymentTickets = <PaymentTicket>[
+    PaymentTicket(
+      id: 'app-004',
+      salonId: 'salon-001',
+      appointmentId: 'app-004',
+      clientId: 'client-001',
+      serviceId: 'srv-skincare',
+      staffId: 'staff-002',
+      appointmentStart: _now.subtract(const Duration(hours: 3)),
+      appointmentEnd: _now.subtract(const Duration(hours: 2)),
+      createdAt: _now.subtract(const Duration(hours: 1, minutes: 45)),
+      status: PaymentTicketStatus.open,
+      expectedTotal: 75,
+      serviceName: 'Trattamento Viso Rigenerante',
+      notes: 'Pagamento da registrare',
+    ),
   ];
 
   static final inventoryItems = <InventoryItem>[
@@ -461,6 +496,16 @@ class MockData {
       createdAt: _now.subtract(const Duration(days: 1, hours: 3)),
       paymentMethod: PaymentMethod.pos,
       invoiceNumber: '2024-000145',
+      paymentHistory: [
+        SalePaymentMovement(
+          id: 'sale-001-move-001',
+          amount: 114,
+          type: SalePaymentType.settlement,
+          date: _now.subtract(const Duration(days: 1, hours: 3)),
+          paymentMethod: PaymentMethod.pos,
+          recordedBy: 'staff-001',
+        ),
+      ],
     ),
     Sale(
       id: 'sale-002',
@@ -479,6 +524,16 @@ class MockData {
       createdAt: _now.subtract(const Duration(days: 4)),
       paymentMethod: PaymentMethod.transfer,
       invoiceNumber: '2024-000122',
+      paymentHistory: [
+        SalePaymentMovement(
+          id: 'sale-002-move-001',
+          amount: 240,
+          type: SalePaymentType.settlement,
+          date: _now.subtract(const Duration(days: 4)),
+          paymentMethod: PaymentMethod.transfer,
+          recordedBy: 'staff-003',
+        ),
+      ],
     ),
   ];
 

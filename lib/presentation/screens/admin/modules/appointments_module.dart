@@ -45,7 +45,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   static final _timeLabel = DateFormat('HH:mm', 'it_IT');
 
   _AppointmentDisplayMode _mode = _AppointmentDisplayMode.calendar;
-  AppointmentCalendarScope _scope = AppointmentCalendarScope.day;
+  AppointmentCalendarScope _scope = AppointmentCalendarScope.week;
   late DateTime _anchorDate;
   String? _selectedStaffId;
   bool _isRescheduling = false;
@@ -403,15 +403,6 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                   ),
                 ],
                 onChanged: (value) => setState(() => _selectedStaffId = value),
-              ),
-            ),
-            OutlinedButton.icon(
-              onPressed: () => _openWeekdayFilter(context, selectedSalon),
-              icon: const Icon(Icons.filter_alt_outlined),
-              label: Text(
-                _visibleWeekdays.length == 7
-                    ? 'Tutti i giorni'
-                    : '${_visibleWeekdays.length} giorni',
               ),
             ),
           ],

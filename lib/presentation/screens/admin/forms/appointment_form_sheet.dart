@@ -1,10 +1,13 @@
 import 'package:civiapp/app/providers.dart';
+import 'package:civiapp/data/repositories/app_data_state.dart';
 import 'package:civiapp/domain/availability/appointment_conflicts.dart';
 import 'package:civiapp/domain/availability/equipment_availability.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
+import 'package:civiapp/domain/entities/shift.dart';
+import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:civiapp/presentation/shared/client_package_purchase.dart';
@@ -48,6 +51,7 @@ class AppointmentFormSheet extends ConsumerStatefulWidget {
 }
 
 class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
+  static const _slotIntervalMinutes = 15;
   final _formKey = GlobalKey<FormState>();
   final _uuid = const Uuid();
   late DateTime _start;
@@ -112,10 +116,34 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         clients
             .where((client) => _salonId == null || client.salonId == _salonId)
             .toList();
+    final selectedStaffMember = staffMembers.firstWhereOrNull(
+      (member) => member.id == _staffId,
+    );
     final filteredServices =
-        services
-            .where((service) => _salonId == null || service.salonId == _salonId)
-            .toList();
+        services.where((service) {
+          if (_salonId != null && service.salonId != _salonId) {
+            return false;
+          }
+          if (selectedStaffMember != null) {
+            final allowedRoles = service.staffRoles;
+            if (allowedRoles.isNotEmpty &&
+                !allowedRoles.contains(selectedStaffMember.roleId)) {
+              return false;
+            }
+          }
+          return true;
+        }).toList();
+    if (_serviceId != null &&
+        filteredServices.every((service) => service.id != _serviceId)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _serviceId = null;
+          _usePackageSession = false;
+          _selectedPackageId = null;
+        });
+      });
+    }
     final selectedService = services.firstWhereOrNull(
       (service) => service.id == _serviceId,
     );
@@ -404,7 +432,33 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                         ),
                       )
                       .toList(),
-              onChanged: (value) => setState(() => _staffId = value),
+              onChanged: (value) {
+                setState(() {
+                  _staffId = value;
+                  if (value == null || _serviceId == null) {
+                    return;
+                  }
+                  final staffMember = staffMembers.firstWhereOrNull(
+                    (member) => member.id == value,
+                  );
+                  final service = services.firstWhereOrNull(
+                    (item) => item.id == _serviceId,
+                  );
+                  if (staffMember == null || service == null) {
+                    _serviceId = null;
+                    _usePackageSession = false;
+                    _selectedPackageId = null;
+                    return;
+                  }
+                  final allowedRoles = service.staffRoles;
+                  if (allowedRoles.isNotEmpty &&
+                      !allowedRoles.contains(staffMember.roleId)) {
+                    _serviceId = null;
+                    _usePackageSession = false;
+                    _selectedPackageId = null;
+                  }
+                });
+              },
               validator:
                   (value) => value == null ? 'Scegli un operatore' : null,
             ),
@@ -431,7 +485,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                       (srv) => srv.id == value,
                     );
                     if (service != null) {
-                      _end = _start.add(service.duration);
+                      _end = _start.add(service.totalDuration);
                       final allowedRoles = service.staffRoles;
                       if (_staffId != null && allowedRoles.isNotEmpty) {
                         final staffMember = staffMembers.firstWhereOrNull(
@@ -588,36 +642,422 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
   }
 
   Future<void> _pickStart() async {
+    if (_salonId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Seleziona un salone prima di scegliere l\'orario.'),
+        ),
+      );
+      return;
+    }
+    if (_staffId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Seleziona un operatore prima di scegliere l\'orario.'),
+        ),
+      );
+      return;
+    }
+    if (_serviceId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Seleziona un servizio prima di scegliere l\'orario.'),
+        ),
+      );
+      return;
+    }
+
+    final data = ref.read(appDataProvider);
+    final salons = data.salons.isNotEmpty ? data.salons : widget.salons;
+    final staffMembers = data.staff.isNotEmpty ? data.staff : widget.staff;
+    final services = data.services.isNotEmpty ? data.services : widget.services;
+    final salon = salons.firstWhereOrNull((item) => item.id == _salonId);
+    final staffMember = staffMembers.firstWhereOrNull(
+      (member) => member.id == _staffId,
+    );
+    final service = services.firstWhereOrNull((item) => item.id == _serviceId);
+    if (staffMember == null || service == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Operatore o servizio non valido.')),
+      );
+      return;
+    }
+
+    final now = DateTime.now();
+    final initialDate = _start;
+    final firstDate = now.subtract(const Duration(days: 365));
+    final lastDate = now.add(const Duration(days: 365));
     final selectedDate = await showDatePicker(
       context: context,
-      initialDate: _start,
-      firstDate: DateTime.now().subtract(const Duration(days: 30)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDate: initialDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
+      locale: const Locale('it', 'IT'),
     );
-    if (selectedDate == null) return;
-    if (!mounted) return;
-    final selectedTime = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(_start),
+    if (selectedDate == null || !mounted) {
+      return;
+    }
+    final day = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
     );
-    if (selectedTime == null) return;
-    if (!mounted) return;
-    setState(() {
-      _start = DateTime(
-        selectedDate.year,
-        selectedDate.month,
-        selectedDate.day,
-        selectedTime.hour,
-        selectedTime.minute,
+    final slots = _availableSlotsForDay(
+      data: data,
+      day: day,
+      salon: salon,
+      service: service,
+      staffMember: staffMember,
+      allServices: services,
+      salonId: _salonId!,
+      clientId: _clientId,
+      excludeAppointmentId: widget.initial?.id,
+    );
+    if (slots.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Nessuno slot disponibile per l\'operatore nella data selezionata.',
+          ),
+        ),
       );
-      if (_end.isBefore(_start)) {
-        _end = _start.add(const Duration(hours: 1));
-      }
+      return;
+    }
+
+    final sameDay =
+        _start.year == day.year &&
+        _start.month == day.month &&
+        _start.day == day.day;
+    final selectedSlotStart = await _showSlotPicker(
+      day: day,
+      slots: slots,
+      initialSelection: sameDay ? _start : null,
+    );
+    if (selectedSlotStart == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _start = selectedSlotStart;
+      _end = _start.add(service.totalDuration);
       if (_start.isAfter(DateTime.now()) &&
           _status == AppointmentStatus.completed) {
         _status = AppointmentStatus.scheduled;
       }
     });
+  }
+
+  List<_AvailableSlot> _availableSlotsForDay({
+    required AppDataState data,
+    required DateTime day,
+    required Salon? salon,
+    required Service service,
+    required StaffMember staffMember,
+    required List<Service> allServices,
+    required String salonId,
+    String? clientId,
+    String? excludeAppointmentId,
+  }) {
+    final dayStart = DateTime(day.year, day.month, day.day);
+    final dayEnd = dayStart.add(const Duration(days: 1));
+    final slotStep = Duration(minutes: _slotIntervalMinutes);
+    final allAppointments = data.appointments;
+
+    final busyAppointments =
+        allAppointments.where((appointment) {
+          if (appointment.staffId != staffMember.id) {
+            return false;
+          }
+          if (excludeAppointmentId != null &&
+              appointment.id == excludeAppointmentId) {
+            return false;
+          }
+          if (!appointmentBlocksAvailability(appointment)) {
+            return false;
+          }
+          if (!appointment.end.isAfter(dayStart) ||
+              !appointment.start.isBefore(dayEnd)) {
+            return false;
+          }
+          return true;
+        }).toList();
+
+    final busyAbsences =
+        _combinedAbsences(data).where((absence) {
+          if (absence.staffId != staffMember.id) {
+            return false;
+          }
+          if (!absence.end.isAfter(dayStart) ||
+              !absence.start.isBefore(dayEnd)) {
+            return false;
+          }
+          return true;
+        }).toList();
+
+    final relevantShifts =
+        data.shifts.where((shift) {
+            if (shift.staffId != staffMember.id) {
+              return false;
+            }
+            if (shift.salonId != salonId) {
+              return false;
+            }
+            if (!shift.end.isAfter(dayStart)) {
+              return false;
+            }
+            if (!shift.start.isBefore(dayEnd)) {
+              return false;
+            }
+            return true;
+          }).toList()
+          ..sort((a, b) => a.start.compareTo(b.start));
+
+    final clientAppointments =
+        clientId == null
+            ? const <Appointment>[]
+            : allAppointments.where((appointment) {
+              if (appointment.clientId != clientId) {
+                return false;
+              }
+              if (excludeAppointmentId != null &&
+                  appointment.id == excludeAppointmentId) {
+                return false;
+              }
+              if (!appointmentBlocksAvailability(appointment)) {
+                return false;
+              }
+              return true;
+            }).toList();
+
+    final slots = <_AvailableSlot>[];
+
+    for (final shift in relevantShifts) {
+      final windowStart =
+          shift.start.isAfter(dayStart) ? shift.start : dayStart;
+      final windows = _buildShiftWindows(
+        shift: shift,
+        from: windowStart,
+        busyAppointments: busyAppointments,
+        busyAbsences: busyAbsences,
+      );
+      for (final window in windows) {
+        final clampedStart =
+            window.start.isBefore(dayStart) ? dayStart : window.start;
+        final clampedEnd = window.end.isAfter(dayEnd) ? dayEnd : window.end;
+        if (!clampedEnd.isAfter(clampedStart)) {
+          continue;
+        }
+        var slotStart = _ceilToInterval(clampedStart, _slotIntervalMinutes);
+        while (slotStart.isBefore(clampedEnd)) {
+          final slotEnd = slotStart.add(service.totalDuration);
+          if (slotEnd.isAfter(clampedEnd)) {
+            break;
+          }
+
+          final hasStaffConflict = hasStaffBookingConflict(
+            appointments: allAppointments,
+            staffId: staffMember.id,
+            start: slotStart,
+            end: slotEnd,
+            excludeAppointmentId: excludeAppointmentId,
+          );
+          if (hasStaffConflict) {
+            slotStart = slotStart.add(slotStep);
+            continue;
+          }
+
+          if (clientId != null) {
+            final hasClientConflict = hasClientBookingConflict(
+              appointments: clientAppointments,
+              clientId: clientId,
+              start: slotStart,
+              end: slotEnd,
+              excludeAppointmentId: excludeAppointmentId,
+            );
+            if (hasClientConflict) {
+              slotStart = slotStart.add(slotStep);
+              continue;
+            }
+          }
+
+          final equipmentCheck = EquipmentAvailabilityChecker.check(
+            salon: salon,
+            service: service,
+            allServices: allServices,
+            appointments: allAppointments,
+            start: slotStart,
+            end: slotEnd,
+            excludeAppointmentId: excludeAppointmentId,
+          );
+          if (equipmentCheck.hasConflicts) {
+            slotStart = slotStart.add(slotStep);
+            continue;
+          }
+
+          slots.add(
+            _AvailableSlot(start: slotStart, end: slotEnd, shiftId: shift.id),
+          );
+          slotStart = slotStart.add(slotStep);
+        }
+      }
+    }
+
+    slots.sort((a, b) => a.start.compareTo(b.start));
+    return slots;
+  }
+
+  Future<DateTime?> _showSlotPicker({
+    required DateTime day,
+    required List<_AvailableSlot> slots,
+    DateTime? initialSelection,
+  }) {
+    final dayFormat = DateFormat('EEEE d MMMM yyyy', 'it_IT');
+    final timeFormat = DateFormat('HH:mm', 'it_IT');
+    return showAppModalSheet<DateTime>(
+      context: context,
+      builder: (ctx) {
+        final bottomPadding = 16.0 + MediaQuery.of(ctx).viewInsets.bottom;
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(24, 24, 24, bottomPadding),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Orari disponibili',
+                  style: Theme.of(ctx).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                Text(_capitalize(dayFormat.format(day))),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children:
+                      slots
+                          .map(
+                            (slot) => ChoiceChip(
+                              label: Text(
+                                '${timeFormat.format(slot.start)} - ${timeFormat.format(slot.end)}',
+                              ),
+                              selected:
+                                  initialSelection != null &&
+                                  slot.start == initialSelection,
+                              onSelected: (selected) {
+                                if (!selected) return;
+                                Navigator.of(ctx).pop(slot.start);
+                              },
+                            ),
+                          )
+                          .toList(),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  List<_TimeRange> _buildShiftWindows({
+    required Shift shift,
+    required DateTime from,
+    required List<Appointment> busyAppointments,
+    required List<StaffAbsence> busyAbsences,
+  }) {
+    final windows = <_TimeRange>[];
+    if (from.isAfter(shift.end)) {
+      return windows;
+    }
+    windows.add(_TimeRange(start: shift.start, end: shift.end));
+
+    if (shift.breakStart != null && shift.breakEnd != null) {
+      final breakRange = _TimeRange(
+        start: shift.breakStart!,
+        end: shift.breakEnd!,
+      );
+      _subtractRange(windows, breakRange);
+    }
+
+    for (final appointment in busyAppointments) {
+      if (!appointment.end.isAfter(shift.start) ||
+          !appointment.start.isBefore(shift.end)) {
+        continue;
+      }
+      _subtractRange(
+        windows,
+        _TimeRange(start: appointment.start, end: appointment.end),
+      );
+    }
+
+    for (final absence in busyAbsences) {
+      if (!absence.end.isAfter(shift.start) ||
+          !absence.start.isBefore(shift.end)) {
+        continue;
+      }
+      _subtractRange(
+        windows,
+        _TimeRange(start: absence.start, end: absence.end),
+      );
+    }
+
+    return windows
+        .map((window) => window.trim(from: from))
+        .whereType<_TimeRange>()
+        .toList();
+  }
+
+  void _subtractRange(List<_TimeRange> windows, _TimeRange busy) {
+    for (var i = 0; i < windows.length; i++) {
+      final window = windows[i];
+      if (!window.overlaps(busy)) {
+        continue;
+      }
+      final replacement = window.subtract(busy);
+      windows.removeAt(i);
+      windows.insertAll(i, replacement);
+      i += replacement.length - 1;
+    }
+  }
+
+  DateTime _ceilToInterval(DateTime time, int minutes) {
+    final remainder = time.minute % minutes;
+    final needsCeil =
+        remainder != 0 ||
+        time.second != 0 ||
+        time.millisecond != 0 ||
+        time.microsecond != 0;
+    final truncated = DateTime(
+      time.year,
+      time.month,
+      time.day,
+      time.hour,
+      time.minute - remainder,
+    );
+    if (!needsCeil) {
+      return truncated;
+    }
+    return truncated.add(Duration(minutes: minutes));
+  }
+
+  List<StaffAbsence> _combinedAbsences(AppDataState data) {
+    final map = <String, StaffAbsence>{};
+    for (final absence in data.publicStaffAbsences) {
+      map[absence.id] = absence;
+    }
+    for (final absence in data.staffAbsences) {
+      map[absence.id] = absence;
+    }
+    return map.values.toList();
+  }
+
+  String _capitalize(String value) {
+    if (value.isEmpty) {
+      return value;
+    }
+    return value[0].toUpperCase() + value.substring(1);
   }
 
   Future<void> _pickEnd() async {
@@ -916,5 +1356,51 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       case AppointmentStatus.noShow:
         return 'No show';
     }
+  }
+}
+
+class _AvailableSlot {
+  const _AvailableSlot({
+    required this.start,
+    required this.end,
+    required this.shiftId,
+  });
+
+  final DateTime start;
+  final DateTime end;
+  final String shiftId;
+}
+
+class _TimeRange {
+  _TimeRange({required this.start, required this.end})
+    : assert(!end.isBefore(start), 'end must be after start');
+
+  final DateTime start;
+  final DateTime end;
+
+  bool overlaps(_TimeRange other) {
+    return start.isBefore(other.end) && end.isAfter(other.start);
+  }
+
+  List<_TimeRange> subtract(_TimeRange other) {
+    if (!overlaps(other)) {
+      return [this];
+    }
+    final ranges = <_TimeRange>[];
+    if (other.start.isAfter(start)) {
+      ranges.add(_TimeRange(start: start, end: other.start));
+    }
+    if (other.end.isBefore(end)) {
+      ranges.add(_TimeRange(start: other.end, end: end));
+    }
+    return ranges;
+  }
+
+  _TimeRange? trim({required DateTime from}) {
+    if (end.isBefore(from)) {
+      return null;
+    }
+    final boundedStart = start.isBefore(from) ? from : start;
+    return _TimeRange(start: boundedStart, end: end);
   }
 }

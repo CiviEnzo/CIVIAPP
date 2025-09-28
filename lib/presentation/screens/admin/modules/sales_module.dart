@@ -1,8 +1,12 @@
 import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/domain/entities/cash_flow_entry.dart';
 import 'package:civiapp/domain/entities/client.dart';
+import 'package:civiapp/domain/entities/inventory_item.dart';
+import 'package:civiapp/domain/entities/package.dart';
+import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/domain/entities/salon.dart';
+import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:civiapp/presentation/screens/admin/forms/cash_flow_form_sheet.dart';
@@ -11,6 +15,7 @@ import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
 
 class SalesModule extends ConsumerWidget {
   const SalesModule({super.key, this.salonId});
@@ -20,21 +25,38 @@ class SalesModule extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final data = ref.watch(appDataProvider);
-    final sales = data.sales
-        .where((sale) => salonId == null || sale.salonId == salonId)
-        .toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    final cashFlow = data.cashFlowEntries
-        .where((entry) => salonId == null || entry.salonId == salonId)
-        .toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
+    final sales =
+        data.sales
+            .where((sale) => salonId == null || sale.salonId == salonId)
+            .toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final cashFlow =
+        data.cashFlowEntries
+            .where((entry) => salonId == null || entry.salonId == salonId)
+            .toList()
+          ..sort((a, b) => b.date.compareTo(a.date));
 
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
-    final income = cashFlow.where((entry) => entry.type == CashFlowType.income).fold<double>(0, (total, entry) => total + entry.amount);
-    final expense = cashFlow.where((entry) => entry.type == CashFlowType.expense).fold<double>(0, (total, entry) => total + entry.amount);
+    final income = cashFlow
+        .where((entry) => entry.type == CashFlowType.income)
+        .fold<double>(0, (total, entry) => total + entry.amount);
     final salons = data.salons;
     final clients = data.clients;
     final staff = data.staff;
+    final services = data.services;
+    final packages = data.packages;
+    final inventoryItems = data.inventoryItems;
+    final paymentTickets =
+        data.paymentTickets
+            .where((ticket) => salonId == null || ticket.salonId == salonId)
+            .toList()
+          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    final openTickets =
+        paymentTickets
+            .where((ticket) => ticket.status == PaymentTicketStatus.open)
+            .toList()
+          ..sort((a, b) => a.appointmentStart.compareTo(b.appointmentStart));
+    final ticketDateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -45,6 +67,12 @@ class SalesModule extends ConsumerWidget {
             spacing: 16,
             runSpacing: 16,
             children: [
+              _SummaryTile(
+                icon: Icons.receipt_long_rounded,
+                title: 'Ticket aperti',
+                value: openTickets.length.toString(),
+                subtitle: 'Pagamenti da registrare',
+              ),
               _SummaryTile(
                 icon: Icons.point_of_sale_rounded,
                 title: 'Vendite',
@@ -57,7 +85,7 @@ class SalesModule extends ConsumerWidget {
                 value: currency.format(income),
                 subtitle: 'Entrate registrate',
               ),
-              _SummaryTile(
+              /*_SummaryTile(
                 icon: Icons.money_off_csred_rounded,
                 title: 'Uscite',
                 value: currency.format(expense),
@@ -68,7 +96,7 @@ class SalesModule extends ConsumerWidget {
                 title: 'Margine',
                 value: currency.format(income - expense),
                 subtitle: 'Entrate - Uscite',
-              ),
+              ),*/
             ],
           ),
           const SizedBox(height: 24),
@@ -77,75 +105,139 @@ class SalesModule extends ConsumerWidget {
             runSpacing: 12,
             children: [
               FilledButton.icon(
-                onPressed: () => _openSaleForm(
-                  context,
-                  ref,
-                  salons: salons,
-                  clients: clients,
-                  defaultSalonId: salonId,
-                ),
+                onPressed:
+                    () => _openSaleForm(
+                      context,
+                      ref,
+                      salons: salons,
+                      clients: clients,
+                      staff: staff,
+                      services: services,
+                      packages: packages,
+                      inventory: inventoryItems,
+                      defaultSalonId: salonId,
+                    ),
                 icon: const Icon(Icons.point_of_sale_rounded),
                 label: const Text('Registra vendita'),
               ),
-              FilledButton.icon(
-                onPressed: () => _openCashFlowForm(
-                  context,
-                  ref,
-                  salons: salons,
-                  staff: staff,
-                  defaultSalonId: salonId,
-                ),
+              /* FilledButton.icon(
+                onPressed:
+                    () => _openCashFlowForm(
+                      context,
+                      ref,
+                      salons: salons,
+                      staff: staff,
+                      defaultSalonId: salonId,
+                    ),
                 icon: const Icon(Icons.attach_money_rounded),
                 label: const Text('Movimento cassa'),
-              ),
+              ),*/
             ],
           ),
           const SizedBox(height: 24),
-          Text('Vendite recenti', style: Theme.of(context).textTheme.titleLarge),
+          Text('Ticket aperti', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 12),
-          if (sales.isEmpty)
-            const Card(child: ListTile(title: Text('Nessuna vendita registrata')))
+          if (openTickets.isEmpty)
+            const Card(
+              child: ListTile(title: Text('Nessun ticket da completare')),
+            )
           else
             ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
+              itemCount: openTickets.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
               itemBuilder: (context, index) {
-                final sale = sales[index];
-                final client = data.clients.firstWhereOrNull((c) => c.id == sale.clientId)?.fullName ?? 'Cliente';
+                final ticket = openTickets[index];
+                final clientName =
+                    clients
+                        .firstWhereOrNull(
+                          (client) => client.id == ticket.clientId,
+                        )
+                        ?.fullName ??
+                    'Cliente';
+                final staffName =
+                    ticket.staffId == null
+                        ? null
+                        : staff
+                            .firstWhereOrNull(
+                              (member) => member.id == ticket.staffId,
+                            )
+                            ?.fullName;
+                final service = services.firstWhereOrNull(
+                  (item) => item.id == ticket.serviceId,
+                );
+                final serviceName =
+                    service?.name ?? ticket.serviceName ?? 'Servizio';
+                final amount = ticket.expectedTotal ?? service?.price;
+                final appointmentDate = ticketDateFormat.format(
+                  ticket.appointmentStart,
+                );
                 return Card(
                   child: ListTile(
-                    leading: CircleAvatar(child: Text('${index + 1}')),
-                    title: Text(client),
+                    onTap:
+                        () => _openSaleForm(
+                          context,
+                          ref,
+                          salons: salons,
+                          clients: clients,
+                          staff: staff,
+                          services: services,
+                          packages: packages,
+                          inventory: inventoryItems,
+                          defaultSalonId: salonId,
+                          ticket: ticket,
+                        ),
+                    leading: CircleAvatar(
+                      backgroundColor:
+                          Theme.of(context).colorScheme.surfaceContainerHighest,
+                      child: Icon(
+                        Icons.receipt_long_rounded,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                    title: Text(clientName),
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text('Pagamento: ${_paymentLabel(sale.paymentMethod)} · ${sale.invoiceNumber ?? 'No Fiscale'}'),
-                        const SizedBox(height: 6),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 4,
-                          children: sale.items
-                              .map(
-                                (item) => Chip(
-                                  label: Text('${item.description} · ${item.quantity} × ${currency.format(item.unitPrice)}'),
-                                ),
-                              )
-                              .toList(),
+                        Text(serviceName),
+                        const SizedBox(height: 4),
+                        Text(
+                          staffName == null
+                              ? appointmentDate
+                              : '$appointmentDate · $staffName',
                         ),
+                        if (ticket.notes != null &&
+                            ticket.notes!.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(ticket.notes!),
+                        ],
                       ],
                     ),
-                    trailing: Text(currency.format(sale.total), style: const TextStyle(fontWeight: FontWeight.bold)),
+                    trailing:
+                        amount != null
+                            ? Text(
+                              currency.format(amount),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            )
+                            : const Icon(
+                              Icons.arrow_forward_ios_rounded,
+                              size: 16,
+                            ),
                   ),
                 );
               },
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemCount: sales.length,
             ),
           const SizedBox(height: 24),
-          Text('Movimenti di cassa', style: Theme.of(context).textTheme.titleLarge),
+          Text('Ticket chiusi', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 12),
           if (cashFlow.isEmpty)
-            const Card(child: ListTile(title: Text('Nessun movimento registrato')))
+            const Card(
+              child: ListTile(title: Text('Nessun movimento registrato')),
+            )
           else
             ListView.separated(
               shrinkWrap: true,
@@ -157,29 +249,146 @@ class SalesModule extends ConsumerWidget {
                 return Card(
                   child: ListTile(
                     leading: CircleAvatar(
-                      backgroundColor: entry.type == CashFlowType.income
-                          ? Theme.of(context).colorScheme.primary
-                          : Theme.of(context).colorScheme.error,
+                      backgroundColor:
+                          entry.type == CashFlowType.income
+                              ? Theme.of(context).colorScheme.primary
+                              : Theme.of(context).colorScheme.error,
                       child: Icon(
-                        entry.type == CashFlowType.income ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+                        entry.type == CashFlowType.income
+                            ? Icons.arrow_downward_rounded
+                            : Icons.arrow_upward_rounded,
                         color: Theme.of(context).colorScheme.onPrimary,
                       ),
                     ),
                     title: Text(entry.description ?? 'Movimento'),
-                    subtitle: Text('${DateFormat('dd/MM/yyyy').format(entry.date)} · ${entry.category ?? 'Generale'}'),
+                    subtitle: Text(
+                      '${DateFormat('dd/MM/yyyy').format(entry.date)} · ${entry.category ?? 'Generale'}',
+                    ),
                     trailing: Text(
                       currency.format(entry.amount),
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
-                        color: entry.type == CashFlowType.income
-                            ? Theme.of(context).colorScheme.primary
-                            : Theme.of(context).colorScheme.error,
+                        color:
+                            entry.type == CashFlowType.income
+                                ? Theme.of(context).colorScheme.primary
+                                : Theme.of(context).colorScheme.error,
                       ),
                     ),
                   ),
                 );
               },
             ),
+
+          const SizedBox(height: 24),
+          /* Text(
+            'Vendite recenti',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+           const SizedBox(height: 12),
+          if (sales.isEmpty)
+            const Card(
+              child: ListTile(title: Text('Nessuna vendita registrata')),
+            )
+          else
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemBuilder: (context, index) {
+                final sale = sales[index];
+                final client =
+                    data.clients
+                        .firstWhereOrNull((c) => c.id == sale.clientId)
+                        ?.fullName ??
+                    'Cliente';
+                final staffName =
+                    sale.staffId == null
+                        ? null
+                        : data.staff
+                            .firstWhereOrNull(
+                              (member) => member.id == sale.staffId,
+                            )
+                            ?.fullName;
+                return Card(
+                  child: ListTile(
+                    leading: CircleAvatar(child: Text('${index + 1}')),
+                    title: Text(client),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (staffName != null) ...[
+                          Text('Staff: $staffName'),
+                          const SizedBox(height: 4),
+                        ],
+                        Text(
+                          'Pagamento: ${_paymentLabel(sale.paymentMethod)} · Stato: ${sale.paymentStatus.label} · ${sale.invoiceNumber ?? 'No Fiscale'}',
+                        ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          children:
+                              sale.items
+                                  .map(
+                                    (item) => Chip(
+                                      label: Text(
+                                        '${item.description} · ${item.quantity} × ${currency.format(item.unitPrice)}',
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                        ),
+                        if (sale.discountAmount > 0) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            'Sconto applicato: ${currency.format(sale.discountAmount)}',
+                          ),
+                        ],
+                        if (sale.paymentStatus == SalePaymentStatus.deposit) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            'Incassato: ${currency.format(sale.paidAmount)} · Residuo: ${currency.format(sale.outstandingAmount)}',
+                          ),
+                        ],
+                        if (sale.notes != null && sale.notes!.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text('Note: ${sale.notes}'),
+                        ],
+                      ],
+                    ),
+                    trailing:
+                        sale.paymentStatus == SalePaymentStatus.deposit
+                            ? Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    currency.format(sale.total),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Incassato ${currency.format(sale.paidAmount)}',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall,
+                                  ),
+                                ],
+                              )
+                            : Text(
+                                currency.format(sale.total),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                  ),
+                );
+              },
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemCount: sales.length,
+            ),
+      */
         ],
       ),
     );
@@ -204,27 +413,103 @@ Future<void> _openSaleForm(
   WidgetRef ref, {
   required List<Salon> salons,
   required List<Client> clients,
+  required List<StaffMember> staff,
+  required List<Service> services,
+  required List<ServicePackage> packages,
+  required List<InventoryItem> inventory,
   String? defaultSalonId,
+  PaymentTicket? ticket,
 }) async {
   if (salons.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Crea un salone prima di registrare vendite.')),
+      const SnackBar(
+        content: Text('Crea un salone prima di registrare vendite.'),
+      ),
     );
     return;
   }
+  final matchedService =
+      ticket == null
+          ? null
+          : services.firstWhereOrNull(
+            (service) => service.id == ticket.serviceId,
+          );
+  final initialItems =
+      ticket == null
+          ? null
+          : [
+            SaleItem(
+              referenceId: ticket.serviceId,
+              referenceType: SaleReferenceType.service,
+              description:
+                  matchedService?.name ?? ticket.serviceName ?? 'Servizio',
+              quantity: 1,
+              unitPrice: matchedService?.price ?? ticket.expectedTotal ?? 0,
+            ),
+          ];
   final sale = await showAppModalSheet<Sale>(
     context: context,
-    builder: (ctx) => SaleFormSheet(
-      salons: salons,
-      clients: clients,
-      defaultSalonId: defaultSalonId,
-    ),
+    builder:
+        (ctx) => SaleFormSheet(
+          salons: salons,
+          clients: clients,
+          staff: staff,
+          services: services,
+          packages: packages,
+          inventoryItems: inventory,
+          defaultSalonId: ticket?.salonId ?? defaultSalonId,
+          initialClientId: ticket?.clientId,
+          initialItems: initialItems,
+          initialNotes: ticket?.notes,
+          initialDate: ticket?.appointmentEnd,
+          initialStaffId: ticket?.staffId,
+        ),
   );
   if (sale != null) {
-    await ref.read(appDataProvider.notifier).upsertSale(sale);
+    final store = ref.read(appDataProvider.notifier);
+    await store.upsertSale(sale);
+    await _recordSaleCashFlow(ref: ref, sale: sale, clients: clients);
+    if (ticket != null) {
+      await store.closePaymentTicket(ticket.id, saleId: sale.id);
+    }
   }
 }
 
+Future<void> _recordSaleCashFlow({
+  required WidgetRef ref,
+  required Sale sale,
+  required List<Client> clients,
+}) async {
+  final cashAmount =
+      sale.paymentStatus == SalePaymentStatus.deposit
+          ? sale.paidAmount
+          : sale.total;
+  final amount = double.parse(cashAmount.toStringAsFixed(2));
+  if (amount <= 0) {
+    return;
+  }
+  final clientName =
+      clients
+          .firstWhereOrNull((client) => client.id == sale.clientId)
+          ?.fullName ??
+      'Cliente';
+  final entry = CashFlowEntry(
+    id: const Uuid().v4(),
+    salonId: sale.salonId,
+    type: CashFlowType.income,
+    amount: amount,
+    date: sale.createdAt,
+    description:
+        sale.paymentStatus == SalePaymentStatus.deposit
+            ? 'Acconto vendita a $clientName'
+            : 'Vendita a $clientName',
+    category: 'Vendite',
+    staffId: sale.staffId,
+  );
+  await ref.read(appDataProvider.notifier).upsertCashFlowEntry(entry);
+}
+
+// ignore: unused_element
 Future<void> _openCashFlowForm(
   BuildContext context,
   WidgetRef ref, {
@@ -234,17 +519,20 @@ Future<void> _openCashFlowForm(
 }) async {
   if (salons.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Crea un salone prima di gestire la cassa.')),
+      const SnackBar(
+        content: Text('Crea un salone prima di gestire la cassa.'),
+      ),
     );
     return;
   }
   final entry = await showAppModalSheet<CashFlowEntry>(
     context: context,
-    builder: (ctx) => CashFlowFormSheet(
-      salons: salons,
-      staff: staff,
-      defaultSalonId: defaultSalonId,
-    ),
+    builder:
+        (ctx) => CashFlowFormSheet(
+          salons: salons,
+          staff: staff,
+          defaultSalonId: defaultSalonId,
+        ),
   );
   if (entry != null) {
     await ref.read(appDataProvider.notifier).upsertCashFlowEntry(entry);
@@ -278,7 +566,12 @@ class _SummaryTile extends StatelessWidget {
               const SizedBox(height: 12),
               Text(title, style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 6),
-              Text(value, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                value,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 4),
               Text(subtitle, style: Theme.of(context).textTheme.bodyMedium),
             ],

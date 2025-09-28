@@ -5,9 +5,11 @@ import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/presentation/shared/client_package_purchase.dart';
 import 'package:collection/collection.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+
 import 'client_booking_sheet.dart';
 
 class ClientDashboardScreen extends ConsumerStatefulWidget {
@@ -114,6 +116,73 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
         SnackBar(
           content: const Text('Errore durante l\'annullamento. Riprova.'),
         ),
+      );
+    }
+  }
+
+  Future<void> _deleteAppointment(Appointment appointment) async {
+    final format = DateFormat('dd MMMM yyyy HH:mm', 'it_IT');
+    final appointmentLabel = format.format(appointment.start);
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        return AlertDialog(
+          title: const Text('Elimina appuntamento'),
+          content: Text(
+            'Vuoi eliminare definitivamente l\'appuntamento del $appointmentLabel?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Annulla'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.error,
+                foregroundColor: theme.colorScheme.onError,
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Elimina'),
+            ),
+          ],
+        );
+      },
+    );
+    if (shouldDelete != true) {
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref
+          .read(appDataProvider.notifier)
+          .deleteAppointment(appointment.id);
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Appuntamento del $appointmentLabel eliminato.'),
+        ),
+      );
+    } on FirebaseException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      final message =
+          error.code == 'permission-denied'
+              ? 'Non hai i permessi per eliminare questo appuntamento.'
+              : (error.message?.isNotEmpty == true
+                  ? error.message!
+                  : 'Errore durante l\'eliminazione. Riprova.');
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+    } on StateError catch (error) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (error) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Errore durante l\'eliminazione: $error')),
       );
     }
   }
@@ -280,6 +349,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                 onReschedule:
                     () => _rescheduleAppointment(currentClient, appointment),
                 onCancel: () => _cancelAppointment(appointment),
+                onDelete: () => _deleteAppointment(appointment),
               ),
             ),
           const SizedBox(height: 24),
@@ -352,11 +422,13 @@ class _AppointmentCard extends ConsumerWidget {
     required this.appointment,
     this.onReschedule,
     this.onCancel,
+    this.onDelete,
   });
 
   final Appointment appointment;
   final VoidCallback? onReschedule;
   final VoidCallback? onCancel;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -371,53 +443,10 @@ class _AppointmentCard extends ConsumerWidget {
       'dd/MM/yyyy HH:mm',
       'it_IT',
     ).format(appointment.start);
-    final actionsAvailable = onReschedule != null || onCancel != null;
+    final actionsAvailable =
+        onReschedule != null || onCancel != null || onDelete != null;
     final statusChip = _statusChip(context, appointment.status);
-    final trailing =
-        actionsAvailable
-            ? Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                statusChip,
-                const SizedBox(height: 4),
-                PopupMenuButton<_AppointmentAction>(
-                  tooltip: 'Azioni appuntamento',
-                  onSelected: (action) {
-                    switch (action) {
-                      case _AppointmentAction.reschedule:
-                        onReschedule?.call();
-                        break;
-                      case _AppointmentAction.cancel:
-                        onCancel?.call();
-                        break;
-                    }
-                  },
-                  itemBuilder: (menuContext) {
-                    final items = <PopupMenuEntry<_AppointmentAction>>[];
-                    if (onReschedule != null) {
-                      items.add(
-                        const PopupMenuItem<_AppointmentAction>(
-                          value: _AppointmentAction.reschedule,
-                          child: Text('Modifica'),
-                        ),
-                      );
-                    }
-                    if (onCancel != null) {
-                      items.add(
-                        const PopupMenuItem<_AppointmentAction>(
-                          value: _AppointmentAction.cancel,
-                          child: Text('Annulla'),
-                        ),
-                      );
-                    }
-                    return items;
-                  },
-                  icon: const Icon(Icons.more_vert_rounded),
-                ),
-              ],
-            )
-            : statusChip;
+    final trailing = statusChip;
     return Card(
       child: ListTile(
         leading: const Icon(Icons.spa_rounded),
@@ -426,6 +455,7 @@ class _AppointmentCard extends ConsumerWidget {
           '$date\nOperatore: ${staff?.fullName ?? 'Da assegnare'}',
         ),
         trailing: trailing,
+        onTap: actionsAvailable ? () => _showActions(context) : null,
       ),
     );
   }
@@ -460,9 +490,59 @@ class _AppointmentCard extends ConsumerWidget {
         );
     }
   }
-}
 
-enum _AppointmentAction { reschedule, cancel }
+  void _showActions(BuildContext context) {
+    if (onReschedule == null && onCancel == null && onDelete == null) {
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (onReschedule != null)
+                ListTile(
+                  leading: const Icon(Icons.edit_calendar_rounded),
+                  title: const Text('Modifica appuntamento'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    onReschedule?.call();
+                  },
+                ),
+              if (onCancel != null)
+                ListTile(
+                  leading: const Icon(Icons.event_busy_rounded),
+                  title: const Text('Annulla appuntamento'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    onCancel?.call();
+                  },
+                ),
+              if (onDelete != null)
+                ListTile(
+                  leading: Icon(
+                    Icons.delete_outline_rounded,
+                    color: theme.colorScheme.error,
+                  ),
+                  title: Text(
+                    'Elimina appuntamento',
+                    style: TextStyle(color: theme.colorScheme.error),
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    onDelete?.call();
+                  },
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
 
 class _ServicesCarousel extends StatelessWidget {
   const _ServicesCarousel({required this.services, required this.onBook});

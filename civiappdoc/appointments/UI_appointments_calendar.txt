@@ -1,0 +1,12 @@
+Aggiornamento UI calendar admin side
+
+Nella visualizzazione del calendario voglio:
+
+- Le card degli appuntamenti devono mostrare le segurnti informazioni:
+Data inizio e data fine ( gia presente)
+Cliente ( gia presente)
+Staff (gia presente, modifica mettendo solo le iniziali)
+Servizio (inserire il nome del servizio)
+
+
+

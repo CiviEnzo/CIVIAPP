@@ -1,0 +1,30 @@
+Gestione fatturazione e ticket
+
+Come admin nella modale "Registra vendita" devo poter governare l'intero flusso di incasso legato ai ticket di pagamento.
+
+Comandi principali
+- Visualizza ticket aperti: elenco dei ticket generati dagli appuntamenti completati con importi residui o in attesa di registrazione.
+- Apri ticket: mostra i dati precompilati della prenotazione (cliente, servizio, importo totale) e consente la gestione dell'incasso.
+- Registra pagamento: permette di indicare importo incassato, metodo di pagamento, note e di impostare lo stato del ticket (`Acconto` o `Saldato`).
+- Aggiorna stato pagamento: passa da `Acconto` a `Saldato` quando l'importo residuo viene azzerato; mantiene traccia di eventuali movimenti intermedi.
+- Sincronizza fatturazione cliente: aggiorna il tab Fatturazione con i pagamenti registrati, evidenziando gli importi da incassare.
+- Allinea pacchetti: se la vendita è collegata a un pacchetto, l'incasso parziale o totale deve essere riportato nel tab Pacchetti del cliente.
+
+Scenario 1
+
+1. Alessandra completa un appuntamento: si genera automaticamente il ticket con stato di pagamento `Acconto`.
+2. Servizio: Massaggio, costo totale 100 €, acconto 50 €; il residuo di 50 € compare nel tab Fatturazione tra i pagamenti da incassare.
+3. L'admin apre il ticket e usa `Registra pagamento` per inserire l'acconto e lasciare il saldo aperto.
+4. Il ticket si chiude
+
+
+Scenario 2 
+
+1. Admin registra una vendita di un servizio al cliente Francesca
+2. Servizio: trattamento corpo, costo totale 400 €, acconto 150 €; il residuo di 250 € compare nel tab Fatturazione tra i pagamenti da incassare.
+3. Il restante da saldare viene visulizzato in pagamenti da saldare
+
+Aggiornamenti automatici
+- Ogni nuova vendita registrata aggiorna il tab Fatturazione del cliente, mostrando cronologia e importi residui.
+- Le vendite con acconto devono sempre generare movimenti coerenti nei tab Fatturazione e Pacchetti per mantenere allineata la situazione degli incassi.
+

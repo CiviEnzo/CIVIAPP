@@ -477,7 +477,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       (member) => member.id == _selectedStaffId,
     );
     final slotStart = _selectedSlotStart!;
-    final slotEnd = slotStart.add(service.duration);
+    final slotEnd = slotStart.add(service.totalDuration);
     final salon = data.salons.firstWhereOrNull(
       (item) => item.id == widget.client.salonId,
     );
@@ -714,7 +714,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
           return true;
         }).toList();
 
-    final serviceDuration = service.duration;
+    final serviceDuration = service.totalDuration;
     final buckets = <DateTime, List<_AvailableSlot>>{};
 
     for (final shift in relevantShifts) {

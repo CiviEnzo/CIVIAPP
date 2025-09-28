@@ -11,6 +11,7 @@ import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/inventory_item.dart';
 import 'package:civiapp/domain/entities/message_template.dart';
 import 'package:civiapp/domain/entities/package.dart';
+import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
@@ -45,6 +46,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
               services: List.unmodifiable(MockData.services),
               packages: List.unmodifiable(MockData.packages),
               appointments: List.unmodifiable(MockData.appointments),
+              paymentTickets: List.unmodifiable(MockData.paymentTickets),
               inventoryItems: List.unmodifiable(MockData.inventoryItems),
               sales: List.unmodifiable(MockData.sales),
               cashFlowEntries: List.unmodifiable(MockData.cashFlowEntries),
@@ -79,6 +81,8 @@ class AppDataStore extends StateNotifier<AppDataState> {
   static const int _firestoreChunkSize = 10;
   static const String _defaultStaffRoleId = 'estetista';
   static const String _unknownStaffRoleId = 'staff-role-unknown';
+
+  AppUser? get currentUser => _currentUser;
 
   List<StreamSubscription> _initializeSubscriptions(AppUser currentUser) {
     final firestore = _firestore;
@@ -225,6 +229,16 @@ class AppDataStore extends StateNotifier<AppDataState> {
           salonIds: salonIds,
           fromDoc: saleFromDoc,
           onData: (items) => state = state.copyWith(sales: items),
+        ),
+      );
+
+      addAll(
+        _listenCollectionBySalonIds<PaymentTicket>(
+          firestore: firestore,
+          collectionPath: 'payment_tickets',
+          salonIds: salonIds,
+          fromDoc: paymentTicketFromDoc,
+          onData: (items) => state = state.copyWith(paymentTickets: items),
         ),
       );
 
@@ -1332,6 +1346,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     await firestore.collection('clients').doc(clientId).delete();
     await _deleteCollectionWhere('appointments', 'clientId', clientId);
     await _deleteCollectionWhere('sales', 'clientId', clientId);
+    await _deleteCollectionWhere('payment_tickets', 'clientId', clientId);
   }
 
   Future<void> upsertService(Service service) async {
@@ -1366,6 +1381,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
       await doc.reference.update({'serviceIds': current});
     }
     await _deleteCollectionWhere('appointments', 'serviceId', serviceId);
+    await _deleteCollectionWhere('payment_tickets', 'serviceId', serviceId);
   }
 
   Future<void> upsertPackage(ServicePackage servicePackage) async {
@@ -1424,15 +1440,78 @@ class AppDataStore extends StateNotifier<AppDataState> {
       await _consumePackageSession(appointment);
     }
 
+    final shouldCreateTicket = _shouldCreatePaymentTicket(
+      appointment: appointment,
+      previous: previous,
+    );
+    final shouldRemoveTicket =
+        previous?.status == AppointmentStatus.completed &&
+        appointment.status != AppointmentStatus.completed;
+    final ticket = shouldCreateTicket ? _buildPaymentTicket(appointment) : null;
+
     final firestore = _firestore;
     if (firestore == null) {
-      _upsertLocal(appointments: [appointment]);
+      _upsertLocal(
+        appointments: [appointment],
+        paymentTickets: ticket != null ? [ticket] : null,
+      );
+      if (shouldRemoveTicket) {
+        _deletePaymentTicketLocal(appointment.id);
+      }
       return;
     }
     await firestore
         .collection('appointments')
         .doc(appointment.id)
         .set(appointmentToMap(appointment));
+    if (ticket != null) {
+      await upsertPaymentTicket(ticket);
+    }
+    if (shouldRemoveTicket) {
+      await deletePaymentTicket(appointment.id);
+    }
+  }
+
+  bool _shouldCreatePaymentTicket({
+    required Appointment appointment,
+    Appointment? previous,
+  }) {
+    if (appointment.status != AppointmentStatus.completed) {
+      return false;
+    }
+    if (appointment.packageId != null) {
+      return false;
+    }
+    if (previous?.status == AppointmentStatus.completed) {
+      return false;
+    }
+    final existingTicket = state.paymentTickets.firstWhereOrNull(
+      (ticket) => ticket.appointmentId == appointment.id,
+    );
+    if (existingTicket != null) {
+      return false;
+    }
+    return true;
+  }
+
+  PaymentTicket _buildPaymentTicket(Appointment appointment) {
+    final service = state.services.firstWhereOrNull(
+      (item) => item.id == appointment.serviceId,
+    );
+    return PaymentTicket(
+      id: appointment.id,
+      salonId: appointment.salonId,
+      appointmentId: appointment.id,
+      clientId: appointment.clientId,
+      serviceId: appointment.serviceId,
+      staffId: appointment.staffId,
+      appointmentStart: appointment.start,
+      appointmentEnd: appointment.end,
+      createdAt: DateTime.now(),
+      expectedTotal: service?.price,
+      serviceName: service?.name,
+      notes: appointment.notes,
+    );
   }
 
   Future<void> _consumePackageSession(Appointment appointment) async {
@@ -1612,6 +1691,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     final firestore = _firestore;
     if (firestore == null) {
       _deleteAppointmentLocal(appointmentId);
+      await deletePaymentTicket(appointmentId);
       return;
     }
     await firestore.collection('appointments').doc(appointmentId).delete();
@@ -1620,6 +1700,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
         .doc(appointmentId)
         .delete();
     _deleteAppointmentLocal(appointmentId);
+    await deletePaymentTicket(appointmentId);
   }
 
   Future<void> upsertInventoryItem(InventoryItem item) async {
@@ -1650,6 +1731,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
       return;
     }
     await firestore.collection('sales').doc(sale.id).set(saleToMap(sale));
+    _upsertLocal(sales: [sale]);
   }
 
   Future<void> deleteSale(String saleId) async {
@@ -1659,6 +1741,44 @@ class AppDataStore extends StateNotifier<AppDataState> {
       return;
     }
     await firestore.collection('sales').doc(saleId).delete();
+  }
+
+  Future<void> upsertPaymentTicket(PaymentTicket ticket) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      _upsertLocal(paymentTickets: [ticket]);
+      return;
+    }
+    await firestore
+        .collection('payment_tickets')
+        .doc(ticket.id)
+        .set(paymentTicketToMap(ticket));
+    _upsertLocal(paymentTickets: [ticket]);
+  }
+
+  Future<void> deletePaymentTicket(String ticketId) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      _deletePaymentTicketLocal(ticketId);
+      return;
+    }
+    await firestore.collection('payment_tickets').doc(ticketId).delete();
+    _deletePaymentTicketLocal(ticketId);
+  }
+
+  Future<void> closePaymentTicket(String ticketId, {String? saleId}) async {
+    final ticket = state.paymentTickets.firstWhereOrNull(
+      (item) => item.id == ticketId,
+    );
+    if (ticket == null || ticket.status == PaymentTicketStatus.closed) {
+      return;
+    }
+    final updated = ticket.copyWith(
+      status: PaymentTicketStatus.closed,
+      closedAt: DateTime.now(),
+      saleId: saleId ?? ticket.saleId,
+    );
+    await upsertPaymentTicket(updated);
   }
 
   Future<void> upsertCashFlowEntry(CashFlowEntry entry) async {
@@ -1671,6 +1791,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
         .collection('cash_flows')
         .doc(entry.id)
         .set(cashFlowToMap(entry));
+    _upsertLocal(cashFlowEntries: [entry]);
   }
 
   Future<void> deleteCashFlowEntry(String entryId) async {
@@ -1825,6 +1946,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
     for (final sale in MockData.sales) {
       await upsertSale(sale);
     }
+    for (final ticket in MockData.paymentTickets) {
+      await upsertPaymentTicket(ticket);
+    }
     for (final entry in MockData.cashFlowEntries) {
       await upsertCashFlowEntry(entry);
     }
@@ -1873,6 +1997,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     List<Service>? services,
     List<ServicePackage>? packages,
     List<Appointment>? appointments,
+    List<PaymentTicket>? paymentTickets,
     List<InventoryItem>? inventoryItems,
     List<Sale>? sales,
     List<CashFlowEntry>? cashFlowEntries,
@@ -1908,6 +2033,10 @@ class AppDataStore extends StateNotifier<AppDataState> {
           appointments != null
               ? _merge(state.appointments, appointments, (e) => e.id)
               : state.appointments,
+      paymentTickets:
+          paymentTickets != null
+              ? _merge(state.paymentTickets, paymentTickets, (e) => e.id)
+              : state.paymentTickets,
       inventoryItems:
           inventoryItems != null
               ? _merge(state.inventoryItems, inventoryItems, (e) => e.id)
@@ -2162,6 +2291,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
       sales: List.unmodifiable(
         state.sales.where((element) => element.clientId != clientId),
       ),
+      paymentTickets: List.unmodifiable(
+        state.paymentTickets.where((element) => element.clientId != clientId),
+      ),
     );
   }
 
@@ -2172,6 +2304,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
       ),
       appointments: List.unmodifiable(
         state.appointments.where((element) => element.serviceId != serviceId),
+      ),
+      paymentTickets: List.unmodifiable(
+        state.paymentTickets.where((element) => element.serviceId != serviceId),
       ),
       packages: List.unmodifiable(
         state.packages.map((pkg) {
@@ -2216,6 +2351,14 @@ class AppDataStore extends StateNotifier<AppDataState> {
     state = state.copyWith(
       inventoryItems: List.unmodifiable(
         state.inventoryItems.where((element) => element.id != itemId),
+      ),
+    );
+  }
+
+  void _deletePaymentTicketLocal(String ticketId) {
+    state = state.copyWith(
+      paymentTickets: List.unmodifiable(
+        state.paymentTickets.where((element) => element.id != ticketId),
       ),
     );
   }

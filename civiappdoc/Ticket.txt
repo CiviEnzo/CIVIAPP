@@ -1,0 +1,18 @@
+apertura ticket
+
+Obiettivo: Quando un appuntamento passa in stato “Confermato” si deve generare un “Ticket di pagamento”,
+visibile in una nuova lista “Ticket aperti” all’ interno della sezione “Vendite & Cassa”.
+Al click di un ticket si aprirà la modale di “Registra vendita”  con i dati già precompilati
+Aggiorniamo la modale di “Registra vendita” come segue:	
+
+    - cliente
+	- servizio
+	- importo del servizio
+	- possibilità di aggiungere sconto
+	- possibilità di modifica manuale dell’ importo finale
+	- metodo di pagamento
+	- Data e ora di vendita
+	- Note
+
+
+Alla conferma del ticket, registra la vendita 

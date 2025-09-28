@@ -25,36 +25,23 @@ class PackagePurchaseEditSheet extends StatefulWidget {
 class _PackagePurchaseEditSheetState extends State<PackagePurchaseEditSheet> {
   final _formKey = GlobalKey<FormState>();
   late PackagePurchaseStatus _status;
-  late PackagePaymentStatus _paymentStatus;
-  late TextEditingController _totalSessionsController;
   late TextEditingController _remainingSessionsController;
-  DateTime? _expirationDate;
+  int? _initialTotalSessions;
 
   @override
   void initState() {
     super.initState();
     final item = widget.initialItem;
     _status = item.packageStatus ?? _defaultStatus(item);
-    _paymentStatus =
-        item.packagePaymentStatus ??
-        (item.depositAmount > 0
-            ? PackagePaymentStatus.deposit
-            : PackagePaymentStatus.paid);
-    final initialTotalSessions =
-        item.totalSessions ?? _defaultTotalSessions(item);
-    final initialRemaining = item.remainingSessions ?? initialTotalSessions;
-    _totalSessionsController = TextEditingController(
-      text: initialTotalSessions?.toString() ?? '',
-    );
+    _initialTotalSessions = item.totalSessions ?? _defaultTotalSessions(item);
+    final initialRemaining = item.remainingSessions ?? _initialTotalSessions;
     _remainingSessionsController = TextEditingController(
       text: initialRemaining?.toString() ?? '',
     );
-    _expirationDate = item.expirationDate ?? _defaultExpiration();
   }
 
   @override
   void dispose() {
-    _totalSessionsController.dispose();
     _remainingSessionsController.dispose();
     super.dispose();
   }
@@ -62,7 +49,6 @@ class _PackagePurchaseEditSheetState extends State<PackagePurchaseEditSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final dateFormat = DateFormat('dd/MM/yyyy');
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -92,24 +78,6 @@ class _PackagePurchaseEditSheetState extends State<PackagePurchaseEditSheet> {
                   }),
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<PackagePaymentStatus>(
-              value: _paymentStatus,
-              decoration: const InputDecoration(labelText: 'Pagamento'),
-              items:
-                  PackagePaymentStatus.values
-                      .map(
-                        (status) => DropdownMenuItem(
-                          value: status,
-                          child: Text(status.label),
-                        ),
-                      )
-                      .toList(),
-              onChanged:
-                  (value) => setState(() {
-                    _paymentStatus = value ?? _paymentStatus;
-                  }),
-            ),
-            const SizedBox(height: 12),
             Text(
               'Acconti registrati: ${currency.format(widget.initialItem.depositAmount)}',
               style: theme.textTheme.bodyMedium,
@@ -123,49 +91,11 @@ class _PackagePurchaseEditSheetState extends State<PackagePurchaseEditSheet> {
                 ),
               ),
             const SizedBox(height: 12),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Scadenza'),
-              subtitle: Text(
-                _expirationDate == null
-                    ? 'Nessuna scadenza'
-                    : dateFormat.format(_expirationDate!),
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_expirationDate != null)
-                    IconButton(
-                      tooltip: 'Rimuovi scadenza',
-                      onPressed: _clearExpiration,
-                      icon: const Icon(Icons.close_rounded),
-                    ),
-                  IconButton(
-                    tooltip: 'Modifica scadenza',
-                    onPressed: _pickExpirationDate,
-                    icon: const Icon(Icons.edit_calendar_rounded),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _totalSessionsController,
-              decoration: const InputDecoration(
-                labelText: 'Sessioni totali',
-                hintText: 'Lascia vuoto per calcolare automaticamente',
-              ),
-              keyboardType: TextInputType.number,
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return null;
-                }
-                final total = int.tryParse(value.trim());
-                if (total == null || total <= 0) {
-                  return 'Inserisci un numero valido';
-                }
-                return null;
-              },
+            Text(
+              _initialTotalSessions == null
+                  ? 'Sessioni totali registrate: non definite'
+                  : 'Sessioni totali registrate: $_initialTotalSessions',
+              style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -182,8 +112,7 @@ class _PackagePurchaseEditSheetState extends State<PackagePurchaseEditSheet> {
                 if (remaining == null || remaining < 0) {
                   return 'Inserisci un numero valido';
                 }
-                final totalText = _totalSessionsController.text.trim();
-                final total = int.tryParse(totalText);
+                final total = _initialTotalSessions;
                 if (total != null && remaining > total) {
                   return 'Maggiore delle sessioni totali';
                 }
@@ -209,50 +138,22 @@ class _PackagePurchaseEditSheetState extends State<PackagePurchaseEditSheet> {
       return;
     }
 
-    final totalText = _totalSessionsController.text.trim();
     final remainingText = _remainingSessionsController.text.trim();
-    final totalSessions = totalText.isEmpty ? null : int.parse(totalText);
     int? remainingSessions =
         remainingText.isEmpty ? null : int.parse(remainingText);
 
-    if (totalSessions != null &&
+    if (_initialTotalSessions != null &&
         remainingSessions != null &&
-        remainingSessions > totalSessions) {
-      remainingSessions = totalSessions;
+        remainingSessions > _initialTotalSessions!) {
+      remainingSessions = _initialTotalSessions;
     }
 
     final updatedItem = widget.initialItem.copyWith(
       packageStatus: _status,
-      packagePaymentStatus: _paymentStatus,
-      totalSessions: totalSessions,
       remainingSessions: remainingSessions,
-      expirationDate: _expirationDate,
     );
 
     Navigator.of(context).pop(updatedItem);
-  }
-
-  Future<void> _pickExpirationDate() async {
-    final baseDate =
-        _expirationDate ?? _defaultExpiration() ?? widget.purchaseDate;
-    final selected = await showDatePicker(
-      context: context,
-      initialDate: baseDate,
-      firstDate: DateTime.now().subtract(const Duration(days: 365)),
-      lastDate: DateTime.now().add(const Duration(days: 730)),
-    );
-    if (selected == null) {
-      return;
-    }
-    setState(() {
-      _expirationDate = selected;
-    });
-  }
-
-  void _clearExpiration() {
-    setState(() {
-      _expirationDate = null;
-    });
   }
 
   int? _defaultTotalSessions(SaleItem item) {
@@ -268,14 +169,6 @@ class _PackagePurchaseEditSheetState extends State<PackagePurchaseEditSheet> {
       return null;
     }
     return (sessionsPerPackage * item.quantity).round();
-  }
-
-  DateTime? _defaultExpiration() {
-    final validityDays = widget.package?.validDays;
-    if (validityDays == null) {
-      return null;
-    }
-    return widget.purchaseDate.add(Duration(days: validityDays));
   }
 
   PackagePurchaseStatus _defaultStatus(SaleItem item) {

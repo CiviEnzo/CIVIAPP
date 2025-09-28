@@ -1,5 +1,5 @@
 class Sale {
-  const Sale({
+  Sale({
     required this.id,
     required this.salonId,
     required this.clientId,
@@ -7,9 +7,17 @@ class Sale {
     required this.total,
     required this.createdAt,
     this.paymentMethod = PaymentMethod.pos,
+    this.paymentStatus = SalePaymentStatus.paid,
+    double? paidAmount,
     this.invoiceNumber,
     this.notes,
-  });
+    this.discountAmount = 0,
+    this.staffId,
+    List<SalePaymentMovement>? paymentHistory,
+  }) : paidAmount = double.parse(
+         ((paidAmount ?? total).clamp(0, total)).toStringAsFixed(2),
+        ),
+       paymentHistory = List.unmodifiable(paymentHistory ?? const []);
 
   final String id;
   final String salonId;
@@ -18,8 +26,25 @@ class Sale {
   final double total;
   final DateTime createdAt;
   final PaymentMethod paymentMethod;
+  final SalePaymentStatus paymentStatus;
+  final double paidAmount;
   final String? invoiceNumber;
   final String? notes;
+  final double discountAmount;
+  final String? staffId;
+  final List<SalePaymentMovement> paymentHistory;
+
+  double get subtotal {
+    return items.fold<double>(0, (sum, item) => sum + item.amount);
+  }
+
+  double get outstandingAmount {
+    final remaining = total - paidAmount;
+    if (remaining <= 0) {
+      return 0;
+    }
+    return double.parse(remaining.toStringAsFixed(2));
+  }
 
   Sale copyWith({
     String? id,
@@ -29,8 +54,13 @@ class Sale {
     double? total,
     DateTime? createdAt,
     PaymentMethod? paymentMethod,
+    SalePaymentStatus? paymentStatus,
+    double? paidAmount,
     String? invoiceNumber,
     String? notes,
+    double? discountAmount,
+    Object? staffId = _unset,
+    List<SalePaymentMovement>? paymentHistory,
   }) {
     return Sale(
       id: id ?? this.id,
@@ -40,8 +70,13 @@ class Sale {
       total: total ?? this.total,
       createdAt: createdAt ?? this.createdAt,
       paymentMethod: paymentMethod ?? this.paymentMethod,
+      paymentStatus: paymentStatus ?? this.paymentStatus,
+      paidAmount: paidAmount ?? this.paidAmount,
       invoiceNumber: invoiceNumber ?? this.invoiceNumber,
       notes: notes ?? this.notes,
+      discountAmount: discountAmount ?? this.discountAmount,
+      staffId: staffId == _unset ? this.staffId : staffId as String?,
+      paymentHistory: paymentHistory ?? this.paymentHistory,
     );
   }
 }
@@ -169,6 +204,19 @@ extension PackagePaymentStatusX on PackagePaymentStatus {
   }
 }
 
+enum SalePaymentStatus { deposit, paid }
+
+extension SalePaymentStatusX on SalePaymentStatus {
+  String get label {
+    switch (this) {
+      case SalePaymentStatus.deposit:
+        return 'Acconto';
+      case SalePaymentStatus.paid:
+        return 'Saldato';
+    }
+  }
+}
+
 class PackageDeposit {
   const PackageDeposit({
     required this.id,
@@ -203,6 +251,62 @@ class PackageDeposit {
 
 double _sumDeposits(List<PackageDeposit> deposits) {
   return deposits.fold<double>(0, (sum, entry) => sum + entry.amount);
+}
+
+class SalePaymentMovement {
+  const SalePaymentMovement({
+    required this.id,
+    required this.amount,
+    required this.type,
+    required this.date,
+    required this.paymentMethod,
+    this.recordedBy,
+    this.note,
+  });
+
+  final String id;
+  final double amount;
+  final SalePaymentType type;
+  final DateTime date;
+  final PaymentMethod paymentMethod;
+  final String? recordedBy;
+  final String? note;
+
+  SalePaymentMovement copyWith({
+    String? id,
+    double? amount,
+    SalePaymentType? type,
+    DateTime? date,
+    PaymentMethod? paymentMethod,
+    Object? recordedBy = _unset,
+    Object? note = _unset,
+  }) {
+    return SalePaymentMovement(
+      id: id ?? this.id,
+      amount: amount ?? this.amount,
+      type: type ?? this.type,
+      date: date ?? this.date,
+      paymentMethod: paymentMethod ?? this.paymentMethod,
+      recordedBy:
+          recordedBy == _unset
+              ? this.recordedBy
+              : recordedBy as String?,
+      note: note == _unset ? this.note : note as String?,
+    );
+  }
+}
+
+enum SalePaymentType { deposit, settlement }
+
+extension SalePaymentTypeX on SalePaymentType {
+  String get label {
+    switch (this) {
+      case SalePaymentType.deposit:
+        return 'Acconto';
+      case SalePaymentType.settlement:
+        return 'Saldo';
+    }
+  }
 }
 
 enum SaleReferenceType { service, package, product }

@@ -9,6 +9,7 @@ class Service {
     this.description,
     this.staffRoles = const [],
     this.requiredEquipmentIds = const [],
+    this.extraDuration = Duration.zero,
   });
 
   final String id;
@@ -20,6 +21,7 @@ class Service {
   final String? description;
   final List<String> staffRoles;
   final List<String> requiredEquipmentIds;
+  final Duration extraDuration;
 
   Service copyWith({
     String? id,
@@ -31,6 +33,7 @@ class Service {
     String? description,
     List<String>? staffRoles,
     List<String>? requiredEquipmentIds,
+    Duration? extraDuration,
   }) {
     return Service(
       id: id ?? this.id,
@@ -42,6 +45,11 @@ class Service {
       description: description ?? this.description,
       staffRoles: staffRoles ?? this.staffRoles,
       requiredEquipmentIds: requiredEquipmentIds ?? this.requiredEquipmentIds,
+      extraDuration: extraDuration ?? this.extraDuration,
     );
   }
+}
+
+extension ServiceX on Service {
+  Duration get totalDuration => duration + extraDuration;
 }
