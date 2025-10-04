@@ -6,6 +6,7 @@ import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
+import 'package:civiapp/domain/entities/service_category.dart';
 import 'package:civiapp/domain/entities/shift.dart';
 import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
@@ -52,9 +53,11 @@ class ClientBookingSheet extends ConsumerStatefulWidget {
 
 class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
   static const _slotIntervalMinutes = 15;
+  static const String _uncategorizedCategoryId = 'uncategorized';
   final _uuid = const Uuid();
   final DateFormat _dayLabel = DateFormat('EEE d MMM', 'it_IT');
   final DateFormat _timeLabel = DateFormat('HH:mm', 'it_IT');
+  String? _selectedCategoryId;
   String? _selectedServiceId;
   String? _selectedStaffId;
   DateTime? _selectedDay;
@@ -62,6 +65,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
   bool _isSubmitting = false;
   bool _usePackageSession = false;
   String? _selectedPackageId;
+  bool _packageSelectionManuallyChanged = false;
 
   @override
   void initState() {
@@ -80,10 +84,21 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
   @override
   Widget build(BuildContext context) {
     final data = ref.watch(appDataProvider);
+    final salon = data.salons.firstWhereOrNull(
+      (item) => item.id == widget.client.salonId,
+    );
+    final initialServiceId =
+        widget.initialServiceId ?? widget.initialAppointment?.serviceId;
     final services =
-        data.services
-            .where((service) => service.salonId == widget.client.salonId)
-            .toList()
+        data.services.where((service) {
+            if (service.salonId != widget.client.salonId) {
+              return false;
+            }
+            if (service.isActive) {
+              return true;
+            }
+            return initialServiceId != null && service.id == initialServiceId;
+          }).toList()
           ..sort((a, b) => a.name.compareTo(b.name));
 
     if (services.isEmpty) {
@@ -93,14 +108,41 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       );
     }
 
-    final selectedService = services.firstWhere(
-      (service) => service.id == _selectedServiceId,
-      orElse: () => services.first,
+    final bookingCategories = _composeBookingCategories(
+      services: services,
+      categories: data.serviceCategories,
+      salonId: widget.client.salonId,
     );
-    if (_selectedServiceId == null ||
-        selectedService.id != _selectedServiceId) {
-      _selectedServiceId = selectedService.id;
+
+    final resolvedSelection = _resolveSelection(bookingCategories);
+    final effectiveCategoryId = resolvedSelection.categoryId;
+    final effectiveServiceId = resolvedSelection.serviceId;
+
+    if (effectiveCategoryId != _selectedCategoryId ||
+        effectiveServiceId != _selectedServiceId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _selectedCategoryId = effectiveCategoryId;
+          _selectedServiceId = effectiveServiceId;
+        });
+      });
     }
+
+    final currentCategoryId = effectiveCategoryId ?? _selectedCategoryId;
+    final fallbackCategory =
+        bookingCategories.isNotEmpty ? bookingCategories.first : null;
+    final selectedCategory =
+        bookingCategories.firstWhereOrNull(
+          (item) => item.id == currentCategoryId,
+        ) ??
+        fallbackCategory;
+    final visibleServices = selectedCategory?.services ?? const <Service>[];
+    final selectedService =
+        visibleServices.firstWhereOrNull(
+          (service) => service.id == (effectiveServiceId ?? _selectedServiceId),
+        ) ??
+        (visibleServices.isNotEmpty ? visibleServices.first : services.first);
 
     final staff = _availableStaff(data: data, service: selectedService);
     if (staff.isNotEmpty &&
@@ -134,24 +176,39 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       salonId: widget.client.salonId,
     );
 
-    final packagesForService =
-        packagePurchases
-            .where(
-              (purchase) =>
-                  purchase.isActive &&
-                  purchase.supportsService(selectedService.id) &&
-                  purchase.effectiveRemainingSessions > 0,
-            )
-            .toList()
-          ..sort((a, b) {
-            final aExpiration = a.expirationDate ?? DateTime(9999, 1, 1);
-            final bExpiration = b.expirationDate ?? DateTime(9999, 1, 1);
-            final expirationCompare = aExpiration.compareTo(bExpiration);
-            if (expirationCompare != 0) {
-              return expirationCompare;
-            }
-            return a.sale.createdAt.compareTo(b.sale.createdAt);
-          });
+    final packagesForService = _dedupePurchasesByReferenceId(
+      packagePurchases
+          .where(
+            (purchase) =>
+                purchase.isActive &&
+                purchase.supportsService(selectedService.id) &&
+                purchase.effectiveRemainingSessions > 0,
+          )
+          .toList()
+        ..sort((a, b) {
+          final aExpiration = a.expirationDate ?? DateTime(9999, 1, 1);
+          final bExpiration = b.expirationDate ?? DateTime(9999, 1, 1);
+          final expirationCompare = aExpiration.compareTo(bExpiration);
+          if (expirationCompare != 0) {
+            return expirationCompare;
+          }
+          return a.sale.createdAt.compareTo(b.sale.createdAt);
+        }),
+    );
+
+    // Default to consuming a package session when one is available unless the
+    // user explicitly opted out.
+    if (packagesForService.isNotEmpty &&
+        !_usePackageSession &&
+        !_packageSelectionManuallyChanged) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _usePackageSession = true;
+          _selectedPackageId = packagesForService.first.item.referenceId;
+        });
+      });
+    }
 
     if (_usePackageSession) {
       final availableIds =
@@ -167,6 +224,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             if (packagesForService.isEmpty) {
               _usePackageSession = false;
               _selectedPackageId = null;
+              _packageSelectionManuallyChanged = false;
             } else {
               _selectedPackageId = packagesForService.first.item.referenceId;
             }
@@ -212,6 +270,15 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             ? availability[selectedDayKey] ?? const <_AvailableSlot>[]
             : const <_AvailableSlot>[];
 
+    final selectedDayClosures =
+        selectedDayKey == null
+            ? const <SalonClosure>[]
+            : _findOverlappingClosures(
+              closures: salon?.closures ?? const <SalonClosure>[],
+              start: selectedDayKey,
+              end: selectedDayKey.add(const Duration(days: 1)),
+            );
+
     if (_selectedSlotStart != null &&
         slots.every((slot) => slot.start != _selectedSlotStart)) {
       _selectedSlotStart = null;
@@ -241,7 +308,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             ),
             const SizedBox(height: 16),
             Text(
-              '1. Scegli il servizio',
+              '1. Scegli la categoria',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
@@ -249,18 +316,26 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
               spacing: 8,
               runSpacing: 8,
               children:
-                  services
+                  bookingCategories
                       .map(
-                        (service) => ChoiceChip(
-                          label: Text(service.name),
-                          selected: service.id == _selectedServiceId,
+                        (category) => ChoiceChip(
+                          label: Text(category.label),
+                          selected: category.id == currentCategoryId,
                           onSelected: (selected) {
                             if (!selected) return;
                             setState(() {
-                              _selectedServiceId = service.id;
+                              _selectedCategoryId = category.id;
+                              final firstServiceId =
+                                  category.services.isNotEmpty
+                                      ? category.services.first.id
+                                      : null;
+                              _selectedServiceId = firstServiceId;
                               _selectedStaffId = null;
                               _selectedDay = null;
                               _selectedSlotStart = null;
+                              _usePackageSession = false;
+                              _selectedPackageId = null;
+                              _packageSelectionManuallyChanged = false;
                             });
                           },
                         ),
@@ -269,7 +344,41 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             ),
             const SizedBox(height: 24),
             Text(
-              '2. Scegli l\'operatore',
+              '2. Scegli il servizio',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            if (visibleServices.isEmpty)
+              const Text('Nessun servizio disponibile per questa categoria.')
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children:
+                    visibleServices
+                        .map(
+                          (service) => ChoiceChip(
+                            label: Text(service.name),
+                            selected: service.id == selectedService.id,
+                            onSelected: (selected) {
+                              if (!selected) return;
+                              setState(() {
+                                _selectedServiceId = service.id;
+                                _selectedStaffId = null;
+                                _selectedDay = null;
+                                _selectedSlotStart = null;
+                                _usePackageSession = false;
+                                _selectedPackageId = null;
+                                _packageSelectionManuallyChanged = false;
+                              });
+                            },
+                          ),
+                        )
+                        .toList(),
+              ),
+            const SizedBox(height: 24),
+            Text(
+              '3. Scegli l\'operatore',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
@@ -309,6 +418,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
                 value: _usePackageSession,
                 onChanged: (checked) {
                   setState(() {
+                    _packageSelectionManuallyChanged = true;
                     _usePackageSession = checked ?? false;
                     if (_usePackageSession) {
                       _selectedPackageId =
@@ -350,7 +460,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
               const SizedBox(height: 24),
             ],
             Text(
-              '3. Scegli data e orario',
+              '4. Scegli data e orario',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
@@ -374,6 +484,15 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
                       : 'Nessuna disponibilità nelle prossime settimane.',
                 )
               else if (slots.isEmpty) ...[
+                if (selectedDayClosures.isNotEmpty) ...[
+                  ...selectedDayClosures.map(
+                    (closure) => _buildClosureNotice(
+                      context: context,
+                      message: _describeClosure(closure),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 const Text('Nessuna disponibilità per la data selezionata.'),
                 if (suggestions.isNotEmpty) ...[
                   const SizedBox(height: 12),
@@ -516,6 +635,20 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       return;
     }
 
+    final closureConflicts =
+        salon == null
+            ? const <SalonClosure>[]
+            : _findOverlappingClosures(
+              closures: salon.closures,
+              start: slotStart,
+              end: slotEnd,
+            );
+    if (closureConflicts.isNotEmpty) {
+      final description = _describeClosure(closureConflicts.first);
+      _showError('Il salone è chiuso in questo orario. $description');
+      return;
+    }
+
     final equipmentCheck = EquipmentAvailabilityChecker.check(
       salon: salon,
       service: service,
@@ -629,10 +762,135 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
           (member) =>
               member.salonId == widget.client.salonId &&
               member.isActive &&
-              (allowedRoles.isEmpty || allowedRoles.contains(member.roleId)),
+              (allowedRoles.isEmpty ||
+                  member.roleIds.any(
+                    (roleId) => allowedRoles.contains(roleId),
+                  )),
         )
         .toList()
       ..sort((a, b) => a.fullName.compareTo(b.fullName));
+  }
+
+  List<_BookingCategory> _composeBookingCategories({
+    required List<Service> services,
+    required List<ServiceCategory> categories,
+    required String salonId,
+  }) {
+    final categoriesById = {
+      for (final category in categories.where(
+        (item) => item.salonId == salonId,
+      ))
+        category.id: category,
+    };
+    final Map<String, List<Service>> servicesByCategoryId = {};
+    final Map<String, List<Service>> servicesByLegacyName = {};
+    final Map<String, String> legacyLabels = {};
+    final List<Service> uncategorized = [];
+
+    for (final service in services) {
+      ServiceCategory? category;
+      final categoryId = service.categoryId;
+      if (categoryId != null && categoryId.isNotEmpty) {
+        category = categoriesById[categoryId];
+      }
+      category ??= categoriesById.values.firstWhereOrNull(
+        (candidate) =>
+            candidate.name.toLowerCase() == service.category.toLowerCase() &&
+            candidate.salonId == service.salonId,
+      );
+
+      if (category != null) {
+        servicesByCategoryId
+            .putIfAbsent(category.id, () => <Service>[])
+            .add(service);
+        continue;
+      }
+
+      final trimmedName = service.category.trim();
+      if (trimmedName.isNotEmpty) {
+        final legacyKey = 'legacy::${trimmedName.toLowerCase()}';
+        servicesByLegacyName
+            .putIfAbsent(legacyKey, () => <Service>[])
+            .add(service);
+        legacyLabels.putIfAbsent(legacyKey, () => trimmedName);
+      } else {
+        uncategorized.add(service);
+      }
+    }
+
+    final result = <_BookingCategory>[];
+    final sortedCategories = categoriesById.values.sortedByDisplayOrder();
+    for (final category in sortedCategories) {
+      final matchingServices = List<Service>.from(
+        servicesByCategoryId[category.id] ?? const <Service>[],
+      )..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      if (matchingServices.isEmpty) {
+        continue;
+      }
+      result.add(
+        _BookingCategory(
+          id: category.id,
+          label: category.name,
+          services: matchingServices,
+        ),
+      );
+    }
+
+    final legacyEntries =
+        servicesByLegacyName.entries.toList()
+          ..sort((a, b) => a.key.compareTo(b.key));
+    for (final entry in legacyEntries) {
+      final label =
+          legacyLabels[entry.key] ?? entry.key.replaceFirst('legacy::', '');
+      final servicesForCategory =
+          entry.value..sort(
+            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+          );
+      result.add(
+        _BookingCategory(
+          id: entry.key,
+          label: label.isEmpty ? 'Altro' : label,
+          services: servicesForCategory,
+        ),
+      );
+    }
+
+    if (uncategorized.isNotEmpty) {
+      uncategorized.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
+      result.add(
+        _BookingCategory(
+          id: _uncategorizedCategoryId,
+          label: 'Altro',
+          services: uncategorized,
+        ),
+      );
+    }
+
+    return result;
+  }
+
+  _BookingSelection _resolveSelection(List<_BookingCategory> categories) {
+    if (categories.isEmpty) {
+      return const _BookingSelection();
+    }
+
+    _BookingCategory? category = categories.firstWhereOrNull(
+      (item) => item.id == _selectedCategoryId,
+    );
+    category ??= categories.firstWhereOrNull(
+      (item) =>
+          item.services.any((service) => service.id == _selectedServiceId),
+    );
+    category ??= categories.first;
+
+    Service? service = category.services.firstWhereOrNull(
+      (item) => item.id == _selectedServiceId,
+    );
+    service ??= category.services.isNotEmpty ? category.services.first : null;
+
+    return _BookingSelection(categoryId: category.id, serviceId: service?.id);
   }
 
   Map<DateTime, List<_AvailableSlot>> _computeAvailability({
@@ -649,6 +907,14 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     final salon = data.salons.firstWhereOrNull(
       (item) => item.id == widget.client.salonId,
     );
+    final salonClosures =
+        salon == null
+            ? const <SalonClosure>[]
+            : _findOverlappingClosures(
+              closures: salon.closures,
+              start: now,
+              end: horizon,
+            );
     final editingAppointmentId = widget.initialAppointment?.id;
     final allAppointments = _visibleAppointments(
       data,
@@ -727,6 +993,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
         from: windowStart,
         busyAppointments: busyAppointments,
         busyAbsences: busyAbsences,
+        salonClosures: salonClosures,
       );
 
       for (final window in windows) {
@@ -809,6 +1076,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     required DateTime from,
     required List<Appointment> busyAppointments,
     required List<StaffAbsence> busyAbsences,
+    required List<SalonClosure> salonClosures,
   }) {
     final windows = <_TimeRange>[];
     if (from.isAfter(shift.end)) {
@@ -846,6 +1114,17 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       );
     }
 
+    for (final closure in salonClosures) {
+      if (!closure.end.isAfter(shift.start) ||
+          !closure.start.isBefore(shift.end)) {
+        continue;
+      }
+      _subtractRange(
+        windows,
+        _TimeRange(start: closure.start, end: closure.end),
+      );
+    }
+
     return windows
         .map((window) => window.trim(from: from))
         .whereType<_TimeRange>()
@@ -876,6 +1155,74 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       map[absence.id] = absence;
     }
     return List.unmodifiable(map.values);
+  }
+
+  List<SalonClosure> _findOverlappingClosures({
+    required Iterable<SalonClosure> closures,
+    required DateTime start,
+    required DateTime end,
+  }) {
+    final map = <String, SalonClosure>{};
+    for (final closure in closures) {
+      if (!closure.end.isAfter(start) || !closure.start.isBefore(end)) {
+        continue;
+      }
+      map[closure.id] = closure;
+    }
+    final list =
+        map.values.toList()..sort((a, b) => a.start.compareTo(b.start));
+    return list;
+  }
+
+  String _describeClosure(SalonClosure closure) {
+    final dateFormat = DateFormat('d MMMM yyyy', 'it_IT');
+    final timeFormat = DateFormat('HH:mm', 'it_IT');
+    final isSameDay =
+        closure.start.year == closure.end.year &&
+        closure.start.month == closure.end.month &&
+        closure.start.day == closure.end.day;
+    final startDate = dateFormat.format(closure.start);
+    final endDate = dateFormat.format(closure.end);
+    final startTime = timeFormat.format(closure.start);
+    final endTime = timeFormat.format(closure.end);
+    final base =
+        isSameDay
+            ? 'Il $startDate dalle $startTime alle $endTime'
+            : 'Dal $startDate $startTime al $endDate $endTime';
+    final reason = closure.reason?.trim();
+    if (reason == null || reason.isEmpty) {
+      return base;
+    }
+    return '$base • Motivo: $reason';
+  }
+
+  Widget _buildClosureNotice({
+    required BuildContext context,
+    required String message,
+  }) {
+    final theme = Theme.of(context);
+    final color = theme.colorScheme.error;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline_rounded, color: color, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: theme.textTheme.bodyMedium?.copyWith(color: color),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _subtractRange(List<_TimeRange> windows, _TimeRange busy) {
@@ -915,6 +1262,20 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     return DateTime(value.year, value.month, value.day);
   }
 
+  List<ClientPackagePurchase> _dedupePurchasesByReferenceId(
+    List<ClientPackagePurchase> purchases,
+  ) {
+    final seen = <String>{};
+    final unique = <ClientPackagePurchase>[];
+    for (final purchase in purchases) {
+      final referenceId = purchase.item.referenceId;
+      if (seen.add(referenceId)) {
+        unique.add(purchase);
+      }
+    }
+    return unique;
+  }
+
   String _capitalize(String value) {
     if (value.isEmpty) return value;
     return value[0].toUpperCase() + value.substring(1);
@@ -931,6 +1292,25 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     _selectedDay = null;
     _selectedSlotStart = null;
   }
+}
+
+class _BookingCategory {
+  const _BookingCategory({
+    required this.id,
+    required this.label,
+    required this.services,
+  });
+
+  final String id;
+  final String label;
+  final List<Service> services;
+}
+
+class _BookingSelection {
+  const _BookingSelection({this.categoryId, this.serviceId});
+
+  final String? categoryId;
+  final String? serviceId;
 }
 
 class _DaySuggestion {

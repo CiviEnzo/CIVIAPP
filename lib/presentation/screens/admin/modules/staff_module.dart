@@ -86,8 +86,8 @@ class StaffModule extends ConsumerWidget {
                       () => _openRoleManager(
                         context,
                         ref,
-                        roles: staffRoles,
                         canManageRoles: canManageRoles,
+                        salonId: salonId,
                       ),
                   icon: const Icon(Icons.tune_rounded),
                   label: const Text('Gestisci ruoli'),
@@ -154,7 +154,7 @@ class StaffModule extends ConsumerWidget {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            rolesById[staff.roleId]?.displayName ?? 'Mansione',
+                            _roleLabel(rolesById: rolesById, staff: staff),
                             style: Theme.of(context).textTheme.bodyMedium,
                           ),
                           if (staff.dateOfBirth != null) ...[
@@ -162,17 +162,6 @@ class StaffModule extends ConsumerWidget {
                             Text(
                               'Nato il ${_birthLabel.format(staff.dateOfBirth!)}',
                               style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                          if (staff.skills.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children:
-                                  staff.skills
-                                      .map((skill) => Chip(label: Text(skill)))
-                                      .toList(),
                             ),
                           ],
                         ],
@@ -190,7 +179,7 @@ class StaffModule extends ConsumerWidget {
                                 salons: salons,
                                 roles: staffRoles,
                                 defaultSalonId: salonId,
-                                defaultRoleId: staff.roleId,
+                                defaultRoleId: staff.primaryRoleId,
                                 existing: staff,
                               ),
                           icon: const Icon(Icons.edit_rounded),
@@ -523,17 +512,41 @@ class StaffModule extends ConsumerWidget {
   Future<void> _openRoleManager(
     BuildContext context,
     WidgetRef ref, {
-    required List<StaffRole> roles,
     required bool canManageRoles,
+    String? salonId,
   }) async {
+    final selectedSalonId = salonId ?? ref.read(currentSalonIdProvider);
     await showAppModalSheet<void>(
       context: context,
       builder:
           (_) => StaffRoleManagerSheet(
-            roles: roles,
             canManageRoles: canManageRoles,
+            salonId: selectedSalonId,
           ),
     );
+  }
+
+  String _roleLabel({
+    required Map<String, StaffRole> rolesById,
+    required StaffMember staff,
+  }) {
+    final names = staff.roleIds
+        .map((roleId) {
+          final name = rolesById[roleId]?.displayName;
+          return name?.trim();
+        })
+        .whereType<String>()
+        .where((name) => name.isNotEmpty)
+        .toList(growable: false);
+    if (names.isNotEmpty) {
+      return names.join(' • ');
+    }
+    final fallback = rolesById[staff.primaryRoleId]?.displayName;
+    final fallbackName = fallback?.trim();
+    if (fallbackName != null && fallbackName.isNotEmpty) {
+      return fallbackName;
+    }
+    return 'Mansione';
   }
 
   Future<void> _openShiftForm(

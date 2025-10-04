@@ -21,11 +21,121 @@ class ClientsModule extends ConsumerStatefulWidget {
 
 class _ClientsModuleState extends ConsumerState<ClientsModule> {
   final Set<String> _sendingInvites = <String>{};
+  final TextEditingController _generalQueryController = TextEditingController();
+  final TextEditingController _clientNumberController = TextEditingController();
+
+  String _generalQuery = '';
+  String _clientNumberQuery = '';
+  bool _searchPerformed = false;
+  String? _searchError;
+
+  @override
+  void dispose() {
+    _generalQueryController.dispose();
+    _clientNumberController.dispose();
+    super.dispose();
+  }
+
+  void _performSearch() {
+    final general = _generalQueryController.text.trim();
+    final clientNumber = _clientNumberController.text.trim();
+
+    if (general.isEmpty && clientNumber.isEmpty) {
+      setState(() {
+        _searchError = 'Inserisci almeno un criterio di ricerca';
+        _searchPerformed = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _generalQuery = general.toLowerCase();
+      _clientNumberQuery = clientNumber.toLowerCase();
+      _searchPerformed = true;
+      _searchError = null;
+    });
+  }
+
+  void _clearSearch() {
+    setState(() {
+      _generalQueryController.clear();
+      _clientNumberController.clear();
+      _generalQuery = '';
+      _clientNumberQuery = '';
+      _searchPerformed = false;
+      _searchError = null;
+    });
+  }
+
+  void _resetSearchError() {
+    if (_searchError != null) {
+      setState(() {
+        _searchError = null;
+      });
+    }
+  }
+
+  bool _matchesGeneralQuery(Client client) {
+    if (_generalQuery.isEmpty) {
+      return true;
+    }
+    bool contains(String? value) =>
+        value != null && value.toLowerCase().contains(_generalQuery);
+
+    return contains(client.firstName) ||
+        contains(client.lastName) ||
+        contains(client.phone) ||
+        contains(client.email);
+  }
+
+  bool _matchesClientNumber(Client client) {
+    if (_clientNumberQuery.isEmpty) {
+      return true;
+    }
+    final number = client.clientNumber;
+    if (number == null) {
+      return false;
+    }
+    return number.toLowerCase() == _clientNumberQuery;
+  }
+
+  Widget _buildPlaceholder({
+    required BuildContext context,
+    required IconData icon,
+    required String title,
+    required String message,
+  }) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 48, color: theme.colorScheme.primary),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: theme.textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              style: theme.textTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final data = ref.watch(appDataProvider);
-    final clients =
+    final salons = data.salons;
+    final salonClients =
         data.clients
             .where(
               (client) =>
@@ -33,196 +143,347 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
             )
             .toList()
           ..sort((a, b) => a.lastName.compareTo(b.lastName));
-
-    if (clients.isEmpty) {
-      return const Center(
-        child: Text('Nessun cliente registrato per questo salone'),
-      );
-    }
-
-    final salons = data.salons;
+    final filteredClients =
+        _searchPerformed
+            ? salonClients
+                .where(
+                  (client) =>
+                      _matchesGeneralQuery(client) &&
+                      _matchesClientNumber(client),
+                )
+                .toList()
+            : <Client>[];
     final dateFormatter = DateFormat('dd/MM/yyyy');
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemBuilder: (context, index) {
-        if (index == 0) {
-          return Align(
-            alignment: Alignment.centerLeft,
-            child: FilledButton.icon(
-              onPressed:
-                  () => _openForm(
-                    context,
-                    ref,
-                    salons: salons,
-                    defaultSalonId: widget.salonId,
+    final theme = Theme.of(context);
+
+    final children = <Widget>[
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Ricerca cliente', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _generalQueryController,
+                decoration: const InputDecoration(
+                  labelText: 'Nome, cognome, telefono, email',
+                  prefixIcon: Icon(Icons.search_rounded),
+                ),
+                textInputAction: TextInputAction.search,
+                onChanged: (_) => _resetSearchError(),
+                onSubmitted: (_) => _performSearch(),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _clientNumberController,
+                decoration: const InputDecoration(
+                  labelText: 'Numero cliente',
+                  prefixIcon: Icon(Icons.badge_outlined),
+                ),
+                textInputAction: TextInputAction.search,
+                onChanged: (_) => _resetSearchError(),
+                onSubmitted: (_) => _performSearch(),
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  FilledButton.icon(
+                    onPressed: _performSearch,
+                    icon: const Icon(Icons.manage_search_rounded),
+                    label: const Text('Cerca'),
                   ),
-              icon: const Icon(Icons.person_add_alt_1_rounded),
-              label: const Text('Nuovo cliente'),
-            ),
-          );
-        }
-        final client = clients[index - 1];
+                  OutlinedButton.icon(
+                    onPressed: _clearSearch,
+                    icon: const Icon(Icons.clear_rounded),
+                    label: const Text('Azzera'),
+                  ),
+                  FilledButton.icon(
+                    onPressed:
+                        () => _openForm(
+                          context,
+                          ref,
+                          salons: salons,
+                          clients: data.clients,
+                          defaultSalonId: widget.salonId,
+                        ),
+                    icon: const Icon(Icons.person_add_alt_1_rounded),
+                    label: const Text('Nuovo cliente'),
+                  ),
+                ],
+              ),
+              if (_searchError != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _searchError!,
+                  style: TextStyle(color: theme.colorScheme.error),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(height: 16),
+    ];
+
+    if (!_searchPerformed) {
+      final message =
+          salonClients.isEmpty
+              ? 'Non risultano clienti registrati per questo salone. Aggiungi un nuovo cliente per iniziare.'
+              : 'Inserisci almeno un criterio e avvia la ricerca per visualizzare la lista clienti.';
+      children.add(
+        _buildPlaceholder(
+          context: context,
+          icon: Icons.person_search_rounded,
+          title: 'Cerca un cliente',
+          message: message,
+        ),
+      );
+    } else if (filteredClients.isEmpty) {
+      final message =
+          salonClients.isEmpty
+              ? 'Non sono presenti clienti registrati per questo salone.'
+              : 'Nessun cliente trovato. Modifica i criteri di ricerca e riprova.';
+      children.add(
+        _buildPlaceholder(
+          context: context,
+          icon: Icons.person_off_rounded,
+          title: 'Nessun risultato',
+          message: message,
+        ),
+      );
+    } else {
+      for (var i = 0; i < filteredClients.length; i++) {
+        final client = filteredClients[i];
         final appointments =
             data.appointments
                 .where((appointment) => appointment.clientId == client.id)
                 .length;
         final purchases =
             data.sales.where((sale) => sale.clientId == client.id).length;
-        return Card(
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => _openDetails(context, client.id),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      CircleAvatar(
-                        radius: 26,
-                        child: Text(
-                          client.firstName.characters.firstOrNull
-                                  ?.toUpperCase() ??
-                              '?',
+        children.add(
+          Card(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => _openDetails(context, client.id),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CircleAvatar(
+                          radius: 26,
+                          child: Text(
+                            client.firstName.characters.firstOrNull
+                                    ?.toUpperCase() ??
+                                '?',
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                client.fullName,
+                                style: theme.textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 4),
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 8,
+                                children: [
+                                  if (client.clientNumber != null)
+                                    _InfoRow(
+                                      icon: Icons.badge_outlined,
+                                      text: 'N° ${client.clientNumber}',
+                                    ),
+                                  _InfoRow(
+                                    icon: Icons.phone,
+                                    text: client.phone,
+                                  ),
+                                  if (client.email != null)
+                                    _InfoRow(
+                                      icon: Icons.email,
+                                      text: client.email!,
+                                    ),
+                                  if (client.dateOfBirth != null)
+                                    _InfoRow(
+                                      icon: Icons.cake_outlined,
+                                      text: dateFormatter.format(
+                                        client.dateOfBirth!,
+                                      ),
+                                    ),
+                                  if (client.profession != null &&
+                                      client.profession!.isNotEmpty)
+                                    _InfoRow(
+                                      icon: Icons.work_outline_rounded,
+                                      text: client.profession!,
+                                    ),
+                                  _InfoRow(
+                                    icon: Icons.loyalty_rounded,
+                                    text: 'Punti: ${client.loyaltyPoints}',
+                                  ),
+                                ],
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: _channelPreferenceBadges(
+                                    context,
+                                    client.channelPreferences,
+                                  ),
+                                ),
+                              ),
+                              if (client.address != null &&
+                                  client.address!.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Icon(Icons.home_outlined, size: 18),
+                                      const SizedBox(width: 8),
+                                      Expanded(child: Text(client.address!)),
+                                    ],
+                                  ),
+                                ),
+                              if (client.referralSource != null &&
+                                  client.referralSource!.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Icon(
+                                        Icons.campaign_outlined,
+                                        size: 18,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(client.referralSource!),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text(
-                              client.fullName,
-                              style: Theme.of(context).textTheme.titleMedium,
+                            Text('Appuntamenti: $appointments'),
+                            Text('Acquisti: $purchases'),
+                            IconButton(
+                              icon: const Icon(Icons.edit_rounded),
+                              tooltip: 'Modifica cliente',
+                              onPressed:
+                                  () => _openForm(
+                                    context,
+                                    ref,
+                                    salons: salons,
+                                    clients: data.clients,
+                                    defaultSalonId: widget.salonId,
+                                    existing: client,
+                                  ),
                             ),
-                            const SizedBox(height: 4),
-                            Wrap(
-                              spacing: 12,
-                              runSpacing: 8,
-                              children: [
-                                if (client.clientNumber != null)
-                                  _InfoRow(
-                                    icon: Icons.badge_outlined,
-                                    text: 'N° ${client.clientNumber}',
-                                  ),
-                                _InfoRow(icon: Icons.phone, text: client.phone),
-                                if (client.email != null)
-                                  _InfoRow(
-                                    icon: Icons.email,
-                                    text: client.email!,
-                                  ),
-                                if (client.dateOfBirth != null)
-                                  _InfoRow(
-                                    icon: Icons.cake_outlined,
-                                    text: dateFormatter.format(
-                                      client.dateOfBirth!,
-                                    ),
-                                  ),
-                                if (client.profession != null &&
-                                    client.profession!.isNotEmpty)
-                                  _InfoRow(
-                                    icon: Icons.work_outline_rounded,
-                                    text: client.profession!,
-                                  ),
-                                _InfoRow(
-                                  icon: Icons.loyalty_rounded,
-                                  text: 'Punti: ${client.loyaltyPoints}',
-                                ),
-                              ],
-                            ),
-                            if (client.address != null &&
-                                client.address!.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Icon(Icons.home_outlined, size: 18),
-                                    const SizedBox(width: 8),
-                                    Expanded(child: Text(client.address!)),
-                                  ],
-                                ),
-                              ),
-                            if (client.referralSource != null &&
-                                client.referralSource!.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Icon(
-                                      Icons.campaign_outlined,
-                                      size: 18,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(client.referralSource!),
-                                    ),
-                                  ],
-                                ),
-                              ),
                           ],
                         ),
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text('Appuntamenti: $appointments'),
-                          Text('Acquisti: $purchases'),
-                          IconButton(
-                            icon: const Icon(Icons.edit_rounded),
-                            tooltip: 'Modifica cliente',
-                            onPressed:
-                                () => _openForm(
-                                  context,
-                                  ref,
-                                  salons: salons,
-                                  defaultSalonId: widget.salonId,
-                                  existing: client,
-                                ),
-                          ),
-                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    _buildAccessActions(context, client),
+                    if (client.notes != null) ...[
+                      const SizedBox(height: 12),
+                      Text(client.notes!),
+                    ],
+                    if (client.marketedConsents.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text('Consensi', style: theme.textTheme.titleSmall),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        children:
+                            client.marketedConsents
+                                .map(
+                                  (consent) => Chip(
+                                    label: Text(
+                                      '${_consentLabel(consent.type)} · ${DateFormat('dd/MM/yyyy').format(consent.acceptedAt)}',
+                                    ),
+                                  ),
+                                )
+                                .toList(),
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 12),
-                  _buildAccessActions(context, client),
-                  if (client.notes != null) ...[
-                    const SizedBox(height: 12),
-                    Text(client.notes!),
                   ],
-                  if (client.marketedConsents.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      'Consensi',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      children:
-                          client.marketedConsents
-                              .map(
-                                (consent) => Chip(
-                                  label: Text(
-                                    '${_consentLabel(consent.type)} · ${DateFormat('dd/MM/yyyy').format(consent.acceptedAt)}',
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                    ),
-                  ],
-                ],
+                ),
               ),
             ),
           ),
         );
-      },
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemCount: clients.length + 1,
-    );
+        if (i != filteredClients.length - 1) {
+          children.add(const SizedBox(height: 12));
+        }
+      }
+    }
+
+    return ListView(padding: const EdgeInsets.all(16), children: children);
+  }
+
+  List<Widget> _channelPreferenceBadges(
+    BuildContext context,
+    ChannelPreferences preferences,
+  ) {
+    final theme = Theme.of(context);
+    final Color onSelected = theme.colorScheme.onSecondaryContainer;
+    final Color selectedBg = theme.colorScheme.secondaryContainer;
+    final Color onPlaceholder = theme.colorScheme.onSurfaceVariant;
+    final Color placeholderBg = theme.colorScheme.surfaceContainerHighest;
+
+    final chips = <Widget>[];
+
+    void addBadge(bool enabled, String label, IconData icon) {
+      if (!enabled) {
+        return;
+      }
+      chips.add(
+        Chip(
+          avatar: Icon(icon, size: 16, color: onSelected),
+          label: Text(label, style: TextStyle(color: onSelected)),
+          backgroundColor: selectedBg,
+        ),
+      );
+    }
+
+    addBadge(preferences.push, 'Push', Icons.notifications_active_rounded);
+    addBadge(preferences.email, 'Email', Icons.email_rounded);
+    addBadge(preferences.whatsapp, 'WhatsApp', Icons.chat_rounded);
+    addBadge(preferences.sms, 'SMS', Icons.sms_rounded);
+
+    if (chips.isEmpty) {
+      chips.add(
+        Chip(
+          avatar: Icon(Icons.block, size: 16, color: onPlaceholder),
+          label: Text(
+            'Nessun canale attivo',
+            style: TextStyle(color: onPlaceholder),
+          ),
+          backgroundColor: placeholderBg,
+        ),
+      );
+    }
+
+    return chips;
   }
 
   bool _isSending(String clientId) => _sendingInvites.contains(clientId);
@@ -427,6 +688,7 @@ Future<void> _openForm(
   BuildContext context,
   WidgetRef ref, {
   required List<Salon> salons,
+  required List<Client> clients,
   String? defaultSalonId,
   Client? existing,
 }) async {
@@ -443,6 +705,7 @@ Future<void> _openForm(
     builder:
         (ctx) => ClientFormSheet(
           salons: salons,
+          clients: clients,
           defaultSalonId: defaultSalonId,
           initial: existing,
         ),

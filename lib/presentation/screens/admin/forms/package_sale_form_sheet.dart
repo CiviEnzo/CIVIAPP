@@ -30,9 +30,9 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
   final _notesController = TextEditingController();
   final _remainingSessionsController = TextEditingController();
   final _depositController = TextEditingController();
-  PaymentMethod _paymentMethod = PaymentMethod.pos;
+  PaymentMethod? _paymentMethod;
   PackagePurchaseStatus _packageStatus = PackagePurchaseStatus.active;
-  PackagePaymentStatus _packagePaymentStatus = PackagePaymentStatus.paid;
+  PackagePaymentStatus? _packagePaymentStatus;
   late ServicePackage _selectedPackage;
   DateTime _saleDate = DateTime.now();
   DateTime? _expirationDate;
@@ -171,10 +171,10 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
                         ),
                       )
                       .toList(),
-              onChanged:
-                  (value) => setState(
-                    () => _paymentMethod = value ?? PaymentMethod.pos,
-                  ),
+              validator:
+                  (value) =>
+                      value == null ? 'Seleziona il metodo di pagamento' : null,
+              onChanged: (value) => setState(() => _paymentMethod = value),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<PackagePaymentStatus>(
@@ -189,11 +189,13 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
                         ),
                       )
                       .toList(),
+              validator:
+                  (value) =>
+                      value == null ? 'Seleziona lo stato del pagamento' : null,
               onChanged: (value) {
-                final next = value ?? PackagePaymentStatus.paid;
                 setState(() {
-                  _packagePaymentStatus = next;
-                  if (next != PackagePaymentStatus.deposit) {
+                  _packagePaymentStatus = value;
+                  if (value != PackagePaymentStatus.deposit) {
                     _isUpdatingDeposit = true;
                     _depositController.clear();
                     _isUpdatingDeposit = false;
@@ -202,7 +204,9 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
                     _depositEdited = false;
                   }
                 });
-                _applyDerivedDefaults(resetUserInput: false);
+                if (value != null) {
+                  _applyDerivedDefaults(resetUserInput: false);
+                }
               },
             ),
             const SizedBox(height: 12),
@@ -529,6 +533,21 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
       return;
     }
 
+    final paymentMethod = _paymentMethod;
+    if (paymentMethod == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Seleziona il metodo di pagamento.')),
+      );
+      return;
+    }
+    final packagePaymentStatus = _packagePaymentStatus;
+    if (packagePaymentStatus == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Seleziona lo stato del pagamento.')),
+      );
+      return;
+    }
+
     final quantity = double.parse(
       _quantityController.text.replaceAll(',', '.'),
     );
@@ -551,7 +570,7 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
     final expirationDate = _expirationDate;
     double? depositAmount;
     var deposits = <PackageDeposit>[];
-    if (_packagePaymentStatus == PackagePaymentStatus.deposit) {
+    if (packagePaymentStatus == PackagePaymentStatus.deposit) {
       depositAmount = _parseDepositAmount();
       if (depositAmount == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -571,24 +590,24 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
           id: _uuid.v4(),
           amount: depositAmount,
           date: _saleDate,
-          paymentMethod: _paymentMethod,
+          paymentMethod: paymentMethod,
           note: 'Acconto iniziale',
         ),
       ];
-    } else if (_packagePaymentStatus == PackagePaymentStatus.paid) {
+    } else if (packagePaymentStatus == PackagePaymentStatus.paid) {
       depositAmount = total;
       deposits = [
         PackageDeposit(
           id: _uuid.v4(),
           amount: total,
           date: _saleDate,
-          paymentMethod: _paymentMethod,
+          paymentMethod: paymentMethod,
           note: 'Saldato',
         ),
       ];
     }
 
-    var paymentStatus = _packagePaymentStatus;
+    var paymentStatus = packagePaymentStatus;
     if (paymentStatus == PackagePaymentStatus.deposit) {
       final outstanding = double.parse(
         (total - (depositAmount ?? 0)).toStringAsFixed(2),
@@ -626,10 +645,11 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
           amount: salePaidAmount,
           type: movementType,
           date: _saleDate,
-          paymentMethod: _paymentMethod,
-          note: movementType == SalePaymentType.deposit
-              ? 'Acconto iniziale'
-              : 'Saldo iniziale',
+          paymentMethod: paymentMethod,
+          note:
+              movementType == SalePaymentType.deposit
+                  ? 'Acconto iniziale'
+                  : 'Saldo iniziale',
         ),
       );
     }
@@ -656,7 +676,7 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
       ],
       total: total,
       createdAt: _saleDate,
-      paymentMethod: _paymentMethod,
+      paymentMethod: paymentMethod,
       paymentStatus: salePaymentStatus,
       paidAmount: salePaidAmount,
       invoiceNumber:

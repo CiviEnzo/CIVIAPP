@@ -17,7 +17,7 @@ class _PackageDepositFormSheetState extends State<PackageDepositFormSheet> {
   final _formKey = GlobalKey<FormState>();
   final _amountController = TextEditingController();
   final _noteController = TextEditingController();
-  PaymentMethod _paymentMethod = PaymentMethod.pos;
+  PaymentMethod? _paymentMethod;
   DateTime _date = DateTime.now();
 
   @override
@@ -67,17 +67,22 @@ class _PackageDepositFormSheetState extends State<PackageDepositFormSheet> {
             const SizedBox(height: 12),
             DropdownButtonFormField<PaymentMethod>(
               value: _paymentMethod,
-              decoration: const InputDecoration(labelText: 'Metodo di pagamento'),
-              items: PaymentMethod.values
-                  .map(
-                    (method) => DropdownMenuItem(
-                      value: method,
-                      child: Text(_paymentLabel(method)),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (value) =>
-                  setState(() => _paymentMethod = value ?? PaymentMethod.pos),
+              decoration: const InputDecoration(
+                labelText: 'Metodo di pagamento',
+              ),
+              items:
+                  PaymentMethod.values
+                      .map(
+                        (method) => DropdownMenuItem(
+                          value: method,
+                          child: Text(_paymentLabel(method)),
+                        ),
+                      )
+                      .toList(),
+              validator:
+                  (value) =>
+                      value == null ? 'Seleziona il metodo di pagamento' : null,
+              onChanged: (value) => setState(() => _paymentMethod = value),
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -126,13 +131,20 @@ class _PackageDepositFormSheetState extends State<PackageDepositFormSheet> {
     if (!_formKey.currentState!.validate()) {
       return;
     }
+    if (_paymentMethod == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Seleziona il metodo di pagamento.')),
+      );
+      return;
+    }
+
     final amount = double.parse(_amountController.text.replaceAll(',', '.'));
     final normalized = double.parse(amount.toStringAsFixed(2));
     final deposit = PackageDeposit(
       id: const Uuid().v4(),
       amount: normalized,
       date: _date,
-      paymentMethod: _paymentMethod,
+      paymentMethod: _paymentMethod!,
       note:
           _noteController.text.trim().isEmpty
               ? null

@@ -49,6 +49,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   late DateTime _anchorDate;
   String? _selectedStaffId;
   bool _isRescheduling = false;
+  int _calendarSlotMinutes = 15;
   final Set<int> _visibleWeekdays = {
     DateTime.monday,
     DateTime.tuesday,
@@ -273,6 +274,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                             staffMembers,
                             services,
                           ),
+                      slotMinutes: _calendarSlotMinutes,
                     )
                     : _ListAppointmentsView(
                       key: ValueKey(
@@ -368,6 +370,18 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
               selected: {_scope},
               onSelectionChanged: (selection) => _updateScope(selection.first),
             ),
+            if (_mode == _AppointmentDisplayMode.calendar)
+              SegmentedButton<int>(
+                segments: const [
+                  ButtonSegment<int>(value: 15, label: Text('15 min')),
+                  ButtonSegment<int>(value: 30, label: Text('30 min')),
+                  ButtonSegment<int>(value: 60, label: Text('60 min')),
+                ],
+                selected: {_calendarSlotMinutes},
+                onSelectionChanged: (selection) {
+                  setState(() => _calendarSlotMinutes = selection.first);
+                },
+              ),
             _RangeNavigator(
               label: rangeLabel,
               onPrevious: () => _shiftAnchor(-1),
@@ -883,9 +897,14 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     final staffMember = staff.firstWhereOrNull(
       (item) => item.id == appointment.staffId,
     );
-    final service = services.firstWhereOrNull(
-      (item) => item.id == appointment.serviceId,
-    );
+    final appointmentServices = appointment.serviceIds
+        .map(
+          (id) => services.firstWhereOrNull(
+            (item) => item.id == id,
+          ),
+        )
+        .whereType<Service>()
+        .toList();
     final salon = salons.firstWhereOrNull(
       (item) => item.id == appointment.salonId,
     );
@@ -904,7 +923,12 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         final theme = Theme.of(dialogContext);
         final body = <Widget>[
           _buildAppointmentDetailRow('Cliente', client?.fullName ?? 'Cliente'),
-          _buildAppointmentDetailRow('Servizio', service?.name ?? 'Servizio'),
+          _buildAppointmentDetailRow(
+            'Servizi',
+            appointmentServices.isNotEmpty
+                ? appointmentServices.map((service) => service.name).join(' + ')
+                : 'Servizio',
+          ),
           _buildAppointmentDetailRow(
             'Operatore',
             staffMember?.fullName ?? 'Staff',
@@ -1382,12 +1406,16 @@ class _ListAppointmentsView extends StatelessWidget {
             .firstWhereOrNull((client) => client.id == appointment.clientId)
             ?.fullName ??
         'Cliente';
-    final service =
-        data.services
-            .firstWhereOrNull((service) => service.id == appointment.serviceId)
-            ?.name ??
-        'Servizio';
-    return '$client • $service';
+    final services = appointment.serviceIds
+        .map(
+          (id) => data.services.firstWhereOrNull((service) => service.id == id),
+        )
+        .whereType<Service>()
+        .map((service) => service.name)
+        .toList();
+    final serviceLabel =
+        services.isNotEmpty ? services.join(' + ') : 'Servizio';
+    return '$client • $serviceLabel';
   }
 
   static String _buildSubtitle(Appointment appointment, AppDataState data) {

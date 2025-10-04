@@ -12,6 +12,7 @@ import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:civiapp/presentation/shared/client_package_purchase.dart';
 import 'package:civiapp/presentation/screens/admin/forms/client_form_sheet.dart';
+import 'package:civiapp/presentation/screens/admin/forms/client_search_sheet.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -28,6 +29,7 @@ class AppointmentFormSheet extends ConsumerStatefulWidget {
     required this.services,
     this.initial,
     this.defaultSalonId,
+    this.defaultClientId,
     this.suggestedStart,
     this.suggestedEnd,
     this.suggestedStaffId,
@@ -40,6 +42,7 @@ class AppointmentFormSheet extends ConsumerStatefulWidget {
   final List<Service> services;
   final Appointment? initial;
   final String? defaultSalonId;
+  final String? defaultClientId;
   final DateTime? suggestedStart;
   final DateTime? suggestedEnd;
   final String? suggestedStaffId;
@@ -53,17 +56,19 @@ class AppointmentFormSheet extends ConsumerStatefulWidget {
 class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
   static const _slotIntervalMinutes = 15;
   final _formKey = GlobalKey<FormState>();
+  final _clientFieldKey = GlobalKey<FormFieldState<String>>();
   final _uuid = const Uuid();
   late DateTime _start;
   late DateTime _end;
   String? _salonId;
   String? _clientId;
   String? _staffId;
-  String? _serviceId;
+  late List<String> _serviceIds;
   AppointmentStatus _status = AppointmentStatus.scheduled;
   late TextEditingController _notes;
   bool _usePackageSession = false;
   String? _selectedPackageId;
+  bool _packageSelectionManuallyChanged = false;
   bool _isDeleting = false;
 
   @override
@@ -74,9 +79,17 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         initial?.salonId ??
         widget.defaultSalonId ??
         (widget.salons.isNotEmpty ? widget.salons.first.id : null);
-    _clientId = initial?.clientId;
+    _clientId = initial?.clientId ?? widget.defaultClientId;
     _staffId = initial?.staffId ?? widget.suggestedStaffId;
-    _serviceId = initial?.serviceId;
+    final initialServiceIds = initial?.serviceIds ?? const <String>[];
+    final fallbackServiceId = initial?.serviceId;
+    _serviceIds =
+        initialServiceIds.isNotEmpty
+            ? List<String>.from(initialServiceIds)
+            : [
+                if (fallbackServiceId != null && fallbackServiceId.isNotEmpty)
+                  fallbackServiceId,
+              ];
     _status = initial?.status ?? AppointmentStatus.scheduled;
     _selectedPackageId = initial?.packageId;
     _usePackageSession = _selectedPackageId != null;
@@ -110,12 +123,25 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     final salons = data.salons.isNotEmpty ? data.salons : widget.salons;
     final clients = data.clients.isNotEmpty ? data.clients : widget.clients;
     final staffMembers = data.staff.isNotEmpty ? data.staff : widget.staff;
-    final services = data.services.isNotEmpty ? data.services : widget.services;
+    final allServices =
+        data.services.isNotEmpty ? data.services : widget.services;
+    final preservedServiceId = widget.initial?.serviceId;
+    final services =
+        allServices
+            .where(
+              (service) =>
+                  service.isActive ||
+                  (preservedServiceId != null &&
+                      service.id == preservedServiceId),
+            )
+            .toList();
+    services.sort((a, b) => a.name.compareTo(b.name));
 
     final filteredClients =
         clients
             .where((client) => _salonId == null || client.salonId == _salonId)
-            .toList();
+            .toList()
+          ..sort((a, b) => a.lastName.compareTo(b.lastName));
     final selectedStaffMember = staffMembers.firstWhereOrNull(
       (member) => member.id == _staffId,
     );
@@ -127,40 +153,49 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           if (selectedStaffMember != null) {
             final allowedRoles = service.staffRoles;
             if (allowedRoles.isNotEmpty &&
-                !allowedRoles.contains(selectedStaffMember.roleId)) {
+                !selectedStaffMember.roleIds.any(
+                  (roleId) => allowedRoles.contains(roleId),
+                )) {
               return false;
             }
           }
           return true;
         }).toList();
-    if (_serviceId != null &&
-        filteredServices.every((service) => service.id != _serviceId)) {
+    final filteredServiceIds = filteredServices.map((service) => service.id).toSet();
+    final hasRemovedServices =
+        _serviceIds.any((id) => !filteredServiceIds.contains(id));
+    if (hasRemovedServices) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         setState(() {
-          _serviceId = null;
+          _serviceIds =
+              _serviceIds.where(filteredServiceIds.contains).toList(growable: false);
           _usePackageSession = false;
           _selectedPackageId = null;
+          _packageSelectionManuallyChanged = false;
         });
       });
     }
-    final selectedService = services.firstWhereOrNull(
-      (service) => service.id == _serviceId,
-    );
-    final filteredStaff =
-        staffMembers.where((member) {
-          if (_salonId != null && member.salonId != _salonId) {
+    final selectedServices = services
+        .where((service) => _serviceIds.contains(service.id))
+        .toList();
+    final singleSelectedService =
+        selectedServices.length == 1 ? selectedServices.first : null;
+    final filteredStaff = staffMembers.where((member) {
+      if (_salonId != null && member.salonId != _salonId) {
+        return false;
+      }
+      if (selectedServices.isNotEmpty) {
+        for (final service in selectedServices) {
+          final allowedRoles = service.staffRoles;
+          if (allowedRoles.isNotEmpty &&
+              !member.roleIds.any((roleId) => allowedRoles.contains(roleId))) {
             return false;
           }
-          if (selectedService != null) {
-            final allowedRoles = selectedService.staffRoles;
-            if (allowedRoles.isNotEmpty &&
-                !allowedRoles.contains(member.roleId)) {
-              return false;
-            }
-          }
-          return true;
-        }).toList();
+        }
+      }
+      return true;
+    }).toList();
     if (_staffId != null &&
         filteredStaff.every((member) => member.id != _staffId)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -168,6 +203,10 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         setState(() => _staffId = null);
       });
     }
+
+    final selectedSalon = salons.firstWhereOrNull(
+      (salon) => salon.id == _salonId,
+    );
 
     final selectedClient = clients.firstWhereOrNull(
       (client) => client.id == _clientId,
@@ -203,13 +242,14 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           );
         }).toList();
 
-    if (selectedClient == null || selectedService == null) {
+    if (selectedClient == null || singleSelectedService == null) {
       if (_usePackageSession || _selectedPackageId != null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           setState(() {
             _usePackageSession = false;
             _selectedPackageId = null;
+            _packageSelectionManuallyChanged = false;
           });
         });
       }
@@ -218,33 +258,35 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         sales: data.sales,
         packages: data.packages,
         appointments: data.appointments,
-        services: data.services,
+        services: allServices,
         clientId: selectedClient.id,
         salonId: selectedClient.salonId,
       );
-      packagesForService =
-          packagePurchases
-              .where(
-                (purchase) =>
-                    purchase.supportsService(selectedService.id) &&
-                    (purchase.effectiveRemainingSessions > 0 ||
-                        purchase.item.referenceId == _selectedPackageId),
-              )
-              .toList()
-            ..sort((a, b) {
-              final aExpiration = a.expirationDate ?? DateTime(9999, 1, 1);
-              final bExpiration = b.expirationDate ?? DateTime(9999, 1, 1);
-              final expirationCompare = aExpiration.compareTo(bExpiration);
-              if (expirationCompare != 0) {
-                return expirationCompare;
-              }
-              return a.sale.createdAt.compareTo(b.sale.createdAt);
-            });
+      packagesForService = _dedupePurchasesByReferenceId(
+        packagePurchases
+            .where(
+              (purchase) =>
+                  purchase.supportsService(singleSelectedService.id) &&
+                  (purchase.effectiveRemainingSessions > 0 ||
+                      purchase.item.referenceId == _selectedPackageId),
+            )
+            .toList()
+          ..sort((a, b) {
+            final aExpiration = a.expirationDate ?? DateTime(9999, 1, 1);
+            final bExpiration = b.expirationDate ?? DateTime(9999, 1, 1);
+            final expirationCompare = aExpiration.compareTo(bExpiration);
+            if (expirationCompare != 0) {
+              return expirationCompare;
+            }
+            return a.sale.createdAt.compareTo(b.sale.createdAt);
+          }),
+      );
 
-      eligiblePackages =
-          packagesForService
-              .where((purchase) => purchase.effectiveRemainingSessions > 0)
-              .toList();
+      eligiblePackages = _dedupePurchasesByReferenceId(
+        packagesForService
+            .where((purchase) => purchase.effectiveRemainingSessions > 0)
+            .toList(),
+      );
 
       final assignedPackage =
           _selectedPackageId != null
@@ -284,6 +326,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
               if (fallbackPackageId == null) {
                 _usePackageSession = false;
                 _selectedPackageId = null;
+                _packageSelectionManuallyChanged = false;
               } else {
                 _selectedPackageId = fallbackPackageId;
               }
@@ -298,7 +341,9 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           ) ??
           (packagesForService.isNotEmpty ? packagesForService.first : null);
 
-      dropdownPackages = List<ClientPackagePurchase>.from(eligiblePackages);
+      dropdownPackages = _dedupePurchasesByReferenceId(
+        List<ClientPackagePurchase>.from(eligiblePackages),
+      );
       if (selectedPackage != null) {
         final activeSelection = selectedPackage;
         if (dropdownPackages.every(
@@ -332,11 +377,29 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         (purchase) => purchase.effectiveRemainingSessions > 0,
       );
 
+      // Prefer consuming a package session by default when one is available
+      // unless the operator explicitly disables it.
+      if (canEnablePackage &&
+          !_usePackageSession &&
+          !_packageSelectionManuallyChanged) {
+        final autoPackageId = fallbackPackageId;
+        if (autoPackageId != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(() {
+              _usePackageSession = true;
+              _selectedPackageId = autoPackageId;
+            });
+          });
+        }
+      }
+
       if (!canEnablePackage && _usePackageSession) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           setState(() {
             _usePackageSession = false;
+            _packageSelectionManuallyChanged = false;
           });
         });
       }
@@ -344,8 +407,17 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
 
     final showPackageSection =
         selectedClient != null &&
-        selectedService != null &&
+        singleSelectedService != null &&
         packagesForService.isNotEmpty;
+
+    final closureConflicts =
+        selectedSalon == null
+            ? const <SalonClosure>[]
+            : _findOverlappingClosures(
+              closures: selectedSalon.closures,
+              start: _start,
+              end: _end,
+            );
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -374,41 +446,68 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                         ),
                       )
                       .toList(),
-              onChanged:
-                  (value) => setState(() {
-                    _salonId = value;
-                    _clientId = null;
-                    _staffId = null;
-                    _serviceId = null;
-                    _usePackageSession = false;
-                    _selectedPackageId = null;
-                  }),
+              onChanged: (value) {
+                setState(() {
+                  _salonId = value;
+                  _clientId = null;
+                  _staffId = null;
+                  _serviceIds = const [];
+                  _usePackageSession = false;
+                  _selectedPackageId = null;
+                  _packageSelectionManuallyChanged = false;
+                });
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _clientFieldKey.currentState?.didChange(_clientId);
+                });
+              },
             ),
             const SizedBox(height: 12),
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Expanded(
-                  child: DropdownButtonFormField<String>(
-                    value: _clientId,
-                    decoration: const InputDecoration(labelText: 'Cliente'),
-                    items:
-                        filteredClients
-                            .map(
-                              (client) => DropdownMenuItem(
-                                value: client.id,
-                                child: Text(client.fullName),
-                              ),
-                            )
-                            .toList(),
-                    onChanged:
-                        (value) => setState(() {
-                          _clientId = value;
-                          _usePackageSession = false;
-                          _selectedPackageId = null;
-                        }),
+                  child: FormField<String>(
+                    key: _clientFieldKey,
                     validator:
-                        (value) => value == null ? 'Scegli un cliente' : null,
+                        (_) => _clientId == null ? 'Scegli un cliente' : null,
+                    builder: (state) {
+                      final selectedClient = clients.firstWhereOrNull(
+                        (client) => client.id == _clientId,
+                      );
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          InkWell(
+                            borderRadius: BorderRadius.circular(8),
+                            onTap: () => _selectClient(filteredClients),
+                            child: InputDecorator(
+                              decoration: InputDecoration(
+                                labelText: 'Cliente',
+                                errorText: state.errorText,
+                                suffixIcon: const Icon(
+                                  Icons.search_rounded,
+                                  size: 20,
+                                ),
+                              ),
+                              isEmpty: selectedClient == null,
+                              child: Text(
+                                selectedClient?.fullName ?? 'Seleziona cliente',
+                                style:
+                                    selectedClient == null
+                                        ? Theme.of(
+                                          context,
+                                        ).textTheme.bodyMedium?.copyWith(
+                                          color: Theme.of(context).hintColor,
+                                        )
+                                        : Theme.of(
+                                          context,
+                                        ).textTheme.bodyMedium,
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -435,27 +534,33 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
               onChanged: (value) {
                 setState(() {
                   _staffId = value;
-                  if (value == null || _serviceId == null) {
+                  if (value == null) {
                     return;
                   }
                   final staffMember = staffMembers.firstWhereOrNull(
                     (member) => member.id == value,
                   );
-                  final service = services.firstWhereOrNull(
-                    (item) => item.id == _serviceId,
-                  );
-                  if (staffMember == null || service == null) {
-                    _serviceId = null;
+                  if (staffMember == null) {
+                    _serviceIds = const [];
                     _usePackageSession = false;
                     _selectedPackageId = null;
+                    _packageSelectionManuallyChanged = false;
                     return;
                   }
-                  final allowedRoles = service.staffRoles;
-                  if (allowedRoles.isNotEmpty &&
-                      !allowedRoles.contains(staffMember.roleId)) {
-                    _serviceId = null;
+                  final allowedServiceIds = services.where((service) {
+                    final roles = service.staffRoles;
+                    if (roles.isEmpty) {
+                      return true;
+                    }
+                    return staffMember.roleIds.any((roleId) => roles.contains(roleId));
+                  }).map((service) => service.id).toSet();
+                  final filteredSelections =
+                      _serviceIds.where(allowedServiceIds.contains).toList();
+                  if (filteredSelections.length != _serviceIds.length) {
+                    _serviceIds = filteredSelections;
                     _usePackageSession = false;
                     _selectedPackageId = null;
+                    _packageSelectionManuallyChanged = false;
                   }
                 });
               },
@@ -463,44 +568,79 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                   (value) => value == null ? 'Scegli un operatore' : null,
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: _serviceId,
-              decoration: const InputDecoration(labelText: 'Servizio'),
-              items:
-                  filteredServices
-                      .map(
-                        (service) => DropdownMenuItem(
-                          value: service.id,
-                          child: Text(service.name),
-                        ),
-                      )
-                      .toList(),
-              onChanged: (value) {
-                setState(() {
-                  _serviceId = value;
-                  _usePackageSession = false;
-                  _selectedPackageId = null;
-                  if (value != null) {
-                    final service = filteredServices.firstWhereOrNull(
-                      (srv) => srv.id == value,
-                    );
-                    if (service != null) {
-                      _end = _start.add(service.totalDuration);
-                      final allowedRoles = service.staffRoles;
-                      if (_staffId != null && allowedRoles.isNotEmpty) {
-                        final staffMember = staffMembers.firstWhereOrNull(
-                          (member) => member.id == _staffId,
+            FormField<List<String>>(
+              validator:
+                  (_) =>
+                      _serviceIds.isEmpty ? 'Scegli almeno un servizio' : null,
+              builder: (state) {
+                final theme = Theme.of(context);
+                final selectedNames =
+                    selectedServices.map((service) => service.name).toList();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: () async {
+                        final selection = await _openServicePicker(
+                          context,
+                          services: filteredServices,
+                          selectedStaff: staffMembers.firstWhereOrNull(
+                            (member) => member.id == _staffId,
+                          ),
                         );
-                        if (staffMember == null ||
-                            !allowedRoles.contains(staffMember.roleId)) {
-                          _staffId = null;
+                        if (selection != null) {
+                          setState(() {
+                            _serviceIds = selection;
+                            _usePackageSession = false;
+                            _selectedPackageId = null;
+                            _packageSelectionManuallyChanged = false;
+                            if (_serviceIds.isNotEmpty) {
+                              final durations = services
+                                  .where((service) =>
+                                      _serviceIds.contains(service.id))
+                                  .map((service) => service.totalDuration)
+                                  .fold(Duration.zero,
+                                      (acc, value) => acc + value);
+                              if (!durations.isNegative && durations > Duration.zero) {
+                                _end = _start.add(durations);
+                              }
+                            }
+                          });
+                          state.didChange(_serviceIds);
                         }
-                      }
-                    }
-                  }
-                });
+                      },
+                      child: InputDecorator(
+                        decoration: InputDecoration(
+                          labelText: 'Servizi',
+                          errorText: state.errorText,
+                          suffixIcon: const Icon(Icons.segment_rounded),
+                        ),
+                        isEmpty: selectedNames.isEmpty,
+                        child:
+                            selectedNames.isEmpty
+                                ? Text(
+                                  'Seleziona uno o più servizi',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: theme.hintColor,
+                                  ),
+                                )
+                                : Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: selectedServices
+                                      .map(
+                                        (service) => Chip(
+                                          label: Text(service.name),
+                                        ),
+                                      )
+                                      .toList(),
+                                ),
+                      ),
+                    ),
+                  ],
+                );
               },
-              validator: (value) => value == null ? 'Scegli un servizio' : null,
             ),
             const SizedBox(height: 12),
             if (showPackageSection) ...[
@@ -516,6 +656,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                     canEnablePackage
                         ? (checked) {
                           setState(() {
+                            _packageSelectionManuallyChanged = true;
                             _usePackageSession = checked ?? false;
                             if (_usePackageSession) {
                               final fallback =
@@ -526,6 +667,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                               if (fallback == null) {
                                 _usePackageSession = false;
                                 _selectedPackageId = null;
+                                _packageSelectionManuallyChanged = false;
                               } else {
                                 _selectedPackageId = fallback;
                               }
@@ -579,6 +721,15 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
               trailing: const Icon(Icons.schedule_rounded),
               onTap: _pickEnd,
             ),
+            if (closureConflicts.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              ...closureConflicts.map(
+                (closure) => _buildClosureNotice(
+                  context: context,
+                  message: _describeClosure(closure),
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             DropdownButtonFormField<AppointmentStatus>(
               value: _status,
@@ -658,10 +809,10 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       );
       return;
     }
-    if (_serviceId == null) {
+    if (_serviceIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Seleziona un servizio prima di scegliere l\'orario.'),
+          content: Text('Seleziona almeno un servizio prima di scegliere l\'orario.'),
         ),
       );
       return;
@@ -670,15 +821,31 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     final data = ref.read(appDataProvider);
     final salons = data.salons.isNotEmpty ? data.salons : widget.salons;
     final staffMembers = data.staff.isNotEmpty ? data.staff : widget.staff;
-    final services = data.services.isNotEmpty ? data.services : widget.services;
+    final allServices =
+        data.services.isNotEmpty ? data.services : widget.services;
+    final services = allServices;
     final salon = salons.firstWhereOrNull((item) => item.id == _salonId);
     final staffMember = staffMembers.firstWhereOrNull(
       (member) => member.id == _staffId,
     );
-    final service = services.firstWhereOrNull((item) => item.id == _serviceId);
-    if (staffMember == null || service == null) {
+    final selectedServices = services
+        .where((item) => _serviceIds.contains(item.id))
+        .toList();
+    if (staffMember == null || selectedServices.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Operatore o servizio non valido.')),
+        const SnackBar(content: Text('Operatore o servizi non validi.')),
+      );
+      return;
+    }
+    final totalDuration = selectedServices.fold<Duration>(
+      Duration.zero,
+      (acc, service) => acc + service.totalDuration,
+    );
+    if (totalDuration <= Duration.zero) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Durata complessiva servizi non valida.'),
+        ),
       );
       return;
     }
@@ -702,26 +869,39 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       selectedDate.month,
       selectedDate.day,
     );
+    final dayEnd = day.add(const Duration(days: 1));
+    final salonClosures = _findOverlappingClosures(
+      closures: salon?.closures ?? const <SalonClosure>[],
+      start: day,
+      end: dayEnd,
+    );
+
     final slots = _availableSlotsForDay(
       data: data,
       day: day,
       salon: salon,
-      service: service,
+      services: selectedServices,
+      totalDuration: totalDuration,
       staffMember: staffMember,
-      allServices: services,
+      allServices: allServices,
       salonId: _salonId!,
       clientId: _clientId,
       excludeAppointmentId: widget.initial?.id,
+      salonClosures: salonClosures,
     );
     if (slots.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Nessuno slot disponibile per l\'operatore nella data selezionata.',
+      if (salonClosures.isNotEmpty) {
+        await _showClosureAlert(salonClosures);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Nessuno slot disponibile per l\'operatore nella data selezionata.',
+            ),
           ),
-        ),
-      );
+        );
+      }
       return;
     }
 
@@ -740,7 +920,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
 
     setState(() {
       _start = selectedSlotStart;
-      _end = _start.add(service.totalDuration);
+      _end = _start.add(totalDuration);
       if (_start.isAfter(DateTime.now()) &&
           _status == AppointmentStatus.completed) {
         _status = AppointmentStatus.scheduled;
@@ -752,12 +932,14 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     required AppDataState data,
     required DateTime day,
     required Salon? salon,
-    required Service service,
+    required List<Service> services,
+    required Duration totalDuration,
     required StaffMember staffMember,
     required List<Service> allServices,
     required String salonId,
     String? clientId,
     String? excludeAppointmentId,
+    required List<SalonClosure> salonClosures,
   }) {
     final dayStart = DateTime(day.year, day.month, day.day);
     final dayEnd = dayStart.add(const Duration(days: 1));
@@ -840,6 +1022,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         from: windowStart,
         busyAppointments: busyAppointments,
         busyAbsences: busyAbsences,
+        salonClosures: salonClosures,
       );
       for (final window in windows) {
         final clampedStart =
@@ -850,7 +1033,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         }
         var slotStart = _ceilToInterval(clampedStart, _slotIntervalMinutes);
         while (slotStart.isBefore(clampedEnd)) {
-          final slotEnd = slotStart.add(service.totalDuration);
+          final slotEnd = slotStart.add(totalDuration);
           if (slotEnd.isAfter(clampedEnd)) {
             break;
           }
@@ -881,16 +1064,22 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             }
           }
 
-          final equipmentCheck = EquipmentAvailabilityChecker.check(
-            salon: salon,
-            service: service,
-            allServices: allServices,
-            appointments: allAppointments,
-            start: slotStart,
-            end: slotEnd,
-            excludeAppointmentId: excludeAppointmentId,
-          );
-          if (equipmentCheck.hasConflicts) {
+          final blockingEquipment = <String>{};
+          for (final service in services) {
+            final equipmentCheck = EquipmentAvailabilityChecker.check(
+              salon: salon,
+              service: service,
+              allServices: allServices,
+              appointments: allAppointments,
+              start: slotStart,
+              end: slotEnd,
+              excludeAppointmentId: excludeAppointmentId,
+            );
+            if (equipmentCheck.hasConflicts) {
+              blockingEquipment.addAll(equipmentCheck.blockingEquipment);
+            }
+          }
+          if (blockingEquipment.isNotEmpty) {
             slotStart = slotStart.add(slotStep);
             continue;
           }
@@ -966,6 +1155,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     required DateTime from,
     required List<Appointment> busyAppointments,
     required List<StaffAbsence> busyAbsences,
+    required List<SalonClosure> salonClosures,
   }) {
     final windows = <_TimeRange>[];
     if (from.isAfter(shift.end)) {
@@ -1000,6 +1190,17 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       _subtractRange(
         windows,
         _TimeRange(start: absence.start, end: absence.end),
+      );
+    }
+
+    for (final closure in salonClosures) {
+      if (!closure.end.isAfter(shift.start) ||
+          !closure.start.isBefore(shift.end)) {
+        continue;
+      }
+      _subtractRange(
+        windows,
+        _TimeRange(start: closure.start, end: closure.end),
       );
     }
 
@@ -1053,11 +1254,313 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     return map.values.toList();
   }
 
+  List<SalonClosure> _findOverlappingClosures({
+    required Iterable<SalonClosure> closures,
+    required DateTime start,
+    required DateTime end,
+  }) {
+    final map = <String, SalonClosure>{};
+    for (final closure in closures) {
+      if (!closure.end.isAfter(start) || !closure.start.isBefore(end)) {
+        continue;
+      }
+      map[closure.id] = closure;
+    }
+    final list =
+        map.values.toList()..sort((a, b) => a.start.compareTo(b.start));
+    return list;
+  }
+
+  Future<void> _showClosureAlert(List<SalonClosure> closures) async {
+    if (closures.isEmpty || !mounted) {
+      return;
+    }
+    final message = closures.map(_describeClosure).join('\n\n');
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Salone chiuso'),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  String _describeClosure(SalonClosure closure) {
+    final dateFormat = DateFormat('d MMMM yyyy', 'it_IT');
+    final timeFormat = DateFormat('HH:mm', 'it_IT');
+    final isSameDay =
+        closure.start.year == closure.end.year &&
+        closure.start.month == closure.end.month &&
+        closure.start.day == closure.end.day;
+    final startDate = dateFormat.format(closure.start);
+    final endDate = dateFormat.format(closure.end);
+    final startTime = timeFormat.format(closure.start);
+    final endTime = timeFormat.format(closure.end);
+    final base =
+        isSameDay
+            ? 'Il $startDate dalle $startTime alle $endTime'
+            : 'Dal $startDate $startTime al $endDate $endTime';
+    final reason = closure.reason?.trim();
+    if (reason == null || reason.isEmpty) {
+      return base;
+    }
+    return '$base • Motivo: $reason';
+  }
+
+  Widget _buildClosureNotice({
+    required BuildContext context,
+    required String message,
+  }) {
+    final theme = Theme.of(context);
+    final color = theme.colorScheme.error;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline_rounded, color: color, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: theme.textTheme.bodyMedium?.copyWith(color: color),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _capitalize(String value) {
     if (value.isEmpty) {
       return value;
     }
     return value[0].toUpperCase() + value.substring(1);
+  }
+
+  Future<List<String>?> _openServicePicker(
+    BuildContext context, {
+    required List<Service> services,
+    StaffMember? selectedStaff,
+  }) async {
+    if (services.isEmpty) {
+      return const <String>[];
+    }
+    final initialSelection = List<String>.from(_serviceIds);
+    final sortedServices = List<Service>.from(services)
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    final theme = Theme.of(context);
+
+    final searchController = TextEditingController();
+    final result = await showModalBottomSheet<List<String>>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        var query = '';
+        var workingSelection = List<String>.from(initialSelection);
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            void toggleSelection(String serviceId) {
+              setModalState(() {
+                if (workingSelection.contains(serviceId)) {
+                  workingSelection = workingSelection
+                      .where((id) => id != serviceId)
+                      .toList(growable: false);
+                } else {
+                  workingSelection = [...workingSelection, serviceId];
+                }
+              });
+            }
+
+            final lowerQuery = query.trim().toLowerCase();
+            final filtered = lowerQuery.isEmpty
+                ? sortedServices
+                : sortedServices
+                    .where(
+                      (service) => service.name
+                          .toLowerCase()
+                          .contains(lowerQuery),
+                    )
+                    .toList();
+            final grouped = groupBy<Service, String>(
+              filtered,
+              (service) {
+                final label = service.category.trim();
+                if (label.isNotEmpty) return label;
+                return 'Altri servizi';
+              },
+            );
+            final categories = grouped.keys.toList()
+              ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 24,
+                right: 24,
+                top: 24,
+                bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
+              ),
+              child: SafeArea(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Seleziona servizi',
+                              style: theme.textTheme.titleLarge,
+                            ),
+                            if (selectedStaff != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  'Operatore: ${selectedStaff.fullName}',
+                                  style: theme.textTheme.bodySmall,
+                                ),
+                              ),
+                          ],
+                        ),
+                        TextButton(
+                          onPressed: workingSelection.isEmpty
+                              ? null
+                              : () => setModalState(
+                                    () => workingSelection = const [],
+                                  ),
+                          child: const Text('Pulisci'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: searchController,
+                      decoration: InputDecoration(
+                        labelText: 'Cerca servizio',
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        suffixIcon: query.isEmpty
+                            ? null
+                            : IconButton(
+                                tooltip: 'Pulisci ricerca',
+                                icon: const Icon(Icons.clear_rounded),
+                                onPressed: () {
+                                  searchController.clear();
+                                  setModalState(() => query = '');
+                                },
+                              ),
+                      ),
+                      onChanged: (value) => setModalState(() => query = value),
+                    ),
+                    const SizedBox(height: 16),
+                    if (filtered.isEmpty)
+                      Expanded(
+                        child: Center(
+                          child: Text(
+                            'Nessun servizio trovato',
+                            style: theme.textTheme.bodyMedium,
+                          ),
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: categories.length,
+                          itemBuilder: (context, index) {
+                            final category = categories[index];
+                            final categoryServices = grouped[category] ?? const [];
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (categoryServices.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 8,
+                                    ),
+                                    child: Text(
+                                      category,
+                                      style: theme.textTheme.titleMedium,
+                                    ),
+                                  ),
+                                ...categoryServices.map((service) {
+                                  final selected =
+                                      workingSelection.contains(service.id);
+                                  final subtitleParts = <String>[];
+                                  final durationMinutes =
+                                      service.totalDuration.inMinutes;
+                                  if (durationMinutes > 0) {
+                                    subtitleParts.add(
+                                      'Durata ${durationMinutes} min',
+                                    );
+                                  }
+                                  if (service.price > 0) {
+                                    subtitleParts.add(
+                                      '€ ${service.price.toStringAsFixed(2)}',
+                                    );
+                                  }
+                                  final subtitle = subtitleParts.isEmpty
+                                      ? null
+                                      : subtitleParts.join(' • ');
+                                  return CheckboxListTile(
+                                    value: selected,
+                                    onChanged: (_) => toggleSelection(service.id),
+                                    dense: true,
+                                    title: Text(service.name),
+                                    subtitle:
+                                        subtitle != null ? Text(subtitle) : null,
+                                  );
+                                }),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: const Text('Annulla'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () {
+                              Navigator.of(context)
+                                  .pop<List<String>>(workingSelection);
+                            },
+                            child: const Text('Conferma'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    searchController.dispose();
+    return result;
   }
 
   Future<void> _pickEnd() async {
@@ -1113,14 +1616,18 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
 
     final data = ref.read(appDataProvider);
     final salons = data.salons.isNotEmpty ? data.salons : widget.salons;
-    final services = data.services.isNotEmpty ? data.services : widget.services;
+    final allServices =
+        data.services.isNotEmpty ? data.services : widget.services;
+    final services = allServices;
     final staffMembers = data.staff.isNotEmpty ? data.staff : widget.staff;
 
-    final service = services.firstWhereOrNull((item) => item.id == _serviceId);
-    if (service == null) {
+    final selectedServices = services
+        .where((item) => _serviceIds.contains(item.id))
+        .toList();
+    if (selectedServices.isEmpty) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Servizio non valido.')));
+      ).showSnackBar(const SnackBar(content: Text('Servizi non validi.')));
       return;
     }
 
@@ -1134,13 +1641,40 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       return;
     }
 
-    final allowedRoles = service.staffRoles;
-    if (allowedRoles.isNotEmpty && !allowedRoles.contains(staffMember.roleId)) {
+    final incompatibleService = selectedServices.firstWhereOrNull((service) {
+      final allowedRoles = service.staffRoles;
+      if (allowedRoles.isEmpty) {
+        return false;
+      }
+      return !staffMember.roleIds.any((roleId) => allowedRoles.contains(roleId));
+    });
+    if (incompatibleService != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'L\'operatore selezionato non può erogare il servizio scelto.',
+            'L\'operatore selezionato non può erogare "${incompatibleService.name}".',
           ),
+        ),
+      );
+      return;
+    }
+
+    final selectedSalon = salons.firstWhereOrNull(
+      (item) => item.id == _salonId,
+    );
+    final closureConflicts =
+        selectedSalon == null
+            ? const <SalonClosure>[]
+            : _findOverlappingClosures(
+              closures: selectedSalon.closures,
+              start: _start,
+              end: _end,
+            );
+    if (closureConflicts.isNotEmpty) {
+      final firstConflict = _describeClosure(closureConflicts.first);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Il salone è chiuso in questo orario. $firstConflict'),
         ),
       );
       return;
@@ -1151,7 +1685,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       salonId: _salonId!,
       clientId: _clientId!,
       staffId: _staffId!,
-      serviceId: _serviceId!,
+      serviceIds: _serviceIds,
       start: _start,
       end: _end,
       status: _status,
@@ -1209,20 +1743,23 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       return;
     }
 
-    final salon = salons.firstWhereOrNull(
-      (item) => item.id == appointment.salonId,
-    );
-    final equipmentCheck = EquipmentAvailabilityChecker.check(
-      salon: salon,
-      service: service,
-      allServices: services,
-      appointments: existingAppointments,
-      start: appointment.start,
-      end: appointment.end,
-      excludeAppointmentId: appointment.id,
-    );
-    if (equipmentCheck.hasConflicts) {
-      final equipmentLabel = equipmentCheck.blockingEquipment.join(', ');
+    final blockingEquipment = <String>{};
+    for (final service in selectedServices) {
+      final equipmentCheck = EquipmentAvailabilityChecker.check(
+        salon: selectedSalon,
+        service: service,
+        allServices: allServices,
+        appointments: existingAppointments,
+        start: appointment.start,
+        end: appointment.end,
+        excludeAppointmentId: appointment.id,
+      );
+      if (equipmentCheck.hasConflicts) {
+        blockingEquipment.addAll(equipmentCheck.blockingEquipment);
+      }
+    }
+    if (blockingEquipment.isNotEmpty) {
+      final equipmentLabel = blockingEquipment.join(', ');
       final message =
           equipmentLabel.isEmpty
               ? 'Macchinario non disponibile per questo orario.'
@@ -1323,15 +1860,18 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       return;
     }
 
-    final salons =
-        ref.read(appDataProvider).salons.isNotEmpty
-            ? ref.read(appDataProvider).salons
-            : widget.salons;
+    final data = ref.read(appDataProvider);
+    final salons = data.salons.isNotEmpty ? data.salons : widget.salons;
+    final clients = data.clients.isNotEmpty ? data.clients : widget.clients;
 
     final newClient = await showAppModalSheet<Client>(
       context: context,
       builder:
-          (ctx) => ClientFormSheet(salons: salons, defaultSalonId: _salonId),
+          (ctx) => ClientFormSheet(
+            salons: salons,
+            clients: clients,
+            defaultSalonId: _salonId,
+          ),
     );
 
     if (newClient != null) {
@@ -1339,8 +1879,44 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       if (!mounted) return;
       setState(() {
         _clientId = newClient.id;
+        _usePackageSession = false;
+        _selectedPackageId = null;
+        _packageSelectionManuallyChanged = false;
       });
+      _clientFieldKey.currentState?.didChange(newClient.id);
     }
+  }
+
+  Future<void> _selectClient(List<Client> clients) async {
+    final selected = await showAppModalSheet<Client>(
+      context: context,
+      builder: (ctx) => ClientSearchSheet(clients: clients),
+    );
+
+    if (selected != null) {
+      if (!mounted) return;
+      setState(() {
+        _clientId = selected.id;
+        _usePackageSession = false;
+        _selectedPackageId = null;
+        _packageSelectionManuallyChanged = false;
+      });
+      _clientFieldKey.currentState?.didChange(selected.id);
+    }
+  }
+
+  List<ClientPackagePurchase> _dedupePurchasesByReferenceId(
+    List<ClientPackagePurchase> purchases,
+  ) {
+    final seen = <String>{};
+    final unique = <ClientPackagePurchase>[];
+    for (final purchase in purchases) {
+      final referenceId = purchase.item.referenceId;
+      if (seen.add(referenceId)) {
+        unique.add(purchase);
+      }
+    }
+    return unique;
   }
 
   String _statusLabel(AppointmentStatus status) {

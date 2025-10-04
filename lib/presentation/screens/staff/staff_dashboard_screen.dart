@@ -1,5 +1,6 @@
 import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
+import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/domain/entities/sale.dart';
@@ -30,9 +31,17 @@ class _AppointmentDetailSheet extends ConsumerWidget {
     final client = data.clients.firstWhereOrNull(
       (element) => element.id == appointment.clientId,
     );
-    final service = data.services.firstWhereOrNull(
-      (element) => element.id == appointment.serviceId,
-    );
+    final appointmentServices = appointment.serviceIds
+        .map(
+          (id) => data.services.firstWhereOrNull(
+            (element) => element.id == id,
+          ),
+        )
+        .whereType<Service>()
+        .toList();
+    final serviceLabel = appointmentServices.isNotEmpty
+        ? appointmentServices.map((service) => service.name).join(' + ')
+        : 'Servizio';
     final staff = data.staff.firstWhereOrNull(
       (element) => element.id == appointment.staffId,
     );
@@ -110,7 +119,7 @@ class _AppointmentDetailSheet extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        service?.name ?? 'Servizio',
+                        serviceLabel,
                         style: theme.textTheme.titleMedium,
                       ),
                       const SizedBox(height: 12),
@@ -515,9 +524,17 @@ class _TodayView extends ConsumerWidget {
               final client = data.clients.firstWhereOrNull(
                 (client) => client.id == appointment.clientId,
               );
-              final service = data.services.firstWhereOrNull(
-                (service) => service.id == appointment.serviceId,
-              );
+              final services = appointment.serviceIds
+                  .map(
+                    (id) => data.services.firstWhereOrNull(
+                      (service) => service.id == id,
+                    ),
+                  )
+                  .whereType<Service>()
+                  .toList();
+              final serviceLabel = services.isNotEmpty
+                  ? services.map((service) => service.name).join(' + ')
+                  : 'Servizio';
               return Card(
                 child: ListTile(
                   leading: CircleAvatar(
@@ -528,7 +545,7 @@ class _TodayView extends ConsumerWidget {
                   ),
                   title: Text(client?.fullName ?? 'Cliente'),
                   subtitle: Text(
-                    '${service?.name ?? 'Servizio'} · ${DateFormat('HH:mm').format(appointment.start)}',
+                    '$serviceLabel · ${DateFormat('HH:mm').format(appointment.start)}',
                   ),
                   trailing: const Icon(Icons.navigate_next_rounded),
                   onTap: () => _showAppointmentDetails(context, appointment),
@@ -574,13 +591,21 @@ class _AgendaView extends ConsumerWidget {
         final client = data.clients.firstWhereOrNull(
           (client) => client.id == appointment.clientId,
         );
-        final service = data.services.firstWhereOrNull(
-          (service) => service.id == appointment.serviceId,
-        );
+        final services = appointment.serviceIds
+            .map(
+              (id) => data.services.firstWhereOrNull(
+                (service) => service.id == id,
+              ),
+            )
+            .whereType<Service>()
+            .toList();
+        final serviceLabel = services.isNotEmpty
+            ? services.map((service) => service.name).join(' + ')
+            : 'Servizio';
         return Card(
           child: ListTile(
             leading: const Icon(Icons.calendar_month_rounded),
-            title: Text(service?.name ?? 'Servizio'),
+            title: Text(serviceLabel),
             subtitle: Text(
               '${client?.fullName ?? 'Cliente'} · ${DateFormat('dd/MM HH:mm').format(appointment.start)}',
             ),

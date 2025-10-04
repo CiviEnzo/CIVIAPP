@@ -37,10 +37,9 @@ class _StaffFormSheetState extends State<StaffFormSheet> {
   late TextEditingController _lastNameController;
   late TextEditingController _phoneController;
   late TextEditingController _emailController;
-  late TextEditingController _skillsController;
   late TextEditingController _vacationAllowanceController;
   late TextEditingController _permissionAllowanceController;
-  String? _roleId;
+  late List<String> _selectedRoleIds;
   String? _salonId;
   DateTime? _dateOfBirth;
 
@@ -54,9 +53,6 @@ class _StaffFormSheetState extends State<StaffFormSheet> {
     _lastNameController = TextEditingController(text: initial?.lastName ?? '');
     _phoneController = TextEditingController(text: initial?.phone ?? '');
     _emailController = TextEditingController(text: initial?.email ?? '');
-    _skillsController = TextEditingController(
-      text: initial?.skills.join(', ') ?? '',
-    );
     _vacationAllowanceController = TextEditingController(
       text:
           '${initial?.vacationAllowance ?? StaffMember.defaultVacationAllowance}',
@@ -66,15 +62,17 @@ class _StaffFormSheetState extends State<StaffFormSheet> {
           '${initial?.permissionAllowance ?? StaffMember.defaultPermissionAllowance}',
     );
     _dateOfBirth = initial?.dateOfBirth;
-    _roleId = _normalizeRoleId(initial?.roleId ?? widget.defaultRoleId);
+    final initialRoleIds = _normalizeRoleIds(initial?.roleIds ?? const []);
+    if (initialRoleIds.isNotEmpty) {
+      _selectedRoleIds = initialRoleIds;
+    } else {
+      final preferred = _preferredRoleId(widget.roles);
+      _selectedRoleIds = preferred == null ? <String>[] : <String>[preferred];
+    }
     _salonId =
         initial?.salonId ??
         widget.defaultSalonId ??
         (widget.salons.isNotEmpty ? widget.salons.first.id : null);
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _ensureDefaults();
-    });
   }
 
   @override
@@ -83,7 +81,6 @@ class _StaffFormSheetState extends State<StaffFormSheet> {
     _lastNameController.dispose();
     _phoneController.dispose();
     _emailController.dispose();
-    _skillsController.dispose();
     _vacationAllowanceController.dispose();
     _permissionAllowanceController.dispose();
     super.dispose();
@@ -102,12 +99,25 @@ class _StaffFormSheetState extends State<StaffFormSheet> {
     return widget.roles.firstWhereOrNull((role) => role.id == trimmed)?.id;
   }
 
+  List<String> _normalizeRoleIds(List<String> rawIds) {
+    final normalized = <String>[];
+    for (final raw in rawIds) {
+      final normalizedId = _normalizeRoleId(raw);
+      if (normalizedId != null && !normalized.contains(normalizedId)) {
+        normalized.add(normalizedId);
+      }
+    }
+    return normalized;
+  }
+
   String? _preferredRoleId(List<StaffRole> roles) {
     if (roles.isEmpty) {
       return null;
     }
     final candidates = <String?>[
-      _normalizeRoleId(widget.initial?.roleId),
+      widget.initial == null
+          ? null
+          : _normalizeRoleIds(widget.initial!.roleIds).firstOrNull,
       _normalizeRoleId(widget.defaultRoleId),
       _normalizeRoleId(_defaultRoleId),
       _normalizeRoleId(_unknownRoleId),
@@ -118,23 +128,6 @@ class _StaffFormSheetState extends State<StaffFormSheet> {
       }
     }
     return roles.first.id;
-  }
-
-  void _ensureDefaults() {
-    if (!_hasRoles) {
-      return;
-    }
-    final roleExists = widget.roles.any((role) => role.id == _roleId);
-    if (!roleExists) {
-      setState(() {
-        _roleId = _preferredRoleId(widget.roles);
-      });
-    }
-    if (_salonId == null && widget.salons.isNotEmpty) {
-      setState(() {
-        _salonId = widget.salons.first.id;
-      });
-    }
   }
 
   Future<void> _pickDateOfBirth() async {
@@ -173,15 +166,6 @@ class _StaffFormSheetState extends State<StaffFormSheet> {
       }
       return a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
     });
-    final roleItems =
-        sortedRoles
-            .map(
-              (role) => DropdownMenuItem<String>(
-                value: role.id,
-                child: Text(role.displayName),
-              ),
-            )
-            .toList();
     final dateLabel =
         _dateOfBirth != null
             ? dateFormatter.format(_dateOfBirth!)
@@ -225,15 +209,63 @@ class _StaffFormSheetState extends State<StaffFormSheet> {
             ),
             const SizedBox(height: 12),
             if (_hasRoles)
-              DropdownButtonFormField<String>(
-                value: _roleId,
-                decoration: const InputDecoration(
-                  labelText: 'Tipo di mansione',
-                ),
-                items: roleItems,
+              FormField<List<String>>(
+                initialValue: List<String>.from(_selectedRoleIds),
                 validator:
-                    (value) => value == null ? 'Seleziona una mansione' : null,
-                onChanged: (value) => setState(() => _roleId = value),
+                    (value) =>
+                        value == null || value.isEmpty
+                            ? 'Seleziona almeno una mansione'
+                            : null,
+                builder: (field) {
+                  final errorText = field.errorText;
+                  return InputDecorator(
+                    decoration: InputDecoration(
+                      labelText: 'Mansioni',
+                      border: const OutlineInputBorder(),
+                      errorText: errorText,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                    ),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children:
+                          sortedRoles
+                              .map(
+                                (role) => FilterChip(
+                                  label: Text(role.displayName),
+                                  selected: _selectedRoleIds.contains(role.id),
+                                  onSelected: (selected) {
+                                    setState(() {
+                                      if (selected) {
+                                        if (!_selectedRoleIds.contains(
+                                          role.id,
+                                        )) {
+                                          _selectedRoleIds = List<String>.from(
+                                            _selectedRoleIds,
+                                          )..add(role.id);
+                                        }
+                                      } else {
+                                        _selectedRoleIds =
+                                            _selectedRoleIds
+                                                .where(
+                                                  (value) => value != role.id,
+                                                )
+                                                .toList();
+                                      }
+                                    });
+                                    field.didChange(
+                                      List<String>.from(_selectedRoleIds),
+                                    );
+                                  },
+                                ),
+                              )
+                              .toList(),
+                    ),
+                  );
+                },
               )
             else
               Card(
@@ -312,13 +344,6 @@ class _StaffFormSheetState extends State<StaffFormSheet> {
               ],
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _skillsController,
-              decoration: const InputDecoration(
-                labelText: 'Competenze (separate da virgola)',
-              ),
-            ),
-            const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               value: _salonId,
               decoration: const InputDecoration(
@@ -359,11 +384,18 @@ class _StaffFormSheetState extends State<StaffFormSheet> {
     if (!_formKey.currentState!.validate()) {
       return;
     }
-    if (!_hasRoles || _roleId == null) {
+    if (!_hasRoles) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Aggiungi una mansione prima di salvare.'),
         ),
+      );
+      return;
+    }
+    final normalizedRoles = _normalizeRoleIds(_selectedRoleIds);
+    if (normalizedRoles.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Seleziona almeno una mansione.')),
       );
       return;
     }
@@ -373,12 +405,6 @@ class _StaffFormSheetState extends State<StaffFormSheet> {
       );
       return;
     }
-    final skills =
-        _skillsController.text
-            .split(',')
-            .map((skill) => skill.trim())
-            .where((skill) => skill.isNotEmpty)
-            .toList();
 
     final phone = _phoneController.text.trim();
     final email = _emailController.text.trim();
@@ -387,11 +413,10 @@ class _StaffFormSheetState extends State<StaffFormSheet> {
       salonId: _salonId!,
       firstName: _firstNameController.text.trim(),
       lastName: _lastNameController.text.trim(),
-      roleId: _roleId!,
+      roleIds: normalizedRoles,
       phone: phone.isEmpty ? null : phone,
       email: email.isEmpty ? null : email,
       dateOfBirth: _dateOfBirth,
-      skills: skills,
       vacationAllowance: _parseAllowance(
         _vacationAllowanceController,
         StaffMember.defaultVacationAllowance,

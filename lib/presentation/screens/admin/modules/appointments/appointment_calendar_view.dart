@@ -16,6 +16,33 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+String _staffRoleLabel(StaffMember staff, Map<String, StaffRole> rolesById) {
+  final names = staff.roleIds
+      .map((roleId) {
+        final name = rolesById[roleId]?.displayName;
+        return name?.trim();
+      })
+      .whereType<String>()
+      .where((name) => name.isNotEmpty)
+      .toList(growable: false);
+  if (names.isNotEmpty) {
+    return names.join(' • ');
+  }
+  final fallback = rolesById[staff.primaryRoleId]?.displayName;
+  final fallbackName = fallback?.trim();
+  if (fallbackName != null && fallbackName.isNotEmpty) {
+    return fallbackName;
+  }
+  return 'Mansione';
+}
+
+bool _hasAllowedRole(StaffMember staff, List<String> allowedRoles) {
+  if (allowedRoles.isEmpty) {
+    return true;
+  }
+  return staff.roleIds.any((roleId) => allowedRoles.contains(roleId));
+}
+
 enum AppointmentCalendarScope { day, week }
 
 class AppointmentRescheduleRequest {
@@ -76,6 +103,7 @@ class AppointmentCalendarView extends StatefulWidget {
     required this.onCreate,
     required this.anomalies,
     required this.statusColor,
+    this.slotMinutes = 15,
   });
 
   final DateTime anchorDate;
@@ -98,6 +126,7 @@ class AppointmentCalendarView extends StatefulWidget {
   final AppointmentSlotSelectionCallback onCreate;
   final Map<String, Set<AppointmentAnomalyType>> anomalies;
   final Color Function(AppointmentStatus status) statusColor;
+  final int slotMinutes;
 
   @override
   State<AppointmentCalendarView> createState() =>
@@ -105,7 +134,6 @@ class AppointmentCalendarView extends StatefulWidget {
 }
 
 class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
-  static const _slotMinutes = 30;
   static const _slotExtent = 52.0;
   static const _timeScaleExtent = 74.0;
 
@@ -190,6 +218,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           horizontalHeaderController: _horizontalHeaderController,
           horizontalBodyController: _horizontalBodyController,
           verticalController: _verticalController,
+          slotMinutes: widget.slotMinutes,
         );
       case AppointmentCalendarScope.week:
         return _WeekSchedule(
@@ -215,6 +244,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           horizontalHeaderController: _horizontalHeaderController,
           horizontalBodyController: _horizontalBodyController,
           verticalController: _verticalController,
+          slotMinutes: widget.slotMinutes,
         );
     }
   }
@@ -243,6 +273,7 @@ class _DaySchedule extends StatelessWidget {
     required this.horizontalHeaderController,
     required this.horizontalBodyController,
     required this.verticalController,
+    required this.slotMinutes,
   });
 
   final DateTime anchorDate;
@@ -266,8 +297,8 @@ class _DaySchedule extends StatelessWidget {
   final ScrollController horizontalHeaderController;
   final ScrollController horizontalBodyController;
   final ScrollController verticalController;
+  final int slotMinutes;
 
-  static const _slotMinutes = _AppointmentCalendarViewState._slotMinutes;
   static const _slotExtent = _AppointmentCalendarViewState._slotExtent;
   static const _timeScaleExtent =
       _AppointmentCalendarViewState._timeScaleExtent;
@@ -330,13 +361,14 @@ class _DaySchedule extends StatelessWidget {
       dayAbsences,
       openingStart: openingStart,
       closingEnd: closingEnd,
+      slotMinutes: slotMinutes,
     );
     final totalMinutes = bounds.end.difference(bounds.start).inMinutes;
-    final slotCount = max(1, (totalMinutes / _slotMinutes).ceil());
+    final slotCount = max(1, (totalMinutes / slotMinutes).ceil());
     final gridHeight = slotCount * _slotExtent;
     final timeSlots = List.generate(
       slotCount,
-      (index) => bounds.start.add(Duration(minutes: index * _slotMinutes)),
+      (index) => bounds.start.add(Duration(minutes: index * slotMinutes)),
     );
 
     final appointmentsByStaff = groupBy<Appointment, String>(
@@ -517,9 +549,10 @@ class _DaySchedule extends StatelessWidget {
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
-                                        rolesById[staff[staffIndex].roleId]
-                                                ?.displayName ??
-                                            'Mansione',
+                                        _staffRoleLabel(
+                                          staff[staffIndex],
+                                          rolesById,
+                                        ),
                                         style: theme.textTheme.bodySmall,
                                         textAlign: TextAlign.center,
                                       ),
@@ -550,12 +583,12 @@ class _DaySchedule extends StatelessWidget {
                                           shiftsByStaff[staff[staffIndex].id] ??
                                           const [],
                                       absences:
-                                          absencesByStaff[staff[staffIndex]
+                                      absencesByStaff[staff[staffIndex]
                                               .id] ??
                                           const [],
                                       timelineStart: bounds.start,
                                       timelineEnd: bounds.end,
-                                      slotMinutes: _slotMinutes,
+                                      slotMinutes: slotMinutes,
                                       slotExtent: _slotExtent,
                                       clientsById: clientsById,
                                       servicesById: servicesById,
@@ -598,6 +631,7 @@ class _DaySchedule extends StatelessWidget {
     List<StaffAbsence> absences, {
     DateTime? openingStart,
     DateTime? closingEnd,
+    required int slotMinutes,
   }) {
     DateTime? earliest;
     DateTime? latest;
@@ -653,8 +687,8 @@ class _DaySchedule extends StatelessWidget {
       end = start.add(const Duration(hours: 1));
     }
 
-    start = _floorToSlot(start);
-    end = _ceilToSlot(end);
+    start = _floorToSlot(start, slotMinutes);
+    end = _ceilToSlot(end, slotMinutes);
 
     return _TimelineBounds(start: start, end: end);
   }
@@ -684,6 +718,7 @@ class _WeekSchedule extends StatelessWidget {
     required this.horizontalBodyController,
     required this.verticalController,
     required this.anomalies,
+    required this.slotMinutes,
   });
 
   final DateTime anchorDate;
@@ -708,8 +743,8 @@ class _WeekSchedule extends StatelessWidget {
   final ScrollController horizontalBodyController;
   final ScrollController verticalController;
   final Map<String, Set<AppointmentAnomalyType>> anomalies;
+  final int slotMinutes;
 
-  static const _slotMinutes = _AppointmentCalendarViewState._slotMinutes;
   static const _slotExtent = _AppointmentCalendarViewState._slotExtent;
   static const _timeScaleExtent =
       _AppointmentCalendarViewState._timeScaleExtent;
@@ -802,6 +837,7 @@ class _WeekSchedule extends StatelessWidget {
             dayAbsences,
             openingStart: openStart,
             closingEnd: openEnd,
+            slotMinutes: slotMinutes,
           );
 
           return _WeekDayData(
@@ -840,7 +876,7 @@ class _WeekSchedule extends StatelessWidget {
     }
 
     final totalMinutes = maxMinute - minMinute;
-    final slotCount = max(1, (totalMinutes / _slotMinutes).ceil());
+    final slotCount = max(1, (totalMinutes / slotMinutes).ceil());
     final gridHeight = slotCount * _slotExtent;
     final referenceDate = dayData.first.date;
     final referenceTimelineStart = referenceDate.add(
@@ -849,7 +885,7 @@ class _WeekSchedule extends StatelessWidget {
     final timeSlots = List.generate(
       slotCount,
       (index) =>
-          referenceTimelineStart.add(Duration(minutes: index * _slotMinutes)),
+          referenceTimelineStart.add(Duration(minutes: index * slotMinutes)),
     );
 
     final dayLabelFormat = DateFormat('EEE dd MMM', 'it_IT');
@@ -954,10 +990,10 @@ class _WeekSchedule extends StatelessWidget {
                                               ),
                                               const SizedBox(height: 2),
                                               Text(
-                                                rolesById[staff[columnIndex]
-                                                            .roleId]
-                                                        ?.displayName ??
-                                                    'Mansione',
+                                                _staffRoleLabel(
+                                                  staff[columnIndex],
+                                                  rolesById,
+                                                ),
                                                 style:
                                                     theme.textTheme.bodySmall,
                                                 textAlign: TextAlign.center,
@@ -1104,7 +1140,7 @@ class _WeekSchedule extends StatelessWidget {
                                               .add(
                                                 Duration(minutes: maxMinute),
                                               ),
-                                          slotMinutes: _slotMinutes,
+                                          slotMinutes: slotMinutes,
                                           slotExtent: _slotExtent,
                                           clientsById: clientsById,
                                           servicesById: servicesById,
@@ -1338,7 +1374,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
   ) {
     final service = widget.servicesById[movingAppointment.serviceId];
     if (service != null && service.staffRoles.isNotEmpty) {
-      final allowed = service.staffRoles.contains(targetStaff.roleId);
+      final allowed = _hasAllowedRole(targetStaff, service.staffRoles);
       if (!allowed) {
         return 'L\'operatore selezionato non può erogare il servizio scelto. Scegli un altro operatore.';
       }
@@ -1468,6 +1504,14 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
             previewed.roomId != null
                 ? widget.roomsById[previewed.roomId!]
                 : null;
+        final services = previewed.serviceIds
+            .map(
+              (id) => widget.servicesById[id],
+            )
+            .whereType<Service>()
+            .toList();
+        final previewService =
+            services.isNotEmpty ? services.first : widget.servicesById[previewed.serviceId];
         dragOverlay = Positioned(
           top: top,
           left: 0,
@@ -1479,7 +1523,8 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
               child: _AppointmentCard(
                 appointment: previewed,
                 client: widget.clientsById[previewed.clientId],
-                service: widget.servicesById[previewed.serviceId],
+                service: previewService,
+                services: services,
                 staff: widget.staffMember,
                 roomName: roomName,
                 statusColor: widget.statusColor,
@@ -1813,7 +1858,14 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                           widget.slotExtent,
                     );
                     final client = widget.clientsById[appointment.clientId];
-                    final service = widget.servicesById[appointment.serviceId];
+                    final services = appointment.serviceIds
+                        .map(
+                          (id) => widget.servicesById[id],
+                        )
+                        .whereType<Service>()
+                        .toList();
+                    final service =
+                        services.isNotEmpty ? services.first : widget.servicesById[appointment.serviceId];
                     final roomName =
                         appointment.roomId != null
                             ? widget.roomsById[appointment.roomId!]
@@ -1828,6 +1880,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                       appointment: appointment,
                       client: client,
                       service: service,
+                      services: services,
                       staff: widget.staffMember,
                       roomName: roomName,
                       statusColor: widget.statusColor,
@@ -1860,6 +1913,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                             appointment: appointment,
                             client: client,
                             service: service,
+                            services: services,
                             staff: widget.staffMember,
                             roomName: roomName,
                             statusColor: widget.statusColor,
@@ -1872,13 +1926,14 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                         ),
                         childWhenDragging: Opacity(
                           opacity: 0.4,
-                          child: _AppointmentCard(
-                            appointment: appointment,
-                            client: client,
-                            service: service,
-                            staff: widget.staffMember,
-                            roomName: roomName,
-                            statusColor: widget.statusColor,
+                        child: _AppointmentCard(
+                          appointment: appointment,
+                          client: client,
+                          service: service,
+                          services: services,
+                          staff: widget.staffMember,
+                          roomName: roomName,
+                          statusColor: widget.statusColor,
                             height: height,
                             anomalies: issues,
                             lockReason: lockReason,
@@ -1990,6 +2045,7 @@ class _AppointmentCard extends StatelessWidget {
     required this.appointment,
     required this.client,
     required this.service,
+    this.services = const <Service>[],
     required this.staff,
     required this.statusColor,
     required this.height,
@@ -2003,6 +2059,7 @@ class _AppointmentCard extends StatelessWidget {
   final Appointment appointment;
   final Client? client;
   final Service? service;
+  final List<Service> services;
   final StaffMember staff;
   final Color Function(AppointmentStatus status) statusColor;
   final double height;
@@ -2021,6 +2078,14 @@ class _AppointmentCard extends StatelessWidget {
     final color = statusColor(status);
     final hasAnomalies = anomalies.isNotEmpty;
     final isLocked = lockReason != null;
+    final servicesToDisplay = services.isNotEmpty
+        ? services
+        : [
+            if (service != null) service!,
+          ];
+    final serviceLabel = servicesToDisplay.isNotEmpty
+        ? servicesToDisplay.map((service) => service.name).join(' + ')
+        : null;
     final borderColor =
         hasAnomalies
             ? theme.colorScheme.error.withValues(alpha: 0.6)
@@ -2028,7 +2093,7 @@ class _AppointmentCard extends StatelessWidget {
             ? theme.colorScheme.outline.withValues(alpha: 0.8)
             : color.withValues(alpha: 0.2);
     final borderWidth = hasAnomalies || isLocked ? 1.5 : 1.0;
-    final tooltipMessage =
+    final anomaliesTooltip =
         hasAnomalies
             ? (anomalies.toList()..sort((a, b) => a.index.compareTo(b.index)))
                 .map((issue) => issue.description)
@@ -2090,7 +2155,7 @@ class _AppointmentCard extends StatelessWidget {
 
           if (availableHeight < 72) {
             final serviceLabelShouldShow =
-                service != null && availableHeight >= 64;
+                serviceLabel != null && availableHeight >= 64;
             return Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -2118,7 +2183,7 @@ class _AppointmentCard extends StatelessWidget {
                 if (serviceLabelShouldShow) ...[
                   SizedBox(height: availableHeight < 68 ? 2 : 4),
                   Text(
-                    service!.name,
+                    serviceLabel!,
                     style: theme.textTheme.bodySmall,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -2128,7 +2193,8 @@ class _AppointmentCard extends StatelessWidget {
             );
           }
 
-          final showService = service != null && availableHeight >= 96;
+          final showService =
+              serviceLabel != null && serviceLabel.isNotEmpty && availableHeight >= 96;
           final showStaff = availableHeight >= 64;
           final showRoom = roomName != null && availableHeight >= 120;
           final hasBottomSection = showStaff || showRoom;
@@ -2156,7 +2222,7 @@ class _AppointmentCard extends StatelessWidget {
               ..add(const SizedBox(height: 4))
               ..add(
                 Text(
-                  service!.name,
+                  serviceLabel!,
                   style: theme.textTheme.bodySmall,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -2213,7 +2279,7 @@ class _AppointmentCard extends StatelessWidget {
           top: 8,
           right: 8,
           child: Tooltip(
-            message: tooltipMessage ?? 'Appuntamento da gestire',
+            message: anomaliesTooltip ?? 'Appuntamento da gestire',
             waitDuration: const Duration(milliseconds: 250),
             child: Icon(
               AppointmentAnomalyType.noShift.icon,
@@ -2247,7 +2313,26 @@ class _AppointmentCard extends StatelessWidget {
             ? card
             : Stack(children: [card, ...overlayWidgets]);
 
-    return Material(
+    final hoverLines = <String>[];
+    final clientName = client?.fullName;
+    final normalizedClientName = clientName?.trim();
+    final normalizedServiceName = serviceLabel?.trim();
+    final notes = appointment.notes?.trim();
+    if (normalizedClientName != null && normalizedClientName.isNotEmpty) {
+      hoverLines.add('Cliente: $normalizedClientName');
+    }
+    if (normalizedServiceName != null && normalizedServiceName.isNotEmpty) {
+      hoverLines.add('Servizio: $normalizedServiceName');
+    }
+    if (appointment.packageId != null) {
+      hoverLines.add('Scalato da sessione');
+    }
+    if (notes != null && notes.isNotEmpty) {
+      hoverLines.add('Note: $notes');
+    }
+    final hoverTooltip = hoverLines.isEmpty ? null : hoverLines.join('\n');
+
+    Widget interactiveCard = Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
@@ -2255,6 +2340,16 @@ class _AppointmentCard extends StatelessWidget {
         child: decoratedCard,
       ),
     );
+
+    if (hoverTooltip != null) {
+      interactiveCard = Tooltip(
+        message: hoverTooltip,
+        waitDuration: const Duration(milliseconds: 250),
+        child: interactiveCard,
+      );
+    }
+
+    return interactiveCard;
   }
 }
 
@@ -2280,6 +2375,7 @@ class _DragPreviewCard extends StatelessWidget {
     required this.appointment,
     required this.client,
     required this.service,
+    this.services = const <Service>[],
     required this.staff,
     required this.statusColor,
     required this.height,
@@ -2287,12 +2383,13 @@ class _DragPreviewCard extends StatelessWidget {
     this.anomalies = const <AppointmentAnomalyType>{},
     this.previewStart,
     this.previewDuration,
-    this.slotMinutes = _AppointmentCalendarViewState._slotMinutes,
+    required this.slotMinutes,
   });
 
   final Appointment appointment;
   final Client? client;
   final Service? service;
+  final List<Service> services;
   final StaffMember staff;
   final Color Function(AppointmentStatus status) statusColor;
   final double height;
@@ -2314,6 +2411,7 @@ class _DragPreviewCard extends StatelessWidget {
       appointment: previewed,
       client: client,
       service: service,
+      services: services,
       staff: staff,
       roomName: roomName,
       statusColor: statusColor,
@@ -2380,8 +2478,8 @@ DateTime _maxDate(DateTime? current, DateTime candidate) {
   return candidate.isAfter(current) ? candidate : current;
 }
 
-DateTime _floorToSlot(DateTime value) {
-  const minutes = _AppointmentCalendarViewState._slotMinutes;
+DateTime _floorToSlot(DateTime value, int slotMinutes) {
+  final minutes = slotMinutes;
   final remainder = value.minute % minutes;
   return DateTime(
     value.year,
@@ -2392,8 +2490,8 @@ DateTime _floorToSlot(DateTime value) {
   );
 }
 
-DateTime _ceilToSlot(DateTime value) {
-  const minutes = _AppointmentCalendarViewState._slotMinutes;
+DateTime _ceilToSlot(DateTime value, int slotMinutes) {
+  final minutes = slotMinutes;
   final remainder = value.minute % minutes;
   if (remainder == 0) {
     return value;

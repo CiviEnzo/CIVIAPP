@@ -8,12 +8,12 @@ import 'package:uuid/uuid.dart';
 class StaffRoleManagerSheet extends ConsumerStatefulWidget {
   const StaffRoleManagerSheet({
     super.key,
-    required this.roles,
     required this.canManageRoles,
+    this.salonId,
   });
 
-  final List<StaffRole> roles;
   final bool canManageRoles;
+  final String? salonId;
 
   @override
   ConsumerState<StaffRoleManagerSheet> createState() =>
@@ -34,9 +34,56 @@ class _StaffRoleManagerSheetState extends ConsumerState<StaffRoleManagerSheet> {
     });
   }
 
+  List<StaffRole> _filterRolesBySalon(List<StaffRole> roles, String? salonId) {
+    final normalizedSalonId = salonId?.trim();
+    if (normalizedSalonId == null || normalizedSalonId.isEmpty) {
+      return roles;
+    }
+    return roles.where((role) {
+      if (role.isDefault) {
+        return true;
+      }
+      final roleSalonId = role.salonId?.trim();
+      return roleSalonId != null && roleSalonId == normalizedSalonId;
+    }).toList();
+  }
+
+  String? _resolveSalonIdForActions() {
+    final explicit = widget.salonId?.trim();
+    if (explicit != null && explicit.isNotEmpty) {
+      return explicit;
+    }
+    final sessionSalon = ref.read(currentSalonIdProvider)?.trim();
+    if (sessionSalon == null || sessionSalon.isEmpty) {
+      return null;
+    }
+    return sessionSalon;
+  }
+
+  StaffRole? _withEnsuredSalon(StaffRole role) {
+    if (role.isDefault) {
+      return role;
+    }
+    final existingSalon = role.salonId?.trim();
+    if (existingSalon != null && existingSalon.isNotEmpty) {
+      return role.copyWith(salonId: existingSalon);
+    }
+    final resolvedSalonId = _resolveSalonIdForActions();
+    if (resolvedSalonId == null) {
+      _showSalonSelectionWarning();
+      return null;
+    }
+    return role.copyWith(salonId: resolvedSalonId);
+  }
+
   Future<void> _createRole() async {
     if (!widget.canManageRoles) {
       _showPermissionWarning();
+      return;
+    }
+    final salonId = _resolveSalonIdForActions();
+    if (salonId == null) {
+      _showSalonSelectionWarning();
       return;
     }
     final nameController = TextEditingController();
@@ -76,12 +123,17 @@ class _StaffRoleManagerSheetState extends ConsumerState<StaffRoleManagerSheet> {
     if (result == null || result.trim().isEmpty) {
       return;
     }
+    final rolesForSalon = _filterRolesBySalon(
+      ref.read(appDataProvider).staffRoles,
+      salonId,
+    );
     await _submitRole(
       StaffRole(
         id: _uuid.v4(),
         name: result.trim(),
+        salonId: salonId,
         isDefault: false,
-        sortPriority: widget.roles.length + 1,
+        sortPriority: rolesForSalon.length + 1,
       ),
     );
   }
@@ -175,12 +227,16 @@ class _StaffRoleManagerSheetState extends ConsumerState<StaffRoleManagerSheet> {
       _showPermissionWarning();
       return;
     }
+    final sanitizedRole = _withEnsuredSalon(role);
+    if (sanitizedRole == null) {
+      return;
+    }
     setState(() => _isProcessing = true);
     try {
-      await ref.read(appDataProvider.notifier).upsertStaffRole(role);
+      await ref.read(appDataProvider.notifier).upsertStaffRole(sanitizedRole);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ruolo "${role.name}" salvato.')),
+          SnackBar(content: Text('Ruolo "${sanitizedRole.name}" salvato.')),
         );
       }
     } finally {
@@ -192,12 +248,22 @@ class _StaffRoleManagerSheetState extends ConsumerState<StaffRoleManagerSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final explicitSalonId = widget.salonId?.trim();
+    final sessionSalonId = ref.watch(currentSalonIdProvider)?.trim();
+    final activeSalonId =
+        (explicitSalonId != null && explicitSalonId.isNotEmpty)
+            ? explicitSalonId
+            : (sessionSalonId != null && sessionSalonId.isNotEmpty
+                ? sessionSalonId
+                : null);
     final roles = ref.watch(
       appDataProvider.select((state) => state.staffRoles),
     );
-    final sortedRoles = _sortedRoles(roles);
+    final filteredRoles = _filterRolesBySalon(roles, activeSalonId);
+    final sortedRoles = _sortedRoles(filteredRoles);
     final theme = Theme.of(context);
     final canManage = widget.canManageRoles;
+    final hasActiveSalon = activeSalonId != null;
 
     return SafeArea(
       child: Padding(
@@ -236,6 +302,18 @@ class _StaffRoleManagerSheetState extends ConsumerState<StaffRoleManagerSheet> {
                     'Solo gli amministratori possono modificare i ruoli.',
                   ),
                   subtitle: Text('Puoi comunque consultarne l\'elenco.'),
+                ),
+              ),
+            ] else if (!hasActiveSalon) ...[
+              const SizedBox(height: 12),
+              Card(
+                color: theme.colorScheme.surfaceContainerHighest,
+                child: const ListTile(
+                  leading: Icon(Icons.info_outline_rounded),
+                  title: Text('Seleziona un salone per gestire i ruoli.'),
+                  subtitle: Text(
+                    'I ruoli sono visibili e modificabili solo per il salone corrente.',
+                  ),
                 ),
               ),
             ],
@@ -309,7 +387,10 @@ class _StaffRoleManagerSheetState extends ConsumerState<StaffRoleManagerSheet> {
                   ),
                 const Spacer(),
                 FilledButton.icon(
-                  onPressed: _isProcessing || !canManage ? null : _createRole,
+                  onPressed:
+                      _isProcessing || !canManage || !hasActiveSalon
+                          ? null
+                          : _createRole,
                   icon: const Icon(Icons.add_rounded),
                   label: const Text('Nuovo ruolo'),
                 ),
@@ -318,6 +399,15 @@ class _StaffRoleManagerSheetState extends ConsumerState<StaffRoleManagerSheet> {
           ],
         ),
       ),
+    );
+  }
+
+  void _showSalonSelectionWarning() {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Seleziona un salone per gestire i ruoli.')),
     );
   }
 

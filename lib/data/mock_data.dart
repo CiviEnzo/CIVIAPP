@@ -8,10 +8,12 @@ import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
+import 'package:civiapp/domain/entities/service_category.dart';
 import 'package:civiapp/domain/entities/shift.dart';
 import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/domain/entities/staff_role.dart';
+import 'package:civiapp/domain/entities/reminder_settings.dart';
 
 class MockData {
   MockData._();
@@ -179,11 +181,10 @@ class MockData {
       salonId: 'salon-001',
       firstName: 'Laura',
       lastName: 'Conti',
-      roleId: 'manager',
+      roleIds: const ['manager'],
       phone: '+39 320 111 2233',
       email: 'laura.conti@civibeauty.it',
       dateOfBirth: DateTime(1990, 3, 14),
-      skills: const ['Coordinamento', 'Analisi vendite'],
       vacationAllowance: 28,
       permissionAllowance: 15,
     ),
@@ -192,20 +193,18 @@ class MockData {
       salonId: 'salon-001',
       firstName: 'Giulia',
       lastName: 'Serra',
-      roleId: 'estetista',
+      roleIds: const ['estetista'],
       phone: '+39 333 444 5566',
       dateOfBirth: DateTime(1994, 8, 23),
-      skills: const ['Trattamenti viso', 'Massaggi decontratturanti'],
     ),
     StaffMember(
       id: 'staff-003',
       salonId: 'salon-002',
       firstName: 'Marco',
       lastName: 'Bianchi',
-      roleId: 'massaggiatore',
+      roleIds: const ['massaggiatore'],
       phone: '+39 340 777 8899',
       dateOfBirth: DateTime(1988, 12, 2),
-      skills: const ['Massaggi sportivi', 'Linfodrenaggio'],
     ),
   ];
 
@@ -233,6 +232,12 @@ class MockData {
           acceptedAt: _now.subtract(const Duration(days: 180)),
         ),
       ],
+      channelPreferences: const ChannelPreferences(
+        push: true,
+        email: true,
+        whatsapp: true,
+        sms: false,
+      ),
       onboardingStatus: ClientOnboardingStatus.onboardingCompleted,
       invitationSentAt: _now.subtract(const Duration(days: 210)),
       firstLoginAt: _now.subtract(const Duration(days: 205)),
@@ -256,6 +261,12 @@ class MockData {
           acceptedAt: _now.subtract(const Duration(days: 90)),
         ),
       ],
+      channelPreferences: const ChannelPreferences(
+        push: true,
+        email: true,
+        whatsapp: false,
+        sms: false,
+      ),
       onboardingStatus: ClientOnboardingStatus.invitationSent,
       invitationSentAt: _now.subtract(const Duration(days: 2)),
       firstLoginAt: null,
@@ -279,6 +290,39 @@ class MockData {
           acceptedAt: _now.subtract(const Duration(days: 40)),
         ),
       ],
+      channelPreferences: const ChannelPreferences(
+        push: true,
+        email: false,
+        whatsapp: false,
+        sms: true,
+      ),
+    ),
+  ];
+
+  static final serviceCategories = <ServiceCategory>[
+    ServiceCategory(
+      id: 'cat-skincare',
+      salonId: 'salon-001',
+      name: 'Skincare',
+      sortOrder: 10,
+    ),
+    ServiceCategory(
+      id: 'cat-massaggi',
+      salonId: 'salon-001',
+      name: 'Massaggi',
+      sortOrder: 20,
+    ),
+    ServiceCategory(
+      id: 'cat-unghie',
+      salonId: 'salon-001',
+      name: 'Unghie',
+      sortOrder: 30,
+    ),
+    ServiceCategory(
+      id: 'cat-benessere',
+      salonId: 'salon-002',
+      name: 'Benessere',
+      sortOrder: 10,
     ),
   ];
 
@@ -288,6 +332,7 @@ class MockData {
       salonId: 'salon-001',
       name: 'Trattamento Viso Rigenerante',
       category: 'Skincare',
+      categoryId: 'cat-skincare',
       duration: const Duration(minutes: 60),
       extraDuration: const Duration(minutes: 10),
       price: 75,
@@ -301,6 +346,7 @@ class MockData {
       salonId: 'salon-001',
       name: 'Massaggio Decontratturante',
       category: 'Massaggi',
+      categoryId: 'cat-massaggi',
       duration: const Duration(minutes: 50),
       extraDuration: const Duration(minutes: 15),
       price: 65,
@@ -314,6 +360,7 @@ class MockData {
       salonId: 'salon-001',
       name: 'Manicure Deluxe',
       category: 'Unghie',
+      categoryId: 'cat-unghie',
       duration: const Duration(minutes: 45),
       extraDuration: const Duration(minutes: 5),
       price: 40,
@@ -327,6 +374,7 @@ class MockData {
       salonId: 'salon-002',
       name: 'Percorso Spa Relax',
       category: 'Benessere',
+      categoryId: 'cat-benessere',
       duration: const Duration(minutes: 90),
       extraDuration: const Duration(minutes: 20),
       price: 95,
@@ -578,6 +626,23 @@ class MockData {
           'Solo questo weekend trattamenti viso al 20% di sconto! Prenota ora via app o WhatsApp.',
       channel: MessageChannel.whatsapp,
       usage: TemplateUsage.promotion,
+    ),
+  ];
+
+  static final reminderSettings = <ReminderSettings>[
+    ReminderSettings(
+      salonId: 'salon-001',
+      dayBeforeEnabled: true,
+      threeHoursEnabled: true,
+      oneHourEnabled: true,
+      birthdayEnabled: true,
+    ),
+    ReminderSettings(
+      salonId: 'salon-002',
+      dayBeforeEnabled: true,
+      threeHoursEnabled: false,
+      oneHourEnabled: true,
+      birthdayEnabled: true,
     ),
   ];
 

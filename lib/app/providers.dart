@@ -1,9 +1,16 @@
 import 'package:civiapp/app/router.dart';
+import 'package:civiapp/data/branding/branding_model.dart';
+import 'package:civiapp/data/branding/branding_repository.dart';
 import 'package:civiapp/data/models/app_user.dart';
 import 'package:civiapp/data/repositories/app_data_state.dart';
 import 'package:civiapp/data/repositories/app_data_store.dart';
 import 'package:civiapp/data/repositories/auth_repository.dart';
+import 'package:civiapp/data/storage/firebase_storage_service.dart';
 import 'package:civiapp/domain/entities/user_role.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -42,6 +49,71 @@ final sessionControllerProvider =
       }, fireImmediately: true);
       return controller;
     });
+
+final brandingRepositoryProvider = Provider<BrandingRepository>((ref) {
+  final firestore = FirebaseFirestore.instance;
+  return BrandingRepository(firestore);
+});
+
+final firebaseStorageServiceProvider = Provider<FirebaseStorageService>((ref) {
+  final storage = FirebaseStorage.instance;
+  return FirebaseStorageService(storage);
+});
+
+final firebaseMessagingProvider = Provider<FirebaseMessaging>((ref) {
+  return FirebaseMessaging.instance;
+});
+
+final currentSalonIdProvider = Provider<String?>((ref) {
+  return ref.watch(sessionControllerProvider).salonId;
+});
+
+final salonBrandingProvider = StreamProvider<BrandingModel>((ref) {
+  final salonId = ref.watch(currentSalonIdProvider);
+  final repository = ref.watch(brandingRepositoryProvider);
+  if (salonId == null) {
+    return Stream.value(
+      const BrandingModel(
+        primaryColor: '#1F2937',
+        accentColor: '#A855F7',
+        themeMode: 'system',
+      ),
+    );
+  }
+  return repository.watchSalonBranding(salonId);
+});
+
+final salonThemeProvider = Provider.autoDispose((ref) {
+  final brandingAsync = ref.watch(salonBrandingProvider);
+  final base =
+      brandingAsync.valueOrNull ??
+      const BrandingModel(
+        primaryColor: '#1F2937',
+        accentColor: '#A855F7',
+        themeMode: 'system',
+      );
+  final lightScheme = base.toColorScheme(Brightness.light);
+  final darkScheme = base.toColorScheme(Brightness.dark);
+
+  ThemeData buildTheme(ColorScheme scheme) {
+    return ThemeData(
+      colorScheme: scheme,
+      useMaterial3: true,
+      appBarTheme: AppBarTheme(
+        backgroundColor: scheme.surface,
+        foregroundColor: scheme.onSurface,
+        elevation: base.appBarStyle == 'elevated' ? 4 : 0,
+      ),
+    );
+  }
+
+  return (
+    theme: buildTheme(lightScheme),
+    darkTheme: buildTheme(darkScheme),
+    mode: base.resolveThemeMode(),
+    branding: base,
+  );
+});
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   return createRouter(ref);

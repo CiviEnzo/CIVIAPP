@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:civiapp/app/providers.dart';
+import 'package:civiapp/domain/entities/app_notification.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/service.dart';
@@ -6,6 +10,7 @@ import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/presentation/shared/client_package_purchase.dart';
 import 'package:collection/collection.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -21,6 +26,41 @@ class ClientDashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
+  StreamSubscription<RemoteMessage>? _foregroundSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _listenForegroundMessages();
+  }
+
+  @override
+  void dispose() {
+    _foregroundSub?.cancel();
+    super.dispose();
+  }
+
+  void _listenForegroundMessages() {
+    _foregroundSub ??= FirebaseMessaging.onMessage.listen((
+      RemoteMessage message,
+    ) {
+      if (!mounted) {
+        return;
+      }
+      final notification = message.notification;
+      final title =
+          notification?.title ??
+          message.data['title'] as String? ??
+          'Nuova notifica';
+      final body = notification?.body ?? message.data['body'] as String? ?? '';
+      final content = body.isEmpty ? title : '$title\n$body';
+      // ignore: use_build_context_synchronously
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(content), behavior: SnackBarBehavior.floating),
+      );
+    });
+  }
+
   Future<void> _openBookingSheet(
     Client client, {
     Service? preselectedService,
@@ -262,7 +302,10 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
 
     final salonServices =
         data.services
-            .where((service) => service.salonId == currentClient.salonId)
+            .where(
+              (service) =>
+                  service.salonId == currentClient.salonId && service.isActive,
+            )
             .toList();
     final clientPackages = resolveClientPackagePurchases(
       sales: data.sales,
@@ -278,6 +321,15 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     final pastPackages = clientPackages
         .where((pkg) => !pkg.isActive)
         .toList(growable: false);
+    final notifications =
+        data.clientNotifications
+            .where((notification) => notification.clientId == currentClient.id)
+            .toList()
+          ..sort(
+            (a, b) => (b.sentAt ?? b.scheduledAt ?? b.createdAt).compareTo(
+              a.sentAt ?? a.scheduledAt ?? a.createdAt,
+            ),
+          );
 
     return Scaffold(
       appBar: AppBar(
@@ -318,6 +370,18 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          _PushTokenRegistrar(clientId: currentClient.id),
+          if (notifications.isNotEmpty) ...[
+            Text('Notifiche', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 12),
+            ...notifications
+                .take(10)
+                .map(
+                  (notification) =>
+                      _NotificationCard(notification: notification),
+                ),
+            const SizedBox(height: 24),
+          ],
           if (salon != null)
             Card(
               child: ListTile(
@@ -417,6 +481,193 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
   }
 }
 
+class _PushTokenRegistrar extends ConsumerStatefulWidget {
+  const _PushTokenRegistrar({required this.clientId});
+
+  final String clientId;
+
+  @override
+  ConsumerState<_PushTokenRegistrar> createState() =>
+      _PushTokenRegistrarState();
+}
+
+class _PushTokenRegistrarState extends ConsumerState<_PushTokenRegistrar> {
+  StreamSubscription<String>? _subscription;
+  bool _initialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ensureRegistered();
+  }
+
+  Future<void> _ensureRegistered() async {
+    if (_initialized) {
+      return;
+    }
+    _initialized = true;
+
+    final messaging = ref.read(firebaseMessagingProvider);
+    try {
+      await messaging.setAutoInitEnabled(true);
+      final settings = await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      if (settings.authorizationStatus == AuthorizationStatus.denied) {
+        return;
+      }
+
+      if (Platform.isIOS) {
+        await messaging.setForegroundNotificationPresentationOptions(
+          alert: true,
+          badge: true,
+          sound: true,
+        );
+      }
+
+      final token = await messaging.getToken();
+      if (token != null) {
+        await ref
+            .read(appDataProvider.notifier)
+            .registerClientPushToken(clientId: widget.clientId, token: token);
+      }
+
+      _subscription = messaging.onTokenRefresh.listen((freshToken) async {
+        await ref
+            .read(appDataProvider.notifier)
+            .registerClientPushToken(
+              clientId: widget.clientId,
+              token: freshToken,
+            );
+      });
+    } catch (error, stackTrace) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'ClientDashboardScreen',
+          informationCollector:
+              () => [DiagnosticsNode.message('Failed to register FCM token')],
+        ),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+class _NotificationCard extends StatelessWidget {
+  const _NotificationCard({required this.notification});
+
+  final AppNotification notification;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dateFormat = DateFormat('dd/MM/yyyy HH:mm', 'it_IT');
+    final referenceDate =
+        notification.sentAt ??
+        notification.scheduledAt ??
+        notification.createdAt;
+    final title = notification.title ?? 'Notifica';
+    final body =
+        notification.body ?? (notification.payload['body'] as String? ?? '');
+    final statusLabel = _statusLabel(notification.status);
+    final colors = _statusColors(theme, notification.status);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(title, style: theme.textTheme.titleMedium),
+                ),
+                Chip(
+                  label: Text(statusLabel),
+                  backgroundColor: colors.background,
+                  labelStyle: theme.textTheme.labelSmall?.copyWith(
+                    color: colors.foreground,
+                  ),
+                ),
+              ],
+            ),
+            if (body.isNotEmpty) ...[const SizedBox(height: 8), Text(body)],
+            const SizedBox(height: 8),
+            Text(
+              'Aggiornata il ${dateFormat.format(referenceDate)}',
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _statusLabel(String status) {
+    switch (status) {
+      case 'sent':
+        return 'Inviata';
+      case 'queued':
+        return 'In coda';
+      case 'failed':
+        return 'Errore';
+      case 'skipped':
+        return 'Saltata';
+      case 'pending':
+      default:
+        return 'Programmato';
+    }
+  }
+
+  ({Color background, Color foreground}) _statusColors(
+    ThemeData theme,
+    String status,
+  ) {
+    switch (status) {
+      case 'sent':
+        return (
+          background: theme.colorScheme.secondaryContainer,
+          foreground: theme.colorScheme.onSecondaryContainer,
+        );
+      case 'failed':
+        return (
+          background: theme.colorScheme.errorContainer,
+          foreground: theme.colorScheme.onErrorContainer,
+        );
+      case 'skipped':
+        return (
+          background: theme.colorScheme.surfaceVariant,
+          foreground: theme.colorScheme.onSurfaceVariant,
+        );
+      case 'queued':
+        return (
+          background: theme.colorScheme.tertiaryContainer,
+          foreground: theme.colorScheme.onTertiaryContainer,
+        );
+      case 'pending':
+      default:
+        return (
+          background: theme.colorScheme.surfaceContainerHighest,
+          foreground: theme.colorScheme.onSurface,
+        );
+    }
+  }
+}
+
 class _AppointmentCard extends ConsumerWidget {
   const _AppointmentCard({
     required this.appointment,
@@ -436,9 +687,17 @@ class _AppointmentCard extends ConsumerWidget {
     final staff = data.staff.firstWhereOrNull(
       (member) => member.id == appointment.staffId,
     );
-    final service = data.services.firstWhereOrNull(
-      (service) => service.id == appointment.serviceId,
-    );
+    final services = appointment.serviceIds
+        .map(
+          (id) => data.services.firstWhereOrNull(
+            (service) => service.id == id,
+          ),
+        )
+        .whereType<Service>()
+        .toList();
+    final serviceLabel = services.isNotEmpty
+        ? services.map((service) => service.name).join(' + ')
+        : 'Servizio';
     final date = DateFormat(
       'dd/MM/yyyy HH:mm',
       'it_IT',
@@ -450,7 +709,7 @@ class _AppointmentCard extends ConsumerWidget {
     return Card(
       child: ListTile(
         leading: const Icon(Icons.spa_rounded),
-        title: Text(service?.name ?? 'Servizio'),
+        title: Text(serviceLabel),
         subtitle: Text(
           '$date\nOperatore: ${staff?.fullName ?? 'Da assegnare'}',
         ),

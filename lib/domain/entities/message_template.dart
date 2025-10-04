@@ -18,15 +18,6 @@ class MessageTemplate {
   final bool isActive;
 }
 
-enum MessageChannel {
-  whatsapp,
-  email,
-  sms,
-}
+enum MessageChannel { push, whatsapp, email, sms }
 
-enum TemplateUsage {
-  reminder,
-  followUp,
-  promotion,
-  birthday,
-}
+enum TemplateUsage { reminder, followUp, promotion, birthday }

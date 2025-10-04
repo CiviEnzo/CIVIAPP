@@ -7,6 +7,7 @@ import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:civiapp/presentation/screens/admin/forms/package_form_sheet.dart';
+import 'package:civiapp/presentation/screens/admin/forms/client_search_sheet.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -60,6 +61,7 @@ class SaleFormSheet extends StatefulWidget {
 
 class _SaleFormSheetState extends State<SaleFormSheet> {
   final _formKey = GlobalKey<FormState>();
+  final _clientFieldKey = GlobalKey<FormFieldState<String>>();
   final _uuid = const Uuid();
   final List<_SaleLineDraft> _lines = [];
 
@@ -70,8 +72,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   late final TextEditingController _manualTotalController;
   late final TextEditingController _paidAmountController;
 
-  PaymentMethod _payment = PaymentMethod.pos;
-  SalePaymentStatus _paymentStatus = SalePaymentStatus.paid;
+  PaymentMethod? _payment;
+  SalePaymentStatus? _paymentStatus;
   String? _salonId;
   String? _clientId;
   String? _staffId;
@@ -93,8 +95,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     _discountPercentController = TextEditingController();
     _manualTotalController = TextEditingController();
     _paidAmountController = TextEditingController();
-    _payment = widget.initialPaymentMethod ?? PaymentMethod.pos;
-    _paymentStatus = widget.initialPaymentStatus ?? SalePaymentStatus.paid;
+    _payment = widget.initialPaymentMethod;
+    _paymentStatus = widget.initialPaymentStatus;
     _date = widget.initialDate ?? DateTime.now();
     _salonId =
         widget.defaultSalonId ??
@@ -217,25 +219,42 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                   _staffId = null;
                   _resetLines();
                 });
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _clientFieldKey.currentState?.didChange(_clientId);
+                });
                 _syncDiscountControllers(force: true);
               },
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: _clientId,
-              decoration: const InputDecoration(labelText: 'Cliente'),
-              items:
-                  clients
-                      .map(
-                        (client) => DropdownMenuItem(
-                          value: client.id,
-                          child: Text(client.fullName),
-                        ),
-                      )
-                      .toList(),
-              onChanged: (value) => setState(() => _clientId = value),
+            FormField<String>(
+              key: _clientFieldKey,
               validator:
-                  (value) => value == null ? 'Seleziona un cliente' : null,
+                  (_) => _clientId == null ? 'Seleziona un cliente' : null,
+              builder: (state) {
+                final selectedClient = widget.clients.firstWhereOrNull(
+                  (client) => client.id == _clientId,
+                );
+                return InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => _selectClient(clients),
+                  child: InputDecorator(
+                    decoration: InputDecoration(
+                      labelText: 'Cliente',
+                      errorText: state.errorText,
+                      suffixIcon: const Icon(Icons.search_rounded, size: 20),
+                    ),
+                    isEmpty: selectedClient == null,
+                    child: Text(
+                      selectedClient?.fullName ?? 'Seleziona cliente',
+                      style:
+                          selectedClient == null
+                              ? Theme.of(context).textTheme.bodyMedium
+                                  ?.copyWith(color: Theme.of(context).hintColor)
+                              : Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
@@ -325,10 +344,10 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                         ),
                       )
                       .toList(),
-              onChanged:
-                  (value) => setState(() {
-                    _payment = value ?? PaymentMethod.pos;
-                  }),
+              validator:
+                  (value) =>
+                      value == null ? 'Seleziona il metodo di pagamento' : null,
+              onChanged: (value) => setState(() => _payment = value),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<SalePaymentStatus>(
@@ -343,10 +362,10 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                         ),
                       )
                       .toList(),
+              validator:
+                  (value) =>
+                      value == null ? 'Seleziona lo stato del pagamento' : null,
               onChanged: (value) {
-                if (value == null) {
-                  return;
-                }
                 setState(() {
                   _paymentStatus = value;
                 });
@@ -398,13 +417,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
               trailing: const Icon(Icons.calendar_month_rounded),
               onTap: _pickDateTime,
             ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _invoiceController,
-              decoration: const InputDecoration(
-                labelText: 'Numero fattura / ricevuta',
-              ),
-            ),
+
             const SizedBox(height: 12),
             TextFormField(
               controller: _notesController,
@@ -704,6 +717,20 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     _manualTotalController.clear();
     _discountAmountController.text = '0';
     _discountPercentController.clear();
+  }
+
+  Future<void> _selectClient(List<Client> clients) async {
+    final selected = await showAppModalSheet<Client>(
+      context: context,
+      builder: (ctx) => ClientSearchSheet(clients: clients),
+    );
+
+    if (selected != null) {
+      setState(() {
+        _clientId = selected.id;
+      });
+      _clientFieldKey.currentState?.didChange(selected.id);
+    }
   }
 
   Future<void> _onAddService() async {
@@ -1059,24 +1086,40 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     }
     final subtotal = _computeSubtotal();
     _programmaticDiscountUpdate = true;
-    var percent = _parseAmount(_discountPercentController.text) ?? 0;
-    if (percent < 0) {
-      percent = 0;
-    }
-    if (percent > 100) {
-      percent = 100;
-    }
-    if (subtotal <= 0) {
-      _discountPercentController.clear();
-      _discountAmountController.text = '0';
-    } else {
-      _discountPercentController.text = percent.toStringAsFixed(
-        percent.abs() < 10 ? 1 : 0,
+    final rawText = _discountPercentController.text;
+    final hasInput = rawText.trim().isNotEmpty;
+    var percent = hasInput ? (_parseAmount(rawText) ?? 0) : 0;
+
+    void updatePercentText(String value) {
+      _discountPercentController.value = TextEditingValue(
+        text: value,
+        selection: TextSelection.collapsed(offset: value.length),
       );
-      final amount = subtotal * percent / 100;
-      _discountAmountController.text =
-          amount == 0 ? '0' : amount.toStringAsFixed(2);
     }
+
+    if (!hasInput) {
+      percent = 0;
+    } else if (percent < 0) {
+      percent = 0;
+      updatePercentText('0');
+    } else if (percent > 100) {
+      percent = 100;
+      updatePercentText('100');
+    }
+
+    if (subtotal <= 0) {
+      if (_discountPercentController.text.isNotEmpty) {
+        _discountPercentController.clear();
+      }
+      _discountAmountController.text = '0';
+      _programmaticDiscountUpdate = false;
+      setState(() {});
+      return;
+    }
+
+    final amount = subtotal * percent / 100;
+    _discountAmountController.text =
+        amount == 0 ? '0' : amount.toStringAsFixed(2);
     _programmaticDiscountUpdate = false;
     setState(() {});
   }
@@ -1368,7 +1411,18 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     final invoice = _invoiceController.text.trim();
     final notes = _notesController.text.trim();
 
-    var paymentStatus = _paymentStatus;
+    final paymentMethod = _payment;
+    if (paymentMethod == null) {
+      _showSnackBar('Seleziona il metodo di pagamento.');
+      return;
+    }
+    final selectedStatus = _paymentStatus;
+    if (selectedStatus == null) {
+      _showSnackBar('Seleziona lo stato del pagamento.');
+      return;
+    }
+
+    var paymentStatus = selectedStatus;
     double paidAmount;
     if (paymentStatus == SalePaymentStatus.deposit) {
       final amount = _parseAmount(_paidAmountController.text) ?? 0;
@@ -1394,6 +1448,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       items,
       paymentStatus,
       paidAmount,
+      paymentMethod,
     );
 
     final recordedByName =
@@ -1412,7 +1467,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
           amount: paidAmount,
           type: movementType,
           date: _date,
-          paymentMethod: _payment,
+          paymentMethod: paymentMethod,
           recordedBy: recordedByName,
           note:
               movementType == SalePaymentType.deposit
@@ -1429,7 +1484,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       items: adjustedItems,
       total: double.parse(total.toStringAsFixed(2)),
       createdAt: _date,
-      paymentMethod: _payment,
+      paymentMethod: paymentMethod,
       paymentStatus: paymentStatus,
       paidAmount: paidAmount,
       invoiceNumber: invoice.isEmpty ? null : invoice,
@@ -1446,6 +1501,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     List<SaleItem> items,
     SalePaymentStatus paymentStatus,
     double paidAmount,
+    PaymentMethod paymentMethod,
   ) {
     if (!items.any((item) => item.referenceType == SaleReferenceType.package)) {
       return items;
@@ -1476,7 +1532,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                 amount: applied,
                 date: _date,
                 note: 'Acconto iniziale',
-                paymentMethod: _payment,
+                paymentMethod: paymentMethod,
               ),
             ];
           }

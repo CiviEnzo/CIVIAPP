@@ -1,5 +1,6 @@
 import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
+import 'package:civiapp/domain/entities/service.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -98,16 +99,25 @@ class AdminOverviewModule extends ConsumerWidget {
                 itemBuilder: (context, index) {
                   final appointment = upcoming[index];
                   final client = data.clients.firstWhereOrNull((c) => c.id == appointment.clientId);
-                  final service = data.services.firstWhereOrNull((s) => s.id == appointment.serviceId);
+                  final services = appointment.serviceIds
+                      .map(
+                        (id) => data.services.firstWhereOrNull(
+                          (service) => service.id == id,
+                        ),
+                      )
+                      .whereType<Service>()
+                      .toList();
                   final staffMember = data.staff.firstWhereOrNull((s) => s.id == appointment.staffId);
                   final date = DateFormat('EEEE dd MMMM HH:mm', 'it_IT').format(appointment.start);
+                  final serviceLabel =
+                      services.isNotEmpty ? services.map((service) => service.name).join(' + ') : 'Servizio';
                   return ListTile(
                     leading: CircleAvatar(
                       backgroundColor: theme.colorScheme.primary,
                       foregroundColor: theme.colorScheme.onPrimary,
                       child: Text(client?.firstName.characters.firstOrNull?.toUpperCase() ?? '?'),
                     ),
-                    title: Text('${client?.fullName ?? 'Cliente'} • ${service?.name ?? 'Servizio'}'),
+                    title: Text('${client?.fullName ?? 'Cliente'} • $serviceLabel'),
                     subtitle: Text('$date • ${staffMember?.fullName ?? 'Staff'}'),
                     trailing: _statusChip(appointment.status, theme),
                   );

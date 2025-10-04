@@ -1,5 +1,6 @@
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/cash_flow_entry.dart';
+import 'package:civiapp/domain/entities/app_notification.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/inventory_item.dart';
 import 'package:civiapp/domain/entities/message_template.dart';
@@ -8,10 +9,12 @@ import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
+import 'package:civiapp/domain/entities/service_category.dart';
 import 'package:civiapp/domain/entities/shift.dart';
 import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/domain/entities/staff_role.dart';
+import 'package:civiapp/domain/entities/reminder_settings.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
 
@@ -309,7 +312,21 @@ StaffMember staffFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
           ? roleIdRaw
           : (legacyRole != null && legacyRole.isNotEmpty)
           ? legacyRole
-          : 'staff-role-unknown';
+          : StaffMember.unknownRoleId;
+
+  final roleIdsRaw = data['roleIds'];
+  final roleIds =
+      roleIdsRaw is Iterable
+          ? roleIdsRaw
+              .map((dynamic value) => value.toString().trim())
+              .where((value) => value.isNotEmpty)
+              .toList()
+          : <String>[];
+  if (!roleIds.contains(roleId)) {
+    roleIds.insert(0, roleId);
+  }
+  final normalizedRoleIds =
+      roleIds.isEmpty ? const <String>[StaffMember.unknownRoleId] : roleIds;
 
   final dateOfBirthRaw = data['dateOfBirth'];
   final dateOfBirth =
@@ -331,15 +348,10 @@ StaffMember staffFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     salonId: data['salonId'] as String? ?? '',
     firstName: resolveFirstName(),
     lastName: resolveLastName(),
-    roleId: roleId,
+    roleIds: normalizedRoleIds,
     phone: (data['phone'] as String?)?.trim(),
     email: (data['email'] as String?)?.trim(),
     dateOfBirth: dateOfBirth,
-    skills:
-        (data['skills'] as List<dynamic>? ?? const [])
-            .map((e) => e.toString())
-            .where((value) => value.isNotEmpty)
-            .toList(),
     isActive: data['isActive'] as bool? ?? true,
     vacationAllowance: vacationAllowance,
     permissionAllowance: permissionAllowance,
@@ -352,13 +364,13 @@ Map<String, dynamic> staffToMap(StaffMember staff) {
     'firstName': staff.firstName,
     'lastName': staff.lastName,
     'fullName': staff.fullName,
-    'roleId': staff.roleId,
-    'role': staff.roleId,
+    'roleId': staff.primaryRoleId,
+    'role': staff.primaryRoleId,
+    'roleIds': staff.roleIds,
     'phone': staff.phone,
     'email': staff.email,
     if (staff.dateOfBirth != null)
       'dateOfBirth': Timestamp.fromDate(staff.dateOfBirth!),
-    'skills': staff.skills,
     'isActive': staff.isActive,
     'vacationAllowance': staff.vacationAllowance,
     'permissionAllowance': staff.permissionAllowance,
@@ -397,6 +409,9 @@ Client clientFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final firstLoginAtRaw = data['firstLoginAt'] ?? data['invitationAcceptedAt'];
   final onboardingCompletedAtRaw = data['onboardingCompletedAt'];
   final dateOfBirthRaw = data['dateOfBirth'];
+  final channelPreferencesRaw =
+      data['channelPreferences'] as Map<String, dynamic>?;
+  final fcmTokensRaw = data['fcmTokens'] as List<dynamic>?;
 
   return Client(
     id: doc.id,
@@ -428,6 +443,19 @@ Client clientFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
               ),
             )
             .toList(),
+    fcmTokens:
+        fcmTokensRaw
+            ?.map((value) => value.toString())
+            .where((value) => value.isNotEmpty)
+            .toList(growable: false) ??
+        const <String>[],
+    channelPreferences: ChannelPreferences(
+      push: channelPreferencesRaw?['push'] as bool? ?? true,
+      email: channelPreferencesRaw?['email'] as bool? ?? true,
+      whatsapp: channelPreferencesRaw?['whatsapp'] as bool? ?? false,
+      sms: channelPreferencesRaw?['sms'] as bool? ?? false,
+      updatedAt: (channelPreferencesRaw?['updatedAt'] as Timestamp?)?.toDate(),
+    ),
     onboardingStatus: _onboardingStatusFromString(invitationStatusRaw),
     invitationSentAt:
         (invitationSentAtRaw is Timestamp)
@@ -463,6 +491,7 @@ Map<String, dynamic> clientToMap(Client client) {
     'email': client.email,
     'notes': client.notes,
     'loyaltyPoints': client.loyaltyPoints,
+    'fcmTokens': client.fcmTokens,
     'consents':
         client.marketedConsents
             .map(
@@ -472,6 +501,14 @@ Map<String, dynamic> clientToMap(Client client) {
               },
             )
             .toList(),
+    'channelPreferences': {
+      'push': client.channelPreferences.push,
+      'email': client.channelPreferences.email,
+      'whatsapp': client.channelPreferences.whatsapp,
+      'sms': client.channelPreferences.sms,
+      if (client.channelPreferences.updatedAt != null)
+        'updatedAt': Timestamp.fromDate(client.channelPreferences.updatedAt!),
+    },
     'invitationStatus': client.onboardingStatus.name,
   };
 
@@ -497,6 +534,7 @@ Service serviceFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     salonId: data['salonId'] as String? ?? '',
     name: data['name'] as String? ?? '',
     category: data['category'] as String? ?? '',
+    categoryId: data['categoryId'] as String?,
     duration: Duration(
       minutes: (data['durationMinutes'] as num?)?.toInt() ?? 60,
     ),
@@ -513,11 +551,12 @@ Service serviceFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     extraDuration: Duration(
       minutes: (data['extraDurationMinutes'] as num?)?.toInt() ?? 0,
     ),
+    isActive: data['isActive'] as bool? ?? true,
   );
 }
 
 Map<String, dynamic> serviceToMap(Service service) {
-  return {
+  final map = <String, dynamic>{
     'salonId': service.salonId,
     'name': service.name,
     'category': service.category,
@@ -527,7 +566,37 @@ Map<String, dynamic> serviceToMap(Service service) {
     'staffRoles': service.staffRoles,
     'requiredEquipmentIds': service.requiredEquipmentIds,
     'extraDurationMinutes': service.extraDuration.inMinutes,
+    'isActive': service.isActive,
   };
+  if (service.categoryId != null) {
+    map['categoryId'] = service.categoryId;
+  }
+  return map;
+}
+
+ServiceCategory serviceCategoryFromDoc(
+  DocumentSnapshot<Map<String, dynamic>> doc,
+) {
+  final data = doc.data() ?? <String, dynamic>{};
+  return ServiceCategory(
+    id: doc.id,
+    salonId: data['salonId'] as String? ?? '',
+    name: data['name'] as String? ?? '',
+    description: data['description'] as String?,
+    sortOrder: (data['sortOrder'] as num?)?.toInt() ?? 0,
+  );
+}
+
+Map<String, dynamic> serviceCategoryToMap(ServiceCategory category) {
+  final map = <String, dynamic>{
+    'salonId': category.salonId,
+    'name': category.name,
+    'sortOrder': category.sortOrder,
+  };
+  if (category.description != null) {
+    map['description'] = category.description;
+  }
+  return map;
 }
 
 ServicePackage packageFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -583,6 +652,10 @@ Appointment appointmentFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     clientId: data['clientId'] as String? ?? '',
     staffId: data['staffId'] as String? ?? '',
     serviceId: data['serviceId'] as String? ?? '',
+    serviceIds:
+        (data['serviceIds'] as List<dynamic>?)
+            ?.whereType<String>()
+            .toList(),
     start: ((data['start'] as Timestamp?) ?? Timestamp.now()).toDate(),
     end: ((data['end'] as Timestamp?) ?? Timestamp.now()).toDate(),
     status: _stringToAppointmentStatus(data['status'] as String?),
@@ -598,6 +671,7 @@ Map<String, dynamic> appointmentToMap(Appointment appointment) {
     'clientId': appointment.clientId,
     'staffId': appointment.staffId,
     'serviceId': appointment.serviceId,
+    'serviceIds': appointment.serviceIds,
     'start': Timestamp.fromDate(appointment.start),
     'end': Timestamp.fromDate(appointment.end),
     'status': appointment.status.name,
@@ -658,7 +732,8 @@ Sale saleFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
           : SalePaymentStatus.paid);
   final paidAmount =
       paidAmountRaw ?? (paymentStatus == SalePaymentStatus.deposit ? 0 : total);
-  final paymentHistoryRaw = data['paymentHistory'] as List<dynamic>? ?? const [];
+  final paymentHistoryRaw =
+      data['paymentHistory'] as List<dynamic>? ?? const [];
   final paymentHistory =
       paymentHistoryRaw
           .map((entry) => entry as Map<String, dynamic>?)
@@ -961,6 +1036,74 @@ Map<String, dynamic> messageTemplateToMap(MessageTemplate template) {
     'usage': template.usage.name,
     'isActive': template.isActive,
   };
+}
+
+ReminderSettings reminderSettingsFromDoc(
+  DocumentSnapshot<Map<String, dynamic>> doc,
+) {
+  final data = doc.data() ?? <String, dynamic>{};
+  return ReminderSettings(
+    salonId: data['salonId'] as String? ?? doc.id,
+    dayBeforeEnabled: data['dayBeforeEnabled'] as bool? ?? true,
+    threeHoursEnabled: data['threeHoursEnabled'] as bool? ?? true,
+    oneHourEnabled: data['oneHourEnabled'] as bool? ?? true,
+    birthdayEnabled: data['birthdayEnabled'] as bool? ?? true,
+    updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
+    updatedBy: data['updatedBy'] as String?,
+  );
+}
+
+Map<String, dynamic> reminderSettingsToMap(ReminderSettings settings) {
+  return {
+    'salonId': settings.salonId,
+    'dayBeforeEnabled': settings.dayBeforeEnabled,
+    'threeHoursEnabled': settings.threeHoursEnabled,
+    'oneHourEnabled': settings.oneHourEnabled,
+    'birthdayEnabled': settings.birthdayEnabled,
+    if (settings.updatedAt != null)
+      'updatedAt': Timestamp.fromDate(settings.updatedAt!),
+    'updatedBy': settings.updatedBy,
+  };
+}
+
+AppNotification appNotificationFromDoc(
+  DocumentSnapshot<Map<String, dynamic>> doc,
+) {
+  final data = doc.data() ?? <String, dynamic>{};
+  final payloadRaw = data['payload'];
+  final payload =
+      payloadRaw is Map<String, dynamic>
+          ? Map<String, dynamic>.from(payloadRaw)
+          : <String, dynamic>{};
+
+  final createdAtRaw = data['createdAt'];
+  final scheduledAtRaw = data['scheduledAt'];
+  final sentAtRaw = data['sentAt'];
+
+  return AppNotification(
+    id: doc.id,
+    salonId: data['salonId'] as String? ?? '',
+    clientId: data['clientId'] as String? ?? '',
+    channel: _stringToMessageChannel(data['channel'] as String?),
+    status: data['status'] as String? ?? 'pending',
+    title: data['title'] as String? ?? payload['title'] as String?,
+    body: data['body'] as String? ?? payload['body'] as String?,
+    payload: payload,
+    createdAt:
+        (createdAtRaw is Timestamp)
+            ? createdAtRaw.toDate()
+            : (createdAtRaw is DateTime ? createdAtRaw : DateTime.now()),
+    scheduledAt:
+        (scheduledAtRaw is Timestamp)
+            ? scheduledAtRaw.toDate()
+            : (scheduledAtRaw is DateTime ? scheduledAtRaw : null),
+    sentAt:
+        (sentAtRaw is Timestamp)
+            ? sentAtRaw.toDate()
+            : (sentAtRaw is DateTime ? sentAtRaw : null),
+    type: data['type'] as String? ?? payload['type'] as String?,
+    offsetMinutes: (payload['offsetMinutes'] as num?)?.toInt(),
+  );
 }
 
 Shift shiftFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {

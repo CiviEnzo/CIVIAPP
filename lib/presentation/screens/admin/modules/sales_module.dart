@@ -17,27 +17,70 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
-class SalesModule extends ConsumerWidget {
+class SalesModule extends ConsumerStatefulWidget {
   const SalesModule({super.key, this.salonId});
 
   final String? salonId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SalesModule> createState() => _SalesModuleState();
+}
+
+class _SalesModuleState extends ConsumerState<SalesModule> {
+  late DateTime _selectedDate;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _selectedDate = DateUtils.dateOnly(now);
+  }
+
+  void _setSelectedDate(DateTime date) {
+    setState(() {
+      _selectedDate = DateUtils.dateOnly(date);
+    });
+  }
+
+  void _changeDay(int offset) {
+    _setSelectedDate(_selectedDate.add(Duration(days: offset)));
+  }
+
+  Future<void> _pickDate(
+    BuildContext context, {
+    required DateTime firstDate,
+    required DateTime lastDate,
+  }) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
+      locale: const Locale('it', 'IT'),
+    );
+    if (picked != null) {
+      _setSelectedDate(picked);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ref = this.ref;
+    final salonId = widget.salonId;
     final data = ref.watch(appDataProvider);
     final sales =
         data.sales
             .where((sale) => salonId == null || sale.salonId == salonId)
             .toList()
           ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    final cashFlow =
+    final allCashFlow =
         data.cashFlowEntries
             .where((entry) => salonId == null || entry.salonId == salonId)
             .toList()
           ..sort((a, b) => b.date.compareTo(a.date));
 
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
-    final income = cashFlow
+    final income = allCashFlow
         .where((entry) => entry.type == CashFlowType.income)
         .fold<double>(0, (total, entry) => total + entry.amount);
     final salons = data.salons;
@@ -56,6 +99,22 @@ class SalesModule extends ConsumerWidget {
             .where((ticket) => ticket.status == PaymentTicketStatus.open)
             .toList()
           ..sort((a, b) => a.appointmentStart.compareTo(b.appointmentStart));
+
+    final cashFlow = allCashFlow
+        .where(
+          (entry) => DateUtils.isSameDay(entry.date, _selectedDate),
+        )
+        .toList();
+    final today = DateUtils.dateOnly(DateTime.now());
+    final earliestEntryDate = allCashFlow.isEmpty
+        ? today.subtract(const Duration(days: 365))
+        : DateUtils.dateOnly(allCashFlow.last.date);
+    final firstAvailableDate =
+        earliestEntryDate.isAfter(today) ? today : earliestEntryDate;
+    final canGoBackward = _selectedDate.isAfter(firstAvailableDate);
+    final canGoForward = _selectedDate.isBefore(today);
+    final formattedSelectedDate =
+        DateFormat.yMMMMEEEEd('it_IT').format(_selectedDate);
     final ticketDateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
     return SingleChildScrollView(
@@ -233,6 +292,43 @@ class SalesModule extends ConsumerWidget {
             ),
           const SizedBox(height: 24),
           Text('Ticket chiusi', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              IconButton(
+                tooltip: 'Giorno precedente',
+                onPressed: canGoBackward ? () => _changeDay(-1) : null,
+                icon: const Icon(Icons.chevron_left_rounded),
+              ),
+              Expanded(
+                child: TextButton(
+                  onPressed: () => _pickDate(
+                    context,
+                    firstDate: firstAvailableDate,
+                    lastDate: today,
+                  ),
+                  child: Text(
+                    formattedSelectedDate,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Giorno successivo',
+                onPressed: canGoForward ? () => _changeDay(1) : null,
+                icon: const Icon(Icons.chevron_right_rounded),
+              ),
+              IconButton(
+                tooltip: 'Seleziona data',
+                onPressed: () => _pickDate(
+                  context,
+                  firstDate: firstAvailableDate,
+                  lastDate: today,
+                ),
+                icon: const Icon(Icons.event_rounded),
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
           if (cashFlow.isEmpty)
             const Card(

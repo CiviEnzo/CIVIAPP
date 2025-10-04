@@ -1,4 +1,5 @@
 import 'package:civiapp/domain/entities/sale.dart';
+import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -6,18 +7,24 @@ class OutstandingPaymentFormSheet extends StatefulWidget {
   OutstandingPaymentFormSheet({
     super.key,
     required this.outstandingAmount,
-    required this.initialMethod,
+    this.initialMethod,
     this.initialAmount,
     this.title = 'Registra incasso',
     this.subtitle,
+    this.staff = const [],
+    this.initialStaffId,
+    this.staffName,
     NumberFormat? currency,
   }) : currency = currency ?? NumberFormat.simpleCurrency(locale: 'it_IT');
 
   final double outstandingAmount;
   final double? initialAmount;
-  final PaymentMethod initialMethod;
+  final PaymentMethod? initialMethod;
   final String title;
   final String? subtitle;
+  final List<StaffMember> staff;
+  final String? initialStaffId;
+  final String? staffName;
   final NumberFormat currency;
 
   @override
@@ -29,12 +36,14 @@ class _OutstandingPaymentFormSheetState
     extends State<OutstandingPaymentFormSheet> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _amountController;
-  PaymentMethod _method = PaymentMethod.pos;
+  PaymentMethod? _method;
+  String? _staffId;
 
   @override
   void initState() {
     super.initState();
     _method = widget.initialMethod;
+    _staffId = widget.initialStaffId;
     final initial =
         widget.initialAmount ??
         (widget.outstandingAmount.isFinite && widget.outstandingAmount > 0
@@ -58,6 +67,11 @@ class _OutstandingPaymentFormSheetState
         widget.outstandingAmount.isFinite && widget.outstandingAmount > 0
             ? 'Residuo disponibile: ${widget.currency.format(widget.outstandingAmount)}'
             : null;
+    final staffOptions = [...widget.staff]
+      ..sort((a, b) => a.fullName.compareTo(b.fullName));
+    final selectedStaffId =
+        staffOptions.any((member) => member.id == _staffId) ? _staffId : null;
+    final staffName = widget.staffName?.trim();
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Form(
@@ -74,6 +88,33 @@ class _OutstandingPaymentFormSheetState
             if (maxDescription != null) ...[
               const SizedBox(height: 4),
               Text(maxDescription, style: theme.textTheme.bodySmall),
+            ],
+            if (staffOptions.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: selectedStaffId,
+                decoration: const InputDecoration(
+                  labelText: 'Operatore vendita',
+                ),
+                items:
+                    staffOptions
+                        .map(
+                          (member) => DropdownMenuItem(
+                            value: member.id,
+                            child: Text(member.fullName),
+                          ),
+                        )
+                        .toList(),
+                validator:
+                    (value) => value == null ? 'Seleziona l\'operatore' : null,
+                onChanged: (value) => setState(() => _staffId = value),
+              ),
+            ] else if (staffName != null && staffName.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              InputDecorator(
+                decoration: const InputDecoration(labelText: 'Staff vendita'),
+                child: Text(staffName),
+              ),
             ],
             const SizedBox(height: 16),
             TextFormField(
@@ -131,9 +172,10 @@ class _OutstandingPaymentFormSheetState
                         ),
                       )
                       .toList(),
-              onChanged:
+              validator:
                   (value) =>
-                      setState(() => _method = value ?? PaymentMethod.pos),
+                      value == null ? 'Seleziona il metodo di pagamento' : null,
+              onChanged: (value) => setState(() => _method = value),
             ),
             const SizedBox(height: 24),
             Align(
@@ -168,10 +210,20 @@ class _OutstandingPaymentFormSheetState
     if (!_formKey.currentState!.validate()) {
       return;
     }
+    if (_method == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Seleziona il metodo di pagamento.')),
+      );
+      return;
+    }
     final amount = _parseAmount(_amountController.text)!;
-    Navigator.of(
-      context,
-    ).pop(OutstandingPaymentResult(amount: amount, method: _method));
+    Navigator.of(context).pop(
+      OutstandingPaymentResult(
+        amount: amount,
+        method: _method!,
+        staffId: _staffId,
+      ),
+    );
   }
 
   double? _parseAmount(String? value) {
@@ -200,8 +252,13 @@ class _OutstandingPaymentFormSheetState
 }
 
 class OutstandingPaymentResult {
-  const OutstandingPaymentResult({required this.amount, required this.method});
+  const OutstandingPaymentResult({
+    required this.amount,
+    required this.method,
+    this.staffId,
+  });
 
   final double amount;
   final PaymentMethod method;
+  final String? staffId;
 }

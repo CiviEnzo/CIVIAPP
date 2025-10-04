@@ -641,16 +641,20 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         final existingStaff = currentData.staff.firstWhereOrNull(
           (member) => member.id == staffId,
         );
+        final existingRoleIds = existingStaff?.roleIds ?? const <String>[];
+        final resolvedRoleIds =
+            existingRoleIds.isNotEmpty
+                ? existingRoleIds
+                : <String>[_staffRoleId ?? _defaultStaffRoleId];
         final staffMember = StaffMember(
           id: resolvedStaffId,
           salonId: selectedSalonId,
           firstName: _firstNameController.text.trim(),
           lastName: _lastNameController.text.trim(),
-          roleId: _staffRoleId ?? _defaultStaffRoleId,
+          roleIds: resolvedRoleIds,
           phone: existingStaff?.phone ?? user?.email,
           email: user?.email ?? existingStaff?.email,
           dateOfBirth: existingStaff?.dateOfBirth,
-          skills: existingStaff?.skills ?? const [],
           vacationAllowance:
               existingStaff?.vacationAllowance ??
               StaffMember.defaultVacationAllowance,

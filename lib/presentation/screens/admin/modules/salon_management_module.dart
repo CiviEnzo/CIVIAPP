@@ -1,5 +1,6 @@
 import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/domain/entities/salon.dart';
+import 'package:civiapp/presentation/branding/admin/branding_admin_page.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:civiapp/presentation/screens/admin/forms/salon_form_sheet.dart';
 import 'package:flutter/material.dart';
@@ -161,6 +162,8 @@ class SalonManagementModule extends ConsumerWidget {
                 const SizedBox(height: 16),
                 _SalonStats(salon: salon),
                 const SizedBox(height: 12),
+                _BrandingActions(salonId: salon.id),
+                const SizedBox(height: 12),
                 _EquipmentList(equipment: salon.equipment),
                 if (salon.closures.isNotEmpty) ...[
                   const SizedBox(height: 12),
@@ -216,6 +219,43 @@ class _SalonStats extends ConsumerWidget {
           icon: Icons.event_available,
           label: 'Appuntamenti',
           value: upcomingAppointments.toString(),
+        ),
+      ],
+    );
+  }
+}
+
+class _BrandingActions extends ConsumerWidget {
+  const _BrandingActions({required this.salonId});
+
+  final String salonId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Branding', style: theme.textTheme.titleMedium),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            FilledButton.icon(
+              onPressed: () {
+                ref.read(sessionControllerProvider.notifier).setSalon(salonId);
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const BrandingAdminPage(),
+                    fullscreenDialog: true,
+                  ),
+                );
+              },
+              icon: const Icon(Icons.palette_rounded),
+              label: const Text('Personalizza branding'),
+            ),
+          ],
         ),
       ],
     );

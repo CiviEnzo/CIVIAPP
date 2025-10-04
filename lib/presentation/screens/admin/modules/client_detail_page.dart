@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 
 import 'package:civiapp/app/providers.dart';
+import 'package:civiapp/domain/availability/appointment_conflicts.dart';
+import 'package:civiapp/domain/availability/equipment_availability.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/cash_flow_entry.dart';
 import 'package:civiapp/domain/entities/client.dart';
@@ -13,6 +15,7 @@ import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:civiapp/presentation/screens/admin/forms/client_form_sheet.dart';
+import 'package:civiapp/presentation/screens/admin/forms/appointment_form_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/package_deposit_form_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/package_form_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/package_purchase_edit_sheet.dart';
@@ -92,11 +95,13 @@ class _ClientDetailPageState extends ConsumerState<ClientDetailPage> {
   Future<void> _editClient(BuildContext context, Client client) async {
     final data = ref.read(appDataProvider);
     final salons = data.salons;
+    final clients = data.clients;
     final updated = await showAppModalSheet<Client>(
       context: context,
       builder:
           (ctx) => ClientFormSheet(
             salons: salons,
+            clients: clients,
             initial: client,
             defaultSalonId: client.salonId,
           ),
@@ -117,6 +122,7 @@ class _ProfileTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final dateFormat = DateFormat('dd/MM/yyyy');
+    final dateTimeFormat = DateFormat('dd/MM/yyyy HH:mm');
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -178,6 +184,33 @@ class _ProfileTab extends ConsumerWidget {
                     label: 'Salone associato',
                     value: salon!.name,
                   ),
+              ],
+            ),
+          ),
+        ),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Preferenze canali', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _channelPreferenceChips(
+                    context,
+                    client.channelPreferences,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  client.channelPreferences.updatedAt != null
+                      ? 'Ultimo aggiornamento: ${dateTimeFormat.format(client.channelPreferences.updatedAt!)}'
+                      : 'Preferenze non ancora registrate.',
+                  style: theme.textTheme.bodySmall,
+                ),
               ],
             ),
           ),
@@ -244,6 +277,41 @@ class _ProfileTab extends ConsumerWidget {
         return 'Profilazione';
     }
   }
+
+  List<Widget> _channelPreferenceChips(
+    BuildContext context,
+    ChannelPreferences preferences,
+  ) {
+    Widget buildChip(bool enabled, String label, IconData icon) {
+      final theme = Theme.of(context);
+      final Color selectedBackground = theme.colorScheme.secondaryContainer;
+      final Color selectedForeground = theme.colorScheme.onSecondaryContainer;
+      final Color disabledBackground =
+          theme.colorScheme.surfaceContainerHighest;
+      final Color disabledForeground = theme.colorScheme.onSurfaceVariant;
+      return Chip(
+        avatar: Icon(
+          icon,
+          size: 16,
+          color: enabled ? selectedForeground : disabledForeground,
+        ),
+        label: Text(
+          label,
+          style: TextStyle(
+            color: enabled ? selectedForeground : disabledForeground,
+          ),
+        ),
+        backgroundColor: enabled ? selectedBackground : disabledBackground,
+      );
+    }
+
+    return [
+      buildChip(preferences.push, 'Push', Icons.notifications_active_rounded),
+      buildChip(preferences.email, 'Email', Icons.email_rounded),
+      buildChip(preferences.whatsapp, 'WhatsApp', Icons.chat_rounded),
+      buildChip(preferences.sms, 'SMS', Icons.sms_rounded),
+    ];
+  }
 }
 
 class _AppointmentsTab extends ConsumerWidget {
@@ -265,6 +333,9 @@ class _AppointmentsTab extends ConsumerWidget {
           ..sort((a, b) => a.start.compareTo(b.start));
     final staff = data.staff;
     final services = data.services;
+    final salons = data.salons;
+    final clients = data.clients;
+    final client = clients.firstWhereOrNull((item) => item.id == clientId);
 
     final upcoming =
         appointments
@@ -277,9 +348,106 @@ class _AppointmentsTab extends ConsumerWidget {
             .reversed
             .toList();
 
+    Future<void> openForm({Appointment? existing}) async {
+      final latest = ref.read(appDataProvider);
+      final sheetSalons = latest.salons.isNotEmpty ? latest.salons : salons;
+      final sheetClients = latest.clients.isNotEmpty ? latest.clients : clients;
+      final sheetStaff = latest.staff.isNotEmpty ? latest.staff : staff;
+      final sheetServices =
+          latest.services.isNotEmpty ? latest.services : services;
+
+      final result = await showAppModalSheet<Appointment>(
+        context: context,
+        builder:
+            (ctx) => AppointmentFormSheet(
+              salons: sheetSalons,
+              clients: sheetClients,
+              staff: sheetStaff,
+              services: sheetServices,
+              defaultSalonId: existing?.salonId ?? client?.salonId,
+              defaultClientId: existing?.clientId ?? client?.id,
+              initial: existing,
+              enableDelete: existing != null,
+            ),
+      );
+      if (result == null) {
+        return;
+      }
+      if (!context.mounted) {
+        return;
+      }
+      await _validateAndSaveAppointment(
+        context,
+        ref,
+        result,
+        appointments,
+        sheetServices,
+        sheetSalons,
+      );
+    }
+
+    Future<void> createAppointment() async {
+      await openForm();
+    }
+
+    Future<void> editAppointment(Appointment appointment) async {
+      await openForm(existing: appointment);
+    }
+
+    Future<void> deleteAppointment(Appointment appointment) async {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder:
+            (ctx) => AlertDialog(
+              title: const Text('Elimina appuntamento'),
+              content: const Text(
+                'Vuoi eliminare definitivamente questo appuntamento?',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text('Annulla'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: const Text('Elimina'),
+                ),
+              ],
+            ),
+      );
+      if (confirm != true) {
+        return;
+      }
+      if (!context.mounted) {
+        return;
+      }
+      final messenger = ScaffoldMessenger.of(context);
+      try {
+        await ref
+            .read(appDataProvider.notifier)
+            .deleteAppointment(appointment.id);
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Appuntamento eliminato.')),
+        );
+      } catch (error) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('Errore durante l\'eliminazione: $error')),
+        );
+      }
+    }
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.icon(
+            onPressed: client == null ? null : createAppointment,
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Nuovo appuntamento'),
+          ),
+        ),
+        const SizedBox(height: 16),
         _AppointmentGroup(
           title: 'Appuntamenti futuri',
           emptyMessage: 'Nessun appuntamento futuro prenotato.',
@@ -288,6 +456,9 @@ class _AppointmentsTab extends ConsumerWidget {
           services: services,
           dateFormat: dateFormat,
           currency: currency,
+          enableActions: true,
+          onEditAppointment: editAppointment,
+          onDeleteAppointment: deleteAppointment,
         ),
         const SizedBox(height: 16),
         _AppointmentGroup(
@@ -302,6 +473,116 @@ class _AppointmentsTab extends ConsumerWidget {
       ],
     );
   }
+
+  Future<bool> _validateAndSaveAppointment(
+    BuildContext context,
+    WidgetRef ref,
+    Appointment appointment,
+    List<Appointment> fallbackAppointments,
+    List<Service> fallbackServices,
+    List<Salon> fallbackSalons,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final data = ref.read(appDataProvider);
+    final existingAppointments =
+        data.appointments.isNotEmpty ? data.appointments : fallbackAppointments;
+    final services =
+        data.services.isNotEmpty ? data.services : fallbackServices;
+    final salons = data.salons.isNotEmpty ? data.salons : fallbackSalons;
+
+    final hasStaffConflict = hasStaffBookingConflict(
+      appointments: existingAppointments,
+      staffId: appointment.staffId,
+      start: appointment.start,
+      end: appointment.end,
+      excludeAppointmentId: appointment.id,
+    );
+    if (hasStaffConflict) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Impossibile salvare: operatore già occupato in quel periodo',
+          ),
+        ),
+      );
+      return false;
+    }
+
+    final hasClientConflict = hasClientBookingConflict(
+      appointments: existingAppointments,
+      clientId: appointment.clientId,
+      start: appointment.start,
+      end: appointment.end,
+      excludeAppointmentId: appointment.id,
+    );
+    if (hasClientConflict) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Impossibile salvare: il cliente ha già un appuntamento in quel periodo',
+          ),
+        ),
+      );
+      return false;
+    }
+
+    final appointmentServices = appointment.serviceIds
+        .map(
+          (id) => services.firstWhereOrNull(
+            (item) => item.id == id,
+          ),
+        )
+        .whereType<Service>()
+        .toList();
+    if (appointmentServices.isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Servizio non valido.')),
+      );
+      return false;
+    }
+    final salon = salons.firstWhereOrNull(
+      (item) => item.id == appointment.salonId,
+    );
+    final blockingEquipment = <String>{};
+    for (final service in appointmentServices) {
+      final equipmentCheck = EquipmentAvailabilityChecker.check(
+        salon: salon,
+        service: service,
+        allServices: services,
+        appointments: existingAppointments,
+        start: appointment.start,
+        end: appointment.end,
+        excludeAppointmentId: appointment.id,
+      );
+      if (equipmentCheck.hasConflicts) {
+        blockingEquipment.addAll(equipmentCheck.blockingEquipment);
+      }
+    }
+    if (blockingEquipment.isNotEmpty) {
+      final equipmentLabel = blockingEquipment.join(', ');
+      final message =
+          equipmentLabel.isEmpty
+              ? 'Macchinario non disponibile per questo orario.'
+              : 'Macchinario non disponibile per questo orario: $equipmentLabel.';
+      messenger.showSnackBar(
+        SnackBar(content: Text('$message Scegli un altro slot.')),
+      );
+      return false;
+    }
+
+    try {
+      await ref.read(appDataProvider.notifier).upsertAppointment(appointment);
+      return true;
+    } on StateError catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+      return false;
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Errore durante il salvataggio: $error')),
+      );
+      return false;
+    }
+  }
 }
 
 class _AppointmentGroup extends StatelessWidget {
@@ -313,6 +594,9 @@ class _AppointmentGroup extends StatelessWidget {
     required this.services,
     required this.dateFormat,
     required this.currency,
+    this.enableActions = false,
+    this.onEditAppointment,
+    this.onDeleteAppointment,
   });
 
   final String title;
@@ -322,10 +606,16 @@ class _AppointmentGroup extends StatelessWidget {
   final List<Service> services;
   final DateFormat dateFormat;
   final NumberFormat currency;
+  final bool enableActions;
+  final Future<void> Function(Appointment appointment)? onEditAppointment;
+  final Future<void> Function(Appointment appointment)? onDeleteAppointment;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final showActions =
+        enableActions &&
+        (onEditAppointment != null || onDeleteAppointment != null);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -338,25 +628,38 @@ class _AppointmentGroup extends StatelessWidget {
               Text(emptyMessage, style: theme.textTheme.bodyMedium)
             else
               ...appointments.map((appointment) {
-                final service = services.firstWhereOrNull(
-                  (element) => element.id == appointment.serviceId,
-                );
+                final appointmentServices = appointment.serviceIds
+                    .map(
+                      (id) => services.firstWhereOrNull(
+                        (element) => element.id == id,
+                      ),
+                    )
+                    .whereType<Service>()
+                    .toList();
                 final operator = staff.firstWhereOrNull(
                   (element) => element.id == appointment.staffId,
                 );
                 final statusChip = _statusChip(context, appointment.status);
-                final amount = service?.price;
+                final amount = appointmentServices.isNotEmpty
+                    ? appointmentServices
+                        .map((service) => service.price)
+                        .fold<double>(0, (value, price) => value + price)
+                    : null;
                 final packageLabel =
                     appointment.packageId == null
                         ? null
                         : 'Pacchetto #${appointment.packageId}';
+                final serviceLabel = appointmentServices.isNotEmpty
+                    ? appointmentServices.map((service) => service.name).join(' + ')
+                    : 'Servizio';
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: ListTile(
                     contentPadding: EdgeInsets.zero,
-                    isThreeLine: packageLabel != null,
+                    // Allow enough vertical space when actions are visible.
+                    isThreeLine: packageLabel != null || showActions,
                     leading: const Icon(Icons.calendar_month_rounded),
-                    title: Text(service?.name ?? 'Servizio'),
+                    title: Text(serviceLabel),
                     subtitle: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -379,7 +682,44 @@ class _AppointmentGroup extends StatelessWidget {
                           ),
                           const SizedBox(height: 6),
                         ],
-                        statusChip,
+                        Wrap(
+                          spacing: 4,
+                          runSpacing: 4,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          alignment: WrapAlignment.end,
+                          children: [
+                            statusChip,
+                            if (showActions && onEditAppointment != null)
+                              IconButton(
+                                tooltip: 'Modifica appuntamento',
+                                visualDensity: VisualDensity.compact,
+                                constraints: const BoxConstraints.tightFor(
+                                  width: 36,
+                                  height: 36,
+                                ),
+                                icon: const Icon(Icons.edit_rounded, size: 20),
+                                onPressed: () async {
+                                  await onEditAppointment!(appointment);
+                                },
+                              ),
+                            if (showActions && onDeleteAppointment != null)
+                              IconButton(
+                                tooltip: 'Elimina appuntamento',
+                                visualDensity: VisualDensity.compact,
+                                constraints: const BoxConstraints.tightFor(
+                                  width: 36,
+                                  height: 36,
+                                ),
+                                icon: const Icon(
+                                  Icons.delete_outline_rounded,
+                                  size: 20,
+                                ),
+                                onPressed: () async {
+                                  await onDeleteAppointment!(appointment);
+                                },
+                              ),
+                          ],
+                        ),
                       ],
                     ),
                   ),
@@ -1541,6 +1881,7 @@ class _BillingTab extends ConsumerWidget {
                   ref: ref,
                   ticket: ticket,
                   clients: clients,
+                  staff: staff,
                   services: services,
                 ),
           ),
@@ -1605,6 +1946,14 @@ class _BillingTab extends ConsumerWidget {
     }
 
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    final staffOptions =
+        staff.where((member) => member.salonId == sale.salonId).toList()
+          ..sort((a, b) => a.fullName.compareTo(b.fullName));
+    final saleStaffName =
+        staffOptions
+            .firstWhereOrNull((member) => member.id == sale.staffId)
+            ?.fullName ??
+        staff.firstWhereOrNull((member) => member.id == sale.staffId)?.fullName;
     final result = await showAppModalSheet<OutstandingPaymentResult>(
       context: context,
       builder:
@@ -1613,7 +1962,9 @@ class _BillingTab extends ConsumerWidget {
             subtitle: 'Residuo disponibile: ${currency.format(outstanding)}',
             outstandingAmount: outstanding,
             initialAmount: outstanding,
-            initialMethod: sale.paymentMethod,
+            staff: staffOptions,
+            initialStaffId: sale.staffId,
+            staffName: saleStaffName,
             currency: currency,
           ),
     );
@@ -1691,7 +2042,13 @@ class _BillingTab extends ConsumerWidget {
     }
 
     final store = ref.read(appDataProvider.notifier);
-    final recorder = store.currentUser?.displayName ?? store.currentUser?.uid;
+    final selectedStaff = staffOptions.firstWhereOrNull(
+      (member) => member.id == result.staffId,
+    );
+    final recorder =
+        selectedStaff?.fullName ??
+        store.currentUser?.displayName ??
+        store.currentUser?.uid;
     final movementType =
         nextStatus == SalePaymentStatus.paid
             ? SalePaymentType.settlement
@@ -1748,6 +2105,7 @@ class _BillingTab extends ConsumerWidget {
       paymentStatus: nextStatus,
       items: enrichedItems,
       paymentMethod: result.method,
+      staffId: result.staffId ?? sale.staffId,
       paymentHistory: movements,
     );
 
@@ -1903,6 +2261,7 @@ class _BillingTab extends ConsumerWidget {
     required WidgetRef ref,
     required PaymentTicket ticket,
     required List<Client> clients,
+    required List<StaffMember> staff,
     required List<Service> services,
   }) async {
     final matchedService = services.firstWhereOrNull(
@@ -1912,7 +2271,16 @@ class _BillingTab extends ConsumerWidget {
     final normalizedTotal = rawTotal > 0 ? _normalizeCurrency(rawTotal) : null;
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
     final store = ref.read(appDataProvider.notifier);
-    final recorder = store.currentUser?.displayName ?? store.currentUser?.uid;
+    final staffOptions =
+        staff.where((member) => member.salonId == ticket.salonId).toList()
+          ..sort((a, b) => a.fullName.compareTo(b.fullName));
+    final saleStaffName =
+        staffOptions
+            .firstWhereOrNull((member) => member.id == ticket.staffId)
+            ?.fullName ??
+        staff
+            .firstWhereOrNull((member) => member.id == ticket.staffId)
+            ?.fullName;
 
     final result = await showAppModalSheet<OutstandingPaymentResult>(
       context: context,
@@ -1925,7 +2293,9 @@ class _BillingTab extends ConsumerWidget {
                     : 'Totale previsto: ${currency.format(normalizedTotal)}',
             outstandingAmount: normalizedTotal ?? double.infinity,
             initialAmount: normalizedTotal,
-            initialMethod: PaymentMethod.pos,
+            staff: staffOptions,
+            initialStaffId: ticket.staffId,
+            staffName: saleStaffName,
             currency: currency,
           ),
     );
@@ -1938,6 +2308,14 @@ class _BillingTab extends ConsumerWidget {
     if (paidAmount <= 0) {
       return;
     }
+
+    final selectedStaff = staffOptions.firstWhereOrNull(
+      (member) => member.id == result.staffId,
+    );
+    final recorder =
+        selectedStaff?.fullName ??
+        store.currentUser?.displayName ??
+        store.currentUser?.uid;
 
     final saleTotal = normalizedTotal ?? paidAmount;
     final status =
@@ -1985,7 +2363,7 @@ class _BillingTab extends ConsumerWidget {
       invoiceNumber: null,
       notes: ticket.notes,
       discountAmount: 0,
-      staffId: ticket.staffId,
+      staffId: result.staffId ?? ticket.staffId,
       paymentHistory: paymentMovements,
     );
 

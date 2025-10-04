@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:civiapp/data/mappers/firestore_mappers.dart';
 import 'package:civiapp/data/mock_data.dart';
@@ -6,6 +7,7 @@ import 'package:civiapp/data/models/app_user.dart';
 import 'package:civiapp/data/repositories/app_data_state.dart';
 import 'package:civiapp/domain/availability/appointment_conflicts.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
+import 'package:civiapp/domain/entities/app_notification.dart';
 import 'package:civiapp/domain/entities/cash_flow_entry.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/inventory_item.dart';
@@ -15,10 +17,12 @@ import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
+import 'package:civiapp/domain/entities/service_category.dart';
 import 'package:civiapp/domain/entities/shift.dart';
 import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/domain/entities/staff_role.dart';
+import 'package:civiapp/domain/entities/reminder_settings.dart';
 import 'package:civiapp/domain/entities/user_role.dart';
 import 'package:collection/collection.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -43,6 +47,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
               staff: List.unmodifiable(MockData.staffMembers),
               staffRoles: List.unmodifiable(MockData.staffRoles),
               clients: List.unmodifiable(MockData.clients),
+              serviceCategories: List.unmodifiable(MockData.serviceCategories),
               services: List.unmodifiable(MockData.services),
               packages: List.unmodifiable(MockData.packages),
               appointments: List.unmodifiable(MockData.appointments),
@@ -51,6 +56,8 @@ class AppDataStore extends StateNotifier<AppDataState> {
               sales: List.unmodifiable(MockData.sales),
               cashFlowEntries: List.unmodifiable(MockData.cashFlowEntries),
               messageTemplates: List.unmodifiable(MockData.messageTemplates),
+              reminderSettings: List.unmodifiable(MockData.reminderSettings),
+              clientNotifications: const [],
               shifts: List.unmodifiable(MockData.shifts),
               staffAbsences: List.unmodifiable(MockData.staffAbsences),
               publicStaffAbsences: List.unmodifiable(
@@ -106,6 +113,16 @@ class AppDataStore extends StateNotifier<AppDataState> {
           (items) => state = state.copyWith(salons: items),
         ),
       );
+      subscriptions.add(
+        _listenCollection<ServiceCategory>(
+          firestore.collection('service_categories'),
+          serviceCategoryFromDoc,
+          (items) =>
+              state = state.copyWith(
+                serviceCategories: items.sortedByDisplayOrder(),
+              ),
+        ),
+      );
     } else {
       addAll(
         _listenDocumentsByIds<Salon>(
@@ -118,7 +135,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
       );
     }
 
-    if (role == null || role == UserRole.admin) {
+    if (role == null) {
       subscriptions.add(
         _listenCollection<StaffRole>(
           firestore.collection('staff_roles'),
@@ -142,6 +159,19 @@ class AppDataStore extends StateNotifier<AppDataState> {
                 });
             state = state.copyWith(staffRoles: List.unmodifiable(sorted));
           },
+        ),
+      );
+    } else if (role == UserRole.admin) {
+      final allowedSalonIds =
+          salonIds.map((id) => id.trim()).where((id) => id.isNotEmpty).toSet();
+
+      _updateScopedStaffRoles(const <StaffRole>[], allowedSalonIds);
+
+      subscriptions.add(
+        _listenCollection<StaffRole>(
+          firestore.collection('staff_roles'),
+          staffRoleFromDoc,
+          (items) => _updateScopedStaffRoles(items, allowedSalonIds),
         ),
       );
     } else if (state.staffRoles.isEmpty) {
@@ -171,6 +201,20 @@ class AppDataStore extends StateNotifier<AppDataState> {
             state = state.copyWith(clients: items);
             _scheduleClientOnboardingSync();
           },
+        ),
+      );
+
+      addAll(
+        _listenCollectionBySalonIds<ServiceCategory>(
+          firestore: firestore,
+          collectionPath: 'service_categories',
+          salonIds: salonIds,
+          fromDoc: serviceCategoryFromDoc,
+          onData:
+              (items) =>
+                  state = state.copyWith(
+                    serviceCategories: items.sortedByDisplayOrder(),
+                  ),
         ),
       );
 
@@ -263,6 +307,16 @@ class AppDataStore extends StateNotifier<AppDataState> {
       );
 
       addAll(
+        _listenCollectionBySalonIds<ReminderSettings>(
+          firestore: firestore,
+          collectionPath: 'reminder_settings',
+          salonIds: salonIds,
+          fromDoc: reminderSettingsFromDoc,
+          onData: (items) => state = state.copyWith(reminderSettings: items),
+        ),
+      );
+
+      addAll(
         _listenCollectionBySalonIds<StaffAbsence>(
           firestore: firestore,
           collectionPath: 'staff_absences',
@@ -293,6 +347,25 @@ class AppDataStore extends StateNotifier<AppDataState> {
     } else if (role == UserRole.client) {
       bool hasSalonSubscriptions = false;
 
+      state = state.copyWith(reminderSettings: const []);
+
+      final clientId = currentUser.clientId;
+      if (clientId != null && clientId.isNotEmpty) {
+        subscriptions.add(
+          _listenCollection<AppNotification>(
+            firestore
+                .collection('message_outbox')
+                .where('clientId', isEqualTo: clientId)
+                .where('channel', isEqualTo: MessageChannel.push.name)
+                .orderBy('scheduledAt', descending: true),
+            appNotificationFromDoc,
+            (items) => state = state.copyWith(clientNotifications: items),
+          ),
+        );
+      } else {
+        state = state.copyWith(clientNotifications: const []);
+      }
+
       void subscribeSalonCollections(List<String> rawSalonIds) {
         if (hasSalonSubscriptions) {
           return;
@@ -313,6 +386,20 @@ class AppDataStore extends StateNotifier<AppDataState> {
             salonIds: normalizedSalonIds,
             fromDoc: staffFromDoc,
             onData: (items) => state = state.copyWith(staff: items),
+          ),
+        );
+
+        addAll(
+          _listenCollectionBySalonIds<ServiceCategory>(
+            firestore: firestore,
+            collectionPath: 'service_categories',
+            salonIds: normalizedSalonIds,
+            fromDoc: serviceCategoryFromDoc,
+            onData:
+                (items) =>
+                    state = state.copyWith(
+                      serviceCategories: items.sortedByDisplayOrder(),
+                    ),
           ),
         );
 
@@ -360,7 +447,6 @@ class AppDataStore extends StateNotifier<AppDataState> {
 
       subscribeSalonCollections(salonIds);
 
-      final clientId = currentUser.clientId;
       if (clientId != null && clientId.isNotEmpty) {
         subscriptions.add(
           _listenDocument<Client>(
@@ -800,8 +886,49 @@ class AppDataStore extends StateNotifier<AppDataState> {
 
     final role = _currentUser?.role;
     if (role == UserRole.admin || role == UserRole.staff) {
+      state = state.copyWith(clientNotifications: const []);
+
       _scheduleClientOnboardingSync();
     }
+  }
+
+  void _updateScopedStaffRoles(
+    List<StaffRole> remoteRoles,
+    Set<String> allowedSalonIds,
+  ) {
+    final normalizedSalonIds =
+        allowedSalonIds
+            .map((id) => id.trim())
+            .where((id) => id.isNotEmpty)
+            .toSet();
+
+    final merged = <String, StaffRole>{
+      for (final role in MockData.staffRoles) role.id: role,
+    };
+
+    for (final role in remoteRoles) {
+      final salonId = role.salonId?.trim();
+      final include =
+          role.isDefault ||
+          (salonId != null &&
+              salonId.isNotEmpty &&
+              normalizedSalonIds.contains(salonId));
+      if (!include) {
+        continue;
+      }
+      merged[role.id] = role;
+    }
+
+    final sorted =
+        merged.values.toList()..sort((a, b) {
+          final priorityCompare = a.sortPriority.compareTo(b.sortPriority);
+          if (priorityCompare != 0) {
+            return priorityCompare;
+          }
+          return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        });
+
+    state = state.copyWith(staffRoles: List.unmodifiable(sorted));
   }
 
   void _handleQueryError(
@@ -1093,9 +1220,23 @@ class AppDataStore extends StateNotifier<AppDataState> {
               .where('roleId', isEqualTo: roleId)
               .get();
       for (final doc in staffQuery.docs) {
+        final data = doc.data();
+        final rawRoleIds = data['roleIds'];
+        final currentRoleIds =
+            rawRoleIds is Iterable
+                ? rawRoleIds
+                    .map((dynamic value) => value.toString())
+                    .where((value) => value != roleId)
+                    .toList()
+                : <String>[];
+        if (currentRoleIds.contains(fallbackRoleId)) {
+          currentRoleIds.removeWhere((value) => value == fallbackRoleId);
+        }
+        currentRoleIds.insert(0, fallbackRoleId);
         batch.update(doc.reference, {
           'roleId': fallbackRoleId,
           'role': fallbackRoleId,
+          'roleIds': currentRoleIds,
         });
       }
 
@@ -1134,13 +1275,21 @@ class AppDataStore extends StateNotifier<AppDataState> {
     final existingStaff = state.staff.firstWhereOrNull(
       (member) => member.id == staffMember.id,
     );
-    final trimmedRoleId = staffMember.roleId.trim();
-    final resolvedRoleId =
-        trimmedRoleId.isEmpty ? _resolveFallbackRoleId('') : trimmedRoleId;
+    final sanitizedRoleIdsSet = LinkedHashSet<String>();
+    for (final roleId in staffMember.roleIds) {
+      final trimmed = roleId.trim();
+      if (trimmed.isNotEmpty) {
+        sanitizedRoleIdsSet.add(trimmed);
+      }
+    }
+    final sanitizedRoleIds = sanitizedRoleIdsSet.toList();
+    if (sanitizedRoleIds.isEmpty) {
+      sanitizedRoleIds.add(_resolveFallbackRoleId(''));
+    }
     final normalizedStaff =
-        resolvedRoleId == staffMember.roleId
+        listEquals(sanitizedRoleIds, staffMember.roleIds)
             ? staffMember
-            : staffMember.copyWith(roleId: resolvedRoleId);
+            : staffMember.copyWith(roleIds: sanitizedRoleIds);
     final firestore = _firestore;
     if (firestore == null) {
       _upsertLocal(staff: [normalizedStaff]);
@@ -1361,27 +1510,161 @@ class AppDataStore extends StateNotifier<AppDataState> {
         .set(serviceToMap(service));
   }
 
+  Future<void> upsertServiceCategory(ServiceCategory category) async {
+    final previous = state.serviceCategories.firstWhereOrNull(
+      (item) => item.id == category.id,
+    );
+    final hasNameChanged = previous == null || previous.name != category.name;
+    final firestore = _firestore;
+    if (firestore == null) {
+      _upsertLocal(serviceCategories: [category]);
+      if (hasNameChanged) {
+        _updateLocalServicesCategoryName(
+          categoryId: category.id,
+          categoryName: category.name,
+          previousCategoryName: previous?.name,
+          salonId: category.salonId,
+        );
+      }
+      return;
+    }
+
+    final isAdmin = _currentUser?.role == UserRole.admin;
+
+    try {
+      await firestore
+          .collection('service_categories')
+          .doc(category.id)
+          .set(serviceCategoryToMap(category));
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied') {
+        debugPrint(
+          'Permission denied writing service category ${category.id}.',
+        );
+        throw StateError('permission-denied');
+      }
+      rethrow;
+    }
+
+    _upsertLocal(serviceCategories: [category]);
+
+    if (hasNameChanged && isAdmin) {
+      try {
+        await _syncServiceCategoryNameRemote(
+          categoryId: category.id,
+          categoryName: category.name,
+        );
+      } on FirebaseException catch (error) {
+        if (error.code != 'permission-denied') {
+          rethrow;
+        }
+        return;
+      }
+      _updateLocalServicesCategoryName(
+        categoryId: category.id,
+        categoryName: category.name,
+        previousCategoryName: previous?.name,
+        salonId: category.salonId,
+      );
+    }
+  }
+
+  Future<void> deleteServiceCategory(String categoryId) async {
+    final category = state.serviceCategories.firstWhereOrNull(
+      (item) => item.id == categoryId,
+    );
+    if (category == null) {
+      return;
+    }
+    final isUsed = state.services.any((service) {
+      if (service.salonId != category.salonId) {
+        return false;
+      }
+      if (service.categoryId == categoryId) {
+        return true;
+      }
+      return service.categoryId == null &&
+          service.category.toLowerCase() == category.name.toLowerCase();
+    });
+    if (isUsed) {
+      throw StateError('category-in-use');
+    }
+
+    final firestore = _firestore;
+    if (firestore == null) {
+      _deleteServiceCategoryLocal(categoryId);
+      return;
+    }
+    try {
+      await firestore.collection('service_categories').doc(categoryId).delete();
+      _deleteServiceCategoryLocal(categoryId);
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied') {
+        debugPrint('Permission denied deleting service category $categoryId.');
+        throw StateError('permission-denied');
+      }
+      rethrow;
+    }
+  }
+
   Future<void> deleteService(String serviceId) async {
     final firestore = _firestore;
+    final service = state.services.firstWhereOrNull(
+      (item) => item.id == serviceId,
+    );
+    String? salonId = service?.salonId;
+    final hasAppointments = state.appointments.any(
+      (appointment) => appointment.serviceIds.contains(serviceId),
+    );
+    if (hasAppointments) {
+      throw StateError('service-in-appointments');
+    }
+    final isReferencedInPackages = state.packages.any(
+      (package) => package.serviceIds.contains(serviceId),
+    );
+    if (isReferencedInPackages) {
+      throw StateError('service-in-packages');
+    }
     if (firestore == null) {
       _deleteServiceLocal(serviceId);
       return;
     }
-    await firestore.collection('services').doc(serviceId).delete();
-    final packages =
-        await firestore
-            .collection('packages')
-            .where('serviceIds', arrayContains: serviceId)
-            .get();
-    for (final doc in packages.docs) {
-      final current = List<String>.from(
-        doc.data()['serviceIds'] as List<dynamic>,
-      );
-      current.removeWhere((id) => id == serviceId);
-      await doc.reference.update({'serviceIds': current});
+    try {
+      if (salonId == null || salonId.isEmpty) {
+        final remoteSnapshot =
+            await firestore.collection('services').doc(serviceId).get();
+        final remoteData = remoteSnapshot.data();
+        final remoteSalonId = remoteData != null ? remoteData['salonId'] : null;
+        if (remoteSalonId is String && remoteSalonId.isNotEmpty) {
+          salonId = remoteSalonId;
+        }
+      }
+      await firestore.collection('services').doc(serviceId).delete();
+      Query<Map<String, dynamic>> packagesQuery = firestore
+          .collection('packages')
+          .where('serviceIds', arrayContains: serviceId);
+      if (salonId != null && salonId.isNotEmpty) {
+        packagesQuery = packagesQuery.where('salonId', isEqualTo: salonId);
+      }
+      final packages = await packagesQuery.get();
+      for (final doc in packages.docs) {
+        final current = List<String>.from(
+          doc.data()['serviceIds'] as List<dynamic>,
+        );
+        current.removeWhere((id) => id == serviceId);
+        await doc.reference.update({'serviceIds': current});
+      }
+      await _deleteCollectionWhere('appointments', 'serviceId', serviceId);
+      await _deleteCollectionWhere('payment_tickets', 'serviceId', serviceId);
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied') {
+        debugPrint('Permission denied deleting service $serviceId.');
+        throw StateError('permission-denied');
+      }
+      rethrow;
     }
-    await _deleteCollectionWhere('appointments', 'serviceId', serviceId);
-    await _deleteCollectionWhere('payment_tickets', 'serviceId', serviceId);
+
+    _deleteServiceLocal(serviceId);
   }
 
   Future<void> upsertPackage(ServicePackage servicePackage) async {
@@ -1495,9 +1778,22 @@ class AppDataStore extends StateNotifier<AppDataState> {
   }
 
   PaymentTicket _buildPaymentTicket(Appointment appointment) {
-    final service = state.services.firstWhereOrNull(
-      (item) => item.id == appointment.serviceId,
-    );
+    final services =
+        appointment.serviceIds
+            .map(
+              (serviceId) => state.services.firstWhereOrNull(
+                (item) => item.id == serviceId,
+              ),
+            )
+            .whereType<Service>()
+            .toList();
+    final service = services.isNotEmpty ? services.first : null;
+    final aggregatedName =
+        services.isEmpty ? service?.name : services.map((s) => s.name).join(' + ');
+    final aggregatedPrice =
+        services.isEmpty
+            ? service?.price
+            : services.fold<double>(0, (sum, srv) => sum + srv.price);
     return PaymentTicket(
       id: appointment.id,
       salonId: appointment.salonId,
@@ -1508,8 +1804,8 @@ class AppDataStore extends StateNotifier<AppDataState> {
       appointmentStart: appointment.start,
       appointmentEnd: appointment.end,
       createdAt: DateTime.now(),
-      expectedTotal: service?.price,
-      serviceName: service?.name,
+      expectedTotal: aggregatedPrice,
+      serviceName: aggregatedName,
       notes: appointment.notes,
     );
   }
@@ -1517,6 +1813,10 @@ class AppDataStore extends StateNotifier<AppDataState> {
   Future<void> _consumePackageSession(Appointment appointment) async {
     final packageId = appointment.packageId;
     if (packageId == null) {
+      return;
+    }
+
+    if (appointment.serviceIds.length != 1) {
       return;
     }
 
@@ -1815,6 +2115,74 @@ class AppDataStore extends StateNotifier<AppDataState> {
         .set(messageTemplateToMap(template));
   }
 
+  Future<void> upsertReminderSettings(ReminderSettings settings) async {
+    final now = DateTime.now();
+    final updated = settings.copyWith(
+      updatedAt: now,
+      updatedBy: _currentUser?.uid,
+    );
+
+    final firestore = _firestore;
+    if (firestore == null) {
+      _upsertLocal(reminderSettings: [updated]);
+      return;
+    }
+
+    await firestore
+        .collection('reminder_settings')
+        .doc(updated.salonId)
+        .set(reminderSettingsToMap(updated), SetOptions(merge: true));
+
+    _upsertLocal(reminderSettings: [updated]);
+  }
+
+  Future<void> registerClientPushToken({
+    required String clientId,
+    required String token,
+  }) async {
+    final normalizedToken = token.trim();
+    if (normalizedToken.isEmpty) {
+      return;
+    }
+
+    final existingClient = state.clients.firstWhereOrNull(
+      (client) => client.id == clientId,
+    );
+    final existingTokens = existingClient?.fcmTokens ?? const <String>[];
+    if (existingTokens.contains(normalizedToken)) {
+      return;
+    }
+
+    final firestore = _firestore;
+    if (firestore != null) {
+      try {
+        await firestore.collection('clients').doc(clientId).set({
+          'fcmTokens': FieldValue.arrayUnion(<String>[normalizedToken]),
+        }, SetOptions(merge: true));
+      } on FirebaseException catch (error, stackTrace) {
+        if (error.code == 'permission-denied') {
+          debugPrint(
+            'Permission denied while registering push token: ${error.message}',
+          );
+          return;
+        }
+        Error.throwWithStackTrace(error, stackTrace);
+      }
+    }
+
+    final updatedClientTokens = <String>{
+      ...existingTokens,
+      normalizedToken,
+    }.toList(growable: false);
+    final updatedClient = existingClient?.copyWith(
+      fcmTokens: List<String>.unmodifiable(updatedClientTokens),
+    );
+
+    if (updatedClient != null) {
+      _upsertLocal(clients: <Client>[updatedClient]);
+    }
+  }
+
   Future<void> deleteTemplate(String templateId) async {
     final firestore = _firestore;
     if (firestore == null) {
@@ -1931,6 +2299,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
     for (final client in MockData.clients) {
       await upsertClient(client);
     }
+    for (final category in MockData.serviceCategories) {
+      await upsertServiceCategory(category);
+    }
     for (final service in MockData.services) {
       await upsertService(service);
     }
@@ -1954,6 +2325,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
     for (final template in MockData.messageTemplates) {
       await upsertTemplate(template);
+    }
+    for (final settings in MockData.reminderSettings) {
+      await upsertReminderSettings(settings);
     }
     for (final shift in MockData.shifts) {
       await upsertShift(shift);
@@ -1994,6 +2368,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     List<StaffMember>? staff,
     List<StaffRole>? staffRoles,
     List<Client>? clients,
+    List<ServiceCategory>? serviceCategories,
     List<Service>? services,
     List<ServicePackage>? packages,
     List<Appointment>? appointments,
@@ -2002,6 +2377,8 @@ class AppDataStore extends StateNotifier<AppDataState> {
     List<Sale>? sales,
     List<CashFlowEntry>? cashFlowEntries,
     List<MessageTemplate>? messageTemplates,
+    List<ReminderSettings>? reminderSettings,
+    List<AppNotification>? clientNotifications,
     List<Shift>? shifts,
     List<StaffAbsence>? staffAbsences,
     List<StaffAbsence>? publicStaffAbsences,
@@ -2021,6 +2398,14 @@ class AppDataStore extends StateNotifier<AppDataState> {
           clients != null
               ? _merge(state.clients, clients, (e) => e.id)
               : state.clients,
+      serviceCategories:
+          serviceCategories != null
+              ? _merge(
+                state.serviceCategories,
+                serviceCategories,
+                (e) => e.id,
+              ).sortedByDisplayOrder()
+              : state.serviceCategories,
       services:
           services != null
               ? _merge(state.services, services, (e) => e.id)
@@ -2051,6 +2436,22 @@ class AppDataStore extends StateNotifier<AppDataState> {
           messageTemplates != null
               ? _merge(state.messageTemplates, messageTemplates, (e) => e.id)
               : state.messageTemplates,
+      reminderSettings:
+          reminderSettings != null
+              ? _merge(
+                state.reminderSettings,
+                reminderSettings,
+                (e) => e.salonId,
+              )
+              : state.reminderSettings,
+      clientNotifications:
+          clientNotifications != null
+              ? _merge(
+                state.clientNotifications,
+                clientNotifications,
+                (e) => e.id,
+              )
+              : state.clientNotifications,
       shifts:
           shifts != null
               ? _merge(state.shifts, shifts, (e) => e.id)
@@ -2072,14 +2473,17 @@ class AppDataStore extends StateNotifier<AppDataState> {
 
   void _deleteStaffRoleLocal(String roleId, {required String fallbackRoleId}) {
     final updatedStaff =
-        state.staff
-            .map(
-              (member) =>
-                  member.roleId == roleId
-                      ? member.copyWith(roleId: fallbackRoleId)
-                      : member,
-            )
-            .toList();
+        state.staff.map((member) {
+          if (!member.roleIds.contains(roleId)) {
+            return member;
+          }
+          final remainingRoles =
+              member.roleIds.where((value) => value != roleId).toList();
+          if (remainingRoles.isEmpty) {
+            remainingRoles.add(fallbackRoleId);
+          }
+          return member.copyWith(roleIds: remainingRoles);
+        }).toList();
     final updatedServices =
         state.services.map((service) {
           if (!service.staffRoles.contains(roleId)) {
@@ -2199,6 +2603,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
       clients: List.unmodifiable(
         state.clients.where((element) => element.salonId != salonId),
       ),
+      serviceCategories: List.unmodifiable(
+        state.serviceCategories.where((element) => element.salonId != salonId),
+      ),
       services: List.unmodifiable(
         state.services.where((element) => element.salonId != salonId),
       ),
@@ -2237,19 +2644,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
       appointments: List.unmodifiable(
         state.appointments.map((appointment) {
           if (appointment.staffId == staffId) {
-            return Appointment(
-              id: appointment.id,
-              salonId: appointment.salonId,
-              clientId: appointment.clientId,
-              staffId: '',
-              serviceId: appointment.serviceId,
-              start: appointment.start,
-              end: appointment.end,
-              status: appointment.status,
-              notes: appointment.notes,
-              packageId: appointment.packageId,
-              roomId: appointment.roomId,
-            );
+            return appointment.copyWith(staffId: '');
           }
           return appointment;
         }).toList(),
@@ -2329,6 +2724,82 @@ class AppDataStore extends StateNotifier<AppDataState> {
         }).toList(),
       ),
     );
+  }
+
+  void _deleteServiceCategoryLocal(String categoryId) {
+    state = state.copyWith(
+      serviceCategories: List.unmodifiable(
+        state.serviceCategories.where((element) => element.id != categoryId),
+      ),
+    );
+  }
+
+  void _updateLocalServicesCategoryName({
+    required String categoryId,
+    required String categoryName,
+    String? previousCategoryName,
+    String? salonId,
+  }) {
+    final updated = <Service>[];
+    var hasChanges = false;
+    for (final service in state.services) {
+      final matchesId = service.categoryId == categoryId;
+      final matchesLegacyName =
+          previousCategoryName != null &&
+          service.categoryId == null &&
+          (salonId == null || service.salonId == salonId) &&
+          service.category.toLowerCase() == previousCategoryName.toLowerCase();
+      if (matchesId || matchesLegacyName) {
+        updated.add(
+          service.copyWith(category: categoryName, categoryId: categoryId),
+        );
+        hasChanges = true;
+      } else {
+        updated.add(service);
+      }
+    }
+    if (hasChanges) {
+      state = state.copyWith(services: List.unmodifiable(updated));
+    }
+  }
+
+  Future<void> _syncServiceCategoryNameRemote({
+    required String categoryId,
+    required String categoryName,
+  }) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      return;
+    }
+    try {
+      final querySnapshot =
+          await firestore
+              .collection('services')
+              .where('categoryId', isEqualTo: categoryId)
+              .get();
+      if (querySnapshot.docs.isEmpty) {
+        return;
+      }
+      final docs = querySnapshot.docs;
+      var index = 0;
+      while (index < docs.length) {
+        final batch = firestore.batch();
+        final chunk = docs.skip(index).take(_firestoreChunkSize);
+        for (final doc in chunk) {
+          batch.update(doc.reference, {'category': categoryName});
+        }
+        await batch.commit();
+        index += _firestoreChunkSize;
+      }
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied') {
+        debugPrint(
+          'Permission denied updating service names for category $categoryId.',
+        );
+        throw error;
+      }
+      rethrow;
+    }
   }
 
   void _deletePackageLocal(String packageId) {

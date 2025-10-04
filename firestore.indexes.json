@@ -7,6 +7,32 @@
         {"fieldPath": "salonId", "order": "ASCENDING"},
         {"fieldPath": "start", "order": "ASCENDING"}
       ]
+    },
+    {
+      "collectionGroup": "appointments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "salonId", "order": "ASCENDING"},
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "start", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "message_outbox",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "clientId", "order": "ASCENDING"},
+        {"fieldPath": "channel", "order": "ASCENDING"},
+        {"fieldPath": "scheduledAt", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "message_outbox",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "scheduledAt", "order": "ASCENDING"}
+      ]
     }
   ],
   "fieldOverrides": []

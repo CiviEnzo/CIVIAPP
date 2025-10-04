@@ -16,7 +16,8 @@ class MessageTemplateFormSheet extends StatefulWidget {
   final String? defaultSalonId;
 
   @override
-  State<MessageTemplateFormSheet> createState() => _MessageTemplateFormSheetState();
+  State<MessageTemplateFormSheet> createState() =>
+      _MessageTemplateFormSheetState();
 }
 
 class _MessageTemplateFormSheetState extends State<MessageTemplateFormSheet> {
@@ -38,7 +39,10 @@ class _MessageTemplateFormSheetState extends State<MessageTemplateFormSheet> {
     _channel = initial?.channel ?? MessageChannel.whatsapp;
     _usage = initial?.usage ?? TemplateUsage.reminder;
     _active = initial?.isActive ?? true;
-    _salonId = initial?.salonId ?? widget.defaultSalonId ?? (widget.salons.isNotEmpty ? widget.salons.first.id : null);
+    _salonId =
+        initial?.salonId ??
+        widget.defaultSalonId ??
+        (widget.salons.isNotEmpty ? widget.salons.first.id : null);
   }
 
   @override
@@ -59,48 +63,81 @@ class _MessageTemplateFormSheetState extends State<MessageTemplateFormSheet> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              widget.initial == null ? 'Nuovo template messaggio' : 'Modifica template',
+              widget.initial == null
+                  ? 'Nuovo template messaggio'
+                  : 'Modifica template',
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               value: _salonId,
               decoration: const InputDecoration(labelText: 'Salone'),
-              items: widget.salons
-                  .map((salon) => DropdownMenuItem(value: salon.id, child: Text(salon.name)))
-                  .toList(),
+              items:
+                  widget.salons
+                      .map(
+                        (salon) => DropdownMenuItem(
+                          value: salon.id,
+                          child: Text(salon.name),
+                        ),
+                      )
+                      .toList(),
               onChanged: (value) => setState(() => _salonId = value),
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _title,
               decoration: const InputDecoration(labelText: 'Titolo'),
-              validator: (value) => value == null || value.trim().isEmpty ? 'Inserisci un titolo' : null,
+              validator:
+                  (value) =>
+                      value == null || value.trim().isEmpty
+                          ? 'Inserisci un titolo'
+                          : null,
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<MessageChannel>(
               value: _channel,
               decoration: const InputDecoration(labelText: 'Canale'),
-              items: MessageChannel.values
-                  .map((channel) => DropdownMenuItem(value: channel, child: Text(_channelLabel(channel))))
-                  .toList(),
-              onChanged: (value) => setState(() => _channel = value ?? MessageChannel.whatsapp),
+              items:
+                  MessageChannel.values
+                      .map(
+                        (channel) => DropdownMenuItem(
+                          value: channel,
+                          child: Text(_channelLabel(channel)),
+                        ),
+                      )
+                      .toList(),
+              onChanged:
+                  (value) => setState(
+                    () => _channel = value ?? MessageChannel.whatsapp,
+                  ),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<TemplateUsage>(
               value: _usage,
               decoration: const InputDecoration(labelText: 'Uso'),
-              items: TemplateUsage.values
-                  .map((usage) => DropdownMenuItem(value: usage, child: Text(_usageLabel(usage))))
-                  .toList(),
-              onChanged: (value) => setState(() => _usage = value ?? TemplateUsage.reminder),
+              items:
+                  TemplateUsage.values
+                      .map(
+                        (usage) => DropdownMenuItem(
+                          value: usage,
+                          child: Text(_usageLabel(usage)),
+                        ),
+                      )
+                      .toList(),
+              onChanged:
+                  (value) =>
+                      setState(() => _usage = value ?? TemplateUsage.reminder),
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _body,
               decoration: const InputDecoration(labelText: 'Corpo messaggio'),
               maxLines: 6,
-              validator: (value) => value == null || value.trim().isEmpty ? 'Inserisci il contenuto' : null,
+              validator:
+                  (value) =>
+                      value == null || value.trim().isEmpty
+                          ? 'Inserisci il contenuto'
+                          : null,
             ),
             const SizedBox(height: 12),
             SwitchListTile(
@@ -128,9 +165,9 @@ class _MessageTemplateFormSheetState extends State<MessageTemplateFormSheet> {
       return;
     }
     if (_salonId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Seleziona un salone')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Seleziona un salone')));
       return;
     }
 
@@ -149,6 +186,8 @@ class _MessageTemplateFormSheetState extends State<MessageTemplateFormSheet> {
 
   String _channelLabel(MessageChannel channel) {
     switch (channel) {
+      case MessageChannel.push:
+        return 'Push';
       case MessageChannel.whatsapp:
         return 'WhatsApp';
       case MessageChannel.email:

@@ -4,15 +4,18 @@ import 'package:civiapp/domain/entities/cash_flow_entry.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/inventory_item.dart';
 import 'package:civiapp/domain/entities/message_template.dart';
+import 'package:civiapp/domain/entities/app_notification.dart';
 import 'package:civiapp/domain/entities/package.dart';
 import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
+import 'package:civiapp/domain/entities/service_category.dart';
 import 'package:civiapp/domain/entities/shift.dart';
 import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/domain/entities/staff_role.dart';
+import 'package:civiapp/domain/entities/reminder_settings.dart';
 
 class AppDataState {
   const AppDataState({
@@ -20,6 +23,7 @@ class AppDataState {
     required this.staff,
     required this.staffRoles,
     required this.clients,
+    required this.serviceCategories,
     required this.services,
     required this.packages,
     required this.appointments,
@@ -28,6 +32,8 @@ class AppDataState {
     required this.sales,
     required this.cashFlowEntries,
     required this.messageTemplates,
+    required this.reminderSettings,
+    required this.clientNotifications,
     required this.shifts,
     required this.staffAbsences,
     required this.publicStaffAbsences,
@@ -40,6 +46,7 @@ class AppDataState {
       staff: [],
       staffRoles: [],
       clients: [],
+      serviceCategories: [],
       services: [],
       packages: [],
       appointments: [],
@@ -48,6 +55,8 @@ class AppDataState {
       sales: [],
       cashFlowEntries: [],
       messageTemplates: [],
+      reminderSettings: [],
+      clientNotifications: [],
       shifts: [],
       staffAbsences: [],
       publicStaffAbsences: [],
@@ -59,6 +68,7 @@ class AppDataState {
   final List<StaffMember> staff;
   final List<StaffRole> staffRoles;
   final List<Client> clients;
+  final List<ServiceCategory> serviceCategories;
   final List<Service> services;
   final List<ServicePackage> packages;
   final List<Appointment> appointments;
@@ -67,6 +77,8 @@ class AppDataState {
   final List<Sale> sales;
   final List<CashFlowEntry> cashFlowEntries;
   final List<MessageTemplate> messageTemplates;
+  final List<ReminderSettings> reminderSettings;
+  final List<AppNotification> clientNotifications;
   final List<Shift> shifts;
   final List<StaffAbsence> staffAbsences;
   final List<StaffAbsence> publicStaffAbsences;
@@ -77,6 +89,7 @@ class AppDataState {
     List<StaffMember>? staff,
     List<StaffRole>? staffRoles,
     List<Client>? clients,
+    List<ServiceCategory>? serviceCategories,
     List<Service>? services,
     List<ServicePackage>? packages,
     List<Appointment>? appointments,
@@ -85,6 +98,8 @@ class AppDataState {
     List<Sale>? sales,
     List<CashFlowEntry>? cashFlowEntries,
     List<MessageTemplate>? messageTemplates,
+    List<ReminderSettings>? reminderSettings,
+    List<AppNotification>? clientNotifications,
     List<Shift>? shifts,
     List<StaffAbsence>? staffAbsences,
     List<StaffAbsence>? publicStaffAbsences,
@@ -95,6 +110,7 @@ class AppDataState {
       staff: staff ?? this.staff,
       staffRoles: staffRoles ?? this.staffRoles,
       clients: clients ?? this.clients,
+      serviceCategories: serviceCategories ?? this.serviceCategories,
       services: services ?? this.services,
       packages: packages ?? this.packages,
       appointments: appointments ?? this.appointments,
@@ -103,6 +119,8 @@ class AppDataState {
       sales: sales ?? this.sales,
       cashFlowEntries: cashFlowEntries ?? this.cashFlowEntries,
       messageTemplates: messageTemplates ?? this.messageTemplates,
+      reminderSettings: reminderSettings ?? this.reminderSettings,
+      clientNotifications: clientNotifications ?? this.clientNotifications,
       shifts: shifts ?? this.shifts,
       staffAbsences: staffAbsences ?? this.staffAbsences,
       publicStaffAbsences: publicStaffAbsences ?? this.publicStaffAbsences,

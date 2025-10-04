@@ -21,6 +21,8 @@ class Client {
     this.notes,
     this.loyaltyPoints = 0,
     this.marketedConsents = const [],
+    this.fcmTokens = const [],
+    this.channelPreferences = const ChannelPreferences(),
     this.onboardingStatus = ClientOnboardingStatus.notSent,
     this.invitationSentAt,
     this.firstLoginAt,
@@ -43,6 +45,8 @@ class Client {
   final String? notes;
   final int loyaltyPoints;
   final List<ClientConsent> marketedConsents;
+  final List<String> fcmTokens;
+  final ChannelPreferences channelPreferences;
   final ClientOnboardingStatus onboardingStatus;
   final DateTime? invitationSentAt;
   final DateTime? firstLoginAt;
@@ -65,10 +69,12 @@ class Client {
     Object? notes = _unset,
     int? loyaltyPoints,
     List<ClientConsent>? marketedConsents,
+    List<String>? fcmTokens,
     ClientOnboardingStatus? onboardingStatus,
     Object? invitationSentAt = _unset,
     Object? firstLoginAt = _unset,
     Object? onboardingCompletedAt = _unset,
+    ChannelPreferences? channelPreferences,
   }) {
     return Client(
       id: id ?? this.id,
@@ -91,6 +97,8 @@ class Client {
       notes: notes == _unset ? this.notes : notes as String?,
       loyaltyPoints: loyaltyPoints ?? this.loyaltyPoints,
       marketedConsents: marketedConsents ?? this.marketedConsents,
+      fcmTokens: fcmTokens ?? this.fcmTokens,
+      channelPreferences: channelPreferences ?? this.channelPreferences,
       onboardingStatus: onboardingStatus ?? this.onboardingStatus,
       invitationSentAt:
           invitationSentAt == _unset
@@ -116,3 +124,35 @@ class ClientConsent {
 }
 
 enum ConsentType { marketing, privacy, profilazione }
+
+class ChannelPreferences {
+  const ChannelPreferences({
+    this.push = true,
+    this.email = true,
+    this.whatsapp = false,
+    this.sms = false,
+    this.updatedAt,
+  });
+
+  final bool push;
+  final bool email;
+  final bool whatsapp;
+  final bool sms;
+  final DateTime? updatedAt;
+
+  ChannelPreferences copyWith({
+    bool? push,
+    bool? email,
+    bool? whatsapp,
+    bool? sms,
+    DateTime? updatedAt,
+  }) {
+    return ChannelPreferences(
+      push: push ?? this.push,
+      email: email ?? this.email,
+      whatsapp: whatsapp ?? this.whatsapp,
+      sms: sms ?? this.sms,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+}

@@ -1,5 +1,6 @@
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
+import 'package:civiapp/domain/entities/service_category.dart';
 import 'package:civiapp/domain/entities/staff_role.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
@@ -10,12 +11,14 @@ class ServiceFormSheet extends StatefulWidget {
     super.key,
     required this.salons,
     required this.roles,
+    required this.categories,
     this.initial,
     this.defaultSalonId,
   });
 
   final List<Salon> salons;
   final List<StaffRole> roles;
+  final List<ServiceCategory> categories;
   final Service? initial;
   final String? defaultSalonId;
 
@@ -35,6 +38,8 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
   List<String> _roles = [];
   List<String> _requiredEquipment = [];
   String? _salonId;
+  String? _categoryId;
+  bool _isActive = true;
 
   @override
   void initState() {
@@ -58,12 +63,25 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
         initial?.salonId ??
         widget.defaultSalonId ??
         (widget.salons.isNotEmpty ? widget.salons.first.id : null);
+    _categoryId =
+        initial?.categoryId ??
+        _matchCategoryId(salonId: _salonId, name: _category.text.trim());
+    final matchedCategory = widget.categories.firstWhereOrNull(
+      (category) => category.id == _categoryId,
+    );
+    if (matchedCategory != null &&
+        matchedCategory.name.trim() != _category.text.trim()) {
+      _category.text = matchedCategory.name;
+    }
+    _isActive = initial?.isActive ?? true;
     _retainValidEquipment();
+    _category.addListener(_handleCategoryNameChanged);
   }
 
   @override
   void dispose() {
     _name.dispose();
+    _category.removeListener(_handleCategoryNameChanged);
     _category.dispose();
     _description.dispose();
     _price.dispose();
@@ -80,6 +98,53 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
             .firstWhereOrNull((salon) => salon.id == salonId)
             ?.equipment ??
         const <SalonEquipment>[];
+  }
+
+  List<ServiceCategory> _categoriesForSalon(String? salonId) {
+    if (salonId == null) {
+      return const <ServiceCategory>[];
+    }
+    return widget.categories
+        .where((category) => category.salonId == salonId)
+        .sortedByDisplayOrder();
+  }
+
+  String? _matchCategoryId({required String? salonId, required String name}) {
+    final trimmed = name.trim();
+    if (salonId == null || trimmed.isEmpty) {
+      return null;
+    }
+    final categories = _categoriesForSalon(salonId);
+    for (final category in categories) {
+      if (category.name.toLowerCase() == trimmed.toLowerCase()) {
+        return category.id;
+      }
+    }
+    return null;
+  }
+
+  void _handleCategoryNameChanged() {
+    if (_categoryId != null) {
+      return;
+    }
+    final match = _matchCategoryId(salonId: _salonId, name: _category.text);
+    if (match == null) {
+      return;
+    }
+    final matchedCategory = widget.categories.firstWhereOrNull(
+      (category) => category.id == match,
+    );
+    if (matchedCategory == null) {
+      return;
+    }
+    setState(() {
+      _categoryId = match;
+    });
+    if (_category.text.trim() != matchedCategory.name.trim()) {
+      _category.removeListener(_handleCategoryNameChanged);
+      _category.text = matchedCategory.name;
+      _category.addListener(_handleCategoryNameChanged);
+    }
   }
 
   void _retainValidEquipment() {
@@ -99,6 +164,7 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
     });
     final hasRoles = sortedRoles.isNotEmpty;
     final equipmentOptions = _equipmentForSalon(_salonId);
+    final categoriesForSalon = _categoriesForSalon(_salonId);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Form(
@@ -122,11 +188,6 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
                           : null,
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _category,
-              decoration: const InputDecoration(labelText: 'Categoria'),
-            ),
-            const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               value: _salonId,
               decoration: const InputDecoration(labelText: 'Salone'),
@@ -143,7 +204,83 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
                   (value) => setState(() {
                     _salonId = value;
                     _retainValidEquipment();
+                    final categoriesForNewSalon = _categoriesForSalon(_salonId);
+                    final matchedId = _matchCategoryId(
+                      salonId: _salonId,
+                      name: _category.text,
+                    );
+                    if (matchedId != null) {
+                      _categoryId = matchedId;
+                      final matched = categoriesForNewSalon.firstWhereOrNull(
+                        (category) => category.id == matchedId,
+                      );
+                      if (matched != null &&
+                          matched.name.trim() != _category.text.trim()) {
+                        _category.removeListener(_handleCategoryNameChanged);
+                        _category.text = matched.name;
+                        _category.addListener(_handleCategoryNameChanged);
+                      }
+                    } else if (_categoryId != null &&
+                        categoriesForNewSalon.every(
+                          (category) => category.id != _categoryId,
+                        )) {
+                      _categoryId = null;
+                    }
                   }),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String?>(
+              value: _categoryId,
+              decoration: InputDecoration(
+                labelText: 'Categoria',
+                helperText:
+                    categoriesForSalon.isEmpty
+                        ? 'Nessuna categoria configurata per questo salone. Usa "Gestione categorie" per crearne una.'
+                        : 'Seleziona la categoria oppure scegli "Personalizzata".',
+              ),
+              items: <DropdownMenuItem<String?>>[
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text('Personalizzata'),
+                ),
+                ...categoriesForSalon.map(
+                  (category) => DropdownMenuItem<String?>(
+                    value: category.id,
+                    child: Text(category.name),
+                  ),
+                ),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _categoryId = value;
+                  if (value != null) {
+                    final matched = categoriesForSalon.firstWhereOrNull(
+                      (category) => category.id == value,
+                    );
+                    if (matched != null &&
+                        matched.name.trim() != _category.text.trim()) {
+                      _category.removeListener(_handleCategoryNameChanged);
+                      _category.text = matched.name;
+                      _category.addListener(_handleCategoryNameChanged);
+                    }
+                  }
+                });
+              },
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _category,
+              readOnly: _categoryId != null,
+              decoration: InputDecoration(
+                labelText:
+                    _categoryId != null
+                        ? 'Categoria selezionata'
+                        : 'Nome categoria',
+                helperText:
+                    _categoryId != null
+                        ? 'Modifica il nome dalla Gestione categorie.'
+                        : 'Inserisci il nome di una nuova categoria. Lascia vuoto per usare "Generale".',
+              ),
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -173,6 +310,16 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
               controller: _description,
               decoration: const InputDecoration(labelText: 'Descrizione'),
               maxLines: 3,
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile.adaptive(
+              value: _isActive,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Servizio attivo'),
+              subtitle: const Text(
+                'Se disattivato non sarà visibile per nuove prenotazioni, ma resta disponibile negli appuntamenti esistenti.',
+              ),
+              onChanged: (value) => setState(() => _isActive = value),
             ),
             const SizedBox(height: 12),
             if (hasRoles)
@@ -284,6 +431,7 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
       name: _name.text.trim(),
       category:
           _category.text.trim().isEmpty ? 'Generale' : _category.text.trim(),
+      categoryId: _categoryId,
       duration: Duration(minutes: int.tryParse(_duration.text.trim()) ?? 60),
       extraDuration: Duration(
         minutes: _parseNonNegativeInt(_extraDuration.text.trim()),
@@ -293,6 +441,7 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
           _description.text.trim().isEmpty ? null : _description.text.trim(),
       staffRoles: List<String>.unmodifiable(_roles),
       requiredEquipmentIds: List<String>.unmodifiable(_requiredEquipment),
+      isActive: _isActive,
     );
 
     Navigator.of(context).pop(service);

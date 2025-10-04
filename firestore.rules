@@ -191,15 +191,13 @@ service cloud.firestore {
     }
 
     match /staff_roles/{roleId} {
-      allow read: if isSignedIn() && canReadSalonDocument(resourceSalonId());
-      allow create: if isSignedIn() && isAdmin() &&
-          requestSalonId() != null && canManageSalonDocument(requestSalonId());
-      allow update: if isSignedIn() && isAdmin() &&
-          resourceSalonId() != null &&
-          requestSalonId() == resourceSalonId() &&
-          canManageSalonDocument(resourceSalonId());
-      allow delete: if isSignedIn() && isAdmin() &&
-          resourceSalonId() != null && canManageSalonDocument(resourceSalonId());
+      allow read: if isSignedIn() && (
+        isAdmin() ||
+        (resourceSalonId() != null && canReadSalonDocument(resourceSalonId())) ||
+        (resourceSalonId() == null && isStaff())
+      );
+
+      allow create, update, delete: if isSignedIn() && isAdmin();
     }
 
     match /clients/{clientId} {
@@ -228,6 +226,15 @@ service cloud.firestore {
     }
 
     match /services/{serviceId} {
+      allow read: if isSignedIn() && canReadSalonDocument(resourceSalonId());
+      allow create, update, delete: if isSignedIn() &&
+          canManageSalonDocument(request.resource != null && request.resource.data != null &&
+              request.resource.data.salonId is string
+              ? request.resource.data.salonId
+              : resourceSalonId());
+    }
+
+    match /service_categories/{categoryId} {
       allow read: if isSignedIn() && canReadSalonDocument(resourceSalonId());
       allow create, update, delete: if isSignedIn() &&
           canManageSalonDocument(request.resource != null && request.resource.data != null &&
@@ -325,6 +332,23 @@ service cloud.firestore {
               request.resource.data.salonId is string
               ? request.resource.data.salonId
               : resourceSalonId());
+    }
+
+    match /reminder_settings/{salonId} {
+      allow read: if isSignedIn() && canManageSalonDocument(salonId);
+      allow create, update, delete: if isSignedIn() &&
+          canManageSalonDocument(salonId);
+    }
+
+    match /message_outbox/{messageId} {
+      allow read: if isSignedIn() && (
+        canManageSalonDocument(resourceSalonId()) ||
+        (isClient() &&
+            resource != null &&
+            resource.data != null &&
+            resource.data.clientId is string &&
+            resource.data.clientId == currentClientId())
+      );
     }
 
     match /shifts/{shiftId} {

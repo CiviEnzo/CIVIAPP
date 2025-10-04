@@ -17,10 +17,12 @@ class AdminDashboardScreen extends ConsumerStatefulWidget {
   const AdminDashboardScreen({super.key});
 
   @override
-  ConsumerState<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
+  ConsumerState<AdminDashboardScreen> createState() =>
+      _AdminDashboardScreenState();
 }
 
-typedef AdminModuleBuilder = Widget Function(BuildContext context, WidgetRef ref, String? salonId);
+typedef AdminModuleBuilder =
+    Widget Function(BuildContext context, WidgetRef ref, String? salonId);
 
 class AdminModuleDefinition {
   const AdminModuleDefinition({
@@ -51,7 +53,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       id: 'salons',
       title: 'Saloni',
       icon: Icons.apartment_rounded,
-      builder: (context, ref, salonId) => SalonManagementModule(selectedSalonId: salonId),
+      builder:
+          (context, ref, salonId) =>
+              SalonManagementModule(selectedSalonId: salonId),
     ),
     AdminModuleDefinition(
       id: 'staff',
@@ -114,7 +118,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         ref.read(sessionControllerProvider.notifier).setSalon(salons.first.id);
       });
     }
-    final selectedSalonId = session.salonId ?? (salons.isNotEmpty ? salons.first.id : null);
+    final selectedSalonId =
+        session.salonId ?? (salons.isNotEmpty ? salons.first.id : null);
     final selectedModule = _modules[_selectedIndex];
 
     return LayoutBuilder(
@@ -124,20 +129,21 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
 
         return Scaffold(
           key: _scaffoldKey,
-          drawer: isLargeScreen
-              ? null
-              : Drawer(
-                  child: SafeArea(
-                    child: _DrawerNavigation(
-                      modules: _modules,
-                      selectedIndex: _selectedIndex,
-                      onSelect: (index) {
-                        setState(() => _selectedIndex = index);
-                        Navigator.of(context).maybePop();
-                      },
+          drawer:
+              isLargeScreen
+                  ? null
+                  : Drawer(
+                    child: SafeArea(
+                      child: _DrawerNavigation(
+                        modules: _modules,
+                        selectedIndex: _selectedIndex,
+                        onSelect: (index) {
+                          setState(() => _selectedIndex = index);
+                          Navigator.of(context).maybePop();
+                        },
+                      ),
                     ),
                   ),
-                ),
           appBar: AppBar(
             automaticallyImplyLeading: !isLargeScreen,
             title: Text(selectedModule.title),
@@ -145,7 +151,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               if (salons.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: _SalonSelector(salons: salons, selectedSalonId: selectedSalonId),
+                  child: _SalonSelector(
+                    salons: salons,
+                    selectedSalonId: selectedSalonId,
+                  ),
                 ),
               IconButton(
                 tooltip: 'Esci',
@@ -220,14 +229,15 @@ class _RailNavigationState extends State<_RailNavigation> {
             padding: const EdgeInsets.only(top: 16),
             child: Text('Moduli', style: theme.textTheme.titleMedium),
           ),
-          destinations: widget.modules
-              .map(
-                (module) => NavigationRailDestination(
-                  icon: Icon(module.icon),
-                  label: Text(module.title, textAlign: TextAlign.center),
-                ),
-              )
-              .toList(),
+          destinations:
+              widget.modules
+                  .map(
+                    (module) => NavigationRailDestination(
+                      icon: Icon(module.icon),
+                      label: Text(module.title, textAlign: TextAlign.center),
+                    ),
+                  )
+                  .toList(),
         );
 
         if (constraints.maxHeight.isFinite &&
@@ -240,10 +250,7 @@ class _RailNavigationState extends State<_RailNavigation> {
               child: SingleChildScrollView(
                 controller: _scrollController,
                 padding: EdgeInsets.zero,
-                child: SizedBox(
-                  height: requiredHeight,
-                  child: rail,
-                ),
+                child: SizedBox(height: requiredHeight, child: rail),
               ),
             ),
           );
