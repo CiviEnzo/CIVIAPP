@@ -3,6 +3,7 @@ import 'package:civiapp/domain/entities/cash_flow_entry.dart';
 import 'package:civiapp/domain/entities/app_notification.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/inventory_item.dart';
+import 'package:civiapp/domain/entities/loyalty_settings.dart';
 import 'package:civiapp/domain/entities/message_template.dart';
 import 'package:civiapp/domain/entities/package.dart';
 import 'package:civiapp/domain/entities/payment_ticket.dart';
@@ -24,6 +25,7 @@ Salon salonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final scheduleRaw = data['schedule'] as List<dynamic>? ?? const [];
   final equipmentRaw = data['equipment'] as List<dynamic>? ?? const [];
   final closuresRaw = data['closures'] as List<dynamic>? ?? const [];
+  final loyaltyRaw = data['loyaltySettings'] as Map<String, dynamic>?;
   return Salon(
     id: doc.id,
     name: data['name'] as String? ?? '',
@@ -72,11 +74,12 @@ Salon salonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
               ),
             )
             .toList(),
+    loyaltySettings: _mapToLoyaltySettings(loyaltyRaw),
   );
 }
 
 Map<String, dynamic> salonToMap(Salon salon) {
-  return {
+  final map = {
     'name': salon.name,
     'address': salon.address,
     'city': salon.city,
@@ -135,6 +138,13 @@ Map<String, dynamic> salonToMap(Salon salon) {
             )
             .toList(),
   };
+
+  final loyaltyMap = _loyaltySettingsToMap(salon.loyaltySettings);
+  if (loyaltyMap != null) {
+    map['loyaltySettings'] = loyaltyMap;
+  }
+
+  return map;
 }
 
 PaymentTicket paymentTicketFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -429,7 +439,11 @@ Client clientFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     referralSource: data['referralSource'] as String?,
     email: data['email'] as String?,
     notes: data['notes'] as String?,
+    loyaltyInitialPoints: (data['loyaltyInitialPoints'] as num?)?.toInt() ?? 0,
     loyaltyPoints: (data['loyaltyPoints'] as num?)?.toInt() ?? 0,
+    loyaltyUpdatedAt: _timestampToDate(data['loyaltyUpdatedAt']),
+    loyaltyTotalEarned: (data['loyaltyTotalEarned'] as num?)?.toInt(),
+    loyaltyTotalRedeemed: (data['loyaltyTotalRedeemed'] as num?)?.toInt(),
     marketedConsents:
         consentsRaw
             .map(
@@ -490,7 +504,14 @@ Map<String, dynamic> clientToMap(Client client) {
     'referralSource': client.referralSource,
     'email': client.email,
     'notes': client.notes,
+    'loyaltyInitialPoints': client.loyaltyInitialPoints,
     'loyaltyPoints': client.loyaltyPoints,
+    if (client.loyaltyUpdatedAt != null)
+      'loyaltyUpdatedAt': Timestamp.fromDate(client.loyaltyUpdatedAt!),
+    if (client.loyaltyTotalEarned != null)
+      'loyaltyTotalEarned': client.loyaltyTotalEarned,
+    if (client.loyaltyTotalRedeemed != null)
+      'loyaltyTotalRedeemed': client.loyaltyTotalRedeemed,
     'fcmTokens': client.fcmTokens,
     'consents':
         client.marketedConsents
@@ -653,9 +674,7 @@ Appointment appointmentFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     staffId: data['staffId'] as String? ?? '',
     serviceId: data['serviceId'] as String? ?? '',
     serviceIds:
-        (data['serviceIds'] as List<dynamic>?)
-            ?.whereType<String>()
-            .toList(),
+        (data['serviceIds'] as List<dynamic>?)?.whereType<String>().toList(),
     start: ((data['start'] as Timestamp?) ?? Timestamp.now()).toDate(),
     end: ((data['end'] as Timestamp?) ?? Timestamp.now()).toDate(),
     status: _stringToAppointmentStatus(data['status'] as String?),
@@ -767,6 +786,8 @@ Sale saleFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
           })
           .whereType<SalePaymentMovement>()
           .toList();
+  final loyaltyRaw = data['loyalty'] as Map<String, dynamic>?;
+
   return Sale(
     id: doc.id,
     salonId: data['salonId'] as String? ?? '',
@@ -839,11 +860,12 @@ Sale saleFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     discountAmount: (data['discountAmount'] as num?)?.toDouble() ?? 0,
     staffId: data['staffId'] as String?,
     paymentHistory: paymentHistory,
+    loyalty: _mapToSaleLoyaltySummary(loyaltyRaw),
   );
 }
 
 Map<String, dynamic> saleToMap(Sale sale) {
-  return {
+  final map = {
     'salonId': sale.salonId,
     'clientId': sale.clientId,
     'items':
@@ -920,6 +942,13 @@ Map<String, dynamic> saleToMap(Sale sale) {
             )
             .toList(),
   };
+
+  final loyaltyMap = _saleLoyaltySummaryToMap(sale.loyalty);
+  if (loyaltyMap != null) {
+    map['loyalty'] = loyaltyMap;
+  }
+
+  return map;
 }
 
 Map<String, int> _mapToIntMap(Map<String, dynamic>? raw) {
@@ -928,6 +957,144 @@ Map<String, int> _mapToIntMap(Map<String, dynamic>? raw) {
   }
   return raw.map((key, value) => MapEntry(key, (value as num?)?.toInt() ?? 0))
     ..removeWhere((key, value) => value <= 0);
+}
+
+LoyaltySettings _mapToLoyaltySettings(Map<String, dynamic>? raw) {
+  if (raw == null || raw.isEmpty) {
+    return const LoyaltySettings();
+  }
+  final earningRaw = raw['earning'] as Map<String, dynamic>?;
+  final redemptionRaw = raw['redemption'] as Map<String, dynamic>?;
+  final expirationRaw = raw['expiration'] as Map<String, dynamic>?;
+  return LoyaltySettings(
+    enabled: raw['enabled'] as bool? ?? false,
+    earning: LoyaltyEarningRules(
+      euroPerPoint: (earningRaw?['euroPerPoint'] as num?)?.toDouble() ?? 10,
+      rounding: _loyaltyRoundingFromString(earningRaw?['rounding'] as String?),
+    ),
+    redemption: LoyaltyRedemptionRules(
+      pointValueEuro:
+          (redemptionRaw?['pointValueEuro'] as num?)?.toDouble() ?? 1,
+      maxPercent: (redemptionRaw?['maxPercent'] as num?)?.toDouble() ?? 0.3,
+      autoSuggest: redemptionRaw?['autoSuggest'] as bool? ?? true,
+    ),
+    expiration: LoyaltyExpirationRules(
+      resetMonth: (expirationRaw?['resetMonth'] as num?)?.toInt() ?? 1,
+      resetDay: (expirationRaw?['resetDay'] as num?)?.toInt() ?? 1,
+      timezone: expirationRaw?['timezone'] as String? ?? 'Europe/Rome',
+    ),
+    initialBalance: (raw['initialBalance'] as num?)?.toInt() ?? 0,
+    updatedAt: _timestampToDate(raw['updatedAt']),
+  );
+}
+
+Map<String, dynamic>? _loyaltySettingsToMap(LoyaltySettings settings) {
+  if (!settings.enabled &&
+      settings.initialBalance == 0 &&
+      settings.updatedAt == null &&
+      settings.earning.euroPerPoint == 10 &&
+      settings.earning.rounding == LoyaltyRoundingMode.floor &&
+      settings.redemption.pointValueEuro == 1 &&
+      settings.redemption.maxPercent == 0.3 &&
+      settings.redemption.autoSuggest &&
+      settings.expiration.resetMonth == 1 &&
+      settings.expiration.resetDay == 1 &&
+      settings.expiration.timezone == 'Europe/Rome') {
+    return null;
+  }
+  final map = <String, dynamic>{
+    'enabled': settings.enabled,
+    'earning': {
+      'euroPerPoint': settings.earning.euroPerPoint,
+      'rounding': settings.earning.rounding.name,
+    },
+    'redemption': {
+      'pointValueEuro': settings.redemption.pointValueEuro,
+      'maxPercent': settings.redemption.maxPercent,
+      'autoSuggest': settings.redemption.autoSuggest,
+    },
+    'expiration': {
+      'resetMonth': settings.expiration.resetMonth,
+      'resetDay': settings.expiration.resetDay,
+      'timezone': settings.expiration.timezone,
+    },
+    'initialBalance': settings.initialBalance,
+  };
+  if (settings.updatedAt != null) {
+    map['updatedAt'] = Timestamp.fromDate(settings.updatedAt!);
+  }
+  return map;
+}
+
+LoyaltyRoundingMode _loyaltyRoundingFromString(String? value) {
+  switch (value) {
+    case 'round':
+      return LoyaltyRoundingMode.round;
+    case 'ceil':
+      return LoyaltyRoundingMode.ceil;
+    case 'floor':
+    default:
+      return LoyaltyRoundingMode.floor;
+  }
+}
+
+SaleLoyaltySummary _mapToSaleLoyaltySummary(Map<String, dynamic>? raw) {
+  if (raw == null || raw.isEmpty) {
+    return SaleLoyaltySummary();
+  }
+  return SaleLoyaltySummary(
+    redeemedPoints: (raw['redeemedPoints'] as num?)?.toInt() ?? 0,
+    redeemedValue: (raw['redeemedValue'] as num?)?.toDouble() ?? 0,
+    eligibleAmount: (raw['eligibleAmount'] as num?)?.toDouble() ?? 0,
+    requestedEarnPoints: (raw['requestedEarnPoints'] as num?)?.toInt() ?? 0,
+    requestedEarnValue: (raw['requestedEarnValue'] as num?)?.toDouble() ?? 0,
+    processedMovementIds:
+        (raw['processedMovementIds'] as List<dynamic>? ?? const [])
+            .map((entry) => entry.toString())
+            .where((entry) => entry.isNotEmpty)
+            .toList(),
+    earnedPoints: (raw['earnedPoints'] as num?)?.toInt() ?? 0,
+    earnedValue: (raw['earnedValue'] as num?)?.toDouble() ?? 0,
+    netPoints: (raw['netPoints'] as num?)?.toInt() ?? 0,
+    computedAt: _timestampToDate(raw['computedAt']),
+    version: (raw['version'] as num?)?.toInt() ?? 1,
+  );
+}
+
+Map<String, dynamic>? _saleLoyaltySummaryToMap(SaleLoyaltySummary summary) {
+  if (_isSaleLoyaltySummaryEmpty(summary)) {
+    return null;
+  }
+  final map = <String, dynamic>{
+    'redeemedPoints': summary.redeemedPoints,
+    'redeemedValue': summary.redeemedValue,
+    'eligibleAmount': summary.eligibleAmount,
+    'requestedEarnPoints': summary.requestedEarnPoints,
+    'requestedEarnValue': summary.requestedEarnValue,
+    if (summary.processedMovementIds.isNotEmpty)
+      'processedMovementIds': summary.processedMovementIds,
+    'earnedPoints': summary.earnedPoints,
+    'earnedValue': summary.earnedValue,
+    'netPoints': summary.netPoints,
+    'version': summary.version,
+  };
+  if (summary.computedAt != null) {
+    map['computedAt'] = Timestamp.fromDate(summary.computedAt!);
+  }
+  return map;
+}
+
+bool _isSaleLoyaltySummaryEmpty(SaleLoyaltySummary summary) {
+  return summary.redeemedPoints == 0 &&
+      summary.redeemedValue == 0 &&
+      summary.eligibleAmount == 0 &&
+      summary.requestedEarnPoints == 0 &&
+      summary.requestedEarnValue == 0 &&
+      summary.earnedPoints == 0 &&
+      summary.earnedValue == 0 &&
+      summary.netPoints == 0 &&
+      summary.processedMovementIds.isEmpty &&
+      summary.computedAt == null;
 }
 
 DateTime? _timestampToDate(dynamic value) {

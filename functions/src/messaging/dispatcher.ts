@@ -1,13 +1,14 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import logger from 'firebase-functions/logger';
 
+import { db, FieldValue } from '../utils/firestore';
+import { canUseChannel } from '../utils/consent';
+import { DEFAULT_QUIET_HOURS, DEFAULT_TIMEZONE, isWithinQuietHours, now } from '../utils/time';
+
 import { ChannelDispatchResult, MessageChannel, OutboxMessage } from './types';
 import { sendEmail } from './channels/email';
 import { sendPush } from './channels/push';
 import { sendWhatsapp } from './channels/whatsapp';
-import { db, FieldValue } from '../utils/firestore';
-import { canUseChannel } from '../utils/consent';
-import { DEFAULT_QUIET_HOURS, DEFAULT_TIMEZONE, isWithinQuietHours, now } from '../utils/time';
 
 const messageOutboxCollection = db.collection('message_outbox');
 

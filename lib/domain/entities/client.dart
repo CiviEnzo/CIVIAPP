@@ -5,6 +5,40 @@ enum ClientOnboardingStatus {
   onboardingCompleted,
 }
 
+const List<String> kClientReferralSourceOptions = [
+  'Instagram',
+  'Facebook',
+  'Tik tok',
+  'Amico titolare',
+  'Amico dipendente',
+  'Passaparola',
+  'Passando davanti il centro',
+  'Cliente passato',
+  'Campagna lead',
+  'Buono regalo',
+  'Tramite App',
+];
+
+String nextSequentialClientNumber(Iterable<Client> clients) {
+  final usedNumbers = <int>{};
+  for (final client in clients) {
+    final rawNumber = client.clientNumber;
+    if (rawNumber == null) {
+      continue;
+    }
+    final parsed = int.tryParse(rawNumber);
+    if (parsed == null || parsed <= 0 || parsed >= 1000000) {
+      continue;
+    }
+    usedNumbers.add(parsed);
+  }
+  var candidate = 1;
+  while (usedNumbers.contains(candidate)) {
+    candidate += 1;
+  }
+  return candidate.toString();
+}
+
 class Client {
   const Client({
     required this.id,
@@ -19,7 +53,11 @@ class Client {
     this.referralSource,
     this.email,
     this.notes,
+    this.loyaltyInitialPoints = 0,
     this.loyaltyPoints = 0,
+    this.loyaltyUpdatedAt,
+    this.loyaltyTotalEarned,
+    this.loyaltyTotalRedeemed,
     this.marketedConsents = const [],
     this.fcmTokens = const [],
     this.channelPreferences = const ChannelPreferences(),
@@ -43,7 +81,11 @@ class Client {
   final String? referralSource;
   final String? email;
   final String? notes;
+  final int loyaltyInitialPoints;
   final int loyaltyPoints;
+  final DateTime? loyaltyUpdatedAt;
+  final int? loyaltyTotalEarned;
+  final int? loyaltyTotalRedeemed;
   final List<ClientConsent> marketedConsents;
   final List<String> fcmTokens;
   final ChannelPreferences channelPreferences;
@@ -67,7 +109,11 @@ class Client {
     Object? referralSource = _unset,
     Object? email = _unset,
     Object? notes = _unset,
+    int? loyaltyInitialPoints,
     int? loyaltyPoints,
+    Object? loyaltyUpdatedAt = _unset,
+    Object? loyaltyTotalEarned = _unset,
+    Object? loyaltyTotalRedeemed = _unset,
     List<ClientConsent>? marketedConsents,
     List<String>? fcmTokens,
     ClientOnboardingStatus? onboardingStatus,
@@ -95,7 +141,20 @@ class Client {
               : referralSource as String?,
       email: email == _unset ? this.email : email as String?,
       notes: notes == _unset ? this.notes : notes as String?,
+      loyaltyInitialPoints: loyaltyInitialPoints ?? this.loyaltyInitialPoints,
       loyaltyPoints: loyaltyPoints ?? this.loyaltyPoints,
+      loyaltyUpdatedAt:
+          loyaltyUpdatedAt == _unset
+              ? this.loyaltyUpdatedAt
+              : loyaltyUpdatedAt as DateTime?,
+      loyaltyTotalEarned:
+          loyaltyTotalEarned == _unset
+              ? this.loyaltyTotalEarned
+              : loyaltyTotalEarned as int?,
+      loyaltyTotalRedeemed:
+          loyaltyTotalRedeemed == _unset
+              ? this.loyaltyTotalRedeemed
+              : loyaltyTotalRedeemed as int?,
       marketedConsents: marketedConsents ?? this.marketedConsents,
       fcmTokens: fcmTokens ?? this.fcmTokens,
       channelPreferences: channelPreferences ?? this.channelPreferences,

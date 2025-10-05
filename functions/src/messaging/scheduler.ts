@@ -1,11 +1,10 @@
-import { Timestamp } from 'firebase-admin/firestore';
+import { Timestamp , DocumentData } from 'firebase-admin/firestore';
 import logger from 'firebase-functions/logger';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
-import { DocumentData } from 'firebase-admin/firestore';
 
-import { MessageChannel } from './types';
 import { db, serverTimestamp } from '../utils/firestore';
 import { DEFAULT_TIMEZONE, now as nowInTimeZone } from '../utils/time';
+
 
 const messageOutboxCollection = db.collection('message_outbox');
 
@@ -32,11 +31,6 @@ const REMINDER_WINDOW_MINUTES = Number.parseInt(
   process.env.MESSAGING_REMINDER_WINDOW ?? '30',
   10,
 );
-const BIRTHDAY_HOUR_LOCAL = Number.parseInt(
-  process.env.MESSAGING_BIRTHDAY_HOUR ?? '9',
-  10,
-);
-
 const REMINDER_CONFIG = [
   { key: 'dayBeforeEnabled' as const, minutes: 1440, label: '1 giorno prima' },
   { key: 'threeHoursEnabled' as const, minutes: 180, label: '3 ore prima' },

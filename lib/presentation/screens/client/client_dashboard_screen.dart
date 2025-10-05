@@ -5,6 +5,7 @@ import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/domain/entities/app_notification.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/client.dart';
+import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/presentation/shared/client_package_purchase.dart';
@@ -27,6 +28,62 @@ class ClientDashboardScreen extends ConsumerStatefulWidget {
 
 class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
   StreamSubscription<RemoteMessage>? _foregroundSub;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  int _currentTab = 0;
+
+  int _resolveLoyaltyValue(int? stored, int aggregated) {
+    if (stored == null) {
+      return aggregated;
+    }
+    if (stored == 0 && aggregated != 0) {
+      return aggregated;
+    }
+    return stored;
+  }
+
+  int _resolveSpendableBalance({required int stored, required int computed}) {
+    final normalizedStored = stored < 0 ? 0 : stored;
+    final normalizedComputed = computed < 0 ? 0 : computed;
+    if (normalizedStored == normalizedComputed) {
+      return normalizedStored;
+    }
+    if (normalizedComputed == 0 && normalizedStored != 0) {
+      return normalizedStored;
+    }
+    return normalizedComputed;
+  }
+
+  _LoyaltyStats _calculateLoyaltyStats(Client client, List<Sale> sales) {
+    final aggregatedEarned = sales.fold<int>(
+      0,
+      (sum, sale) => sum + sale.loyalty.resolvedEarnedPoints,
+    );
+    final aggregatedRedeemed = sales.fold<int>(
+      0,
+      (sum, sale) => sum + sale.loyalty.redeemedPoints,
+    );
+    final initialPoints = client.loyaltyInitialPoints;
+    final totalEarned = _resolveLoyaltyValue(
+      client.loyaltyTotalEarned,
+      aggregatedEarned,
+    );
+    final totalRedeemed = _resolveLoyaltyValue(
+      client.loyaltyTotalRedeemed,
+      aggregatedRedeemed,
+    );
+    final computedSpendable = initialPoints + totalEarned - totalRedeemed;
+    final spendable = _resolveSpendableBalance(
+      stored: client.loyaltyPoints,
+      computed: computedSpendable,
+    );
+
+    return _LoyaltyStats(
+      initialPoints: initialPoints,
+      totalEarned: totalEarned,
+      totalRedeemed: totalRedeemed,
+      spendable: spendable,
+    );
+  }
 
   @override
   void initState() {
@@ -330,34 +387,91 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
               a.sentAt ?? a.scheduledAt ?? a.createdAt,
             ),
           );
+    final clientSales =
+        data.sales.where((sale) => sale.clientId == currentClient.id).toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final outstandingSales =
+        clientSales.where((sale) => sale.outstandingAmount > 0.01).toList();
+    final outstandingTotal = outstandingSales.fold<double>(
+      0,
+      (sum, sale) => sum + sale.outstandingAmount,
+    );
+
+    final tabViews = <Widget>[
+      _buildHomeTab(
+        context: context,
+        client: currentClient,
+        salon: salon,
+        notifications: notifications,
+        upcoming: upcoming,
+        history: history,
+        services: salonServices,
+        activePackages: activePackages,
+        pastPackages: pastPackages,
+        sales: clientSales,
+      ),
+      _buildAppointmentsTab(
+        context: context,
+        client: currentClient,
+        upcoming: upcoming,
+        history: history,
+      ),
+      _buildLoyaltyTab(
+        context: context,
+        client: currentClient,
+        sales: clientSales,
+      ),
+      _buildBillingTab(
+        context: context,
+        client: currentClient,
+        sales: clientSales,
+        outstandingSales: outstandingSales,
+        outstandingTotal: outstandingTotal,
+        activePackages: activePackages,
+        pastPackages: pastPackages,
+      ),
+    ];
+
+    Widget? floatingActionButton;
+    if (_currentTab <= 1) {
+      floatingActionButton = FloatingActionButton.extended(
+        onPressed: () => _openBookingSheet(currentClient),
+        icon: const Icon(Icons.calendar_month_rounded),
+        label: const Text('Prenota ora'),
+      );
+    }
 
     return Scaffold(
+      key: _scaffoldKey,
       appBar: AppBar(
-        title: Text('Benvenuta ${currentClient.firstName}'),
+        leading: IconButton(
+          tooltip: 'Menu',
+          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+          icon: const Icon(Icons.menu_rounded),
+        ),
+        title: Text('Ciao ${currentClient.firstName}'),
         actions: [
-          DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: currentClient.id,
-              items:
-                  clients
-                      .map(
-                        (client) => DropdownMenuItem(
-                          value: client.id,
-                          child: Text(client.fullName),
-                        ),
-                      )
-                      .toList(),
-              onChanged: (value) {
-                final client = clients.firstWhereOrNull((c) => c.id == value);
+          if (clients.length > 1)
+            PopupMenuButton<Client>(
+              tooltip: 'Cambia cliente',
+              icon: const Icon(Icons.switch_account_rounded),
+              itemBuilder:
+                  (context) =>
+                      clients
+                          .map(
+                            (client) => PopupMenuItem<Client>(
+                              value: client,
+                              child: Text(client.fullName),
+                            ),
+                          )
+                          .toList(),
+              onSelected: (client) {
+                ref.read(sessionControllerProvider.notifier).setUser(client.id);
                 ref
                     .read(sessionControllerProvider.notifier)
-                    .setUser(client?.id);
-                ref
-                    .read(sessionControllerProvider.notifier)
-                    .setSalon(client?.salonId);
+                    .setSalon(client.salonId);
               },
             ),
-          ),
           IconButton(
             tooltip: 'Esci',
             onPressed: () async {
@@ -367,115 +481,604 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _PushTokenRegistrar(clientId: currentClient.id),
-          if (notifications.isNotEmpty) ...[
-            Text('Notifiche', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 12),
-            ...notifications
-                .take(10)
-                .map(
-                  (notification) =>
-                      _NotificationCard(notification: notification),
+      drawer: Drawer(
+        child: SafeArea(
+          child: ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              UserAccountsDrawerHeader(
+                accountName: Text(currentClient.fullName),
+                accountEmail: Text(salon?.name ?? 'Salone non configurato'),
+                currentAccountPicture: const CircleAvatar(
+                  child: Icon(Icons.person_rounded),
                 ),
-            const SizedBox(height: 24),
-          ],
-          if (salon != null)
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.apartment_rounded),
-                title: Text(salon.name),
-                subtitle: Text(
-                  '${salon.address}, ${salon.city}\n${salon.phone}',
-                ),
-                trailing: const Icon(Icons.navigate_next_rounded),
+              ),
+              ListTile(
+                leading: const Icon(Icons.notifications_active_rounded),
+                title: const Text('Notifiche'),
                 onTap: () {
-                  // Dettaglio salone da implementare.
+                  Navigator.of(context).pop();
+                  _showNotificationsSheet(context, notifications);
                 },
+              ),
+              ListTile(
+                leading: const Icon(Icons.card_giftcard_rounded),
+                title: const Text('Pacchetti'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _showPackagesSheet(context, activePackages, pastPackages);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.design_services_rounded),
+                title: const Text('Servizi'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _showServicesSheet(context, salonServices);
+                },
+              ),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.settings_rounded),
+                title: const Text('Impostazioni (presto disponibili)'),
+                onTap: () => Navigator.of(context).pop(),
+              ),
+              ListTile(
+                leading: const Icon(Icons.logout_rounded),
+                title: const Text('Esci'),
+                onTap: () async {
+                  Navigator.of(context).pop();
+                  await ref.read(authRepositoryProvider).signOut();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+      body: IndexedStack(index: _currentTab, children: tabViews),
+      floatingActionButton: floatingActionButton,
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _currentTab,
+        onDestinationSelected: (index) => setState(() => _currentTab = index),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.dashboard_outlined),
+            selectedIcon: Icon(Icons.dashboard_rounded),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.event_note_outlined),
+            selectedIcon: Icon(Icons.event_note_rounded),
+            label: 'Appuntamenti',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.loyalty_outlined),
+            selectedIcon: Icon(Icons.loyalty_rounded),
+            label: 'Punti',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.receipt_long_outlined),
+            selectedIcon: Icon(Icons.receipt_long_rounded),
+            label: 'Fatturazione',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHomeTab({
+    required BuildContext context,
+    required Client client,
+    required Salon? salon,
+    required List<AppNotification> notifications,
+    required List<Appointment> upcoming,
+    required List<Appointment> history,
+    required List<Service> services,
+    required List<ClientPackagePurchase> activePackages,
+    required List<ClientPackagePurchase> pastPackages,
+    required List<Sale> sales,
+  }) {
+    final theme = Theme.of(context);
+    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    final nextAppointment = upcoming.isEmpty ? null : upcoming.first;
+    final loyaltyStats = _calculateLoyaltyStats(client, sales);
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _PushTokenRegistrar(clientId: client.id),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(client.fullName, style: theme.textTheme.titleLarge),
+                const SizedBox(height: 4),
+                Text(
+                  salon == null
+                      ? 'Salone non configurato'
+                      : '${salon.name}\n${salon.address}, ${salon.city}',
+                  style: theme.textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 8,
+                  children: [
+                    _SummaryChip(
+                      icon: Icons.loyalty_rounded,
+                      label: 'Saldo utilizzabile',
+                      value: loyaltyStats.spendable.toString(),
+                    ),
+                    _SummaryChip(
+                      icon: Icons.euro_rounded,
+                      label: 'Totale speso',
+                      value: currency.format(
+                        sales.fold<double>(0, (sum, sale) => sum + sale.total),
+                      ),
+                    ),
+                    _SummaryChip(
+                      icon: Icons.event_available_rounded,
+                      label: 'Prossimo appuntamento',
+                      value:
+                          nextAppointment == null
+                              ? '—'
+                              : DateFormat(
+                                'dd MMM • HH:mm',
+                                'it_IT',
+                              ).format(nextAppointment.start),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (notifications.isNotEmpty) ...[
+          Text('Ultime notifiche', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 8),
+          ...notifications
+              .take(3)
+              .map(
+                (notification) => _NotificationCard(notification: notification),
+              ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () => _showNotificationsSheet(context, notifications),
+              icon: const Icon(Icons.open_in_new_rounded),
+              label: const Text('Mostra tutte'),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+        if (upcoming.isNotEmpty) ...[
+          Text('Appuntamenti imminenti', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 8),
+          _AppointmentCard(
+            appointment: upcoming.first,
+            onReschedule: () => _rescheduleAppointment(client, upcoming.first),
+            onCancel: () => _cancelAppointment(upcoming.first),
+            onDelete: () => _deleteAppointment(upcoming.first),
+          ),
+          if (upcoming.length > 1)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () => setState(() => _currentTab = 1),
+                icon: const Icon(Icons.calendar_today_rounded),
+                label: const Text('Vedi tutti'),
               ),
             ),
           const SizedBox(height: 16),
-          Text(
-            'Prossimi appuntamenti',
-            style: Theme.of(context).textTheme.titleLarge,
+        ] else ...[
+          const Card(
+            child: ListTile(title: Text('Non hai appuntamenti futuri')),
           ),
-          const SizedBox(height: 12),
-          if (upcoming.isEmpty)
-            const Card(
-              child: ListTile(title: Text('Non hai appuntamenti futuri')),
-            )
-          else
-            ...upcoming.map(
-              (appointment) => _AppointmentCard(
-                appointment: appointment,
-                onReschedule:
-                    () => _rescheduleAppointment(currentClient, appointment),
-                onCancel: () => _cancelAppointment(appointment),
-                onDelete: () => _deleteAppointment(appointment),
-              ),
-            ),
-          const SizedBox(height: 24),
-          Text('Storico', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 12),
-          if (history.isEmpty)
-            const Card(
-              child: ListTile(
-                title: Text(
-                  'Lo storico sarà disponibile dopo il primo appuntamento',
-                ),
-              ),
-            )
-          else
-            ...history
-                .take(5)
-                .map(
-                  (appointment) => _AppointmentCard(appointment: appointment),
-                ),
-          const SizedBox(height: 24),
-          Text(
-            'Servizi disponibili',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 12),
-          if (salonServices.isEmpty)
-            const Card(
-              child: ListTile(
-                title: Text('Nessun servizio configurato per questo salone'),
-              ),
-            )
-          else
-            _ServicesCarousel(
-              services: salonServices,
-              onBook:
-                  (service) => _openBookingSheet(
-                    currentClient,
-                    preselectedService: service,
-                  ),
-            ),
-          const SizedBox(height: 24),
-          Text('Pacchetti', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 12),
-          if (clientPackages.isEmpty)
-            const Card(
-              child: ListTile(
-                title: Text(
-                  'Non risultano pacchetti registrati per il cliente',
-                ),
-              ),
-            )
-          else
-            _ClientPackagesSection(
-              activePackages: activePackages,
-              pastPackages: pastPackages,
-            ),
+          const SizedBox(height: 16),
         ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openBookingSheet(currentClient),
-        icon: const Icon(Icons.calendar_month_rounded),
-        label: const Text('Prenota ora'),
+        Text('Servizi consigliati', style: theme.textTheme.titleLarge),
+        const SizedBox(height: 8),
+        if (services.isEmpty)
+          const Card(
+            child: ListTile(
+              title: Text('Nessun servizio configurato per questo salone'),
+            ),
+          )
+        else
+          _ServicesCarousel(
+            services: services,
+            onBook:
+                (service) =>
+                    _openBookingSheet(client, preselectedService: service),
+          ),
+        const SizedBox(height: 16),
+        Text('Pacchetti', style: theme.textTheme.titleLarge),
+        const SizedBox(height: 8),
+        if (activePackages.isEmpty && pastPackages.isEmpty)
+          const Card(
+            child: ListTile(title: Text('Non risultano pacchetti registrati')),
+          )
+        else
+          _ClientPackagesSection(
+            activePackages: activePackages,
+            pastPackages: pastPackages,
+          ),
+        const SizedBox(height: 32),
+      ],
+    );
+  }
+
+  Widget _buildAppointmentsTab({
+    required BuildContext context,
+    required Client client,
+    required List<Appointment> upcoming,
+    required List<Appointment> history,
+  }) {
+    final theme = Theme.of(context);
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text('Agenda', style: theme.textTheme.titleLarge),
+        const SizedBox(height: 12),
+        if (upcoming.isEmpty)
+          const Card(
+            child: ListTile(title: Text('Non hai appuntamenti futuri')),
+          )
+        else
+          ...upcoming.map(
+            (appointment) => _AppointmentCard(
+              appointment: appointment,
+              onReschedule: () => _rescheduleAppointment(client, appointment),
+              onCancel: () => _cancelAppointment(appointment),
+              onDelete: () => _deleteAppointment(appointment),
+            ),
+          ),
+        const SizedBox(height: 24),
+        Text('Storico', style: theme.textTheme.titleLarge),
+        const SizedBox(height: 12),
+        if (history.isEmpty)
+          const Card(
+            child: ListTile(
+              title: Text(
+                'Lo storico sarà disponibile dopo il primo appuntamento',
+              ),
+            ),
+          )
+        else
+          ...history.map(
+            (appointment) => _AppointmentCard(appointment: appointment),
+          ),
+        const SizedBox(height: 24),
+        FilledButton.icon(
+          onPressed: () => _openBookingSheet(client),
+          icon: const Icon(Icons.add_rounded),
+          label: const Text('Prenota un nuovo appuntamento'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLoyaltyTab({
+    required BuildContext context,
+    required Client client,
+    required List<Sale> sales,
+  }) {
+    final theme = Theme.of(context);
+    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    final loyaltySales =
+        sales
+            .where(
+              (sale) =>
+                  sale.loyalty.resolvedEarnedPoints > 0 ||
+                  sale.loyalty.redeemedPoints > 0,
+            )
+            .toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final loyaltyStats = _calculateLoyaltyStats(client, sales);
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Saldo utilizzabile', style: theme.textTheme.titleLarge),
+                const SizedBox(height: 12),
+                Text(
+                  '${loyaltyStats.spendable} pt',
+                  style: theme.textTheme.displaySmall,
+                ),
+                const SizedBox(height: 16),
+                Text.rich(
+                  TextSpan(
+                    text: 'Punti iniziali: ',
+                    style: theme.textTheme.bodyMedium,
+                    children: [
+                      TextSpan(
+                        text: '${loyaltyStats.initialPoints} pt',
+                        style: theme.textTheme.titleMedium,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text.rich(
+                  TextSpan(
+                    text: 'Punti accumulati: ',
+                    style: theme.textTheme.bodyMedium,
+                    children: [
+                      TextSpan(
+                        text: '${loyaltyStats.totalEarned} pt',
+                        style: theme.textTheme.titleMedium,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text.rich(
+                  TextSpan(
+                    text: 'Punti utilizzati: ',
+                    style: theme.textTheme.bodyMedium,
+                    children: [
+                      TextSpan(
+                        text: '${loyaltyStats.totalRedeemed} pt',
+                        style: (theme.textTheme.titleMedium ??
+                                const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                ))
+                            .copyWith(
+                              color:
+                                  loyaltyStats.totalRedeemed > 0
+                                      ? theme.colorScheme.error
+                                      : null,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        Text('Movimenti recenti', style: theme.textTheme.titleLarge),
+        const SizedBox(height: 12),
+        if (loyaltySales.isEmpty)
+          const Card(
+            child: ListTile(title: Text('Non ci sono movimenti registrati.')),
+          )
+        else
+          ...loyaltySales.map((sale) {
+            final date = DateFormat('dd/MM/yyyy HH:mm').format(sale.createdAt);
+            final summary = sale.loyalty;
+            final net = summary.netPoints;
+            final icon =
+                net >= 0
+                    ? Icons.trending_up_rounded
+                    : Icons.trending_down_rounded;
+            final color =
+                net >= 0 ? theme.colorScheme.primary : theme.colorScheme.error;
+            return Card(
+              child: ListTile(
+                leading: Icon(icon, color: color),
+                title: Text('Vendita del $date'),
+                subtitle: Text(
+                  'Assegnati: ${summary.resolvedEarnedPoints} • Usati: ${summary.redeemedPoints}\nValore sconto: ${currency.format(summary.redeemedValue)}',
+                ),
+                trailing: Text(
+                  net >= 0 ? '+$net pt' : '$net pt',
+                  style: theme.textTheme.titleMedium?.copyWith(color: color),
+                ),
+              ),
+            );
+          }),
+      ],
+    );
+  }
+
+  Widget _buildBillingTab({
+    required BuildContext context,
+    required Client client,
+    required List<Sale> sales,
+    required List<Sale> outstandingSales,
+    required double outstandingTotal,
+    required List<ClientPackagePurchase> activePackages,
+    required List<ClientPackagePurchase> pastPackages,
+  }) {
+    final theme = Theme.of(context);
+    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    final totalPaid = sales.fold<double>(
+      0,
+      (sum, sale) => sum + sale.paidAmount,
+    );
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Riepilogo fatture', style: theme.textTheme.titleLarge),
+                const SizedBox(height: 12),
+                Text('Incassato: ${currency.format(totalPaid)}'),
+                Text('Da saldare: ${currency.format(outstandingTotal)}'),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text('Vendite recenti', style: theme.textTheme.titleLarge),
+        const SizedBox(height: 8),
+        if (sales.isEmpty)
+          const Card(
+            child: ListTile(title: Text('Non risultano vendite registrate')),
+          )
+        else
+          ...sales.map((sale) {
+            final date = DateFormat('dd/MM/yyyy HH:mm').format(sale.createdAt);
+            final subtitle =
+                sale.loyalty.redeemedPoints > 0
+                    ? 'Totale: ${currency.format(sale.total)} • Punti usati: ${sale.loyalty.redeemedPoints}'
+                    : 'Totale: ${currency.format(sale.total)}';
+            final outstanding = sale.outstandingAmount;
+            return Card(
+              child: ListTile(
+                leading: const Icon(Icons.receipt_long_rounded),
+                title: Text('Vendita del $date'),
+                subtitle: Text(subtitle),
+                trailing:
+                    outstanding > 0
+                        ? Text(
+                          'Da saldare\n${currency.format(outstanding)}',
+                          textAlign: TextAlign.end,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.error,
+                          ),
+                        )
+                        : Text(
+                          currency.format(sale.total),
+                          style: theme.textTheme.titleMedium,
+                        ),
+              ),
+            );
+          }),
+        if (outstandingSales.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Text('Pagamenti da completare', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 8),
+          ...outstandingSales.map((sale) {
+            final date = DateFormat('dd/MM/yyyy HH:mm').format(sale.createdAt);
+            return Card(
+              child: ListTile(
+                leading: const Icon(Icons.warning_amber_rounded),
+                title: Text('Vendita del $date'),
+                subtitle: Text(
+                  'Residuo ${currency.format(sale.outstandingAmount)}',
+                ),
+              ),
+            );
+          }),
+        ],
+      ],
+    );
+  }
+
+  void _showNotificationsSheet(
+    BuildContext context,
+    List<AppNotification> notifications,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) {
+        if (notifications.isEmpty) {
+          return const SafeArea(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Text('Non ci sono notifiche recenti.'),
+            ),
+          );
+        }
+        return SafeArea(
+          child: ListView.separated(
+            padding: const EdgeInsets.all(16),
+            itemBuilder:
+                (ctx, index) =>
+                    _NotificationCard(notification: notifications[index]),
+            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            itemCount: notifications.length,
+          ),
+        );
+      },
+    );
+  }
+
+  void _showPackagesSheet(
+    BuildContext context,
+    List<ClientPackagePurchase> active,
+    List<ClientPackagePurchase> past,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: _ClientPackagesSection(
+              activePackages: active,
+              pastPackages: past,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showServicesSheet(BuildContext context, List<Service> services) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) {
+        if (services.isEmpty) {
+          return const SafeArea(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Text('Nessun servizio configurato.'),
+            ),
+          );
+        }
+        final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+        return SafeArea(
+          child: ListView.separated(
+            padding: const EdgeInsets.all(16),
+            itemBuilder: (ctx, index) {
+              final service = services[index];
+              return ListTile(
+                leading: const Icon(Icons.design_services_rounded),
+                title: Text(service.name),
+                subtitle: Text(currency.format(service.price)),
+              );
+            },
+            separatorBuilder: (_, __) => const Divider(),
+            itemCount: services.length,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SummaryChip extends StatelessWidget {
+  const _SummaryChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Chip(
+      avatar: Icon(icon, size: 18, color: theme.colorScheme.primary),
+      label: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: theme.textTheme.bodySmall),
+          Text(value, style: theme.textTheme.titleMedium),
+        ],
       ),
     );
   }
@@ -668,6 +1271,20 @@ class _NotificationCard extends StatelessWidget {
   }
 }
 
+class _LoyaltyStats {
+  const _LoyaltyStats({
+    required this.initialPoints,
+    required this.totalEarned,
+    required this.totalRedeemed,
+    required this.spendable,
+  });
+
+  final int initialPoints;
+  final int totalEarned;
+  final int totalRedeemed;
+  final int spendable;
+}
+
 class _AppointmentCard extends ConsumerWidget {
   const _AppointmentCard({
     required this.appointment,
@@ -687,17 +1304,18 @@ class _AppointmentCard extends ConsumerWidget {
     final staff = data.staff.firstWhereOrNull(
       (member) => member.id == appointment.staffId,
     );
-    final services = appointment.serviceIds
-        .map(
-          (id) => data.services.firstWhereOrNull(
-            (service) => service.id == id,
-          ),
-        )
-        .whereType<Service>()
-        .toList();
-    final serviceLabel = services.isNotEmpty
-        ? services.map((service) => service.name).join(' + ')
-        : 'Servizio';
+    final services =
+        appointment.serviceIds
+            .map(
+              (id) =>
+                  data.services.firstWhereOrNull((service) => service.id == id),
+            )
+            .whereType<Service>()
+            .toList();
+    final serviceLabel =
+        services.isNotEmpty
+            ? services.map((service) => service.name).join(' + ')
+            : 'Servizio';
     final date = DateFormat(
       'dd/MM/yyyy HH:mm',
       'it_IT',

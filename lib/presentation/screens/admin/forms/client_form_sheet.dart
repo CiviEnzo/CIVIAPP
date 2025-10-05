@@ -1,6 +1,8 @@
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/salon.dart';
+import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
@@ -32,24 +34,11 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
   late TextEditingController _phone;
   late TextEditingController _email;
   late TextEditingController _notes;
+  late TextEditingController _loyaltyInitialPoints;
   late TextEditingController _loyaltyPoints;
   late TextEditingController _clientNumber;
   late TextEditingController _address;
   late TextEditingController _profession;
-  static const List<String> _referralOptions = [
-    'Instagram',
-    'Facebook',
-    'Tik tok',
-    'Amico titolare',
-    'Amico dipendente',
-    'Passaparola',
-    'Passando davanti il centro',
-    'Cliente passato',
-    'Campagna lead',
-    'Buono regalo',
-    'Tramite App',
-  ];
-
   String? _referralSource;
   late TextEditingController _dateOfBirthDisplay;
   DateTime? _dateOfBirth;
@@ -61,6 +50,8 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
   late bool _prefSms;
   DateTime? _channelPrefsUpdatedAt;
   bool _preferencesDirty = false;
+  bool _loyaltyDirty = false;
+  bool _updatingLoyaltyField = false;
 
   bool get _isEditing => widget.initial != null;
 
@@ -77,13 +68,24 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     _phone = TextEditingController(text: initial?.phone ?? '');
     _email = TextEditingController(text: initial?.email ?? '');
     _notes = TextEditingController(text: initial?.notes ?? '');
-    _loyaltyPoints = TextEditingController(
-      text: initial?.loyaltyPoints.toString() ?? '0',
+    final defaultInitial =
+        initial?.loyaltyInitialPoints ?? _initialBalanceForSalon(_salonId);
+    _loyaltyInitialPoints = TextEditingController(
+      text: defaultInitial.toString(),
     );
     _salonId =
         initial?.salonId ??
         widget.defaultSalonId ??
         (widget.salons.isNotEmpty ? widget.salons.first.id : null);
+    final startingLoyalty = initial?.loyaltyPoints ?? defaultInitial;
+    _loyaltyPoints = TextEditingController(text: startingLoyalty.toString());
+    _loyaltyPoints.addListener(() {
+      if (_updatingLoyaltyField) {
+        return;
+      }
+      _loyaltyDirty = true;
+    });
+    _loyaltyDirty = initial != null;
     _clientNumber = TextEditingController(
       text: _resolveInitialClientNumber(initial),
     );
@@ -113,6 +115,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     _phone.dispose();
     _email.dispose();
     _notes.dispose();
+    _loyaltyInitialPoints.dispose();
     _loyaltyPoints.dispose();
     _clientNumber.dispose();
     _address.dispose();
@@ -145,21 +148,43 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
 
   String _generateSequentialClientNumber(String? salonId) {
     final relevantClients = _clientsForSalon(salonId);
-    final usedNumbers = <int>{};
-    for (final client in relevantClients) {
-      final number = int.tryParse(client.clientNumber ?? '');
-      if (number == null || number <= 0 || number >= 1000000) {
-        // Ignore non-numeric or legacy timestamp-based codes.
-        continue;
-      }
-      usedNumbers.add(number);
+    return nextSequentialClientNumber(relevantClients);
+  }
+
+  int _initialBalanceForSalon(String? salonId) {
+    final salon = widget.salons.firstWhereOrNull(
+      (element) => element.id == salonId,
+    );
+    if (salon == null) {
+      return 0;
     }
-    var candidate = 1;
-    // Pick the first available progressive number.
-    while (usedNumbers.contains(candidate)) {
-      candidate += 1;
+    final settings = salon.loyaltySettings;
+    if (!settings.enabled) {
+      return 0;
     }
-    return candidate.toString();
+    return settings.initialBalance;
+  }
+
+  void _setLoyaltyPoints(int value) {
+    final text = value.toString();
+    if (_loyaltyPoints.text == text) {
+      return;
+    }
+    _updatingLoyaltyField = true;
+    _loyaltyPoints.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    _updatingLoyaltyField = false;
+  }
+
+  void _applyInitialLoyaltyForSalon(String? salonId) {
+    if (_isEditing || _loyaltyDirty) {
+      return;
+    }
+    final balance = _initialBalanceForSalon(salonId);
+    _loyaltyInitialPoints.text = balance.toString();
+    _setLoyaltyPoints(balance);
   }
 
   void _refreshClientNumberForSalon(String? salonId) {
@@ -242,6 +267,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
                   _salonId = value;
                   _refreshClientNumberForSalon(value);
                 });
+                _applyInitialLoyaltyForSalon(value);
               },
             ),
             const SizedBox(height: 12),
@@ -289,7 +315,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
             TextFormField(
               controller: _address,
               decoration: const InputDecoration(
-                labelText: 'Indirizzo di residenza',
+                labelText: 'Città di residenza',
               ),
             ),
             const SizedBox(height: 12),
@@ -375,9 +401,24 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
               ),
             ),
             TextFormField(
-              controller: _loyaltyPoints,
-              decoration: const InputDecoration(labelText: 'Punti fedeltà'),
+              controller: _loyaltyInitialPoints,
+              decoration: const InputDecoration(
+                labelText: 'Punti iniziali',
+                helperText: 'Saldo assegnato al momento della creazione.',
+              ),
               keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _loyaltyPoints,
+              decoration: const InputDecoration(
+                labelText: 'Saldo punti attuale',
+                helperText:
+                    'Se lasci invariato, sarà ricalcolato con il nuovo saldo iniziale.',
+              ),
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -410,6 +451,42 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
       return;
     }
 
+    var initialPoints = int.tryParse(_loyaltyInitialPoints.text.trim()) ?? 0;
+    if (initialPoints < 0) {
+      initialPoints = 0;
+    }
+
+    var loyaltyPoints = int.tryParse(_loyaltyPoints.text.trim()) ?? 0;
+    final existing = widget.initial;
+    final previousInitial = existing?.loyaltyInitialPoints ?? 0;
+    final previousBalance = existing?.loyaltyPoints ?? 0;
+    final historicNet = previousBalance - previousInitial;
+
+    final balanceFieldChanged =
+        existing == null
+            ? _loyaltyPoints.text.trim().isNotEmpty
+            : int.tryParse(_loyaltyPoints.text.trim()) != previousBalance;
+
+    if (!balanceFieldChanged) {
+      loyaltyPoints = initialPoints + historicNet;
+    }
+    if (existing == null && _loyaltyPoints.text.trim().isEmpty) {
+      loyaltyPoints = initialPoints;
+    }
+    if (loyaltyPoints < 0) {
+      loyaltyPoints = 0;
+    }
+
+    final bool isNewClient = existing == null;
+    DateTime? loyaltyUpdatedAt = existing?.loyaltyUpdatedAt;
+    if (loyaltyUpdatedAt == null &&
+        (loyaltyPoints != previousBalance || isNewClient)) {
+      loyaltyUpdatedAt = loyaltyPoints == 0 ? null : DateTime.now();
+    }
+
+    final int loyaltyTotalEarned = existing?.loyaltyTotalEarned ?? 0;
+    final int loyaltyTotalRedeemed = existing?.loyaltyTotalRedeemed ?? 0;
+
     final client = Client(
       id: widget.initial?.id ?? _uuid.v4(),
       salonId: _salonId!,
@@ -428,7 +505,11 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
               : _referralSource!.trim(),
       email: _email.text.trim().isEmpty ? null : _email.text.trim(),
       notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
-      loyaltyPoints: int.tryParse(_loyaltyPoints.text.trim()) ?? 0,
+      loyaltyInitialPoints: initialPoints,
+      loyaltyPoints: loyaltyPoints,
+      loyaltyUpdatedAt: loyaltyUpdatedAt,
+      loyaltyTotalEarned: loyaltyTotalEarned,
+      loyaltyTotalRedeemed: loyaltyTotalRedeemed,
       marketedConsents: widget.initial?.marketedConsents ?? const [],
       onboardingStatus:
           widget.initial?.onboardingStatus ?? ClientOnboardingStatus.notSent,
@@ -455,7 +536,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
   }
 
   List<String> _buildReferralOptions() {
-    final options = List<String>.from(_referralOptions);
+    final options = List<String>.from(kClientReferralSourceOptions);
     if (_referralSource != null &&
         _referralSource!.isNotEmpty &&
         !options.contains(_referralSource)) {

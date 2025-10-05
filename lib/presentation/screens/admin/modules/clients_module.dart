@@ -99,6 +99,29 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     return number.toLowerCase() == _clientNumberQuery;
   }
 
+  int _resolveSpendableBalance({required int stored, required int computed}) {
+    final normalizedStored = stored < 0 ? 0 : stored;
+    final normalizedComputed = computed < 0 ? 0 : computed;
+    if (normalizedStored == normalizedComputed) {
+      return normalizedStored;
+    }
+    if (normalizedComputed == 0 && normalizedStored != 0) {
+      return normalizedStored;
+    }
+    return normalizedComputed;
+  }
+
+  int _resolveSpendablePoints(Client client) {
+    final computed =
+        client.loyaltyInitialPoints +
+        (client.loyaltyTotalEarned ?? 0) -
+        (client.loyaltyTotalRedeemed ?? 0);
+    return _resolveSpendableBalance(
+      stored: client.loyaltyPoints,
+      computed: computed,
+    );
+  }
+
   Widget _buildPlaceholder({
     required BuildContext context,
     required IconData icon,
@@ -328,7 +351,8 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                                     ),
                                   _InfoRow(
                                     icon: Icons.loyalty_rounded,
-                                    text: 'Punti: ${client.loyaltyPoints}',
+                                    text:
+                                        'Saldo utilizzabile: ${_resolveSpendablePoints(client)} pt',
                                   ),
                                 ],
                               ),

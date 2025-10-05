@@ -1,8 +1,11 @@
+import 'dart:math' as math;
+
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/inventory_item.dart';
 import 'package:civiapp/domain/entities/package.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/domain/entities/salon.dart';
+import 'package:civiapp/domain/loyalty/loyalty_calculator.dart';
 import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
@@ -10,8 +13,12 @@ import 'package:civiapp/presentation/screens/admin/forms/package_form_sheet.dart
 import 'package:civiapp/presentation/screens/admin/forms/client_search_sheet.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+
+@visibleForTesting
+const saleFormLoyaltyRedeemFieldKey = Key('saleForm.loyaltyRedeemField');
 
 class SaleFormSheet extends StatefulWidget {
   const SaleFormSheet({
@@ -22,6 +29,7 @@ class SaleFormSheet extends StatefulWidget {
     required this.services,
     required this.packages,
     required this.inventoryItems,
+    required this.sales,
     this.defaultSalonId,
     this.initialClientId,
     this.initialItems,
@@ -42,6 +50,7 @@ class SaleFormSheet extends StatefulWidget {
   final List<Service> services;
   final List<ServicePackage> packages;
   final List<InventoryItem> inventoryItems;
+  final List<Sale> sales;
   final String? defaultSalonId;
   final String? initialClientId;
   final List<SaleItem>? initialItems;
@@ -71,6 +80,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   late final TextEditingController _discountPercentController;
   late final TextEditingController _manualTotalController;
   late final TextEditingController _paidAmountController;
+  late final TextEditingController _loyaltyRedeemController;
 
   PaymentMethod? _payment;
   SalePaymentStatus? _paymentStatus;
@@ -81,6 +91,13 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   bool _manualTotalEnabled = false;
   bool _programmaticDiscountUpdate = false;
   bool _programmaticPaidUpdate = false;
+
+  SaleLoyaltySummary _loyaltySummary = SaleLoyaltySummary();
+  int _selectedRedeemPoints = 0;
+  int _maxRedeemablePoints = 0;
+  double _maxRedeemableValue = 0;
+  double _loyaltyEligibleAmount = 0;
+  bool _updatingRedeemController = false;
 
   @override
   void initState() {
@@ -95,6 +112,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     _discountPercentController = TextEditingController();
     _manualTotalController = TextEditingController();
     _paidAmountController = TextEditingController();
+    _loyaltyRedeemController = TextEditingController(text: '0');
     _payment = widget.initialPaymentMethod;
     _paymentStatus = widget.initialPaymentStatus;
     _date = widget.initialDate ?? DateTime.now();
@@ -147,6 +165,13 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     if (initialPaid != null && initialPaid > 0) {
       _paidAmountController.text = initialPaid.toStringAsFixed(2);
     }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _recalculateLoyalty(autoSuggest: true);
+    });
   }
 
   @override
@@ -162,6 +187,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     _discountPercentController.dispose();
     _manualTotalController.dispose();
     _paidAmountController.dispose();
+    _loyaltyRedeemController.dispose();
     _invoiceController.dispose();
     _notesController.dispose();
     super.dispose();
@@ -173,11 +199,16 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
     final subtotal = _computeSubtotal();
-    final discount = _currentDiscount(subtotal);
-    final total = _currentTotal(subtotal, discount);
+    final manualDiscount = _currentManualDiscount(subtotal);
+    final baseTotal = _currentTotal(subtotal, manualDiscount);
+    final loyaltyDiscount = _loyaltySummary.redeemedValue;
+    final total = _normalizeCurrency(baseTotal - loyaltyDiscount);
     _syncPaidAmountWithTotal(total);
 
-    final clients =
+    final salon = _currentSalon;
+    final currentClient = _currentClient;
+
+    final filteredClients =
         widget.clients
             .where((client) => _salonId == null || client.salonId == _salonId)
             .toList()
@@ -188,251 +219,268 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
             .toList()
           ..sort((a, b) => a.fullName.compareTo(b.fullName));
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Form(
-        key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Registra vendita', style: theme.textTheme.titleLarge),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              value: _salonId,
-              decoration: const InputDecoration(labelText: 'Salone'),
-              items:
-                  widget.salons
-                      .map(
-                        (salon) => DropdownMenuItem(
-                          value: salon.id,
-                          child: Text(salon.name),
-                        ),
-                      )
-                      .toList(),
-              onChanged: (value) {
-                if (value == _salonId) {
-                  return;
-                }
-                setState(() {
-                  _salonId = value;
-                  _clientId = null;
-                  _staffId = null;
-                  _resetLines();
-                });
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _clientFieldKey.currentState?.didChange(_clientId);
-                });
-                _syncDiscountControllers(force: true);
-              },
-            ),
-            const SizedBox(height: 12),
-            FormField<String>(
-              key: _clientFieldKey,
-              validator:
-                  (_) => _clientId == null ? 'Seleziona un cliente' : null,
-              builder: (state) {
-                final selectedClient = widget.clients.firstWhereOrNull(
-                  (client) => client.id == _clientId,
-                );
-                return InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: () => _selectClient(clients),
-                  child: InputDecorator(
-                    decoration: InputDecoration(
-                      labelText: 'Cliente',
-                      errorText: state.errorText,
-                      suffixIcon: const Icon(Icons.search_rounded, size: 20),
-                    ),
-                    isEmpty: selectedClient == null,
-                    child: Text(
-                      selectedClient?.fullName ?? 'Seleziona cliente',
-                      style:
-                          selectedClient == null
-                              ? Theme.of(context).textTheme.bodyMedium
-                                  ?.copyWith(color: Theme.of(context).hintColor)
-                              : Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: _staffId,
-              decoration: const InputDecoration(
-                labelText: 'Staff che ha effettuato la vendita',
-              ),
-              items:
-                  staff
-                      .map(
-                        (member) => DropdownMenuItem(
-                          value: member.id,
-                          child: Text(member.fullName),
-                        ),
-                      )
-                      .toList(),
-              onChanged: (value) => setState(() => _staffId = value),
-            ),
-            const SizedBox(height: 20),
-            Text('Elementi vendita', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 12,
-              runSpacing: 8,
-              children: [
-                FilledButton.tonalIcon(
-                  onPressed: _onAddService,
-                  icon: const Icon(Icons.design_services_rounded),
-                  label: const Text('Aggiungi servizio'),
-                ),
-                FilledButton.tonalIcon(
-                  onPressed: _onAddPackage,
-                  icon: const Icon(Icons.card_giftcard_rounded),
-                  label: const Text('Aggiungi pacchetto'),
-                ),
-                FilledButton.tonalIcon(
-                  onPressed: _onAddCustomPackage,
-                  icon: const Icon(Icons.auto_fix_high_rounded),
-                  label: const Text('Personalizza pacchetto'),
-                ),
-                FilledButton.tonalIcon(
-                  onPressed: _onAddInventoryItem,
-                  icon: const Icon(Icons.inventory_2_rounded),
-                  label: const Text('Aggiungi prodotto'),
-                ),
-                FilledButton.tonalIcon(
-                  onPressed: _onAddManualItem,
-                  icon: const Icon(Icons.add_circle_outline_rounded),
-                  label: const Text('Voce manuale'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            if (_lines.isEmpty)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    'Aggiungi almeno un servizio, pacchetto o prodotto per registrare la vendita.',
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                ),
-              )
-            else
-              Column(
-                children: [
-                  for (var i = 0; i < _lines.length; i++) ...[
-                    _buildLineCard(_lines[i], i, currency),
-                    if (i < _lines.length - 1) const SizedBox(height: 12),
-                  ],
-                ],
-              ),
-            const SizedBox(height: 16),
-            _buildSummarySection(currency, subtotal, discount, total),
-            const SizedBox(height: 20),
-            DropdownButtonFormField<PaymentMethod>(
-              value: _payment,
-              decoration: const InputDecoration(
-                labelText: 'Metodo di pagamento',
-              ),
-              items:
-                  PaymentMethod.values
-                      .map(
-                        (method) => DropdownMenuItem(
-                          value: method,
-                          child: Text(_paymentLabel(method)),
-                        ),
-                      )
-                      .toList(),
-              validator:
-                  (value) =>
-                      value == null ? 'Seleziona il metodo di pagamento' : null,
-              onChanged: (value) => setState(() => _payment = value),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<SalePaymentStatus>(
-              value: _paymentStatus,
-              decoration: const InputDecoration(labelText: 'Stato pagamento'),
-              items:
-                  SalePaymentStatus.values
-                      .map(
-                        (status) => DropdownMenuItem(
-                          value: status,
-                          child: Text(status.label),
-                        ),
-                      )
-                      .toList(),
-              validator:
-                  (value) =>
-                      value == null ? 'Seleziona lo stato del pagamento' : null,
-              onChanged: (value) {
-                setState(() {
-                  _paymentStatus = value;
-                });
-                if (value != SalePaymentStatus.deposit) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted) {
-                      return;
-                    }
-                    _setPaidAmountText('');
+    return Material(
+      color: Colors.transparent,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Registra vendita', style: theme.textTheme.titleLarge),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: _salonId,
+                decoration: const InputDecoration(labelText: 'Salone'),
+                items:
+                    widget.salons
+                        .map(
+                          (salon) => DropdownMenuItem(
+                            value: salon.id,
+                            child: Text(salon.name),
+                          ),
+                        )
+                        .toList(),
+                onChanged: (value) {
+                  if (value == _salonId) {
+                    return;
+                  }
+                  setState(() {
+                    _salonId = value;
+                    _clientId = null;
+                    _staffId = null;
+                    _resetLines();
                   });
-                }
-              },
-            ),
-            if (_paymentStatus == SalePaymentStatus.deposit) ...[
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _paidAmountController,
-                decoration: const InputDecoration(
-                  labelText: 'Importo incassato (€)',
-                ),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                validator: (value) {
-                  if (_paymentStatus != SalePaymentStatus.deposit) {
-                    return null;
-                  }
-                  final amount = _parseAmount(value);
-                  if (amount == null || amount <= 0) {
-                    return 'Inserisci un importo valido';
-                  }
-                  if (amount > total + 0.01) {
-                    return 'L\'acconto supera il totale';
-                  }
-                  return null;
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _clientFieldKey.currentState?.didChange(_clientId);
+                  });
+                  _syncDiscountControllers(force: true);
+                  _recalculateLoyalty(autoSuggest: true);
                 },
               ),
+              const SizedBox(height: 12),
+              FormField<String>(
+                key: _clientFieldKey,
+                validator:
+                    (_) => _clientId == null ? 'Seleziona un cliente' : null,
+                builder: (state) {
+                  final selectedClient = currentClient;
+                  return InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => _selectClient(filteredClients),
+                    child: InputDecorator(
+                      decoration: InputDecoration(
+                        labelText: 'Cliente',
+                        errorText: state.errorText,
+                        suffixIcon: const Icon(Icons.search_rounded, size: 20),
+                      ),
+                      isEmpty: selectedClient == null,
+                      child: Text(
+                        selectedClient?.fullName ?? 'Seleziona cliente',
+                        style:
+                            selectedClient == null
+                                ? Theme.of(
+                                  context,
+                                ).textTheme.bodyMedium?.copyWith(
+                                  color: Theme.of(context).hintColor,
+                                )
+                                : Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _staffId,
+                decoration: const InputDecoration(
+                  labelText: 'Staff che ha effettuato la vendita',
+                ),
+                items:
+                    staff
+                        .map(
+                          (member) => DropdownMenuItem(
+                            value: member.id,
+                            child: Text(member.fullName),
+                          ),
+                        )
+                        .toList(),
+                onChanged: (value) => setState(() => _staffId = value),
+              ),
+              const SizedBox(height: 20),
+              Text('Elementi vendita', style: theme.textTheme.titleMedium),
               const SizedBox(height: 8),
-              Text(
-                'Residuo da incassare: ${currency.format(_remainingBalance(total))}',
-                style: theme.textTheme.bodyMedium,
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  FilledButton.tonalIcon(
+                    onPressed: _onAddService,
+                    icon: const Icon(Icons.design_services_rounded),
+                    label: const Text('Aggiungi servizio'),
+                  ),
+                  FilledButton.tonalIcon(
+                    onPressed: _onAddPackage,
+                    icon: const Icon(Icons.card_giftcard_rounded),
+                    label: const Text('Aggiungi pacchetto'),
+                  ),
+                  FilledButton.tonalIcon(
+                    onPressed: _onAddCustomPackage,
+                    icon: const Icon(Icons.auto_fix_high_rounded),
+                    label: const Text('Personalizza pacchetto'),
+                  ),
+                  FilledButton.tonalIcon(
+                    onPressed: _onAddInventoryItem,
+                    icon: const Icon(Icons.inventory_2_rounded),
+                    label: const Text('Aggiungi prodotto'),
+                  ),
+                  FilledButton.tonalIcon(
+                    onPressed: _onAddManualItem,
+                    icon: const Icon(Icons.add_circle_outline_rounded),
+                    label: const Text('Voce manuale'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              if (_lines.isEmpty)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      'Aggiungi almeno un servizio, pacchetto o prodotto per registrare la vendita.',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ),
+                )
+              else
+                Column(
+                  children: [
+                    for (var i = 0; i < _lines.length; i++) ...[
+                      _buildLineCard(_lines[i], i, currency),
+                      if (i < _lines.length - 1) const SizedBox(height: 12),
+                    ],
+                  ],
+                ),
+              const SizedBox(height: 16),
+              _buildSummarySection(
+                currency,
+                subtotal,
+                manualDiscount,
+                loyaltyDiscount,
+                total,
+              ),
+              const SizedBox(height: 16),
+              _buildLoyaltySection(currency, salon, currentClient),
+              const SizedBox(height: 20),
+              DropdownButtonFormField<PaymentMethod>(
+                value: _payment,
+                decoration: const InputDecoration(
+                  labelText: 'Metodo di pagamento',
+                ),
+                items:
+                    PaymentMethod.values
+                        .map(
+                          (method) => DropdownMenuItem(
+                            value: method,
+                            child: Text(_paymentLabel(method)),
+                          ),
+                        )
+                        .toList(),
+                validator:
+                    (value) =>
+                        value == null
+                            ? 'Seleziona il metodo di pagamento'
+                            : null,
+                onChanged: (value) => setState(() => _payment = value),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<SalePaymentStatus>(
+                value: _paymentStatus,
+                decoration: const InputDecoration(labelText: 'Stato pagamento'),
+                items:
+                    SalePaymentStatus.values
+                        .map(
+                          (status) => DropdownMenuItem(
+                            value: status,
+                            child: Text(status.label),
+                          ),
+                        )
+                        .toList(),
+                validator:
+                    (value) =>
+                        value == null
+                            ? 'Seleziona lo stato del pagamento'
+                            : null,
+                onChanged: (value) {
+                  setState(() {
+                    _paymentStatus = value;
+                  });
+                  if (value != SalePaymentStatus.deposit) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) {
+                        return;
+                      }
+                      _setPaidAmountText('');
+                    });
+                  }
+                },
+              ),
+              if (_paymentStatus == SalePaymentStatus.deposit) ...[
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _paidAmountController,
+                  decoration: const InputDecoration(
+                    labelText: 'Importo incassato (€)',
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  validator: (value) {
+                    if (_paymentStatus != SalePaymentStatus.deposit) {
+                      return null;
+                    }
+                    final amount = _parseAmount(value);
+                    if (amount == null || amount <= 0) {
+                      return 'Inserisci un importo valido';
+                    }
+                    if (amount > total + 0.01) {
+                      return 'L\'acconto supera il totale';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Residuo da incassare: ${currency.format(_remainingBalance(total))}',
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ],
+              const SizedBox(height: 12),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Data e ora vendita'),
+                subtitle: Text(dateFormat.format(_date)),
+                trailing: const Icon(Icons.calendar_month_rounded),
+                onTap: _pickDateTime,
+              ),
+
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _notesController,
+                decoration: const InputDecoration(labelText: 'Note'),
+                maxLines: 3,
+              ),
+              const SizedBox(height: 24),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton(
+                  onPressed: _submit,
+                  child: const Text('Salva'),
+                ),
               ),
             ],
-            const SizedBox(height: 12),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Data e ora vendita'),
-              subtitle: Text(dateFormat.format(_date)),
-              trailing: const Icon(Icons.calendar_month_rounded),
-              onTap: _pickDateTime,
-            ),
-
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _notesController,
-              decoration: const InputDecoration(labelText: 'Note'),
-              maxLines: 3,
-            ),
-            const SizedBox(height: 24),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                onPressed: _submit,
-                child: const Text('Salva'),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -537,11 +585,14 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   Widget _buildSummarySection(
     NumberFormat currency,
     double subtotal,
-    double discount,
+    double manualDiscount,
+    double loyaltyDiscount,
     double total,
   ) {
     final theme = Theme.of(context);
-    final discountPercent = subtotal <= 0 ? 0 : (discount / subtotal) * 100;
+    final combinedDiscount = manualDiscount + loyaltyDiscount;
+    final discountPercent =
+        subtotal <= 0 ? 0 : (combinedDiscount / subtotal) * 100;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -614,17 +665,13 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
               ],
             ),
             const SizedBox(height: 8),
-            Text(
-              'Sconto applicato: ${currency.format(discount)} (${discountPercent.toStringAsFixed(discountPercent.abs() < 10 ? 1 : 0)}%)',
-              style: theme.textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 8),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               title: const Text('Imposta manualmente l\'importo finale'),
               value: _manualTotalEnabled,
               onChanged:
-                  (value) => _toggleManualTotal(value, subtotal, discount),
+                  (value) =>
+                      _toggleManualTotal(value, subtotal, manualDiscount),
             ),
             if (_manualTotalEnabled) ...[
               const SizedBox(height: 8),
@@ -660,6 +707,27 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
               const SizedBox(height: 8),
             ],
             const Divider(),
+            if (manualDiscount > 0)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  'Sconto manuale: ${currency.format(manualDiscount)}',
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+            if (loyaltyDiscount > 0)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  'Sconto fedeltà: ${currency.format(loyaltyDiscount)}',
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+            Text(
+              'Sconto applicato: ${currency.format(combinedDiscount)} (${discountPercent.toStringAsFixed(discountPercent.abs() < 10 ? 1 : 0)}%)',
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -678,6 +746,270 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     );
   }
 
+  Salon? get _currentSalon =>
+      widget.salons.firstWhereOrNull((salon) => salon.id == _salonId);
+
+  Client? get _currentClient =>
+      widget.clients.firstWhereOrNull((client) => client.id == _clientId);
+
+  Widget _buildLoyaltySection(
+    NumberFormat currency,
+    Salon? salon,
+    Client? client,
+  ) {
+    final theme = Theme.of(context);
+
+    Widget buildInfo(String message) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(message, style: theme.textTheme.bodyMedium),
+        ),
+      );
+    }
+
+    if (salon == null) {
+      return buildInfo('Seleziona un salone per gestire il programma punti.');
+    }
+    if (client == null) {
+      return buildInfo('Seleziona un cliente per utilizzare i punti fedeltà.');
+    }
+
+    final settings = salon.loyaltySettings;
+    if (!settings.enabled) {
+      return buildInfo(
+        'Il programma fedeltà non è attivo per il salone selezionato.',
+      );
+    }
+
+    final availablePoints = _computeClientSpendable(client);
+    final canRedeem = _maxRedeemablePoints > 0;
+    final pointValueEuro =
+        settings.redemption.pointValueEuro <= 0
+            ? 1.0
+            : settings.redemption.pointValueEuro;
+    final maxValueFromPoints = _maxRedeemablePoints * pointValueEuro;
+    final displayableRedeemValue = math.min(
+      _maxRedeemableValue,
+      maxValueFromPoints,
+    );
+    final helperText =
+        canRedeem
+            ? 'Puoi usare al massimo $_maxRedeemablePoints punti (${currency.format(displayableRedeemValue)}).'
+            : availablePoints <= 0
+            ? 'Saldo punti insufficiente.'
+            : _loyaltyEligibleAmount <= 0
+            ? 'Aggiungi righe valide o riduci gli sconti manuali per abilitare il riscatto.'
+            : 'Nessun punto utilizzabile per questa vendita.';
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Programma fedeltà', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Saldo cliente'),
+                Text('$availablePoints pt'),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Utilizzabili ora'),
+                Text('${_maxRedeemablePoints} pt'),
+              ],
+            ),
+            if (_loyaltyEligibleAmount > 0) ...[
+              const SizedBox(height: 6),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Importo eleggibile'),
+                  Text(currency.format(_loyaltyEligibleAmount)),
+                ],
+              ),
+            ],
+            const SizedBox(height: 12),
+            TextFormField(
+              key: saleFormLoyaltyRedeemFieldKey,
+              controller: _loyaltyRedeemController,
+              enabled: canRedeem,
+              decoration: InputDecoration(
+                labelText: 'Punti da utilizzare',
+                helperText: helperText,
+              ),
+              keyboardType: const TextInputType.numberWithOptions(
+                signed: false,
+                decimal: false,
+              ),
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              onChanged: _onRedeemPointsChanged,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Sconto fedeltà: ${currency.format(_loyaltySummary.redeemedValue)}',
+              style: theme.textTheme.bodyMedium,
+            ),
+            Text(
+              'Punti in accredito (previsti): ${_loyaltySummary.requestedEarnPoints}',
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _onRedeemPointsChanged(String value) {
+    if (_updatingRedeemController) {
+      return;
+    }
+    final sanitized = value.trim().isEmpty ? '0' : value.trim();
+    final parsed = int.tryParse(sanitized) ?? 0;
+    final clamped = parsed.clamp(0, _maxRedeemablePoints);
+    if (parsed != clamped) {
+      _updateRedeemController(clamped);
+    }
+    if (clamped == _selectedRedeemPoints) {
+      _recalculateLoyalty();
+      return;
+    }
+    setState(() {
+      _selectedRedeemPoints = clamped;
+    });
+    _recalculateLoyalty();
+  }
+
+  void _updateRedeemController(int value) {
+    final text = value <= 0 ? '0' : value.toString();
+    if (_loyaltyRedeemController.text == text) {
+      return;
+    }
+    _updatingRedeemController = true;
+    _loyaltyRedeemController.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    _updatingRedeemController = false;
+  }
+
+  void _resetLoyaltyState() {
+    final hasData =
+        _selectedRedeemPoints != 0 ||
+        _maxRedeemablePoints != 0 ||
+        _maxRedeemableValue != 0 ||
+        _loyaltyEligibleAmount != 0 ||
+        _loyaltySummary.hasRedemption ||
+        _loyaltySummary.requestedEarnPoints != 0;
+    if (!hasData) {
+      _updateRedeemController(0);
+      return;
+    }
+    setState(() {
+      _selectedRedeemPoints = 0;
+      _maxRedeemablePoints = 0;
+      _maxRedeemableValue = 0;
+      _loyaltyEligibleAmount = 0;
+      _loyaltySummary = SaleLoyaltySummary();
+    });
+    _updateRedeemController(0);
+  }
+
+  void _recalculateLoyalty({bool autoSuggest = false}) {
+    final salon = _currentSalon;
+    final client = _currentClient;
+    final subtotal = _computeSubtotal();
+    final manualDiscount = _currentManualDiscount(subtotal);
+
+    if (salon == null || client == null || !salon.loyaltySettings.enabled) {
+      _resetLoyaltyState();
+      return;
+    }
+
+    if (subtotal <= 0) {
+      _resetLoyaltyState();
+      return;
+    }
+
+    final settings = salon.loyaltySettings;
+    final availablePoints = _computeClientSpendable(client);
+    var desired = _selectedRedeemPoints.clamp(0, availablePoints);
+    if (autoSuggest && settings.redemption.autoSuggest) {
+      desired = availablePoints;
+    }
+
+    final quote = LoyaltyCalculator.compute(
+      settings: settings,
+      subtotal: subtotal,
+      manualDiscount: manualDiscount,
+      availablePoints: availablePoints,
+      selectedRedeemPoints: desired,
+    );
+
+    setState(() {
+      _selectedRedeemPoints = quote.summary.redeemedPoints;
+      _loyaltySummary = quote.summary;
+      _maxRedeemablePoints = quote.maxRedeemablePoints;
+      _maxRedeemableValue = quote.maxRedeemableValue;
+      _loyaltyEligibleAmount = quote.eligibleAmount;
+    });
+    _updateRedeemController(quote.summary.redeemedPoints);
+  }
+
+  int _resolveLoyaltyValue(int? stored, int aggregated) {
+    if (stored == null) {
+      return aggregated;
+    }
+    if (stored == 0 && aggregated != 0) {
+      return aggregated;
+    }
+    return stored;
+  }
+
+  int _resolveSpendableBalance({required int stored, required int computed}) {
+    final normalizedStored = stored < 0 ? 0 : stored;
+    final normalizedComputed = computed < 0 ? 0 : computed;
+    if (normalizedStored == normalizedComputed) {
+      return normalizedStored;
+    }
+    if (normalizedComputed == 0 && normalizedStored != 0) {
+      return normalizedStored;
+    }
+    return normalizedComputed;
+  }
+
+  int _computeClientSpendable(Client client) {
+    final clientSales =
+        widget.sales.where((sale) => sale.clientId == client.id).toList();
+    final aggregatedEarned = clientSales.fold<int>(
+      0,
+      (sum, sale) => sum + sale.loyalty.resolvedEarnedPoints,
+    );
+    final aggregatedRedeemed = clientSales.fold<int>(
+      0,
+      (sum, sale) => sum + sale.loyalty.redeemedPoints,
+    );
+    final totalEarned = _resolveLoyaltyValue(
+      client.loyaltyTotalEarned,
+      aggregatedEarned,
+    );
+    final totalRedeemed = _resolveLoyaltyValue(
+      client.loyaltyTotalRedeemed,
+      aggregatedRedeemed,
+    );
+    final computed = client.loyaltyInitialPoints + totalEarned - totalRedeemed;
+    return _resolveSpendableBalance(
+      stored: client.loyaltyPoints,
+      computed: computed,
+    );
+  }
+
   void _attachLineListeners(_SaleLineDraft line) {
     line.quantityController.addListener(_handleLineChanged);
     line.priceController.addListener(_handleLineChanged);
@@ -689,6 +1021,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       _lines.add(line);
     });
     _syncDiscountControllers(force: true);
+    _recalculateLoyalty();
   }
 
   void _removeLine(String id) {
@@ -706,6 +1039,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     });
     line.dispose();
     _syncDiscountControllers(force: true);
+    _recalculateLoyalty();
   }
 
   void _resetLines() {
@@ -730,6 +1064,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         _clientId = selected.id;
       });
       _clientFieldKey.currentState?.didChange(selected.id);
+      _recalculateLoyalty(autoSuggest: true);
     }
   }
 
@@ -1042,9 +1377,11 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   void _handleLineChanged() {
     if (_manualTotalEnabled) {
       setState(() {});
+      _recalculateLoyalty();
       return;
     }
     _syncDiscountControllers();
+    _recalculateLoyalty();
   }
 
   void _handleDiscountAmountChanged() {
@@ -1078,6 +1415,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     }
     _programmaticDiscountUpdate = false;
     setState(() {});
+    _recalculateLoyalty();
   }
 
   void _handleDiscountPercentChanged() {
@@ -1114,6 +1452,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       _discountAmountController.text = '0';
       _programmaticDiscountUpdate = false;
       setState(() {});
+      _recalculateLoyalty();
       return;
     }
 
@@ -1122,11 +1461,13 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         amount == 0 ? '0' : amount.toStringAsFixed(2);
     _programmaticDiscountUpdate = false;
     setState(() {});
+    _recalculateLoyalty();
   }
 
   void _handleManualTotalChanged() {
     if (_manualTotalEnabled) {
       setState(() {});
+      _recalculateLoyalty();
     }
   }
 
@@ -1208,6 +1549,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   void _syncDiscountControllers({bool force = false}) {
     if (_manualTotalEnabled) {
       setState(() {});
+      _recalculateLoyalty();
       return;
     }
     if (!force && _programmaticDiscountUpdate) {
@@ -1240,14 +1582,18 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     setState(() {});
   }
 
-  void _toggleManualTotal(bool enabled, double subtotal, double discount) {
+  void _toggleManualTotal(
+    bool enabled,
+    double subtotal,
+    double manualDiscount,
+  ) {
     if (_manualTotalEnabled == enabled) {
       return;
     }
     setState(() {
       _manualTotalEnabled = enabled;
       if (enabled) {
-        final current = subtotal - discount;
+        final current = subtotal - manualDiscount;
         final base = current > 0 ? current : subtotal;
         _manualTotalController.text = base > 0 ? base.toStringAsFixed(2) : '';
       } else {
@@ -1255,6 +1601,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         _syncDiscountControllers(force: true);
       }
     });
+    _recalculateLoyalty();
   }
 
   double _computeSubtotal() {
@@ -1267,7 +1614,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     return double.parse(total.toStringAsFixed(2));
   }
 
-  double _currentDiscount(double subtotal) {
+  double _currentManualDiscount(double subtotal) {
     if (subtotal <= 0) {
       return 0;
     }
@@ -1401,12 +1748,15 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       _showSnackBar('Inserisci importi validi per la vendita.');
       return;
     }
-    final discount = _currentDiscount(subtotal);
-    final total = _currentTotal(subtotal, discount);
+    final manualDiscount = _currentManualDiscount(subtotal);
+    final baseTotal = _currentTotal(subtotal, manualDiscount);
+    final loyaltyValue = _normalizeCurrency(_loyaltySummary.redeemedValue);
+    final total = _normalizeCurrency(baseTotal - loyaltyValue);
     if (total <= 0) {
       _showSnackBar('Il totale della vendita deve essere positivo.');
       return;
     }
+    final totalDiscount = _normalizeCurrency(manualDiscount + loyaltyValue);
 
     final invoice = _invoiceController.text.trim();
     final notes = _notesController.text.trim();
@@ -1489,9 +1839,10 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       paidAmount: paidAmount,
       invoiceNumber: invoice.isEmpty ? null : invoice,
       notes: notes.isEmpty ? null : notes,
-      discountAmount: double.parse(discount.toStringAsFixed(2)),
+      discountAmount: totalDiscount,
       staffId: _staffId,
       paymentHistory: paymentMovements,
+      loyalty: _loyaltySummary,
     );
 
     Navigator.of(context).pop(sale);

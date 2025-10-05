@@ -526,14 +526,11 @@ class _AppointmentsTab extends ConsumerWidget {
       return false;
     }
 
-    final appointmentServices = appointment.serviceIds
-        .map(
-          (id) => services.firstWhereOrNull(
-            (item) => item.id == id,
-          ),
-        )
-        .whereType<Service>()
-        .toList();
+    final appointmentServices =
+        appointment.serviceIds
+            .map((id) => services.firstWhereOrNull((item) => item.id == id))
+            .whereType<Service>()
+            .toList();
     if (appointmentServices.isEmpty) {
       messenger.showSnackBar(
         const SnackBar(content: Text('Servizio non valido.')),
@@ -628,30 +625,35 @@ class _AppointmentGroup extends StatelessWidget {
               Text(emptyMessage, style: theme.textTheme.bodyMedium)
             else
               ...appointments.map((appointment) {
-                final appointmentServices = appointment.serviceIds
-                    .map(
-                      (id) => services.firstWhereOrNull(
-                        (element) => element.id == id,
-                      ),
-                    )
-                    .whereType<Service>()
-                    .toList();
+                final appointmentServices =
+                    appointment.serviceIds
+                        .map(
+                          (id) => services.firstWhereOrNull(
+                            (element) => element.id == id,
+                          ),
+                        )
+                        .whereType<Service>()
+                        .toList();
                 final operator = staff.firstWhereOrNull(
                   (element) => element.id == appointment.staffId,
                 );
                 final statusChip = _statusChip(context, appointment.status);
-                final amount = appointmentServices.isNotEmpty
-                    ? appointmentServices
-                        .map((service) => service.price)
-                        .fold<double>(0, (value, price) => value + price)
-                    : null;
+                final amount =
+                    appointmentServices.isNotEmpty
+                        ? appointmentServices
+                            .map((service) => service.price)
+                            .fold<double>(0, (value, price) => value + price)
+                        : null;
                 final packageLabel =
                     appointment.packageId == null
                         ? null
                         : 'Pacchetto #${appointment.packageId}';
-                final serviceLabel = appointmentServices.isNotEmpty
-                    ? appointmentServices.map((service) => service.name).join(' + ')
-                    : 'Servizio';
+                final serviceLabel =
+                    appointmentServices.isNotEmpty
+                        ? appointmentServices
+                            .map((service) => service.name)
+                            .join(' + ')
+                        : 'Servizio';
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: ListTile(
@@ -1369,6 +1371,39 @@ class _BillingTab extends ConsumerWidget {
       0,
       (sum, sale) => sum + sale.paidAmount,
     );
+    int resolveLoyaltyValue(int? stored, int aggregated) {
+      if (stored == null) {
+        return aggregated;
+      }
+      if (stored == 0 && aggregated != 0) {
+        return aggregated;
+      }
+      return stored;
+    }
+
+    final aggregatedEarned = sales.fold<int>(
+      0,
+      (sum, sale) => sum + sale.loyalty.resolvedEarnedPoints,
+    );
+    final aggregatedRedeemed = sales.fold<int>(
+      0,
+      (sum, sale) => sum + sale.loyalty.redeemedPoints,
+    );
+    final totalEarnedPoints = resolveLoyaltyValue(
+      client.loyaltyTotalEarned,
+      aggregatedEarned,
+    );
+    final totalRedeemedPoints = resolveLoyaltyValue(
+      client.loyaltyTotalRedeemed,
+      aggregatedRedeemed,
+    );
+    final initialPoints = client.loyaltyInitialPoints;
+    final computedSpendable =
+        initialPoints + totalEarnedPoints - totalRedeemedPoints;
+    final loyaltySpendable = _resolveSpendableBalance(
+      stored: client.loyaltyPoints,
+      computed: computedSpendable,
+    );
 
     final packages = resolveClientPackagePurchases(
       sales: data.sales,
@@ -1449,6 +1484,7 @@ class _BillingTab extends ConsumerWidget {
                   services: data.services,
                   packages: data.packages,
                   inventory: data.inventoryItems,
+                  sales: data.sales,
                 ),
             icon: const Icon(Icons.point_of_sale_rounded),
             label: const Text('Registra vendita'),
@@ -1460,6 +1496,10 @@ class _BillingTab extends ConsumerWidget {
           currency,
           totalPaid: totalPaid,
           outstandingTotal: outstandingTotal,
+          loyaltyInitial: initialPoints,
+          loyaltySpendable: loyaltySpendable,
+          loyaltyEarned: totalEarnedPoints,
+          loyaltyRedeemed: totalRedeemedPoints,
         ),
         const SizedBox(height: 16),
         _buildOutstandingCard(
@@ -1492,6 +1532,7 @@ class _BillingTab extends ConsumerWidget {
     required List<Service> services,
     required List<ServicePackage> packages,
     required List<InventoryItem> inventory,
+    required List<Sale> sales,
   }) async {
     if (salons.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1512,6 +1553,7 @@ class _BillingTab extends ConsumerWidget {
             services: services,
             packages: packages,
             inventoryItems: inventory,
+            sales: sales,
             defaultSalonId: client.salonId,
             initialClientId: client.id,
           ),
@@ -1730,6 +1772,10 @@ class _BillingTab extends ConsumerWidget {
     NumberFormat currency, {
     required double totalPaid,
     required double outstandingTotal,
+    required int loyaltyInitial,
+    required int loyaltySpendable,
+    required int loyaltyEarned,
+    required int loyaltyRedeemed,
   }) {
     return Card(
       child: Padding(
@@ -1757,12 +1803,63 @@ class _BillingTab extends ConsumerWidget {
                     emphasize: outstandingTotal > 0,
                   ),
                 ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildSummaryValue(
+                    theme,
+                    label: 'Saldo utilizzabile',
+                    value: '$loyaltySpendable pt',
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildSummaryValue(
+                    theme,
+                    label: 'Punti iniziali',
+                    value: '$loyaltyInitial pt',
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildSummaryValue(
+                    theme,
+                    label: 'Punti accumulati',
+                    value: '$loyaltyEarned pt',
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildSummaryValue(
+                    theme,
+                    label: 'Punti utilizzati',
+                    value: '$loyaltyRedeemed pt',
+                    emphasize: loyaltyRedeemed > 0,
+                  ),
+                ),
               ],
             ),
           ],
         ),
       ),
     );
+  }
+
+  int _resolveSpendableBalance({required int stored, required int computed}) {
+    final normalizedStored = stored < 0 ? 0 : stored;
+    final normalizedComputed = computed < 0 ? 0 : computed;
+    if (normalizedStored == normalizedComputed) {
+      return normalizedStored;
+    }
+    if (normalizedComputed == 0 && normalizedStored != 0) {
+      return normalizedStored;
+    }
+    return normalizedComputed;
   }
 
   Widget _buildSummaryValue(
@@ -2219,11 +2316,29 @@ class _BillingTab extends ConsumerWidget {
 
     movements.sort((a, b) => a.date.compareTo(b.date));
 
+    var loyaltySummary = sale.loyalty;
+    var discountAmount = sale.discountAmount;
+    var totalAmount = sale.total;
+    final loyaltyDiscount = _normalizeCurrency(sale.loyalty.redeemedValue);
+
+    if (nextPaidAmount <= 0.009 &&
+        (loyaltySummary.redeemedPoints != 0 ||
+            loyaltySummary.earnedPoints != 0)) {
+      loyaltySummary = SaleLoyaltySummary();
+      if (loyaltyDiscount > 0) {
+        discountAmount = _normalizeCurrency(discountAmount - loyaltyDiscount);
+        totalAmount = _normalizeCurrency(totalAmount + loyaltyDiscount);
+      }
+    }
+
     final updatedSale = sale.copyWith(
       paidAmount: nextPaidAmount,
       paymentStatus: nextStatus,
       items: adjustedItems,
       paymentHistory: movements,
+      loyalty: loyaltySummary,
+      discountAmount: discountAmount,
+      total: totalAmount,
     );
 
     final store = ref.read(appDataProvider.notifier);

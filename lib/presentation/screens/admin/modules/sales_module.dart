@@ -100,22 +100,36 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
             .toList()
           ..sort((a, b) => a.appointmentStart.compareTo(b.appointmentStart));
 
-    final cashFlow = allCashFlow
-        .where(
-          (entry) => DateUtils.isSameDay(entry.date, _selectedDate),
-        )
-        .toList();
+    final cashFlow =
+        allCashFlow
+            .where((entry) => DateUtils.isSameDay(entry.date, _selectedDate))
+            .toList();
     final today = DateUtils.dateOnly(DateTime.now());
-    final earliestEntryDate = allCashFlow.isEmpty
-        ? today.subtract(const Duration(days: 365))
-        : DateUtils.dateOnly(allCashFlow.last.date);
+    final earliestEntryDate =
+        allCashFlow.isEmpty
+            ? today.subtract(const Duration(days: 365))
+            : DateUtils.dateOnly(allCashFlow.last.date);
     final firstAvailableDate =
         earliestEntryDate.isAfter(today) ? today : earliestEntryDate;
     final canGoBackward = _selectedDate.isAfter(firstAvailableDate);
     final canGoForward = _selectedDate.isBefore(today);
-    final formattedSelectedDate =
-        DateFormat.yMMMMEEEEd('it_IT').format(_selectedDate);
+    final formattedSelectedDate = DateFormat.yMMMMEEEEd(
+      'it_IT',
+    ).format(_selectedDate);
     final ticketDateFormat = DateFormat('dd/MM/yyyy HH:mm');
+
+    final selectedSales =
+        sales
+            .where((sale) => DateUtils.isSameDay(sale.createdAt, _selectedDate))
+            .toList();
+    final selectedEarnedPoints = selectedSales.fold<int>(
+      0,
+      (sum, sale) => sum + sale.loyalty.resolvedEarnedPoints,
+    );
+    final selectedRedeemedPoints = selectedSales.fold<int>(
+      0,
+      (sum, sale) => sum + sale.loyalty.redeemedPoints,
+    );
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -143,6 +157,13 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                 title: 'Incasso',
                 value: currency.format(income),
                 subtitle: 'Entrate registrate',
+              ),
+              _SummaryTile(
+                icon: Icons.stars_rounded,
+                title: 'Punti netti',
+                value: '${selectedEarnedPoints - selectedRedeemedPoints} pt',
+                subtitle:
+                    'Assegnati: $selectedEarnedPoints • Usati: $selectedRedeemedPoints',
               ),
               /*_SummaryTile(
                 icon: Icons.money_off_csred_rounded,
@@ -174,6 +195,7 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                       services: services,
                       packages: packages,
                       inventory: inventoryItems,
+                      sales: sales,
                       defaultSalonId: salonId,
                     ),
                 icon: const Icon(Icons.point_of_sale_rounded),
@@ -244,6 +266,7 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                           services: services,
                           packages: packages,
                           inventory: inventoryItems,
+                          sales: sales,
                           defaultSalonId: salonId,
                           ticket: ticket,
                         ),
@@ -302,11 +325,12 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
               ),
               Expanded(
                 child: TextButton(
-                  onPressed: () => _pickDate(
-                    context,
-                    firstDate: firstAvailableDate,
-                    lastDate: today,
-                  ),
+                  onPressed:
+                      () => _pickDate(
+                        context,
+                        firstDate: firstAvailableDate,
+                        lastDate: today,
+                      ),
                   child: Text(
                     formattedSelectedDate,
                     textAlign: TextAlign.center,
@@ -320,11 +344,12 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
               ),
               IconButton(
                 tooltip: 'Seleziona data',
-                onPressed: () => _pickDate(
-                  context,
-                  firstDate: firstAvailableDate,
-                  lastDate: today,
-                ),
+                onPressed:
+                    () => _pickDate(
+                      context,
+                      firstDate: firstAvailableDate,
+                      lastDate: today,
+                    ),
                 icon: const Icon(Icons.event_rounded),
               ),
             ],
@@ -513,6 +538,7 @@ Future<void> _openSaleForm(
   required List<Service> services,
   required List<ServicePackage> packages,
   required List<InventoryItem> inventory,
+  required List<Sale> sales,
   String? defaultSalonId,
   PaymentTicket? ticket,
 }) async {
@@ -553,6 +579,7 @@ Future<void> _openSaleForm(
           services: services,
           packages: packages,
           inventoryItems: inventory,
+          sales: sales,
           defaultSalonId: ticket?.salonId ?? defaultSalonId,
           initialClientId: ticket?.clientId,
           initialItems: initialItems,

@@ -14,10 +14,12 @@ class Sale {
     this.discountAmount = 0,
     this.staffId,
     List<SalePaymentMovement>? paymentHistory,
+    SaleLoyaltySummary? loyalty,
   }) : paidAmount = double.parse(
          ((paidAmount ?? total).clamp(0, total)).toStringAsFixed(2),
-        ),
-       paymentHistory = List.unmodifiable(paymentHistory ?? const []);
+       ),
+       paymentHistory = List.unmodifiable(paymentHistory ?? const []),
+       loyalty = loyalty ?? SaleLoyaltySummary();
 
   final String id;
   final String salonId;
@@ -33,6 +35,7 @@ class Sale {
   final double discountAmount;
   final String? staffId;
   final List<SalePaymentMovement> paymentHistory;
+  final SaleLoyaltySummary loyalty;
 
   double get subtotal {
     return items.fold<double>(0, (sum, item) => sum + item.amount);
@@ -61,6 +64,7 @@ class Sale {
     double? discountAmount,
     Object? staffId = _unset,
     List<SalePaymentMovement>? paymentHistory,
+    SaleLoyaltySummary? loyalty,
   }) {
     return Sale(
       id: id ?? this.id,
@@ -77,6 +81,82 @@ class Sale {
       discountAmount: discountAmount ?? this.discountAmount,
       staffId: staffId == _unset ? this.staffId : staffId as String?,
       paymentHistory: paymentHistory ?? this.paymentHistory,
+      loyalty: loyalty ?? this.loyalty,
+    );
+  }
+}
+
+class SaleLoyaltySummary {
+  SaleLoyaltySummary({
+    this.redeemedPoints = 0,
+    this.redeemedValue = 0,
+    this.eligibleAmount = 0,
+    this.requestedEarnPoints = 0,
+    this.requestedEarnValue = 0,
+    List<String>? processedMovementIds,
+    this.earnedPoints = 0,
+    this.earnedValue = 0,
+    this.netPoints = 0,
+    this.computedAt,
+    this.version = 1,
+  }) : processedMovementIds =
+           processedMovementIds == null
+               ? const <String>[]
+               : List.unmodifiable(processedMovementIds);
+
+  final int redeemedPoints;
+  final double redeemedValue;
+  final double eligibleAmount;
+  final int requestedEarnPoints;
+  final double requestedEarnValue;
+  final List<String> processedMovementIds;
+  final int earnedPoints;
+  final double earnedValue;
+  final int netPoints;
+  final DateTime? computedAt;
+  final int version;
+
+  bool get hasRedemption => redeemedPoints > 0 && redeemedValue > 0;
+
+  int get resolvedEarnedPoints {
+    if (earnedPoints != 0) {
+      return earnedPoints;
+    }
+    if (requestedEarnPoints != 0) {
+      return requestedEarnPoints;
+    }
+    if (netPoints != 0) {
+      return netPoints + redeemedPoints;
+    }
+    return 0;
+  }
+
+  SaleLoyaltySummary copyWith({
+    int? redeemedPoints,
+    double? redeemedValue,
+    double? eligibleAmount,
+    int? requestedEarnPoints,
+    double? requestedEarnValue,
+    List<String>? processedMovementIds,
+    int? earnedPoints,
+    double? earnedValue,
+    int? netPoints,
+    Object? computedAt = _unset,
+    int? version,
+  }) {
+    return SaleLoyaltySummary(
+      redeemedPoints: redeemedPoints ?? this.redeemedPoints,
+      redeemedValue: redeemedValue ?? this.redeemedValue,
+      eligibleAmount: eligibleAmount ?? this.eligibleAmount,
+      requestedEarnPoints: requestedEarnPoints ?? this.requestedEarnPoints,
+      requestedEarnValue: requestedEarnValue ?? this.requestedEarnValue,
+      processedMovementIds: processedMovementIds ?? this.processedMovementIds,
+      earnedPoints: earnedPoints ?? this.earnedPoints,
+      earnedValue: earnedValue ?? this.earnedValue,
+      netPoints: netPoints ?? this.netPoints,
+      computedAt:
+          computedAt == _unset ? this.computedAt : computedAt as DateTime?,
+      version: version ?? this.version,
     );
   }
 }
@@ -288,9 +368,7 @@ class SalePaymentMovement {
       date: date ?? this.date,
       paymentMethod: paymentMethod ?? this.paymentMethod,
       recordedBy:
-          recordedBy == _unset
-              ? this.recordedBy
-              : recordedBy as String?,
+          recordedBy == _unset ? this.recordedBy : recordedBy as String?,
       note: note == _unset ? this.note : note as String?,
     );
   }

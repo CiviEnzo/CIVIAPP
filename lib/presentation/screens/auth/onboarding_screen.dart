@@ -30,7 +30,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
   final _professionController = TextEditingController();
-  final _referralController = TextEditingController();
+  String? _referralSource;
   final _dateOfBirthController = TextEditingController();
   final _salonSearchController = TextEditingController();
   final DateFormat _dateFormat = DateFormat('dd/MM/yyyy');
@@ -47,7 +47,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _phoneController.dispose();
     _addressController.dispose();
     _professionController.dispose();
-    _referralController.dispose();
     _dateOfBirthController.dispose();
     _salonSearchController.dispose();
     super.dispose();
@@ -127,9 +126,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           (existingClient.profession?.isNotEmpty ?? false)) {
         _professionController.text = existingClient.profession!;
       }
-      if (_referralController.text.isEmpty &&
+      if ((_referralSource == null || _referralSource!.isEmpty) &&
           (existingClient.referralSource?.isNotEmpty ?? false)) {
-        _referralController.text = existingClient.referralSource!;
+        _referralSource = existingClient.referralSource;
       }
       if (_dateOfBirth == null && existingClient.dateOfBirth != null) {
         _dateOfBirth = existingClient.dateOfBirth;
@@ -501,17 +500,53 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           ),
         ),
         const SizedBox(height: 12),
-        TextFormField(
-          controller: _referralController,
+        DropdownButtonFormField<String>(
+          value: _referralSource,
           decoration: const InputDecoration(
-            labelText: 'Come hai conosciuto il salone?',
+            labelText: 'Come ci hai conosciuto?',
             border: OutlineInputBorder(),
           ),
-          minLines: 1,
-          maxLines: 3,
+          hint: const Text('Seleziona un\'opzione'),
+          isExpanded: true,
+          items:
+              _buildReferralOptions()
+                  .map(
+                    (option) =>
+                        DropdownMenuItem(value: option, child: Text(option)),
+                  )
+                  .toList(),
+          onChanged: (value) => setState(() => _referralSource = value?.trim()),
         ),
       ],
     );
+  }
+
+  List<String> _buildReferralOptions() {
+    final options = List<String>.from(kClientReferralSourceOptions);
+    if (_referralSource != null &&
+        _referralSource!.isNotEmpty &&
+        !options.contains(_referralSource)) {
+      options.add(_referralSource!);
+    }
+    return options;
+  }
+
+  String _resolveClientNumber({
+    required List<Client> allClients,
+    required String salonId,
+    Client? existingClient,
+  }) {
+    final existingNumber = existingClient?.clientNumber;
+    if (existingNumber != null && existingNumber.isNotEmpty) {
+      return existingNumber;
+    }
+    final clientsForSalon = allClients.where((client) {
+      if (existingClient != null && client.id == existingClient.id) {
+        return false;
+      }
+      return client.salonId == salonId;
+    });
+    return nextSequentialClientNumber(clientsForSalon);
   }
 
   Future<void> _pickClientDateOfBirth() async {
@@ -533,10 +568,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       _dateOfBirth = selected;
       _dateOfBirthController.text = _dateFormat.format(selected);
     });
-  }
-
-  String _generateClientNumber() {
-    return DateTime.now().millisecondsSinceEpoch.toString();
   }
 
   bool _canAutoSubmit(UserRole? role, AppUser? user, List<Salon> salons) {
@@ -570,7 +601,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       if (_professionController.text.trim().isEmpty) {
         return false;
       }
-      if (_referralController.text.trim().isEmpty) {
+      if (_referralSource == null || _referralSource!.trim().isEmpty) {
         return false;
       }
     }
@@ -610,15 +641,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         return;
       }
       if (_addressController.text.trim().isEmpty) {
-        _showMessage('Inserisci l\'indirizzo di residenza.');
+        _showMessage('Inserisci la città di residenza.');
         return;
       }
       if (_professionController.text.trim().isEmpty) {
         _showMessage('Inserisci la professione.');
         return;
       }
-      if (_referralController.text.trim().isEmpty) {
-        _showMessage('Indica come hai conosciuto il salone.');
+      if (_referralSource == null || _referralSource!.trim().isEmpty) {
+        _showMessage('Seleziona come ci hai conosciuto.');
         return;
       }
     }
@@ -683,10 +714,33 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         final phone = _phoneController.text.trim();
         final address = _addressController.text.trim();
         final profession = _professionController.text.trim();
-        final referral = _referralController.text.trim();
-        final clientNumber =
-            existingClient?.clientNumber ?? _generateClientNumber();
+        final referral = (_referralSource ?? '').trim();
+        final clientNumber = _resolveClientNumber(
+          allClients: currentData.clients,
+          salonId: selectedSalonId,
+          existingClient: existingClient,
+        );
         final dateOfBirth = _dateOfBirth ?? existingClient?.dateOfBirth;
+        final selectedSalon = currentData.salons.firstWhereOrNull(
+          (salon) => salon.id == selectedSalonId,
+        );
+        final defaultInitialBalance =
+            (selectedSalon?.loyaltySettings.enabled ?? false)
+                ? selectedSalon!.loyaltySettings.initialBalance
+                : 0;
+        final loyaltyTotalEarned = existingClient?.loyaltyTotalEarned ?? 0;
+        final loyaltyTotalRedeemed = existingClient?.loyaltyTotalRedeemed ?? 0;
+        final resolvedInitial =
+            existingClient?.loyaltyInitialPoints ?? defaultInitialBalance;
+        final storedBalance = existingClient?.loyaltyPoints ?? resolvedInitial;
+        var historicNet = storedBalance - resolvedInitial;
+        if (historicNet == 0 &&
+            (loyaltyTotalEarned != 0 || loyaltyTotalRedeemed != 0)) {
+          historicNet = loyaltyTotalEarned - loyaltyTotalRedeemed;
+        }
+        final nextBalance = resolvedInitial + historicNet;
+        final loyaltyUpdatedAt =
+            existingClient?.loyaltyUpdatedAt ?? (nextBalance > 0 ? now : null);
         final client = Client(
           id: resolvedClientId,
           salonId: selectedSalonId,
@@ -701,7 +755,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           referralSource:
               referral.isEmpty ? existingClient?.referralSource : referral,
           email: user?.email ?? existingClient?.email,
-          loyaltyPoints: existingClient?.loyaltyPoints ?? 0,
+          loyaltyInitialPoints: resolvedInitial,
+          loyaltyPoints: nextBalance,
+          loyaltyUpdatedAt: loyaltyUpdatedAt,
+          loyaltyTotalEarned: loyaltyTotalEarned,
+          loyaltyTotalRedeemed: loyaltyTotalRedeemed,
           marketedConsents:
               existingClient?.marketedConsents ?? const <ClientConsent>[],
           notes:

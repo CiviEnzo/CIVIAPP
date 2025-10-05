@@ -1,3 +1,4 @@
+import 'package:civiapp/domain/entities/loyalty_settings.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -31,6 +32,16 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
   late List<_ClosureFormData> _closures;
   late List<_ScheduleEntry> _schedule;
   late SalonStatus _status;
+  late bool _loyaltyEnabled;
+  late TextEditingController _loyaltyEuroPerPoint;
+  late TextEditingController _loyaltyPointValueEuro;
+  late TextEditingController _loyaltyMaxPercent;
+  late TextEditingController _loyaltyInitialBalance;
+  late TextEditingController _loyaltyResetMonth;
+  late TextEditingController _loyaltyResetDay;
+  late TextEditingController _loyaltyTimezone;
+  late bool _loyaltyAutoSuggest;
+  late LoyaltyRoundingMode _loyaltyRounding;
 
   static const int _minutesInDay = 24 * 60;
   static const int _defaultOpeningMinutes = 9 * 60;
@@ -109,6 +120,32 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
         close: const TimeOfDay(hour: 19, minute: 0),
       );
     });
+
+    final loyalty = initial?.loyaltySettings ?? const LoyaltySettings();
+    _loyaltyEnabled = loyalty.enabled;
+    _loyaltyRounding = loyalty.earning.rounding;
+    _loyaltyAutoSuggest = loyalty.redemption.autoSuggest;
+    _loyaltyEuroPerPoint = TextEditingController(
+      text: loyalty.earning.euroPerPoint.toStringAsFixed(2),
+    );
+    _loyaltyPointValueEuro = TextEditingController(
+      text: loyalty.redemption.pointValueEuro.toStringAsFixed(2),
+    );
+    _loyaltyMaxPercent = TextEditingController(
+      text: (loyalty.redemption.maxPercent * 100).toStringAsFixed(1),
+    );
+    _loyaltyInitialBalance = TextEditingController(
+      text: loyalty.initialBalance.toString(),
+    );
+    _loyaltyResetMonth = TextEditingController(
+      text: loyalty.expiration.resetMonth.toString(),
+    );
+    _loyaltyResetDay = TextEditingController(
+      text: loyalty.expiration.resetDay.toString(),
+    );
+    _loyaltyTimezone = TextEditingController(
+      text: loyalty.expiration.timezone,
+    );
   }
 
   @override
@@ -132,6 +169,13 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
     for (final closure in _closures) {
       closure.dispose();
     }
+    _loyaltyEuroPerPoint.dispose();
+    _loyaltyPointValueEuro.dispose();
+    _loyaltyMaxPercent.dispose();
+    _loyaltyInitialBalance.dispose();
+    _loyaltyResetMonth.dispose();
+    _loyaltyResetDay.dispose();
+    _loyaltyTimezone.dispose();
     super.dispose();
   }
 
@@ -246,6 +290,8 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
               decoration: const InputDecoration(labelText: 'Descrizione'),
               maxLines: 3,
             ),
+            const SizedBox(height: 24),
+            _buildLoyaltyCard(context),
             const SizedBox(height: 24),
             Text(
               'Macchinari disponibili',
@@ -363,6 +409,244 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildLoyaltyCard(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Programma fedeltà', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 12),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: _loyaltyEnabled,
+              title: const Text('Abilita raccolta punti per questo salone'),
+              onChanged: (value) => setState(() => _loyaltyEnabled = value),
+            ),
+            const SizedBox(height: 12),
+            IgnorePointer(
+              ignoring: !_loyaltyEnabled,
+              child: AnimatedOpacity(
+                opacity: _loyaltyEnabled ? 1 : 0.4,
+                duration: const Duration(milliseconds: 200),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _loyaltyEuroPerPoint,
+                            decoration: const InputDecoration(
+                              labelText: '€ per punto',
+                              helperText: 'Es. 10 significa 1 punto ogni 10€',
+                            ),
+                            keyboardType:
+                                const TextInputType.numberWithOptions(decimal: true),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: DropdownButtonFormField<LoyaltyRoundingMode>(
+                            value: _loyaltyRounding,
+                            decoration: const InputDecoration(
+                              labelText: 'Arrotondamento',
+                            ),
+                            items:
+                                LoyaltyRoundingMode.values
+                                    .map(
+                                      (mode) => DropdownMenuItem(
+                                        value: mode,
+                                        child: Text(
+                                          _loyaltyRoundingLabel(mode),
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() => _loyaltyRounding = value);
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _loyaltyPointValueEuro,
+                            decoration: const InputDecoration(
+                              labelText: 'Valore punto (€)',
+                              helperText: 'Conversione in sconto (es. 1 = 1€)',
+                            ),
+                            keyboardType:
+                                const TextInputType.numberWithOptions(decimal: true),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _loyaltyMaxPercent,
+                            decoration: const InputDecoration(
+                              labelText: 'Max sconto (%)',
+                              helperText: 'Percentuale massima per transazione',
+                            ),
+                            keyboardType:
+                                const TextInputType.numberWithOptions(decimal: true),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Suggerisci automaticamente punti da usare'),
+                      value: _loyaltyAutoSuggest,
+                      onChanged:
+                          (value) => setState(() => _loyaltyAutoSuggest = value),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _loyaltyInitialBalance,
+                            decoration: const InputDecoration(
+                              labelText: 'Saldo iniziale punti',
+                            ),
+                            keyboardType:
+                                const TextInputType.numberWithOptions(decimal: false),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _loyaltyResetMonth,
+                            decoration: const InputDecoration(
+                              labelText: 'Mese reset (1-12)',
+                            ),
+                            keyboardType:
+                                const TextInputType.numberWithOptions(decimal: false),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _loyaltyResetDay,
+                            decoration: const InputDecoration(
+                              labelText: 'Giorno reset (1-31)',
+                            ),
+                            keyboardType:
+                                const TextInputType.numberWithOptions(decimal: false),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _loyaltyTimezone,
+                      decoration: const InputDecoration(
+                        labelText: 'Timezone',
+                        helperText: 'Es. Europe/Rome',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _loyaltyRoundingLabel(LoyaltyRoundingMode mode) {
+    switch (mode) {
+      case LoyaltyRoundingMode.floor:
+        return 'Per difetto';
+      case LoyaltyRoundingMode.round:
+        return 'Matematico';
+      case LoyaltyRoundingMode.ceil:
+        return 'Per eccesso';
+    }
+  }
+
+  LoyaltySettings? _buildLoyaltySettings() {
+    if (!_loyaltyEnabled) {
+      return const LoyaltySettings(enabled: false);
+    }
+
+    double? parseDouble(String value) =>
+        double.tryParse(value.replaceAll(',', '.').trim());
+
+    int? parseInt(String value) => int.tryParse(value.trim());
+
+    final euroPerPoint = parseDouble(_loyaltyEuroPerPoint.text);
+    if (euroPerPoint == null || euroPerPoint <= 0) {
+      _showError('Inserisci un valore valido per € per punto (>= 1).');
+      return null;
+    }
+
+    final pointValueEuro = parseDouble(_loyaltyPointValueEuro.text);
+    if (pointValueEuro == null || pointValueEuro <= 0) {
+      _showError('Inserisci un valore valido per il valore del punto.');
+      return null;
+    }
+
+    final maxPercentInput = parseDouble(_loyaltyMaxPercent.text);
+    if (maxPercentInput == null || maxPercentInput <= 0 || maxPercentInput > 50) {
+      _showError('Lo sconto massimo deve essere compreso tra 1% e 50%.');
+      return null;
+    }
+    final maxPercent = maxPercentInput / 100;
+
+    final initialBalance = parseInt(_loyaltyInitialBalance.text) ?? 0;
+    if (initialBalance < 0) {
+      _showError('Il saldo iniziale deve essere maggiore o uguale a zero.');
+      return null;
+    }
+
+    final resetMonth = parseInt(_loyaltyResetMonth.text) ?? 1;
+    if (resetMonth < 1 || resetMonth > 12) {
+      _showError('Il mese di reset deve essere compreso tra 1 e 12.');
+      return null;
+    }
+
+    final resetDay = parseInt(_loyaltyResetDay.text) ?? 1;
+    if (resetDay < 1 || resetDay > 31) {
+      _showError('Il giorno di reset deve essere compreso tra 1 e 31.');
+      return null;
+    }
+
+    final timezone = _loyaltyTimezone.text.trim().isEmpty
+        ? 'Europe/Rome'
+        : _loyaltyTimezone.text.trim();
+
+    return LoyaltySettings(
+      enabled: true,
+      earning: LoyaltyEarningRules(
+        euroPerPoint: euroPerPoint,
+        rounding: _loyaltyRounding,
+      ),
+      redemption: LoyaltyRedemptionRules(
+        pointValueEuro: pointValueEuro,
+        maxPercent: maxPercent,
+        autoSuggest: _loyaltyAutoSuggest,
+      ),
+      initialBalance: initialBalance,
+      expiration: LoyaltyExpirationRules(
+        resetMonth: resetMonth,
+        resetDay: resetDay,
+        timezone: timezone,
+      ),
+      updatedAt: DateTime.now(),
     );
   }
 
@@ -502,6 +786,11 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
       }
     }
 
+    final loyaltySettings = _buildLoyaltySettings();
+    if (loyaltySettings == null) {
+      return;
+    }
+
     final salonName = _name.text.trim();
     final salonId = widget.initial?.id ?? _generateSalonId(salonName);
 
@@ -525,6 +814,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
       closures: parsedClosures,
       schedule: schedule,
       status: _status,
+      loyaltySettings: loyaltySettings,
     );
 
     Navigator.of(context).pop(salon);

@@ -1,3 +1,5 @@
+import 'loyalty_settings.dart';
+
 enum SalonStatus { active, suspended, archived }
 
 extension SalonStatusDisplay on SalonStatus {
@@ -46,6 +48,7 @@ class Salon {
     this.description,
     this.schedule = const [],
     this.status = SalonStatus.active,
+    this.loyaltySettings = const LoyaltySettings(),
   });
 
   final String id;
@@ -64,6 +67,7 @@ class Salon {
   final String? description;
   final List<SalonDailySchedule> schedule;
   final SalonStatus status;
+  final LoyaltySettings loyaltySettings;
 
   Salon copyWith({
     String? id,
@@ -82,6 +86,7 @@ class Salon {
     String? description,
     List<SalonDailySchedule>? schedule,
     SalonStatus? status,
+    LoyaltySettings? loyaltySettings,
   }) {
     return Salon(
       id: id ?? this.id,
@@ -100,6 +105,7 @@ class Salon {
       description: description ?? this.description,
       schedule: schedule ?? this.schedule,
       status: status ?? this.status,
+      loyaltySettings: loyaltySettings ?? this.loyaltySettings,
     );
   }
 }
