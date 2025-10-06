@@ -822,7 +822,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text('Utilizzabili ora'),
-                Text('${_maxRedeemablePoints} pt'),
+                Text('$_maxRedeemablePoints pt'),
               ],
             ),
             if (_loyaltyEligibleAmount > 0) ...[
@@ -1150,6 +1150,10 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     if (selected == null) {
       return;
     }
+    if (selected.quantity <= 0) {
+      _showSnackBar('Prodotto esaurito in magazzino: ${selected.name}.');
+      return;
+    }
     final line = _createLineDraft(
       referenceType: SaleReferenceType.product,
       referenceId: selected.id,
@@ -1296,6 +1300,13 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         .where((item) => item.salonId == salonId)
         .toList()
       ..sort((a, b) => a.name.compareTo(b.name));
+  }
+
+  InventoryItem? _inventoryItemById(String? itemId) {
+    if (itemId == null) {
+      return null;
+    }
+    return widget.inventoryItems.firstWhereOrNull((item) => item.id == itemId);
   }
 
   _SaleLineDraft _createLineDraft({
@@ -1706,6 +1717,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     }
 
     final items = <SaleItem>[];
+    final Map<String, double> inventoryUsage = {};
     for (final line in _lines) {
       final description = line.descriptionController.text.trim();
       final quantityValue = _parseAmount(line.quantityController.text) ?? 0;
@@ -1715,6 +1727,35 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       if (description.isEmpty || quantity <= 0 || unitPrice <= 0) {
         _showSnackBar('Controlla le voci inserite: valori non validi.');
         return;
+      }
+      final referencedInventoryId = line.referenceId;
+      if (line.referenceType == SaleReferenceType.product &&
+          referencedInventoryId != null) {
+        final inventoryItem = _inventoryItemById(referencedInventoryId);
+        if (inventoryItem == null) {
+          _showSnackBar(
+            'Il prodotto selezionato non è più presente in magazzino.',
+          );
+          return;
+        }
+        final alreadyReserved = inventoryUsage[referencedInventoryId] ?? 0;
+        final remaining = inventoryItem.quantity - alreadyReserved;
+        if (remaining <= 0) {
+          _showSnackBar('Prodotto esaurito: ${inventoryItem.name}.');
+          return;
+        }
+        if (quantity > remaining + 0.000001) {
+          final availableText =
+              remaining % 1 == 0
+                  ? remaining.toStringAsFixed(0)
+                  : remaining.toStringAsFixed(2);
+          _showSnackBar(
+            'Quantità non disponibile per ${inventoryItem.name}. '
+            'Disponibili: $availableText ${inventoryItem.unit}.',
+          );
+          return;
+        }
+        inventoryUsage[referencedInventoryId] = alreadyReserved + quantity;
       }
       final referenceId = line.referenceId ?? 'manual-${line.id}';
       final metadata = line.packageMetadata;

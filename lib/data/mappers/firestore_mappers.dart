@@ -2,10 +2,13 @@ import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/cash_flow_entry.dart';
 import 'package:civiapp/domain/entities/app_notification.dart';
 import 'package:civiapp/domain/entities/client.dart';
+import 'package:civiapp/domain/entities/client_questionnaire.dart';
+import 'package:civiapp/domain/entities/client_photo.dart';
 import 'package:civiapp/domain/entities/inventory_item.dart';
 import 'package:civiapp/domain/entities/loyalty_settings.dart';
 import 'package:civiapp/domain/entities/message_template.dart';
 import 'package:civiapp/domain/entities/package.dart';
+import 'package:civiapp/domain/entities/quote.dart';
 import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/domain/entities/salon.dart';
@@ -191,6 +194,92 @@ Map<String, dynamic> paymentTicketToMap(PaymentTicket ticket) {
     'serviceName': ticket.serviceName,
     'notes': ticket.notes,
   };
+  map.removeWhere((_, value) => value == null);
+  return map;
+}
+
+Quote quoteFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+  final data = doc.data() ?? <String, dynamic>{};
+  final itemsRaw = data['items'] as List<dynamic>? ?? const [];
+  final items = itemsRaw.map((rawItem) {
+    if (rawItem is! Map<String, dynamic>) {
+      return null;
+    }
+    final quantity = (rawItem['quantity'] as num?)?.toDouble() ?? 1;
+    final unitPrice = (rawItem['unitPrice'] as num?)?.toDouble() ?? 0;
+    final id = rawItem['id'] as String? ?? const Uuid().v4();
+    return QuoteItem(
+      id: id,
+      description: rawItem['description'] as String? ?? '',
+      quantity: quantity,
+      unitPrice: unitPrice,
+      serviceId: rawItem['serviceId'] as String?,
+      packageId: rawItem['packageId'] as String?,
+    );
+  }).whereType<QuoteItem>().toList(growable: false);
+
+  return Quote(
+    id: doc.id,
+    salonId: data['salonId'] as String? ?? '',
+    clientId: data['clientId'] as String? ?? '',
+    items: items,
+    number: data['number'] as String?,
+    title: data['title'] as String?,
+    notes: data['notes'] as String?,
+    status: _stringToQuoteStatus(data['status'] as String?),
+    createdAt: _coerceToDateTime(data['createdAt']) ?? DateTime.now(),
+    updatedAt: _coerceToDateTime(data['updatedAt']),
+    validUntil: _coerceToDateTime(data['validUntil']),
+    sentAt: _coerceToDateTime(data['sentAt']),
+    acceptedAt: _coerceToDateTime(data['acceptedAt']),
+    declinedAt: _coerceToDateTime(data['declinedAt']),
+    ticketId: data['ticketId'] as String?,
+    sentChannels: _mapToMessageChannels(
+      data['sentChannels'] as List<dynamic>?,
+    ),
+    pdfStoragePath: data['pdfStoragePath'] as String?,
+  );
+}
+
+Map<String, dynamic> quoteToMap(Quote quote) {
+  final map = <String, dynamic>{
+    'salonId': quote.salonId,
+    'clientId': quote.clientId,
+    'number': quote.number,
+    'title': quote.title,
+    'notes': quote.notes,
+    'status': quote.status.name,
+    'createdAt': Timestamp.fromDate(quote.createdAt),
+    'updatedAt': quote.updatedAt != null
+        ? Timestamp.fromDate(quote.updatedAt!)
+        : null,
+    'validUntil':
+        quote.validUntil != null
+            ? Timestamp.fromDate(quote.validUntil!)
+            : null,
+    'sentAt': quote.sentAt != null ? Timestamp.fromDate(quote.sentAt!) : null,
+    'acceptedAt':
+        quote.acceptedAt != null ? Timestamp.fromDate(quote.acceptedAt!) : null,
+    'declinedAt':
+        quote.declinedAt != null ? Timestamp.fromDate(quote.declinedAt!) : null,
+    'ticketId': quote.ticketId,
+    'sentChannels': quote.sentChannels.map((channel) => channel.name).toList(),
+    'pdfStoragePath': quote.pdfStoragePath,
+    'total': quote.total,
+    'items': quote.items
+        .map(
+          (item) => {
+            'id': item.id,
+            'description': item.description,
+            'quantity': item.quantity,
+            'unitPrice': item.unitPrice,
+            'serviceId': item.serviceId,
+            'packageId': item.packageId,
+          },
+        )
+        .toList(),
+  };
+
   map.removeWhere((_, value) => value == null);
   return map;
 }
@@ -543,6 +632,236 @@ Map<String, dynamic> clientToMap(Client client) {
     map['onboardingCompletedAt'] = Timestamp.fromDate(
       client.onboardingCompletedAt!,
     );
+  }
+
+  return map;
+}
+
+ClientQuestionnaireTemplate clientQuestionnaireTemplateFromDoc(
+  DocumentSnapshot<Map<String, dynamic>> doc,
+) {
+  final data = doc.data() ?? <String, dynamic>{};
+  final groupsRaw = data['groups'] as List<dynamic>? ?? const [];
+  final groups =
+      groupsRaw.map((raw) {
+        final groupMap =
+            (raw as Map<String, dynamic>?) ?? const <String, dynamic>{};
+        final questionsRaw =
+            groupMap['questions'] as List<dynamic>? ?? const [];
+        final questions =
+            questionsRaw.map((questionRaw) {
+              final questionMap =
+                  (questionRaw as Map<String, dynamic>?) ??
+                  const <String, dynamic>{};
+              final optionsRaw =
+                  questionMap['options'] as List<dynamic>? ?? const [];
+              final options =
+                  optionsRaw.map((optionRaw) {
+                    final optionMap =
+                        (optionRaw as Map<String, dynamic>?) ??
+                        const <String, dynamic>{};
+                    return ClientQuestionOption(
+                      id: optionMap['id'] as String? ?? const Uuid().v4(),
+                      label: optionMap['label'] as String? ?? '',
+                      description: optionMap['description'] as String?,
+                    );
+                  }).toList();
+              return ClientQuestionDefinition(
+                id: questionMap['id'] as String? ?? const Uuid().v4(),
+                label: questionMap['label'] as String? ?? '',
+                type:
+                    _questionTypeFromString(questionMap['type'] as String?) ??
+                    ClientQuestionType.text,
+                helperText: questionMap['helperText'] as String?,
+                isRequired: questionMap['isRequired'] as bool? ?? false,
+                options: options,
+              );
+            }).toList();
+        return ClientQuestionGroup(
+          id: groupMap['id'] as String? ?? const Uuid().v4(),
+          title: groupMap['title'] as String? ?? '',
+          description: groupMap['description'] as String?,
+          sortOrder: (groupMap['sortOrder'] as num?)?.toInt() ?? 0,
+          questions: questions,
+        );
+      }).toList();
+
+  return ClientQuestionnaireTemplate(
+    id: doc.id,
+    salonId: data['salonId'] as String? ?? '',
+    name: data['name'] as String? ?? '',
+    description: data['description'] as String?,
+    createdAt: _timestampToDate(data['createdAt']),
+    updatedAt: _timestampToDate(data['updatedAt']),
+    isDefault: data['isDefault'] as bool? ?? false,
+    groups: groups,
+  );
+}
+
+Map<String, dynamic> clientQuestionnaireTemplateToMap(
+  ClientQuestionnaireTemplate template,
+) {
+  final map = <String, dynamic>{
+    'salonId': template.salonId,
+    'name': template.name,
+    'isDefault': template.isDefault,
+    'groups':
+        template.groups
+            .map(
+              (group) => {
+                'id': group.id,
+                'title': group.title,
+                'sortOrder': group.sortOrder,
+                if (group.description != null) 'description': group.description,
+                'questions':
+                    group.questions
+                        .map(
+                          (question) => {
+                            'id': question.id,
+                            'label': question.label,
+                            'type': question.type.name,
+                            'isRequired': question.isRequired,
+                            if (question.helperText != null)
+                              'helperText': question.helperText,
+                            if (question.options.isNotEmpty)
+                              'options':
+                                  question.options
+                                      .map(
+                                        (option) => {
+                                          'id': option.id,
+                                          'label': option.label,
+                                          if (option.description != null)
+                                            'description': option.description,
+                                        },
+                                      )
+                                      .toList(),
+                          },
+                        )
+                        .toList(),
+              },
+            )
+            .toList(),
+  };
+
+  if (template.description != null) {
+    map['description'] = template.description;
+  }
+  if (template.createdAt != null) {
+    map['createdAt'] = Timestamp.fromDate(template.createdAt!);
+  }
+  if (template.updatedAt != null) {
+    map['updatedAt'] = Timestamp.fromDate(template.updatedAt!);
+  }
+
+  return map;
+}
+
+ClientQuestionnaire clientQuestionnaireFromDoc(
+  DocumentSnapshot<Map<String, dynamic>> doc,
+) {
+  final data = doc.data() ?? <String, dynamic>{};
+  final answersRaw = data['answers'] as Map<String, dynamic>? ?? const {};
+  final answers = <ClientQuestionAnswer>[];
+  for (final entry in answersRaw.entries) {
+    final answerMap =
+        (entry.value as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    answers.add(
+      ClientQuestionAnswer(
+        questionId: entry.key,
+        boolValue: answerMap['boolValue'] as bool?,
+        textValue: answerMap['textValue'] as String?,
+        optionIds: (answerMap['optionIds'] as List<dynamic>? ?? const [])
+            .map((value) => value.toString())
+            .toList(growable: false),
+        numberValue: answerMap['numberValue'] as num?,
+        dateValue: _timestampToDate(answerMap['dateValue']),
+      ),
+    );
+  }
+
+  return ClientQuestionnaire(
+    id: doc.id,
+    clientId: data['clientId'] as String? ?? '',
+    salonId: data['salonId'] as String? ?? '',
+    templateId: data['templateId'] as String? ?? '',
+    answers: answers,
+    createdAt: _timestampToDate(data['createdAt']) ?? DateTime.now(),
+    updatedAt: _timestampToDate(data['updatedAt']) ?? DateTime.now(),
+  );
+}
+
+Map<String, dynamic> clientQuestionnaireToMap(
+  ClientQuestionnaire questionnaire,
+) {
+  final answers = <String, Map<String, dynamic>>{};
+  for (final answer in questionnaire.answers) {
+    final payload = <String, dynamic>{};
+    if (answer.boolValue != null) {
+      payload['boolValue'] = answer.boolValue;
+    }
+    if (answer.textValue != null) {
+      payload['textValue'] = answer.textValue;
+    }
+    if (answer.optionIds.isNotEmpty) {
+      payload['optionIds'] = answer.optionIds;
+    }
+    if (answer.numberValue != null) {
+      payload['numberValue'] = answer.numberValue;
+    }
+    if (answer.dateValue != null) {
+      payload['dateValue'] = Timestamp.fromDate(answer.dateValue!);
+    }
+    answers[answer.questionId] = payload;
+  }
+
+  return {
+    'clientId': questionnaire.clientId,
+    'salonId': questionnaire.salonId,
+    'templateId': questionnaire.templateId,
+    'answers': answers,
+    'createdAt': Timestamp.fromDate(questionnaire.createdAt),
+    'updatedAt': Timestamp.fromDate(questionnaire.updatedAt),
+  };
+}
+
+ClientPhoto clientPhotoFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+  final data = doc.data() ?? <String, dynamic>{};
+  return ClientPhoto(
+    id: doc.id,
+    clientId: data['clientId'] as String? ?? '',
+    salonId: data['salonId'] as String? ?? '',
+    storagePath: data['storagePath'] as String? ?? '',
+    downloadUrl: data['downloadUrl'] as String? ?? '',
+    uploadedAt: _timestampToDate(data['uploadedAt']) ?? DateTime.now(),
+    uploadedBy: data['uploadedBy'] as String? ?? '',
+    fileName: data['fileName'] as String?,
+    contentType: data['contentType'] as String?,
+    sizeBytes: (data['sizeBytes'] as num?)?.toInt(),
+    notes: data['notes'] as String?,
+  );
+}
+
+Map<String, dynamic> clientPhotoToMap(ClientPhoto photo) {
+  final map = <String, dynamic>{
+    'clientId': photo.clientId,
+    'salonId': photo.salonId,
+    'storagePath': photo.storagePath,
+    'downloadUrl': photo.downloadUrl,
+    'uploadedAt': Timestamp.fromDate(photo.uploadedAt),
+    'uploadedBy': photo.uploadedBy,
+  };
+
+  if (photo.fileName != null && photo.fileName!.isNotEmpty) {
+    map['fileName'] = photo.fileName;
+  }
+  if (photo.contentType != null && photo.contentType!.isNotEmpty) {
+    map['contentType'] = photo.contentType;
+  }
+  if (photo.sizeBytes != null && photo.sizeBytes! > 0) {
+    map['sizeBytes'] = photo.sizeBytes;
+  }
+  if (photo.notes != null && photo.notes!.isNotEmpty) {
+    map['notes'] = photo.notes;
   }
 
   return map;
@@ -1107,6 +1426,27 @@ DateTime? _timestampToDate(dynamic value) {
   return null;
 }
 
+ClientQuestionType? _questionTypeFromString(String? raw) {
+  switch (raw) {
+    case 'boolean':
+      return ClientQuestionType.boolean;
+    case 'text':
+      return ClientQuestionType.text;
+    case 'textarea':
+      return ClientQuestionType.textarea;
+    case 'singleChoice':
+      return ClientQuestionType.singleChoice;
+    case 'multiChoice':
+      return ClientQuestionType.multiChoice;
+    case 'number':
+      return ClientQuestionType.number;
+    case 'date':
+      return ClientQuestionType.date;
+    default:
+      return null;
+  }
+}
+
 PackagePurchaseStatus? _packageStatusFromString(String? value) {
   switch (value) {
     case 'active':
@@ -1416,10 +1756,37 @@ CashFlowType _stringToCashFlowType(String? value) {
   );
 }
 
+List<MessageChannel> _mapToMessageChannels(List<dynamic>? raw) {
+  if (raw == null || raw.isEmpty) {
+    return const <MessageChannel>[];
+  }
+  final channels = <MessageChannel>[];
+  for (final entry in raw) {
+    if (entry is! String) {
+      continue;
+    }
+    final channel = _stringToMessageChannel(entry);
+    if (!channels.contains(channel)) {
+      channels.add(channel);
+    }
+  }
+  return List.unmodifiable(channels);
+}
+
 MessageChannel _stringToMessageChannel(String? value) {
   return MessageChannel.values.firstWhere(
     (channel) => channel.name == value,
     orElse: () => MessageChannel.whatsapp,
+  );
+}
+
+QuoteStatus _stringToQuoteStatus(String? value) {
+  if (value == null || value.isEmpty) {
+    return QuoteStatus.draft;
+  }
+  return QuoteStatus.values.firstWhere(
+    (status) => status.name == value,
+    orElse: () => QuoteStatus.draft,
   );
 }
 

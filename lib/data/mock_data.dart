@@ -1,9 +1,12 @@
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/cash_flow_entry.dart';
 import 'package:civiapp/domain/entities/client.dart';
+import 'package:civiapp/domain/entities/client_questionnaire.dart';
+import 'package:civiapp/domain/entities/client_photo.dart';
 import 'package:civiapp/domain/entities/inventory_item.dart';
 import 'package:civiapp/domain/entities/message_template.dart';
 import 'package:civiapp/domain/entities/package.dart';
+import 'package:civiapp/domain/entities/quote.dart';
 import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/domain/entities/salon.dart';
@@ -135,6 +138,386 @@ class MockData {
       schedule: _defaultWeeklySchedule,
     ),
   ];
+
+  static List<ClientQuestionGroup> _anamnesisQuestionGroups() {
+    return <ClientQuestionGroup>[
+      ClientQuestionGroup(
+        id: 'grp-cardiovascular',
+        title: 'Condizioni cardiovascolari',
+        sortOrder: 10,
+        questions: <ClientQuestionDefinition>[
+          ClientQuestionDefinition(
+            id: 'q-cardiac-disease',
+            label: 'Patologie cardiache (infarto, aritmie, insufficienza)?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-blood-pressure',
+            label: 'Pressione alta o bassa?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-pacemaker',
+            label: 'Portatore di pacemaker o defibrillatore?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-heart-meds',
+            label:
+                'Assunzione di farmaci cardiaci (anticoagulanti, beta-bloccanti)?',
+            type: ClientQuestionType.boolean,
+          ),
+        ],
+      ),
+      ClientQuestionGroup(
+        id: 'grp-pregnancy',
+        title: 'Gravidanza e allattamento',
+        sortOrder: 20,
+        questions: <ClientQuestionDefinition>[
+          ClientQuestionDefinition(
+            id: 'q-pregnant',
+            label: 'Attualmente incinta?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-breastfeeding',
+            label: 'Sta allattando?',
+            type: ClientQuestionType.boolean,
+          ),
+        ],
+      ),
+      ClientQuestionGroup(
+        id: 'grp-general-pathologies',
+        title: 'Patologie generali',
+        sortOrder: 30,
+        questions: <ClientQuestionDefinition>[
+          ClientQuestionDefinition(
+            id: 'q-diabetes',
+            label: 'Diabete diagnosticato?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-diabetes-meds',
+            label: 'Assunzione di farmaci per il diabete?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-insulin-resistance',
+            label: 'Insulino-resistenza confermata?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-kidney-liver',
+            label: 'Problemi renali o epatici?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-autoimmune',
+            label: 'Patologie autoimmuni o croniche?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-general-notes',
+            label: 'Dettagli o note aggiuntive',
+            type: ClientQuestionType.textarea,
+            helperText: 'Specificare eventuali terapie in corso.',
+          ),
+        ],
+      ),
+      ClientQuestionGroup(
+        id: 'grp-hormonal',
+        title: 'Storia ormonale',
+        sortOrder: 40,
+        questions: <ClientQuestionDefinition>[
+          ClientQuestionDefinition(
+            id: 'q-menstrual-irregularities',
+            label: 'Irregolarita mestruali?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-menopause',
+            label: 'Menopausa in corso?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-pcos',
+            label: 'Problemi di ovaio policistico o simili?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-thyroid',
+            label: 'Patologie tiroidee o endocrine?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-weight-history',
+            label:
+                'Storia di sovrappeso, obesita o difficolta nel controllo del peso?',
+            type: ClientQuestionType.boolean,
+          ),
+        ],
+      ),
+      ClientQuestionGroup(
+        id: 'grp-allergies',
+        title: 'Allergie e reazioni',
+        sortOrder: 50,
+        questions: <ClientQuestionDefinition>[
+          ClientQuestionDefinition(
+            id: 'q-allergies',
+            label: 'Allergie note a farmaci, cosmetici o lattice?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-adverse-reactions',
+            label: 'Reazioni avverse a trattamenti estetici o farmaci?',
+            type: ClientQuestionType.boolean,
+          ),
+        ],
+      ),
+      ClientQuestionGroup(
+        id: 'grp-skin',
+        title: 'Disturbi della pelle',
+        sortOrder: 60,
+        questions: <ClientQuestionDefinition>[
+          ClientQuestionDefinition(
+            id: 'q-skin-disorders',
+            label: 'Dermatiti, eczema, psoriasi o ferite aperte?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-topical-therapies',
+            label: 'Terapie topiche o sistemiche in corso?',
+            type: ClientQuestionType.boolean,
+          ),
+        ],
+      ),
+      ClientQuestionGroup(
+        id: 'grp-surgery',
+        title: 'Chirurgia e trattamenti recenti',
+        sortOrder: 70,
+        questions: <ClientQuestionDefinition>[
+          ClientQuestionDefinition(
+            id: 'q-surgery-last12',
+            label: 'Interventi chirurgici negli ultimi 12 mesi?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-recent-aesthetic',
+            label:
+                'Trattamenti estetici recenti (laser, filler, peeling, botox)?',
+            type: ClientQuestionType.boolean,
+          ),
+        ],
+      ),
+      ClientQuestionGroup(
+        id: 'grp-activity',
+        title: 'Attivita fisica',
+        sortOrder: 80,
+        questions: <ClientQuestionDefinition>[
+          ClientQuestionDefinition(
+            id: 'q-activity-regular',
+            label: 'Pratica attivita fisica regolare?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-activity-type',
+            label: 'Tipo di attivita praticata',
+            type: ClientQuestionType.text,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-activity-frequency',
+            label: 'Frequenza settimanale e durata',
+            type: ClientQuestionType.text,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-sedentary',
+            label: 'Stile di vita sedentario?',
+            type: ClientQuestionType.boolean,
+          ),
+        ],
+      ),
+      ClientQuestionGroup(
+        id: 'grp-nutrition',
+        title: 'Alimentazione',
+        sortOrder: 90,
+        questions: <ClientQuestionDefinition>[
+          ClientQuestionDefinition(
+            id: 'q-special-diet',
+            label: 'Segue una dieta particolare o nutrizionista?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-dietary-restrictions',
+            label: 'Restrizioni o intolleranze alimentari?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-fruit-veg-portions',
+            label: 'Porzioni di frutta o verdura al giorno',
+            type: ClientQuestionType.number,
+            helperText: 'Inserire un valore medio giornaliero.',
+          ),
+          ClientQuestionDefinition(
+            id: 'q-sugar-fat',
+            label: 'Consumo frequente di zuccheri o grassi?',
+            type: ClientQuestionType.boolean,
+          ),
+        ],
+      ),
+      ClientQuestionGroup(
+        id: 'grp-hydration',
+        title: 'Idratazione',
+        sortOrder: 100,
+        questions: <ClientQuestionDefinition>[
+          ClientQuestionDefinition(
+            id: 'q-water-intake',
+            label: 'Quanta acqua beve mediamente al giorno?',
+            type: ClientQuestionType.singleChoice,
+            options: <ClientQuestionOption>[
+              ClientQuestionOption(id: 'lt_less_1', label: 'Meno di 1 litro'),
+              ClientQuestionOption(id: 'lt_1_2', label: 'Tra 1 e 2 litri'),
+              ClientQuestionOption(id: 'lt_over_2', label: 'Oltre 2 litri'),
+            ],
+          ),
+          ClientQuestionDefinition(
+            id: 'q-sugary-drinks',
+            label: 'Consumo di bevande zuccherate o alcoliche?',
+            type: ClientQuestionType.boolean,
+          ),
+        ],
+      ),
+      ClientQuestionGroup(
+        id: 'grp-sleep-stress',
+        title: 'Sonno e stress',
+        sortOrder: 110,
+        questions: <ClientQuestionDefinition>[
+          ClientQuestionDefinition(
+            id: 'q-sleep-hours',
+            label: 'Ore di sonno medie per notte',
+            type: ClientQuestionType.number,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-insomnia',
+            label: 'Problemi di insonnia?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-stress-level',
+            label: 'Livello di stress percepito',
+            type: ClientQuestionType.singleChoice,
+            options: <ClientQuestionOption>[
+              ClientQuestionOption(id: 'low', label: 'Basso'),
+              ClientQuestionOption(id: 'medium', label: 'Medio'),
+              ClientQuestionOption(id: 'high', label: 'Alto'),
+            ],
+          ),
+        ],
+      ),
+      ClientQuestionGroup(
+        id: 'grp-skin-care',
+        title: 'Cura della pelle',
+        sortOrder: 120,
+        questions: <ClientQuestionDefinition>[
+          ClientQuestionDefinition(
+            id: 'q-uses-cosmetics',
+            label: 'Utilizza creme o cosmetici?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-cosmetic-source',
+            label: 'Dove acquista abitualmente i prodotti?',
+            type: ClientQuestionType.singleChoice,
+            options: <ClientQuestionOption>[
+              ClientQuestionOption(id: 'pharmacy', label: 'Farmacia'),
+              ClientQuestionOption(id: 'supermarket', label: 'Supermercato'),
+              ClientQuestionOption(
+                id: 'beauty_center',
+                label: 'Centro estetico',
+              ),
+              ClientQuestionOption(id: 'other', label: 'Altro'),
+            ],
+          ),
+          ClientQuestionDefinition(
+            id: 'q-products-used',
+            label: 'Prodotti utilizzati regolarmente',
+            type: ClientQuestionType.textarea,
+          ),
+        ],
+      ),
+      ClientQuestionGroup(
+        id: 'grp-hair-removal',
+        title: 'Depilazione',
+        sortOrder: 130,
+        questions: <ClientQuestionDefinition>[
+          ClientQuestionDefinition(
+            id: 'q-hair-removal-method',
+            label: 'Metodo di depilazione utilizzato',
+            type: ClientQuestionType.singleChoice,
+            options: <ClientQuestionOption>[
+              ClientQuestionOption(id: 'wax', label: 'Ceretta'),
+              ClientQuestionOption(id: 'razor', label: 'Rasoio'),
+              ClientQuestionOption(id: 'epilator', label: 'Epilatore'),
+              ClientQuestionOption(id: 'laser', label: 'Laser'),
+              ClientQuestionOption(id: 'other', label: 'Altro'),
+            ],
+          ),
+        ],
+      ),
+      ClientQuestionGroup(
+        id: 'grp-previous-treatments',
+        title: 'Trattamenti estetici precedenti',
+        sortOrder: 140,
+        questions: <ClientQuestionDefinition>[
+          ClientQuestionDefinition(
+            id: 'q-previous-treatments',
+            label: 'Ha effettuato trattamenti viso o corpo precedenti?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-previous-treatments-notes',
+            label: 'Specificare trattamenti precedenti',
+            type: ClientQuestionType.textarea,
+            helperText: 'Inserire trattamenti, date e risultati.',
+          ),
+        ],
+      ),
+      ClientQuestionGroup(
+        id: 'grp-goals',
+        title: 'Obiettivi personali',
+        sortOrder: 150,
+        questions: <ClientQuestionDefinition>[
+          ClientQuestionDefinition(
+            id: 'q-treatment-goals',
+            label: 'Obiettivi personali del trattamento',
+            type: ClientQuestionType.textarea,
+          ),
+        ],
+      ),
+      ClientQuestionGroup(
+        id: 'grp-consent',
+        title: 'Consenso informato',
+        sortOrder: 160,
+        questions: <ClientQuestionDefinition>[
+          ClientQuestionDefinition(
+            id: 'q-consent-informed',
+            label:
+                'Il cliente dichiara di aver ricevuto tutte le informazioni sul trattamento?',
+            type: ClientQuestionType.boolean,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-client-signature',
+            label: 'Firma cliente',
+            type: ClientQuestionType.text,
+          ),
+          ClientQuestionDefinition(
+            id: 'q-consent-date',
+            label: 'Data compilazione',
+            type: ClientQuestionType.date,
+          ),
+        ],
+      ),
+    ];
+  }
 
   static final staffRoles = <StaffRole>[
     const StaffRole(
@@ -296,6 +679,196 @@ class MockData {
         whatsapp: false,
         sms: true,
       ),
+    ),
+  ];
+
+  static final clientPhotos = <ClientPhoto>[
+    ClientPhoto(
+      id: 'photo-sara-1',
+      salonId: 'salon-001',
+      clientId: 'client-001',
+      storagePath:
+          'salon_media/salon-001/clients/client-001/photos/photo-sara-1.jpg',
+      downloadUrl:
+          'https://storage.googleapis.com/civiapp-mock/photo-sara-1.jpg',
+      uploadedAt: _now.subtract(const Duration(days: 30)),
+      uploadedBy: 'staff-001',
+      fileName: 'trattamento-viso-1.jpg',
+      contentType: 'image/jpeg',
+      sizeBytes: 1800000,
+      notes: 'Risultato dopo il terzo trattamento viso rigenerante.',
+    ),
+    ClientPhoto(
+      id: 'photo-sara-2',
+      salonId: 'salon-001',
+      clientId: 'client-001',
+      storagePath:
+          'salon_media/salon-001/clients/client-001/photos/photo-sara-2.jpg',
+      downloadUrl:
+          'https://storage.googleapis.com/civiapp-mock/photo-sara-2.jpg',
+      uploadedAt: _now.subtract(const Duration(days: 7)),
+      uploadedBy: 'staff-002',
+      fileName: 'prima-dopo-manicure.jpg',
+      contentType: 'image/jpeg',
+      sizeBytes: 950000,
+      notes: 'Prima e dopo il trattamento manicure deluxe.',
+    ),
+    ClientPhoto(
+      id: 'photo-daniele-1',
+      salonId: 'salon-002',
+      clientId: 'client-003',
+      storagePath:
+          'salon_media/salon-002/clients/client-003/photos/photo-daniele-1.jpg',
+      downloadUrl:
+          'https://storage.googleapis.com/civiapp-mock/photo-daniele-1.jpg',
+      uploadedAt: _now.subtract(const Duration(days: 12)),
+      uploadedBy: 'staff-003',
+      fileName: 'pressoterapia-sessione1.jpg',
+      contentType: 'image/jpeg',
+      sizeBytes: 1320000,
+      notes: 'Foto della prima sessione di pressoterapia.',
+    ),
+  ];
+
+  static final clientQuestionnaireTemplates = <ClientQuestionnaireTemplate>[
+    ClientQuestionnaireTemplate(
+      id: 'tmpl-anamnesi-salon-001',
+      salonId: 'salon-001',
+      name: 'Anamnesi estetica base',
+      description:
+          'Questionario anamnestico standard per i clienti del centro di Milano.',
+      createdAt: _now.subtract(const Duration(days: 120)),
+      updatedAt: _now.subtract(const Duration(days: 7)),
+      isDefault: true,
+      groups: _anamnesisQuestionGroups(),
+    ),
+    ClientQuestionnaireTemplate(
+      id: 'tmpl-anamnesi-salon-002',
+      salonId: 'salon-002',
+      name: 'Anamnesi estetica base',
+      description:
+          'Template condiviso per il centro di Roma, modificabile dallo staff.',
+      createdAt: _now.subtract(const Duration(days: 90)),
+      updatedAt: _now.subtract(const Duration(days: 14)),
+      isDefault: true,
+      groups: _anamnesisQuestionGroups(),
+    ),
+  ];
+
+  static final clientQuestionnaires = <ClientQuestionnaire>[
+    ClientQuestionnaire(
+      id: 'cq-client-001',
+      clientId: 'client-001',
+      salonId: 'salon-001',
+      templateId: 'tmpl-anamnesi-salon-001',
+      createdAt: _now.subtract(const Duration(days: 60)),
+      updatedAt: _now.subtract(const Duration(days: 12)),
+      answers: [
+        ClientQuestionAnswer(questionId: 'q-cardiac-disease', boolValue: false),
+        ClientQuestionAnswer(questionId: 'q-blood-pressure', boolValue: false),
+        ClientQuestionAnswer(questionId: 'q-pacemaker', boolValue: false),
+        ClientQuestionAnswer(questionId: 'q-heart-meds', boolValue: false),
+        ClientQuestionAnswer(questionId: 'q-pregnant', boolValue: false),
+        ClientQuestionAnswer(questionId: 'q-breastfeeding', boolValue: false),
+        ClientQuestionAnswer(questionId: 'q-diabetes', boolValue: false),
+        ClientQuestionAnswer(questionId: 'q-diabetes-meds', boolValue: false),
+        ClientQuestionAnswer(
+          questionId: 'q-insulin-resistance',
+          boolValue: false,
+        ),
+        ClientQuestionAnswer(questionId: 'q-kidney-liver', boolValue: false),
+        ClientQuestionAnswer(questionId: 'q-autoimmune', boolValue: false),
+        ClientQuestionAnswer(questionId: 'q-general-notes', textValue: ''),
+        ClientQuestionAnswer(
+          questionId: 'q-menstrual-irregularities',
+          boolValue: false,
+        ),
+        ClientQuestionAnswer(questionId: 'q-menopause', boolValue: false),
+        ClientQuestionAnswer(questionId: 'q-pcos', boolValue: false),
+        ClientQuestionAnswer(questionId: 'q-thyroid', boolValue: false),
+        ClientQuestionAnswer(questionId: 'q-weight-history', boolValue: true),
+        ClientQuestionAnswer(questionId: 'q-allergies', boolValue: false),
+        ClientQuestionAnswer(
+          questionId: 'q-adverse-reactions',
+          boolValue: false,
+        ),
+        ClientQuestionAnswer(questionId: 'q-skin-disorders', boolValue: false),
+        ClientQuestionAnswer(
+          questionId: 'q-topical-therapies',
+          boolValue: false,
+        ),
+        ClientQuestionAnswer(questionId: 'q-surgery-last12', boolValue: false),
+        ClientQuestionAnswer(
+          questionId: 'q-recent-aesthetic',
+          boolValue: false,
+        ),
+        ClientQuestionAnswer(questionId: 'q-activity-regular', boolValue: true),
+        ClientQuestionAnswer(
+          questionId: 'q-activity-type',
+          textValue: 'Yoga e pilates',
+        ),
+        ClientQuestionAnswer(
+          questionId: 'q-activity-frequency',
+          textValue: '3 volte a settimana, 60 minuti',
+        ),
+        ClientQuestionAnswer(questionId: 'q-sedentary', boolValue: false),
+        ClientQuestionAnswer(questionId: 'q-special-diet', boolValue: false),
+        ClientQuestionAnswer(
+          questionId: 'q-dietary-restrictions',
+          boolValue: false,
+        ),
+        ClientQuestionAnswer(
+          questionId: 'q-fruit-veg-portions',
+          numberValue: 4,
+        ),
+        ClientQuestionAnswer(questionId: 'q-sugar-fat', boolValue: false),
+        ClientQuestionAnswer(
+          questionId: 'q-water-intake',
+          optionIds: ['lt_1_2'],
+        ),
+        ClientQuestionAnswer(questionId: 'q-sugary-drinks', boolValue: false),
+        ClientQuestionAnswer(questionId: 'q-sleep-hours', numberValue: 7),
+        ClientQuestionAnswer(questionId: 'q-insomnia', boolValue: false),
+        ClientQuestionAnswer(
+          questionId: 'q-stress-level',
+          optionIds: ['medium'],
+        ),
+        ClientQuestionAnswer(questionId: 'q-uses-cosmetics', boolValue: true),
+        ClientQuestionAnswer(
+          questionId: 'q-cosmetic-source',
+          optionIds: ['beauty_center'],
+        ),
+        ClientQuestionAnswer(
+          questionId: 'q-products-used',
+          textValue: 'Detergente specifico e crema idratante SPF 30.',
+        ),
+        ClientQuestionAnswer(
+          questionId: 'q-hair-removal-method',
+          optionIds: ['laser'],
+        ),
+        ClientQuestionAnswer(
+          questionId: 'q-previous-treatments',
+          boolValue: true,
+        ),
+        ClientQuestionAnswer(
+          questionId: 'q-previous-treatments-notes',
+          textValue: 'Peeling chimico leggero tre mesi fa.',
+        ),
+        ClientQuestionAnswer(
+          questionId: 'q-treatment-goals',
+          textValue:
+              'Migliorare il tono del viso e mantenere risultati a lungo termine.',
+        ),
+        ClientQuestionAnswer(questionId: 'q-consent-informed', boolValue: true),
+        ClientQuestionAnswer(
+          questionId: 'q-client-signature',
+          textValue: 'Sara Verdi',
+        ),
+        ClientQuestionAnswer(
+          questionId: 'q-consent-date',
+          dateValue: _now.subtract(const Duration(days: 45)),
+        ),
+      ],
     ),
   ];
 
@@ -462,6 +1035,68 @@ class MockData {
     ),
   ];
 
+  static final quotes = <Quote>[
+    Quote(
+      id: 'quote-001',
+      salonId: 'salon-001',
+      clientId: 'client-001',
+      number: 'PR-${_now.year}-001',
+      title: 'Pacchetto rimodellante 5 sessioni',
+      notes: 'Offerta valida 30 giorni, pagamento anticipato del 30%.',
+      status: QuoteStatus.sent,
+      createdAt: _now.subtract(const Duration(days: 2)),
+      updatedAt: _now.subtract(const Duration(days: 2)),
+      sentAt: _now.subtract(const Duration(days: 2)),
+      validUntil: _now.add(const Duration(days: 28)),
+      sentChannels: const [MessageChannel.email],
+      items: const [
+        QuoteItem(
+          id: 'quote-001-item-1',
+          description: 'Pacchetto pressoterapia 5 sessioni',
+          quantity: 1,
+          unitPrice: 320,
+          serviceId: 'srv-massage',
+        ),
+        QuoteItem(
+          id: 'quote-001-item-2',
+          description: 'Crema corpo drenante home-care',
+          quantity: 1,
+          unitPrice: 39,
+        ),
+      ],
+    ),
+    Quote(
+      id: 'quote-002',
+      salonId: 'salon-002',
+      clientId: 'client-003',
+      number: 'PR-${_now.year}-002',
+      title: 'Percorso relax completo',
+      notes: 'Comprende massaggi e day spa.',
+      status: QuoteStatus.accepted,
+      createdAt: _now.subtract(const Duration(days: 7)),
+      sentAt: _now.subtract(const Duration(days: 7)),
+      acceptedAt: _now.subtract(const Duration(days: 5)),
+      updatedAt: _now.subtract(const Duration(days: 5)),
+      ticketId: 'quote-002-ticket',
+      sentChannels: const [MessageChannel.email, MessageChannel.whatsapp],
+      items: const [
+        QuoteItem(
+          id: 'quote-002-item-1',
+          description: 'Percorso spa giornaliero',
+          quantity: 2,
+          unitPrice: 85,
+        ),
+        QuoteItem(
+          id: 'quote-002-item-2',
+          description: 'Massaggio decontratturante',
+          quantity: 1,
+          unitPrice: 40,
+          serviceId: 'srv-massage',
+        ),
+      ],
+    ),
+  ];
+
   static final paymentTickets = <PaymentTicket>[
     PaymentTicket(
       id: 'app-004',
@@ -477,6 +1112,21 @@ class MockData {
       expectedTotal: 75,
       serviceName: 'Trattamento Viso Rigenerante',
       notes: 'Pagamento da registrare',
+    ),
+    PaymentTicket(
+      id: 'quote-002-ticket',
+      salonId: 'salon-002',
+      appointmentId: 'quote-002-ticket',
+      clientId: 'client-003',
+      serviceId: 'quote-002-ticket',
+      appointmentStart: _now.subtract(const Duration(days: 5)),
+      appointmentEnd:
+          _now.subtract(const Duration(days: 5)).add(const Duration(hours: 1)),
+      createdAt: _now.subtract(const Duration(days: 5)),
+      status: PaymentTicketStatus.open,
+      expectedTotal: 210,
+      serviceName: 'Preventivo percorso relax',
+      notes: 'Originato da preventivo accettato',
     ),
   ];
 

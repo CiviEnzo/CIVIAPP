@@ -10,9 +10,12 @@ import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/app_notification.dart';
 import 'package:civiapp/domain/entities/cash_flow_entry.dart';
 import 'package:civiapp/domain/entities/client.dart';
+import 'package:civiapp/domain/entities/client_questionnaire.dart';
+import 'package:civiapp/domain/entities/client_photo.dart';
 import 'package:civiapp/domain/entities/inventory_item.dart';
 import 'package:civiapp/domain/entities/message_template.dart';
 import 'package:civiapp/domain/entities/package.dart';
+import 'package:civiapp/domain/entities/quote.dart';
 import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/domain/entities/salon.dart';
@@ -51,6 +54,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
               services: List.unmodifiable(MockData.services),
               packages: List.unmodifiable(MockData.packages),
               appointments: List.unmodifiable(MockData.appointments),
+              quotes: List.unmodifiable(MockData.quotes),
               paymentTickets: List.unmodifiable(MockData.paymentTickets),
               inventoryItems: List.unmodifiable(MockData.inventoryItems),
               sales: List.unmodifiable(MockData.sales),
@@ -64,6 +68,13 @@ class AppDataStore extends StateNotifier<AppDataState> {
                 MockData.publicStaffAbsences,
               ),
               users: const [],
+              clientPhotos: List.unmodifiable(MockData.clientPhotos),
+              clientQuestionnaireTemplates: List.unmodifiable(
+                MockData.clientQuestionnaireTemplates,
+              ),
+              clientQuestionnaires: List.unmodifiable(
+                MockData.clientQuestionnaires,
+              ),
             ),
       ) {
     final firestore = _firestore;
@@ -121,6 +132,13 @@ class AppDataStore extends StateNotifier<AppDataState> {
               state = state.copyWith(
                 serviceCategories: items.sortedByDisplayOrder(),
               ),
+        ),
+      );
+      subscriptions.add(
+        _listenCollection<Quote>(
+          firestore.collection('quotes'),
+          quoteFromDoc,
+          (items) => state = state.copyWith(quotes: items),
         ),
       );
     } else {
@@ -257,6 +275,16 @@ class AppDataStore extends StateNotifier<AppDataState> {
       );
 
       addAll(
+        _listenCollectionBySalonIds<Quote>(
+          firestore: firestore,
+          collectionPath: 'quotes',
+          salonIds: salonIds,
+          fromDoc: quoteFromDoc,
+          onData: (items) => state = state.copyWith(quotes: items),
+        ),
+      );
+
+      addAll(
         _listenCollectionBySalonIds<InventoryItem>(
           firestore: firestore,
           collectionPath: 'inventory',
@@ -273,6 +301,16 @@ class AppDataStore extends StateNotifier<AppDataState> {
           salonIds: salonIds,
           fromDoc: saleFromDoc,
           onData: (items) => state = state.copyWith(sales: items),
+        ),
+      );
+
+      addAll(
+        _listenCollectionBySalonIds<ClientPhoto>(
+          firestore: firestore,
+          collectionPath: 'client_photos',
+          salonIds: salonIds,
+          fromDoc: clientPhotoFromDoc,
+          onData: (items) => state = state.copyWith(clientPhotos: items),
         ),
       );
 
@@ -303,6 +341,29 @@ class AppDataStore extends StateNotifier<AppDataState> {
           salonIds: salonIds,
           fromDoc: messageTemplateFromDoc,
           onData: (items) => state = state.copyWith(messageTemplates: items),
+        ),
+      );
+
+      addAll(
+        _listenCollectionBySalonIds<ClientQuestionnaireTemplate>(
+          firestore: firestore,
+          collectionPath: 'client_questionnaire_templates',
+          salonIds: salonIds,
+          fromDoc: clientQuestionnaireTemplateFromDoc,
+          onData:
+              (items) =>
+                  state = state.copyWith(clientQuestionnaireTemplates: items),
+        ),
+      );
+
+      addAll(
+        _listenCollectionBySalonIds<ClientQuestionnaire>(
+          firestore: firestore,
+          collectionPath: 'client_questionnaires',
+          salonIds: salonIds,
+          fromDoc: clientQuestionnaireFromDoc,
+          onData:
+              (items) => state = state.copyWith(clientQuestionnaires: items),
         ),
       );
 
@@ -362,8 +423,19 @@ class AppDataStore extends StateNotifier<AppDataState> {
             (items) => state = state.copyWith(clientNotifications: items),
           ),
         );
+        subscriptions.add(
+          _listenCollection<Quote>(
+            firestore
+                .collection('quotes')
+                .where('clientId', isEqualTo: clientId)
+                .orderBy('createdAt', descending: true),
+            quoteFromDoc,
+            (items) => state = state.copyWith(quotes: items),
+          ),
+        );
       } else {
         state = state.copyWith(clientNotifications: const []);
+        state = state.copyWith(quotes: const []);
       }
 
       void subscribeSalonCollections(List<String> rawSalonIds) {
@@ -443,6 +515,18 @@ class AppDataStore extends StateNotifier<AppDataState> {
                 (items) => state = state.copyWith(publicStaffAbsences: items),
           ),
         );
+
+        addAll(
+          _listenCollectionBySalonIds<ClientQuestionnaireTemplate>(
+            firestore: firestore,
+            collectionPath: 'client_questionnaire_templates',
+            salonIds: normalizedSalonIds,
+            fromDoc: clientQuestionnaireTemplateFromDoc,
+            onData:
+                (items) =>
+                    state = state.copyWith(clientQuestionnaireTemplates: items),
+          ),
+        );
       }
 
       subscribeSalonCollections(salonIds);
@@ -488,11 +572,34 @@ class AppDataStore extends StateNotifier<AppDataState> {
             (items) => state = state.copyWith(appointments: items),
           ),
         );
+
+        subscriptions.add(
+          _listenCollection<ClientPhoto>(
+            firestore
+                .collection('client_photos')
+                .where('clientId', isEqualTo: clientId)
+                .orderBy('uploadedAt', descending: true),
+            clientPhotoFromDoc,
+            (items) => state = state.copyWith(clientPhotos: items),
+          ),
+        );
+
+        subscriptions.add(
+          _listenCollection<ClientQuestionnaire>(
+            firestore
+                .collection('client_questionnaires')
+                .where('clientId', isEqualTo: clientId),
+            clientQuestionnaireFromDoc,
+            (items) => state = state.copyWith(clientQuestionnaires: items),
+          ),
+        );
       } else {
         state = state.copyWith(
           clients: const <Client>[],
           appointments: const <Appointment>[],
           sales: const <Sale>[],
+          clientPhotos: const <ClientPhoto>[],
+          clientQuestionnaires: const <ClientQuestionnaire>[],
         );
       }
 
@@ -1148,6 +1255,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     );
     await _deleteCollectionWhere('inventory', 'salonId', salonId, batch: batch);
     await _deleteCollectionWhere('sales', 'salonId', salonId, batch: batch);
+    await _deleteCollectionWhere('quotes', 'salonId', salonId, batch: batch);
     await _deleteCollectionWhere(
       'cash_flows',
       'salonId',
@@ -1486,6 +1594,18 @@ class AppDataStore extends StateNotifier<AppDataState> {
         .set(clientToMap(client));
   }
 
+  Future<void> upsertClientPhoto(ClientPhoto photo) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      _upsertLocal(clientPhotos: <ClientPhoto>[photo]);
+      return;
+    }
+    await firestore
+        .collection('client_photos')
+        .doc(photo.id)
+        .set(clientPhotoToMap(photo));
+  }
+
   Future<void> deleteClient(String clientId) async {
     final firestore = _firestore;
     if (firestore == null) {
@@ -1496,6 +1616,17 @@ class AppDataStore extends StateNotifier<AppDataState> {
     await _deleteCollectionWhere('appointments', 'clientId', clientId);
     await _deleteCollectionWhere('sales', 'clientId', clientId);
     await _deleteCollectionWhere('payment_tickets', 'clientId', clientId);
+    await _deleteCollectionWhere('client_photos', 'clientId', clientId);
+    await _deleteCollectionWhere('quotes', 'clientId', clientId);
+  }
+
+  Future<void> deleteClientPhoto(String photoId) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      _deleteClientPhotoLocal(photoId);
+      return;
+    }
+    await firestore.collection('client_photos').doc(photoId).delete();
   }
 
   Future<void> upsertService(Service service) async {
@@ -1777,6 +1908,38 @@ class AppDataStore extends StateNotifier<AppDataState> {
     return true;
   }
 
+  PaymentTicket _buildTicketFromQuote(Quote quote, String ticketId) {
+    final now = DateTime.now();
+    final primaryItem = quote.items.isNotEmpty ? quote.items.first : null;
+    final fallbackName = quote.number != null
+        ? 'Preventivo ${quote.number}'
+        : 'Preventivo';
+    final serviceName =
+        quote.title?.isNotEmpty == true
+            ? quote.title!
+            : (primaryItem?.description ?? fallbackName);
+    final serviceId =
+        (primaryItem?.serviceId != null && primaryItem!.serviceId!.isNotEmpty)
+            ? primaryItem.serviceId!
+            : ticketId;
+
+    return PaymentTicket(
+      id: ticketId,
+      salonId: quote.salonId,
+      appointmentId: ticketId,
+      clientId: quote.clientId,
+      serviceId: serviceId,
+      staffId: null,
+      appointmentStart: now,
+      appointmentEnd: now,
+      createdAt: now,
+      status: PaymentTicketStatus.open,
+      expectedTotal: quote.total,
+      serviceName: serviceName,
+      notes: quote.notes,
+    );
+  }
+
   PaymentTicket _buildPaymentTicket(Appointment appointment) {
     final services =
         appointment.serviceIds
@@ -1789,7 +1952,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
             .toList();
     final service = services.isNotEmpty ? services.first : null;
     final aggregatedName =
-        services.isEmpty ? service?.name : services.map((s) => s.name).join(' + ');
+        services.isEmpty
+            ? service?.name
+            : services.map((s) => s.name).join(' + ');
     final aggregatedPrice =
         services.isEmpty
             ? service?.price
@@ -2003,6 +2168,116 @@ class AppDataStore extends StateNotifier<AppDataState> {
     await deletePaymentTicket(appointmentId);
   }
 
+  Future<void> upsertQuote(Quote quote) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      _upsertLocal(quotes: <Quote>[quote]);
+      return;
+    }
+    await firestore.collection('quotes').doc(quote.id).set(quoteToMap(quote));
+    _upsertLocal(quotes: <Quote>[quote]);
+  }
+
+  Future<void> deleteQuote(String quoteId) async {
+    final existing = state.quotes.firstWhereOrNull(
+      (item) => item.id == quoteId,
+    );
+    final ticketId = existing?.ticketId;
+    final firestore = _firestore;
+    if (firestore == null) {
+      _deleteQuoteLocal(quoteId);
+      if (ticketId != null && ticketId.isNotEmpty) {
+        _deletePaymentTicketLocal(ticketId);
+      }
+      return;
+    }
+    await firestore.collection('quotes').doc(quoteId).delete();
+    _deleteQuoteLocal(quoteId);
+    if (ticketId != null && ticketId.isNotEmpty) {
+      await deletePaymentTicket(ticketId);
+    }
+  }
+
+  Future<void> markQuoteSent(
+    String quoteId, {
+    required List<MessageChannel> viaChannels,
+    DateTime? sentAt,
+    String? pdfStoragePath,
+  }) async {
+    final quote = state.quotes.firstWhereOrNull((item) => item.id == quoteId);
+    if (quote == null) {
+      throw StateError('Preventivo non trovato');
+    }
+    final now = sentAt ?? DateTime.now();
+    final updated = quote.copyWith(
+      status:
+          quote.status == QuoteStatus.accepted ? quote.status : QuoteStatus.sent,
+      sentAt: now,
+      sentChannels: viaChannels,
+      acceptedAt: quote.acceptedAt,
+      declinedAt: null,
+      pdfStoragePath: pdfStoragePath,
+      updatedAt: now,
+    );
+    await upsertQuote(updated);
+  }
+
+  Future<void> acceptQuote(String quoteId) async {
+    final quote = state.quotes.firstWhereOrNull((item) => item.id == quoteId);
+    if (quote == null) {
+      throw StateError('Preventivo non trovato');
+    }
+    if (quote.status == QuoteStatus.accepted) {
+      return;
+    }
+    final now = DateTime.now();
+    final ticketId = quote.ticketId ?? 'quote-${quote.id}';
+    final existingTicket = state.paymentTickets.firstWhereOrNull(
+      (ticket) => ticket.id == ticketId,
+    );
+    final ticket = (existingTicket ?? _buildTicketFromQuote(quote, ticketId))
+        .copyWith(
+          status: PaymentTicketStatus.open,
+          closedAt: null,
+          saleId: null,
+          expectedTotal: quote.total,
+          notes: quote.notes,
+          serviceName: quote.title?.isNotEmpty == true
+              ? quote.title
+              : (existingTicket?.serviceName ??
+                  (quote.items.isNotEmpty
+                      ? quote.items.first.description
+                      : 'Preventivo')),
+        );
+    final updated = quote.copyWith(
+      status: QuoteStatus.accepted,
+      acceptedAt: now,
+      declinedAt: null,
+      ticketId: ticketId,
+      updatedAt: now,
+    );
+    await upsertQuote(updated);
+    await upsertPaymentTicket(ticket);
+  }
+
+  Future<void> declineQuote(String quoteId) async {
+    final quote = state.quotes.firstWhereOrNull((item) => item.id == quoteId);
+    if (quote == null) {
+      throw StateError('Preventivo non trovato');
+    }
+    if (quote.status == QuoteStatus.declined) {
+      return;
+    }
+    final now = DateTime.now();
+    final updated = quote.copyWith(
+      status: QuoteStatus.declined,
+      declinedAt: now,
+      acceptedAt: null,
+      updatedAt: now,
+    );
+    await upsertQuote(updated);
+  }
+
   Future<void> upsertInventoryItem(InventoryItem item) async {
     final firestore = _firestore;
     if (firestore == null) {
@@ -2113,6 +2388,60 @@ class AppDataStore extends StateNotifier<AppDataState> {
         .collection('message_templates')
         .doc(template.id)
         .set(messageTemplateToMap(template));
+  }
+
+  Future<void> upsertClientQuestionnaireTemplate(
+    ClientQuestionnaireTemplate template,
+  ) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      _upsertLocal(
+        clientQuestionnaireTemplates: <ClientQuestionnaireTemplate>[template],
+      );
+      return;
+    }
+    await firestore
+        .collection('client_questionnaire_templates')
+        .doc(template.id)
+        .set(clientQuestionnaireTemplateToMap(template));
+  }
+
+  Future<void> deleteClientQuestionnaireTemplate(String templateId) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      _deleteClientQuestionnaireTemplateLocal(templateId);
+      return;
+    }
+    await firestore
+        .collection('client_questionnaire_templates')
+        .doc(templateId)
+        .delete();
+  }
+
+  Future<void> upsertClientQuestionnaire(
+    ClientQuestionnaire questionnaire,
+  ) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      _upsertLocal(clientQuestionnaires: <ClientQuestionnaire>[questionnaire]);
+      return;
+    }
+    await firestore
+        .collection('client_questionnaires')
+        .doc(questionnaire.id)
+        .set(clientQuestionnaireToMap(questionnaire));
+  }
+
+  Future<void> deleteClientQuestionnaire(String questionnaireId) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      _deleteClientQuestionnaireLocal(questionnaireId);
+      return;
+    }
+    await firestore
+        .collection('client_questionnaires')
+        .doc(questionnaireId)
+        .delete();
   }
 
   Future<void> upsertReminderSettings(ReminderSettings settings) async {
@@ -2299,6 +2628,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
     for (final client in MockData.clients) {
       await upsertClient(client);
     }
+    for (final photo in MockData.clientPhotos) {
+      await upsertClientPhoto(photo);
+    }
     for (final category in MockData.serviceCategories) {
       await upsertServiceCategory(category);
     }
@@ -2310,6 +2642,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
     for (final appointment in MockData.appointments) {
       await upsertAppointment(appointment);
+    }
+    for (final quote in MockData.quotes) {
+      await upsertQuote(quote);
     }
     for (final item in MockData.inventoryItems) {
       await upsertInventoryItem(item);
@@ -2326,6 +2661,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
     for (final template in MockData.messageTemplates) {
       await upsertTemplate(template);
     }
+    for (final template in MockData.clientQuestionnaireTemplates) {
+      await upsertClientQuestionnaireTemplate(template);
+    }
     for (final settings in MockData.reminderSettings) {
       await upsertReminderSettings(settings);
     }
@@ -2334,6 +2672,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
     for (final absence in MockData.staffAbsences) {
       await upsertStaffAbsence(absence);
+    }
+    for (final questionnaire in MockData.clientQuestionnaires) {
+      await upsertClientQuestionnaire(questionnaire);
     }
   }
 
@@ -2372,6 +2713,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     List<Service>? services,
     List<ServicePackage>? packages,
     List<Appointment>? appointments,
+    List<Quote>? quotes,
     List<PaymentTicket>? paymentTickets,
     List<InventoryItem>? inventoryItems,
     List<Sale>? sales,
@@ -2382,6 +2724,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
     List<Shift>? shifts,
     List<StaffAbsence>? staffAbsences,
     List<StaffAbsence>? publicStaffAbsences,
+    List<ClientPhoto>? clientPhotos,
+    List<ClientQuestionnaireTemplate>? clientQuestionnaireTemplates,
+    List<ClientQuestionnaire>? clientQuestionnaires,
   }) {
     state = state.copyWith(
       salons:
@@ -2418,6 +2763,10 @@ class AppDataStore extends StateNotifier<AppDataState> {
           appointments != null
               ? _merge(state.appointments, appointments, (e) => e.id)
               : state.appointments,
+      quotes:
+          quotes != null
+              ? _merge(state.quotes, quotes, (e) => e.id)
+              : state.quotes,
       paymentTickets:
           paymentTickets != null
               ? _merge(state.paymentTickets, paymentTickets, (e) => e.id)
@@ -2468,6 +2817,26 @@ class AppDataStore extends StateNotifier<AppDataState> {
                 (e) => e.id,
               )
               : state.publicStaffAbsences,
+      clientPhotos:
+          clientPhotos != null
+              ? _merge(state.clientPhotos, clientPhotos, (e) => e.id)
+              : state.clientPhotos,
+      clientQuestionnaireTemplates:
+          clientQuestionnaireTemplates != null
+              ? _merge(
+                state.clientQuestionnaireTemplates,
+                clientQuestionnaireTemplates,
+                (e) => e.id,
+              )
+              : state.clientQuestionnaireTemplates,
+      clientQuestionnaires:
+          clientQuestionnaires != null
+              ? _merge(
+                state.clientQuestionnaires,
+                clientQuestionnaires,
+                (e) => e.id,
+              )
+              : state.clientQuestionnaires,
     );
   }
 
@@ -2501,6 +2870,14 @@ class AppDataStore extends StateNotifier<AppDataState> {
       ),
       staff: List.unmodifiable(updatedStaff),
       services: List.unmodifiable(updatedServices),
+    );
+  }
+
+  void _deleteQuoteLocal(String quoteId) {
+    state = state.copyWith(
+      quotes: List.unmodifiable(
+        state.quotes.where((quote) => quote.id != quoteId),
+      ),
     );
   }
 
@@ -2615,6 +2992,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
       appointments: List.unmodifiable(
         state.appointments.where((element) => element.salonId != salonId),
       ),
+      quotes: List.unmodifiable(
+        state.quotes.where((element) => element.salonId != salonId),
+      ),
       inventoryItems: List.unmodifiable(
         state.inventoryItems.where((element) => element.salonId != salonId),
       ),
@@ -2683,11 +3063,25 @@ class AppDataStore extends StateNotifier<AppDataState> {
       appointments: List.unmodifiable(
         state.appointments.where((element) => element.clientId != clientId),
       ),
+      quotes: List.unmodifiable(
+        state.quotes.where((element) => element.clientId != clientId),
+      ),
       sales: List.unmodifiable(
         state.sales.where((element) => element.clientId != clientId),
       ),
       paymentTickets: List.unmodifiable(
         state.paymentTickets.where((element) => element.clientId != clientId),
+      ),
+      clientPhotos: List.unmodifiable(
+        state.clientPhotos.where((element) => element.clientId != clientId),
+      ),
+    );
+  }
+
+  void _deleteClientPhotoLocal(String photoId) {
+    state = state.copyWith(
+      clientPhotos: List.unmodifiable(
+        state.clientPhotos.where((element) => element.id != photoId),
       ),
     );
   }
@@ -2854,6 +3248,26 @@ class AppDataStore extends StateNotifier<AppDataState> {
     state = state.copyWith(
       messageTemplates: List.unmodifiable(
         state.messageTemplates.where((element) => element.id != templateId),
+      ),
+    );
+  }
+
+  void _deleteClientQuestionnaireTemplateLocal(String templateId) {
+    state = state.copyWith(
+      clientQuestionnaireTemplates: List.unmodifiable(
+        state.clientQuestionnaireTemplates.where(
+          (element) => element.id != templateId,
+        ),
+      ),
+    );
+  }
+
+  void _deleteClientQuestionnaireLocal(String questionnaireId) {
+    state = state.copyWith(
+      clientQuestionnaires: List.unmodifiable(
+        state.clientQuestionnaires.where(
+          (element) => element.id != questionnaireId,
+        ),
       ),
     );
   }

@@ -4,6 +4,7 @@ import 'package:civiapp/presentation/screens/admin/modules/appointments_module.d
 import 'package:civiapp/presentation/screens/admin/modules/clients_module.dart';
 import 'package:civiapp/presentation/screens/admin/modules/inventory_module.dart';
 import 'package:civiapp/presentation/screens/admin/modules/messages_module.dart';
+import 'package:civiapp/presentation/screens/admin/modules/questionnaires_module.dart';
 import 'package:civiapp/presentation/screens/admin/modules/overview_module.dart';
 import 'package:civiapp/presentation/screens/admin/modules/reports_module.dart';
 import 'package:civiapp/presentation/screens/admin/modules/sales_module.dart';
@@ -100,6 +101,13 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       builder: (context, ref, salonId) => MessagesModule(salonId: salonId),
     ),
     AdminModuleDefinition(
+      id: 'questionnaires',
+      title: 'Questionari cliente',
+      icon: Icons.assignment_rounded,
+      builder:
+          (context, ref, salonId) => QuestionnairesModule(salonId: salonId),
+    ),
+    AdminModuleDefinition(
       id: 'reports',
       title: 'Report',
       icon: Icons.insights_rounded,
@@ -113,13 +121,24 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     final session = ref.watch(sessionControllerProvider);
     final salons = data.salons;
 
-    if (session.salonId == null && salons.isNotEmpty) {
+    final salonIds = salons.map((salon) => salon.id).toSet();
+    String? selectedSalonId;
+
+    if (session.salonId != null && salonIds.contains(session.salonId)) {
+      selectedSalonId = session.salonId;
+    } else if (salons.isNotEmpty) {
+      selectedSalonId = salons.first.id;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        ref.read(sessionControllerProvider.notifier).setSalon(salons.first.id);
+        ref.read(sessionControllerProvider.notifier).setSalon(selectedSalonId);
       });
+    } else {
+      selectedSalonId = null;
+      if (session.salonId != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          ref.read(sessionControllerProvider.notifier).setSalon(null);
+        });
+      }
     }
-    final selectedSalonId =
-        session.salonId ?? (salons.isNotEmpty ? salons.first.id : null);
     final selectedModule = _modules[_selectedIndex];
 
     return LayoutBuilder(

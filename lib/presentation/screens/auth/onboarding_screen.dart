@@ -485,7 +485,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         TextFormField(
           controller: _addressController,
           decoration: const InputDecoration(
-            labelText: 'Indirizzo di residenza',
+            labelText: 'Citta di residenza',
             border: OutlineInputBorder(),
           ),
           minLines: 1,

@@ -51,5 +51,11 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Consentiamo allo staff di scattare foto per documentare i trattamenti effettuati.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Necessitiamo dell&apos;accesso alla libreria per permetterti di visualizzare e salvare le foto condivise dal salone.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Richiediamo il permesso di aggiungere immagini per salvare gli scatti dei tuoi trattamenti.</string>
 </dict>
 </plist>

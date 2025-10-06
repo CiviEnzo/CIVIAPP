@@ -5,6 +5,8 @@ import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/domain/entities/app_notification.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/client.dart';
+import 'package:civiapp/domain/entities/client_photo.dart';
+import 'package:civiapp/domain/entities/quote.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/sale.dart';
@@ -83,6 +85,15 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
       totalRedeemed: totalRedeemed,
       spendable: spendable,
     );
+  }
+
+  String _quoteLabel(Quote quote) {
+    final number = quote.number;
+    if (number != null && number.isNotEmpty) {
+      return number;
+    }
+    final shortId = quote.id.length >= 6 ? quote.id.substring(0, 6) : quote.id;
+    return '#$shortId';
   }
 
   @override
@@ -416,19 +427,15 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
         upcoming: upcoming,
         history: history,
       ),
+      _buildPackagesTabView(
+        context: context,
+        activePackages: activePackages,
+        pastPackages: pastPackages,
+      ),
       _buildLoyaltyTab(
         context: context,
         client: currentClient,
         sales: clientSales,
-      ),
-      _buildBillingTab(
-        context: context,
-        client: currentClient,
-        sales: clientSales,
-        outstandingSales: outstandingSales,
-        outstandingTotal: outstandingTotal,
-        activePackages: activePackages,
-        pastPackages: pastPackages,
       ),
     ];
 
@@ -502,11 +509,43 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                 },
               ),
               ListTile(
+                leading: const Icon(Icons.description_rounded),
+                title: const Text('Preventivi'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _showQuotesSheet(context, currentClient);
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.card_giftcard_rounded),
                 title: const Text('Pacchetti'),
                 onTap: () {
                   Navigator.of(context).pop();
-                  _showPackagesSheet(context, activePackages, pastPackages);
+                  setState(() => _currentTab = 2);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.receipt_long_rounded),
+                title: const Text('Fatturazione'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _showBillingSheet(
+                    context,
+                    client: currentClient,
+                    sales: clientSales,
+                    outstandingSales: outstandingSales,
+                    outstandingTotal: outstandingTotal,
+                    activePackages: activePackages,
+                    pastPackages: pastPackages,
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_rounded),
+                title: const Text('Le mie foto'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _showPhotosSheet(context, currentClient);
                 },
               ),
               ListTile(
@@ -514,7 +553,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                 title: const Text('Servizi'),
                 onTap: () {
                   Navigator.of(context).pop();
-                  _showServicesSheet(context, salonServices);
+                  _showServicesSheet(context, currentClient, salonServices);
                 },
               ),
               const Divider(),
@@ -552,16 +591,28 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
             label: 'Appuntamenti',
           ),
           NavigationDestination(
+            icon: Icon(Icons.card_giftcard_outlined),
+            selectedIcon: Icon(Icons.card_giftcard_rounded),
+            label: 'Pacchetti',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.loyalty_outlined),
             selectedIcon: Icon(Icons.loyalty_rounded),
             label: 'Punti',
           ),
-          NavigationDestination(
-            icon: Icon(Icons.receipt_long_outlined),
-            selectedIcon: Icon(Icons.receipt_long_rounded),
-            label: 'Fatturazione',
-          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPhotosTab({
+    required BuildContext context,
+    required Client client,
+  }) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: ClientPhotosGallery(clientId: client.id),
       ),
     );
   }
@@ -758,6 +809,22 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
           label: const Text('Prenota un nuovo appuntamento'),
         ),
       ],
+    );
+  }
+
+  Widget _buildPackagesTabView({
+    required BuildContext context,
+    required List<ClientPackagePurchase> activePackages,
+    required List<ClientPackagePurchase> pastPackages,
+  }) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: _ClientPackagesSection(
+          activePackages: activePackages,
+          pastPackages: pastPackages,
+        ),
+      ),
     );
   }
 
@@ -973,6 +1040,256 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     );
   }
 
+  void _showQuotesSheet(BuildContext context, Client client) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        final bottomPadding = MediaQuery.of(sheetContext).viewInsets.bottom;
+        return Consumer(
+          builder: (consumerContext, sheetRef, _) {
+            final quotes =
+                sheetRef
+                    .watch(appDataProvider.select((state) => state.quotes))
+                    .where((quote) => quote.clientId == client.id)
+                    .toList()
+                  ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+            final theme = Theme.of(sheetContext);
+            final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+            final dateFormat = DateFormat('dd/MM/yyyy');
+            final dateTimeFormat = DateFormat('dd/MM/yyyy HH:mm');
+
+            return FractionallySizedBox(
+              heightFactor: 0.9,
+              child: SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomPadding),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'I tuoi preventivi',
+                              style: theme.textTheme.titleLarge,
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Chiudi',
+                            onPressed: () => Navigator.of(sheetContext).pop(),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      if (quotes.isEmpty)
+                        Expanded(
+                          child: Center(
+                            child: Text(
+                              'Non sono disponibili preventivi al momento.',
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodyLarge,
+                            ),
+                          ),
+                        )
+                      else
+                        Expanded(
+                          child: ListView.separated(
+                            itemCount: quotes.length,
+                            separatorBuilder:
+                                (_, __) => const SizedBox(height: 12),
+                            itemBuilder: (ctx, index) {
+                              final quote = quotes[index];
+                              return _buildClientQuoteCard(
+                                theme: theme,
+                                currency: currency,
+                                dateFormat: dateFormat,
+                                dateTimeFormat: dateTimeFormat,
+                                quote: quote,
+                                sheetContext: sheetContext,
+                              );
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildClientQuoteCard({
+    required ThemeData theme,
+    required NumberFormat currency,
+    required DateFormat dateFormat,
+    required DateFormat dateTimeFormat,
+    required Quote quote,
+    required BuildContext sheetContext,
+  }) {
+    final isAccepted = quote.status == QuoteStatus.accepted;
+    final isDeclined = quote.status == QuoteStatus.declined;
+    final isExpired = quote.isExpired && !isAccepted && !isDeclined;
+    final statusForBadge = isExpired ? QuoteStatus.expired : quote.status;
+    final background = _quoteStatusBackground(statusForBadge, theme);
+    final foreground = _quoteStatusForeground(statusForBadge, theme);
+    final sentAt = quote.sentAt;
+    final validUntil = quote.validUntil;
+    final acceptedAt = quote.acceptedAt;
+    final declinedAt = quote.declinedAt;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    quote.title?.isNotEmpty == true
+                        ? quote.title!
+                        : 'Preventivo ${_quoteLabel(quote)}',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: background,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    statusForBadge.label,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: foreground,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (quote.number != null && quote.number!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Numero preventivo: ${quote.number}',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+            const SizedBox(height: 12),
+            Text(
+              'Creato il ${dateTimeFormat.format(quote.createdAt)}',
+              style: theme.textTheme.bodyMedium,
+            ),
+            if (sentAt != null)
+              Text(
+                'Inviato il ${dateTimeFormat.format(sentAt)}',
+                style: theme.textTheme.bodyMedium,
+              ),
+            if (validUntil != null)
+              Text(
+                'Validità fino al ${dateFormat.format(validUntil)}',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: quote.isExpired ? theme.colorScheme.error : null,
+                ),
+              ),
+            if (quote.notes?.isNotEmpty == true) ...[
+              const SizedBox(height: 12),
+              Text(quote.notes!, style: theme.textTheme.bodyMedium),
+            ],
+            const SizedBox(height: 12),
+            ...quote.items.map((item) {
+              final quantityLabel =
+                  item.quantity == item.quantity.roundToDouble()
+                      ? item.quantity.toInt().toString()
+                      : item.quantity.toStringAsFixed(2);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  '$quantityLabel × ${item.description} — '
+                  '${currency.format(item.total)}',
+                  style: theme.textTheme.bodyMedium,
+                ),
+              );
+            }),
+            const SizedBox(height: 12),
+            Text(
+              'Totale preventivo: ${currency.format(quote.total)}',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (isExpired) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Questo preventivo è scaduto. Contatta il salone per ricevere una nuova offerta.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+              ),
+            ],
+            if (isAccepted && acceptedAt != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Accettato il ${dateTimeFormat.format(acceptedAt)}. In salone troverai un ticket aperto per completare il pagamento.',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+            if (isDeclined && declinedAt != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Rifiutato il ${dateTimeFormat.format(declinedAt)}. Puoi sempre richiedere un nuovo preventivo al salone.',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _quoteStatusBackground(QuoteStatus status, ThemeData theme) {
+    final scheme = theme.colorScheme;
+    switch (status) {
+      case QuoteStatus.draft:
+        return scheme.surfaceContainerHighest;
+      case QuoteStatus.sent:
+        return scheme.primaryContainer;
+      case QuoteStatus.accepted:
+        return scheme.secondaryContainer;
+      case QuoteStatus.declined:
+        return scheme.errorContainer;
+      case QuoteStatus.expired:
+        return scheme.tertiaryContainer;
+    }
+  }
+
+  Color _quoteStatusForeground(QuoteStatus status, ThemeData theme) {
+    final scheme = theme.colorScheme;
+    switch (status) {
+      case QuoteStatus.draft:
+        return scheme.onSurface;
+      case QuoteStatus.sent:
+        return scheme.onPrimaryContainer;
+      case QuoteStatus.accepted:
+        return scheme.onSecondaryContainer;
+      case QuoteStatus.declined:
+        return scheme.onErrorContainer;
+      case QuoteStatus.expired:
+        return scheme.onTertiaryContainer;
+    }
+  }
+
   void _showNotificationsSheet(
     BuildContext context,
     List<AppNotification> notifications,
@@ -1002,28 +1319,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     );
   }
 
-  void _showPackagesSheet(
+  void _showServicesSheet(
     BuildContext context,
-    List<ClientPackagePurchase> active,
-    List<ClientPackagePurchase> past,
+    Client client,
+    List<Service> services,
   ) {
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: _ClientPackagesSection(
-              activePackages: active,
-              pastPackages: past,
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  void _showServicesSheet(BuildContext context, List<Service> services) {
     showModalBottomSheet(
       context: context,
       builder: (ctx) {
@@ -1044,11 +1344,253 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
               return ListTile(
                 leading: const Icon(Icons.design_services_rounded),
                 title: Text(service.name),
-                subtitle: Text(currency.format(service.price)),
+                subtitle: Text(
+                  '${service.duration.inMinutes} minuti • '
+                  '${currency.format(service.price)}',
+                ),
+                trailing: FilledButton.tonal(
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    _openBookingSheet(client, preselectedService: service);
+                  },
+                  child: const Text('Prenota'),
+                ),
               );
             },
             separatorBuilder: (_, __) => const Divider(),
             itemCount: services.length,
+          ),
+        );
+      },
+    );
+  }
+
+  void _showBillingSheet(
+    BuildContext context, {
+    required Client client,
+    required List<Sale> sales,
+    required List<Sale> outstandingSales,
+    required double outstandingTotal,
+    required List<ClientPackagePurchase> activePackages,
+    required List<ClientPackagePurchase> pastPackages,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        final bottomInset = MediaQuery.of(sheetContext).viewInsets.bottom;
+        return FractionallySizedBox(
+          heightFactor: 0.9,
+          child: SafeArea(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: bottomInset),
+              child: _buildBillingTab(
+                context: sheetContext,
+                client: client,
+                sales: sales,
+                outstandingSales: outstandingSales,
+                outstandingTotal: outstandingTotal,
+                activePackages: activePackages,
+                pastPackages: pastPackages,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showPhotosSheet(BuildContext context, Client client) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        final bottomInset = MediaQuery.of(sheetContext).viewInsets.bottom;
+        return FractionallySizedBox(
+          heightFactor: 0.9,
+          child: SafeArea(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: bottomInset),
+              child: _buildPhotosTab(context: sheetContext, client: client),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class ClientPhotosGallery extends ConsumerWidget {
+  const ClientPhotosGallery({super.key, required this.clientId});
+
+  final String clientId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final photos = ref.watch(clientPhotosProvider(clientId));
+    final sortedPhotos =
+        photos.toList()..sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
+
+    if (sortedPhotos.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.photo_library_outlined,
+              size: 72,
+              color: theme.disabledColor,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Ancora nessuna foto disponibile',
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Lo staff potrà condividere qui gli scatti dedicati ai tuoi trattamenti.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.disabledColor,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Le mie foto', style: theme.textTheme.headlineSmall),
+        const SizedBox(height: 8),
+        Text(
+          'Rivivi l\'evoluzione dei tuoi trattamenti con la gallery condivisa dal salone.',
+          style: theme.textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 16),
+        Expanded(
+          child: ListView.separated(
+            itemCount: sortedPhotos.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final photo = sortedPhotos[index];
+              return _ClientPhotoCard(photo: photo);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ClientPhotoCard extends StatelessWidget {
+  const _ClientPhotoCard({required this.photo});
+
+  final ClientPhoto photo;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dateFormat = DateFormat('dd MMM yyyy HH:mm', 'it_IT');
+    final fileLabel =
+        (photo.fileName != null && photo.fileName!.trim().isNotEmpty)
+            ? photo.fileName!.trim()
+            : 'Foto condivisa';
+    return ListTile(
+      onTap: () => _openPreview(context, photo),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      title: Text(
+        fileLabel,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: theme.textTheme.titleSmall?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            dateFormat.format(photo.uploadedAt.toLocal()),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Tocca per visualizzare',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openPreview(BuildContext context, ClientPhoto photo) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        final dateFormat = DateFormat('EEEE d MMMM yyyy • HH:mm', 'it_IT');
+        return Dialog(
+          insetPadding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(12),
+                ),
+                child: AspectRatio(
+                  aspectRatio: 1,
+                  child: Image.network(
+                    photo.downloadUrl,
+                    fit: BoxFit.contain,
+                    errorBuilder:
+                        (context, error, stackTrace) => const Center(
+                          child: Icon(Icons.broken_image_outlined, size: 48),
+                        ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      dateFormat.format(photo.uploadedAt.toLocal()),
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    if (photo.notes != null && photo.notes!.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          photo.notes!,
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(0, 0, 16, 16),
+                  child: TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Chiudi'),
+                  ),
+                ),
+              ),
+            ],
           ),
         );
       },
@@ -1253,7 +1795,7 @@ class _NotificationCard extends StatelessWidget {
         );
       case 'skipped':
         return (
-          background: theme.colorScheme.surfaceVariant,
+          background: theme.colorScheme.surfaceContainerHighest,
           foreground: theme.colorScheme.onSurfaceVariant,
         );
       case 'queued':

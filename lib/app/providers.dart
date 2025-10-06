@@ -6,6 +6,7 @@ import 'package:civiapp/data/repositories/app_data_state.dart';
 import 'package:civiapp/data/repositories/app_data_store.dart';
 import 'package:civiapp/data/repositories/auth_repository.dart';
 import 'package:civiapp/data/storage/firebase_storage_service.dart';
+import 'package:civiapp/domain/entities/client_photo.dart';
 import 'package:civiapp/domain/entities/user_role.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -114,6 +115,19 @@ final salonThemeProvider = Provider.autoDispose((ref) {
     branding: base,
   );
 });
+
+final clientPhotosProvider =
+    Provider.family<List<ClientPhoto>, String?>((ref, clientId) {
+      final photos = ref.watch(
+        appDataProvider.select((state) => state.clientPhotos),
+      );
+      if (clientId == null || clientId.isEmpty) {
+        return const <ClientPhoto>[];
+      }
+      return photos
+          .where((photo) => photo.clientId == clientId)
+          .toList(growable: false);
+    });
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   return createRouter(ref);

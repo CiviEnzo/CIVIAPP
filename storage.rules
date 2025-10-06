@@ -1,0 +1,107 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return isSignedIn()
+          ? firestore.get(/databases/(default)/documents/users/$(request.auth.uid))
+          : null;
+    }
+
+    function userData() {
+      return userDoc() != null && userDoc().data != null
+          ? userDoc().data
+          : null;
+    }
+
+    function userRole() {
+      return userData() != null && userData().role is string
+          ? userData().role
+          : null;
+    }
+
+    function userClientId() {
+      return userData() != null && userData().clientId is string
+          ? userData().clientId
+          : null;
+    }
+
+    function listHasSalon(list, salonId) {
+      return list is list && salonId is string && list.hasAny([salonId]);
+    }
+
+    function userSalonIds() {
+      return userData() != null && userData().salonIds is list
+          ? userData().salonIds
+          : [];
+    }
+
+    function userManagedSalonIds() {
+      return userData() != null && userData().managedSalonIds is list
+          ? userData().managedSalonIds
+          : [];
+    }
+
+    function userJoinedSalonIds() {
+      return userData() != null && userData().joinedSalonIds is list
+          ? userData().joinedSalonIds
+          : [];
+    }
+
+    function userPrimarySalonId() {
+      return userData() != null && userData().salonId is string
+          ? userData().salonId
+          : null;
+    }
+
+    function userHasSalonAccess(salonId) {
+      return salonId is string && (
+        listHasSalon(userSalonIds(), salonId) ||
+        listHasSalon(userManagedSalonIds(), salonId) ||
+        listHasSalon(userJoinedSalonIds(), salonId) ||
+        (userPrimarySalonId() != null && userPrimarySalonId() == salonId)
+      );
+    }
+
+    function isSalonManager(salonId) {
+      return isSignedIn() &&
+          salonId is string &&
+          (userRole() == 'admin' || userRole() == 'staff') &&
+          userHasSalonAccess(salonId);
+    }
+
+    function isClientOwner(clientId) {
+      return isSignedIn() &&
+          clientId is string &&
+          userRole() == 'client' &&
+          userClientId() == clientId;
+    }
+
+    function isValidImageUpload() {
+      return request.resource != null &&
+          request.resource.contentType is string &&
+          request.resource.contentType.matches('^image/.+') &&
+          request.resource.size < 10 * 1024 * 1024;
+    }
+
+    match /salon_media/{salonId}/clients/{clientId}/photos/{photoPath=**} {
+      allow read, list: if isSignedIn() && (
+        isSalonManager(salonId) ||
+        isClientOwner(clientId)
+      );
+
+      allow create, update: if isSignedIn() &&
+          isSalonManager(salonId) &&
+          isValidImageUpload();
+
+      allow delete: if isSignedIn() && isSalonManager(salonId);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

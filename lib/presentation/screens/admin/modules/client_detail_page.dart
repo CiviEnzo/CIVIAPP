@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/domain/availability/appointment_conflicts.dart';
@@ -6,28 +8,133 @@ import 'package:civiapp/domain/availability/equipment_availability.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/cash_flow_entry.dart';
 import 'package:civiapp/domain/entities/client.dart';
+import 'package:civiapp/domain/entities/client_questionnaire.dart';
+import 'package:civiapp/domain/entities/client_photo.dart';
 import 'package:civiapp/domain/entities/inventory_item.dart';
+import 'package:civiapp/domain/entities/message_template.dart';
 import 'package:civiapp/domain/entities/package.dart';
+import 'package:civiapp/domain/entities/quote.dart';
 import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
+import 'package:civiapp/domain/entities/user_role.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
-import 'package:civiapp/presentation/screens/admin/forms/client_form_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/appointment_form_sheet.dart';
+import 'package:civiapp/presentation/screens/admin/forms/client_form_sheet.dart';
+import 'package:civiapp/presentation/screens/admin/forms/outstanding_payment_form_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/package_deposit_form_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/package_form_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/package_purchase_edit_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/package_sale_form_sheet.dart';
-import 'package:civiapp/presentation/screens/admin/forms/outstanding_payment_form_sheet.dart';
+import 'package:civiapp/presentation/screens/admin/forms/quote_form_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/sale_form_sheet.dart';
 import 'package:civiapp/presentation/shared/client_package_purchase.dart';
 import 'package:collection/collection.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
+
+const Set<String> _anamnesisRequiredGroupIds = {
+  'grp-cardiovascular',
+  'grp-pregnancy',
+  'grp-general-pathologies',
+  'grp-hormonal',
+  'grp-allergies',
+  'grp-skin',
+  'grp-surgery',
+  'grp-activity',
+  'grp-nutrition',
+  'grp-hydration',
+  'grp-sleep-stress',
+  'grp-skin-care',
+  'grp-hair-removal',
+  'grp-previous-treatments',
+  'grp-goals',
+  'grp-consent',
+};
+
+const Set<String> _generalHealthQuestionIds = {
+  'q-cardiac-disease',
+  'q-blood-pressure',
+  'q-pacemaker',
+  'q-heart-meds',
+  'q-diabetes',
+  'q-diabetes-meds',
+  'q-insulin-resistance',
+  'q-kidney-liver',
+  'q-autoimmune',
+  'q-allergies',
+  'q-adverse-reactions',
+  'q-pregnant',
+  'q-breastfeeding',
+  'q-menstrual-irregularities',
+  'q-menopause',
+  'q-pcos',
+  'q-thyroid',
+  'q-weight-history',
+  'q-surgery-last12',
+  'q-recent-aesthetic',
+};
+
+const Set<String> _lifestyleBooleanQuestionIds = {
+  'q-activity-regular',
+  'q-sedentary',
+  'q-special-diet',
+  'q-dietary-restrictions',
+  'q-sugar-fat',
+  'q-sugary-drinks',
+};
+
+const Set<String> _lifestyleTextQuestionIds = {
+  'q-activity-type',
+  'q-activity-frequency',
+};
+
+const Set<String> _aestheticBooleanQuestionIds = {
+  'q-skin-disorders',
+  'q-topical-therapies',
+  'q-uses-cosmetics',
+  'q-previous-treatments',
+};
+
+const Set<String> _aestheticSingleChoiceQuestionIds = {
+  'q-cosmetic-source',
+  'q-hair-removal-method',
+};
+
+const Set<String> _aestheticTextQuestionIds = {
+  'q-products-used',
+  'q-previous-treatments-notes',
+};
+
+const Set<String> _measurementNumberQuestionIds = {
+  'q-fruit-veg-portions',
+  'q-sleep-hours',
+};
+
+const Set<String> _measurementSingleChoiceQuestionIds = {
+  'q-water-intake',
+  'q-stress-level',
+};
+
+const Set<String> _noteTextQuestionIds = {
+  'q-general-notes',
+  'q-treatment-goals',
+};
+
+bool _canUseAnamnesisLayout(ClientQuestionnaireTemplate template) {
+  final groupIds = template.groups.map((group) => group.id).toSet();
+  return _anamnesisRequiredGroupIds.every(groupIds.contains);
+}
 
 class ClientDetailPage extends ConsumerStatefulWidget {
   const ClientDetailPage({super.key, required this.clientId});
@@ -60,7 +167,7 @@ class _ClientDetailPageState extends ConsumerState<ClientDetailPage> {
     );
 
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Scaffold(
         appBar: AppBar(
           title: Text(client.fullName),
@@ -69,6 +176,7 @@ class _ClientDetailPageState extends ConsumerState<ClientDetailPage> {
               Tab(text: 'Scheda'),
               Tab(text: 'Appuntamenti'),
               Tab(text: 'Pacchetti'),
+              Tab(text: 'Preventivi'),
               Tab(text: 'Fatturazione'),
             ],
           ),
@@ -85,6 +193,7 @@ class _ClientDetailPageState extends ConsumerState<ClientDetailPage> {
             _ProfileTab(client: client, salon: salon),
             _AppointmentsTab(clientId: client.id),
             _PackagesTab(clientId: client.id),
+            _QuotesTab(clientId: client.id),
             _BillingTab(clientId: client.id),
           ],
         ),
@@ -123,10 +232,52 @@ class _ProfileTab extends ConsumerWidget {
     final theme = Theme.of(context);
     final dateFormat = DateFormat('dd/MM/yyyy');
     final dateTimeFormat = DateFormat('dd/MM/yyyy HH:mm');
+    final data = ref.watch(appDataProvider);
+    final templatesForSalon = data.clientQuestionnaireTemplates
+        .where((template) => template.salonId == client.salonId)
+        .toList(growable: false);
+    final usesAnamnesisLayout = templatesForSalon.any(_canUseAnamnesisLayout);
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
+    final children = <Widget>[];
+
+    final extraInfoCard = _ClientExtraDetailsCard(
+      client: client,
+      dateFormat: dateFormat,
+      dateTimeFormat: dateTimeFormat,
+    );
+
+    if (usesAnamnesisLayout) {
+      children.add(
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide = constraints.maxWidth >= 980;
+            final content = <Widget>[
+              Expanded(
+                flex: 3,
+                child: _AnamnesisInfoCard(client: client, salon: salon),
+              ),
+              SizedBox(width: isWide ? 16 : 0),
+              Expanded(flex: 2, child: const _BodyMapCard()),
+            ];
+            if (isWide) {
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: content,
+              );
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [content[0], const SizedBox(height: 16), content[2]],
+            );
+          },
+        ),
+      );
+      children.add(const SizedBox(height: 16));
+      children.add(extraInfoCard);
+      children.add(const SizedBox(height: 16));
+      children.add(_ClientQuestionnaireCard(client: client));
+    } else {
+      children.add(
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -188,83 +339,17 @@ class _ProfileTab extends ConsumerWidget {
             ),
           ),
         ),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Preferenze canali', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _channelPreferenceChips(
-                    context,
-                    client.channelPreferences,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  client.channelPreferences.updatedAt != null
-                      ? 'Ultimo aggiornamento: ${dateTimeFormat.format(client.channelPreferences.updatedAt!)}'
-                      : 'Preferenze non ancora registrate.',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
-            ),
-          ),
-        ),
-        if (client.notes != null && client.notes!.isNotEmpty)
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Note', style: theme.textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  Text(client.notes!),
-                ],
-              ),
-            ),
-          ),
-        if (client.marketedConsents.isNotEmpty)
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Consensi marketing',
-                    style: theme.textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children:
-                        client.marketedConsents
-                            .map(
-                              (consent) => Chip(
-                                avatar: const Icon(
-                                  Icons.check_rounded,
-                                  size: 16,
-                                ),
-                                label: Text(
-                                  '${_consentLabel(consent.type)} · ${dateFormat.format(consent.acceptedAt)}',
-                                ),
-                              ),
-                            )
-                            .toList(),
-                  ),
-                ],
-              ),
-            ),
-          ),
-      ],
-    );
+      );
+      children.add(const SizedBox(height: 16));
+      children.add(extraInfoCard);
+      children.add(const SizedBox(height: 16));
+      children.add(_ClientQuestionnaireCard(client: client));
+    }
+
+    children.add(const SizedBox(height: 16));
+    children.add(_ClientPhotosCard(client: client));
+
+    return ListView(padding: const EdgeInsets.all(16), children: children);
   }
 
   static String _consentLabel(ConsentType type) {
@@ -277,18 +362,263 @@ class _ProfileTab extends ConsumerWidget {
         return 'Profilazione';
     }
   }
+}
 
-  List<Widget> _channelPreferenceChips(
+class _AnamnesisInfoCard extends StatelessWidget {
+  const _AnamnesisInfoCard({required this.client, required this.salon});
+
+  final Client client;
+  final Salon? salon;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dateFormat = DateFormat('dd/MM/yyyy');
+    final birthDate = client.dateOfBirth;
+    final formattedBirthDate =
+        birthDate == null ? '—' : dateFormat.format(birthDate);
+    final age = _formatClientAge(birthDate);
+
+    final fields = <_InfoFieldData>[
+      _InfoFieldData(label: 'Nome e cognome', value: client.fullName),
+      _InfoFieldData(label: 'Data di nascita', value: formattedBirthDate),
+      _InfoFieldData(label: 'Età', value: age),
+      _InfoFieldData(
+        label: 'Numero cliente',
+        value: client.clientNumber ?? '—',
+      ),
+      _InfoFieldData(label: 'Contatto', value: client.phone),
+      _InfoFieldData(label: 'Email', value: client.email ?? '—'),
+      _InfoFieldData(label: 'Indirizzo', value: client.address ?? '—'),
+      _InfoFieldData(label: 'Professione', value: client.profession ?? '—'),
+      _InfoFieldData(
+        label: 'Come ci ha conosciuto',
+        value: client.referralSource ?? '—',
+      ),
+      if (salon != null)
+        _InfoFieldData(label: 'Salone associato', value: salon!.name),
+    ];
+
+    final notes = client.notes?.trim() ?? '';
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Dati anagrafici',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 16),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide = constraints.maxWidth >= 520;
+                final fieldWidth =
+                    isWide
+                        ? (constraints.maxWidth - 12) / 2
+                        : constraints.maxWidth;
+                return Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: fields
+                      .map(
+                        (field) => SizedBox(
+                          width: fieldWidth,
+                          child: _ReadonlyField(
+                            label: field.label,
+                            value: field.value,
+                          ),
+                        ),
+                      )
+                      .toList(growable: false),
+                );
+              },
+            ),
+            const SizedBox(height: 16),
+            _ReadonlyField(
+              label: 'Note cliente',
+              value: notes.isEmpty ? '—' : notes,
+              minLines: 3,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatClientAge(DateTime? birthDate) {
+    if (birthDate == null) {
+      return '—';
+    }
+    final now = DateTime.now();
+    var age = now.year - birthDate.year;
+    final hasHadBirthday =
+        now.month > birthDate.month ||
+        (now.month == birthDate.month && now.day >= birthDate.day);
+    if (!hasHadBirthday) {
+      age -= 1;
+    }
+    return age.toString();
+  }
+}
+
+class _BodyMapCard extends StatelessWidget {
+  const _BodyMapCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Mappa corporea',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 12),
+            AspectRatio(
+              aspectRatio: 3 / 4,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: theme.colorScheme.outlineVariant),
+                  color: theme.colorScheme.surfaceContainerHighest,
+                ),
+                child: Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      const Icon(Icons.accessibility_new, size: 96),
+                      Transform.scale(
+                        scaleX: -1,
+                        child: const Icon(Icons.accessibility_new, size: 96),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Annota visivamente le aree di interesse o allega foto dedicate dal diario cliente.',
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ClientExtraDetailsCard extends StatelessWidget {
+  const _ClientExtraDetailsCard({
+    required this.client,
+    required this.dateFormat,
+    required this.dateTimeFormat,
+  });
+
+  final Client client;
+  final DateFormat dateFormat;
+  final DateFormat dateTimeFormat;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final channelPrefs = client.channelPreferences;
+    final chips = _buildPreferenceChips(context, channelPrefs);
+    final notes = client.notes?.trim() ?? '';
+    final hasNotes = notes.isNotEmpty;
+    final hasConsents = client.marketedConsents.isNotEmpty;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Preferenze contatto',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (chips.isNotEmpty)
+              Wrap(spacing: 8, runSpacing: 8, children: chips)
+            else
+              Text(
+                'Nessuna preferenza registrata.',
+                style: theme.textTheme.bodyMedium,
+              ),
+            const SizedBox(height: 12),
+            Text(
+              channelPrefs.updatedAt != null
+                  ? 'Ultimo aggiornamento: ${dateTimeFormat.format(channelPrefs.updatedAt!)}'
+                  : 'Preferenze non ancora registrate.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Note cliente',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              hasNotes ? notes : 'Nessuna nota presente per questo cliente.',
+              style: theme.textTheme.bodyMedium,
+            ),
+            if (hasConsents) ...[
+              const SizedBox(height: 16),
+              Text(
+                'Consensi marketing',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children:
+                    client.marketedConsents
+                        .map(
+                          (consent) => Chip(
+                            avatar: const Icon(Icons.check_rounded, size: 16),
+                            label: Text(
+                              '${_ProfileTab._consentLabel(consent.type)} · ${dateFormat.format(consent.acceptedAt)}',
+                            ),
+                          ),
+                        )
+                        .toList(),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildPreferenceChips(
     BuildContext context,
     ChannelPreferences preferences,
   ) {
     Widget buildChip(bool enabled, String label, IconData icon) {
       final theme = Theme.of(context);
-      final Color selectedBackground = theme.colorScheme.secondaryContainer;
-      final Color selectedForeground = theme.colorScheme.onSecondaryContainer;
-      final Color disabledBackground =
-          theme.colorScheme.surfaceContainerHighest;
-      final Color disabledForeground = theme.colorScheme.onSurfaceVariant;
+      final selectedBackground = theme.colorScheme.secondaryContainer;
+      final selectedForeground = theme.colorScheme.onSecondaryContainer;
+      final disabledBackground = theme.colorScheme.surfaceContainerHighest;
+      final disabledForeground = theme.colorScheme.onSurfaceVariant;
       return Chip(
         avatar: Icon(
           icon,
@@ -311,6 +641,1810 @@ class _ProfileTab extends ConsumerWidget {
       buildChip(preferences.whatsapp, 'WhatsApp', Icons.chat_rounded),
       buildChip(preferences.sms, 'SMS', Icons.sms_rounded),
     ];
+  }
+}
+
+class _InfoFieldData {
+  const _InfoFieldData({required this.label, required this.value});
+
+  final String label;
+  final String value;
+}
+
+class _ReadonlyField extends StatelessWidget {
+  const _ReadonlyField({
+    required this.label,
+    required this.value,
+    this.minLines = 1,
+  });
+
+  final String label;
+  final String value;
+  final int minLines;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      readOnly: true,
+      initialValue: value,
+      minLines: minLines,
+      maxLines: minLines == 1 ? 1 : null,
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+        isDense: true,
+      ),
+    );
+  }
+}
+
+class _ClientPhotosCard extends ConsumerStatefulWidget {
+  const _ClientPhotosCard({required this.client});
+
+  final Client client;
+
+  @override
+  ConsumerState<_ClientPhotosCard> createState() => _ClientPhotosCardState();
+}
+
+class _ClientQuestionnaireCard extends ConsumerStatefulWidget {
+  const _ClientQuestionnaireCard({required this.client});
+
+  final Client client;
+
+  @override
+  ConsumerState<_ClientQuestionnaireCard> createState() =>
+      _ClientQuestionnaireCardState();
+}
+
+class _ClientQuestionnaireCardState
+    extends ConsumerState<_ClientQuestionnaireCard> {
+  final _uuid = const Uuid();
+  String? _selectedTemplateId;
+  Map<String, _QuestionAnswerEditor> _answers =
+      <String, _QuestionAnswerEditor>{};
+  bool _initialized = false;
+  bool _isSaving = false;
+  String? _currentQuestionnaireId;
+  DateTime? _currentCreatedAt;
+  DateTime? _currentUpdatedAt;
+
+  @override
+  void dispose() {
+    _disposeAnswers();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final data = ref.watch(appDataProvider);
+    final templates =
+        data.clientQuestionnaireTemplates
+            .where((template) => template.salonId == widget.client.salonId)
+            .toList()
+          ..sort(
+            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+          );
+    final questionnaires =
+        data.clientQuestionnaires
+            .where((item) => item.clientId == widget.client.id)
+            .toList();
+
+    _syncState(templates, questionnaires);
+
+    final theme = Theme.of(context);
+
+    if (templates.isEmpty) {
+      return Card(
+        child: ExpansionTile(
+          key: ValueKey('questionnaire-${widget.client.id}'),
+          initiallyExpanded: false,
+          title: Text(
+            'Questionario cliente',
+            style: theme.textTheme.titleMedium,
+          ),
+          childrenPadding: const EdgeInsets.all(16),
+          children: const [
+            Text(
+              'Nessun modello di questionario è stato configurato per questo salone.',
+            ),
+          ],
+        ),
+      );
+    }
+
+    final selectedTemplate = templates.firstWhereOrNull(
+      (template) => template.id == _selectedTemplateId,
+    );
+    final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
+
+    final content = <Widget>[
+      DropdownButtonFormField<String>(
+        value: _selectedTemplateId,
+        decoration: const InputDecoration(labelText: 'Modello questionario'),
+        items:
+            templates
+                .map(
+                  (template) => DropdownMenuItem(
+                    value: template.id,
+                    child: Text(
+                      template.isDefault
+                          ? '${template.name} (predefinito)'
+                          : template.name,
+                    ),
+                  ),
+                )
+                .toList(),
+        onChanged:
+            (value) => _handleTemplateChange(value, templates, questionnaires),
+      ),
+    ];
+
+    if (selectedTemplate?.description != null) {
+      content
+        ..add(const SizedBox(height: 8))
+        ..add(Text(selectedTemplate!.description!));
+    }
+
+    if (_currentUpdatedAt != null) {
+      content
+        ..add(const SizedBox(height: 8))
+        ..add(
+          Text(
+            'Ultimo aggiornamento: ${dateFormat.format(_currentUpdatedAt!)}',
+            style: theme.textTheme.bodySmall,
+          ),
+        );
+    } else if (_currentCreatedAt != null) {
+      content
+        ..add(const SizedBox(height: 8))
+        ..add(
+          Text(
+            'Compilato il: ${dateFormat.format(_currentCreatedAt!)}',
+            style: theme.textTheme.bodySmall,
+          ),
+        );
+    }
+
+    if (selectedTemplate != null) {
+      content
+        ..add(const SizedBox(height: 16))
+        ..add(
+          _buildQuestionnaireForm(
+            template: selectedTemplate,
+            questionnaires: questionnaires,
+          ),
+        );
+    } else {
+      content.add(
+        Padding(
+          padding: const EdgeInsets.only(top: 16),
+          child: Text(
+            'Seleziona un modello per compilare il questionario.',
+            style: theme.textTheme.bodyMedium,
+          ),
+        ),
+      );
+    }
+
+    final subtitle =
+        selectedTemplate == null
+            ? null
+            : Text(selectedTemplate.name, style: theme.textTheme.labelMedium);
+
+    return Card(
+      child: ExpansionTile(
+        key: ValueKey('questionnaire-${widget.client.id}'),
+        initiallyExpanded: true,
+        title: Text('Questionario cliente', style: theme.textTheme.titleMedium),
+        subtitle: subtitle,
+        childrenPadding: const EdgeInsets.all(16),
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: content,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuestionnaireForm({
+    required ClientQuestionnaireTemplate template,
+    required List<ClientQuestionnaire> questionnaires,
+  }) {
+    if (_supportsAnamnesisLayout(template)) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildAnamnesisLayout(template),
+          const SizedBox(height: 16),
+          _buildFormActions(template, questionnaires),
+        ],
+      );
+    }
+
+    final children = <Widget>[];
+    for (
+      var groupIndex = 0;
+      groupIndex < template.groups.length;
+      groupIndex++
+    ) {
+      final group = template.groups[groupIndex];
+      children.add(
+        ExpansionTile(
+          key: ValueKey(group.id),
+          title: Text(group.title),
+          initiallyExpanded: groupIndex == 0,
+          subtitle: group.description == null ? null : Text(group.description!),
+          children:
+              group.questions
+                  .map(
+                    (question) => Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      child: _buildQuestionField(question),
+                    ),
+                  )
+                  .toList(),
+        ),
+      );
+    }
+
+    children.add(_buildFormActions(template, questionnaires));
+
+    return Column(children: children);
+  }
+
+  Widget _buildFormActions(
+    ClientQuestionnaireTemplate template,
+    List<ClientQuestionnaire> questionnaires,
+  ) {
+    final templatesForSalon = ref
+        .read(appDataProvider)
+        .clientQuestionnaireTemplates
+        .where((item) => item.salonId == widget.client.salonId)
+        .toList(growable: false);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Row(
+        children: [
+          TextButton(
+            onPressed:
+                _isSaving
+                    ? null
+                    : () => _selectTemplate(
+                      template.id,
+                      templatesForSalon,
+                      questionnaires,
+                    ),
+            child: const Text('Reimposta'),
+          ),
+          const Spacer(),
+          FilledButton(
+            onPressed: _isSaving ? null : () => _save(template, questionnaires),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_isSaving) ...[
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text('Salvataggio...'),
+                ] else ...[
+                  const Icon(Icons.save_rounded),
+                  const SizedBox(width: 8),
+                  const Text('Salva questionario'),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _supportsAnamnesisLayout(ClientQuestionnaireTemplate template) {
+    return _canUseAnamnesisLayout(template);
+  }
+
+  Widget _buildAnamnesisLayout(ClientQuestionnaireTemplate template) {
+    final theme = Theme.of(context);
+
+    final questionsById = <String, ClientQuestionDefinition>{};
+    for (final group in template.groups) {
+      for (final question in group.questions) {
+        questionsById[question.id] = question;
+      }
+    }
+
+    ClientQuestionDefinition? question(String id) => questionsById[id];
+
+    List<Widget> buildBooleanFields(Set<String> ids) {
+      return ids
+          .map(question)
+          .whereType<ClientQuestionDefinition>()
+          .map(_buildAnamnesisBooleanField)
+          .whereType<Widget>()
+          .toList(growable: false);
+    }
+
+    List<Widget> buildSingleChoiceFields(Set<String> ids) {
+      return ids
+          .map(question)
+          .whereType<ClientQuestionDefinition>()
+          .map(_buildAnamnesisSingleChoiceField)
+          .whereType<Widget>()
+          .toList(growable: false);
+    }
+
+    List<Widget> buildTextFields(Set<String> ids) {
+      return ids
+          .map(question)
+          .whereType<ClientQuestionDefinition>()
+          .map(_buildAnamnesisTextField)
+          .whereType<Widget>()
+          .toList(growable: false);
+    }
+
+    final generalHealthFields = buildBooleanFields(_generalHealthQuestionIds);
+    final lifestyleBooleanFields = buildBooleanFields(
+      _lifestyleBooleanQuestionIds,
+    );
+    final lifestyleTextFields = buildTextFields(_lifestyleTextQuestionIds);
+    final aestheticBooleanFields = buildBooleanFields(
+      _aestheticBooleanQuestionIds,
+    );
+    final aestheticSingleChoiceFields = buildSingleChoiceFields(
+      _aestheticSingleChoiceQuestionIds,
+    );
+    final aestheticTexts = buildTextFields(_aestheticTextQuestionIds);
+    final measurementNumbers = _measurementNumberQuestionIds
+        .map(question)
+        .whereType<ClientQuestionDefinition>()
+        .map(_buildAnamnesisNumberField)
+        .whereType<Widget>()
+        .toList(growable: false);
+    final measurementChoiceFields = buildSingleChoiceFields(
+      _measurementSingleChoiceQuestionIds,
+    );
+    final noteTexts = buildTextFields(_noteTextQuestionIds);
+
+    final consentBool = _buildAnamnesisBooleanField(
+      question('q-consent-informed'),
+      allowTristate: false,
+    );
+    final consentSignature = _buildAnamnesisTextField(
+      question('q-client-signature'),
+    );
+    final consentDate = _buildAnamnesisDateField(question('q-consent-date'));
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bool wide = constraints.maxWidth >= 980;
+        final double interColumnSpacing = wide ? 24 : 16;
+
+        final leftSections = <Widget>[
+          if (generalHealthFields.isNotEmpty)
+            _anamnesisSection(
+              title: 'Stato di salute generale',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ..._withSectionSpacing(generalHealthFields, spacing: 8),
+                ],
+              ),
+            ),
+          if (lifestyleBooleanFields.isNotEmpty ||
+              lifestyleTextFields.isNotEmpty)
+            _anamnesisSection(
+              title: 'Stile di vita',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (lifestyleBooleanFields.isNotEmpty)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: _withSectionSpacing(
+                        lifestyleBooleanFields,
+                        spacing: 8,
+                      ),
+                    ),
+                  if (lifestyleBooleanFields.isNotEmpty &&
+                      lifestyleTextFields.isNotEmpty)
+                    const SizedBox(height: 16),
+                  if (lifestyleTextFields.isNotEmpty)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: _withSectionSpacing(lifestyleTextFields),
+                    ),
+                ],
+              ),
+            ),
+          if (aestheticBooleanFields.isNotEmpty ||
+              aestheticSingleChoiceFields.isNotEmpty ||
+              aestheticTexts.isNotEmpty)
+            _anamnesisSection(
+              title: 'Anamnesi estetica',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (aestheticBooleanFields.isNotEmpty)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: _withSectionSpacing(
+                        aestheticBooleanFields,
+                        spacing: 8,
+                      ),
+                    ),
+                  if (aestheticBooleanFields.isNotEmpty &&
+                      aestheticSingleChoiceFields.isNotEmpty)
+                    const SizedBox(height: 16),
+                  if (aestheticSingleChoiceFields.isNotEmpty)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: _withSectionSpacing(
+                        aestheticSingleChoiceFields,
+                        spacing: 12,
+                      ),
+                    ),
+                  if ((aestheticBooleanFields.isNotEmpty ||
+                          aestheticSingleChoiceFields.isNotEmpty) &&
+                      aestheticTexts.isNotEmpty)
+                    const SizedBox(height: 16),
+                  if (aestheticTexts.isNotEmpty)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: _withSectionSpacing(aestheticTexts),
+                    ),
+                ],
+              ),
+            ),
+        ];
+
+        final rightSections = <Widget>[
+          if (measurementNumbers.isNotEmpty ||
+              measurementChoiceFields.isNotEmpty)
+            _anamnesisSection(
+              title: 'Misurazioni e rilevazioni',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (measurementNumbers.isNotEmpty)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: _withSectionSpacing(measurementNumbers),
+                    ),
+                  if (measurementNumbers.isNotEmpty &&
+                      measurementChoiceFields.isNotEmpty)
+                    const SizedBox(height: 16),
+                  if (measurementChoiceFields.isNotEmpty)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: _withSectionSpacing(
+                        measurementChoiceFields,
+                        spacing: 12,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          if (noteTexts.isNotEmpty)
+            _anamnesisSection(
+              title: 'Note e raccomandazioni',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: _withSectionSpacing(noteTexts),
+              ),
+            ),
+          if (consentBool != null ||
+              consentSignature != null ||
+              consentDate != null)
+            _anamnesisSection(
+              title: 'Consenso informato',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: _withSectionSpacing([
+                  if (consentBool != null) consentBool,
+                  if (consentSignature != null) consentSignature,
+                  if (consentDate != null) consentDate,
+                ]),
+              ),
+            ),
+        ];
+
+        final leftColumn = Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: _withColumnSpacing(leftSections),
+        );
+        final rightColumn = Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: _withColumnSpacing(rightSections),
+        );
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Anamnesi Cliente',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Raccogli e aggiorna rapidamente i dati anamnestici del cliente.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 24),
+            if (wide)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 3, child: leftColumn),
+                  SizedBox(width: interColumnSpacing),
+                  Expanded(flex: 2, child: rightColumn),
+                ],
+              )
+            else
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [leftColumn, const SizedBox(height: 24), rightColumn],
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _anamnesisSection({required String title, required Widget child}) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 12),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _withSectionSpacing(List<Widget> items, {double spacing = 12}) {
+    if (items.isEmpty) {
+      return items;
+    }
+    final result = <Widget>[];
+    for (var index = 0; index < items.length; index += 1) {
+      result.add(items[index]);
+      if (index != items.length - 1) {
+        result.add(SizedBox(height: spacing));
+      }
+    }
+    return result;
+  }
+
+  List<Widget> _withColumnSpacing(
+    List<Widget> sections, {
+    double spacing = 24,
+  }) {
+    if (sections.isEmpty) {
+      return sections;
+    }
+    final result = <Widget>[];
+    for (var index = 0; index < sections.length; index += 1) {
+      result.add(sections[index]);
+      if (index != sections.length - 1) {
+        result.add(SizedBox(height: spacing));
+      }
+    }
+    return result;
+  }
+
+  Widget? _buildAnamnesisBooleanField(
+    ClientQuestionDefinition? question, {
+    bool allowTristate = true,
+  }) {
+    if (question == null) {
+      return null;
+    }
+    final answer = _answers[question.id];
+    if (answer == null) {
+      return null;
+    }
+    final bool tristate = allowTristate && !question.isRequired;
+    final bool? currentValue =
+        tristate ? answer.boolValue : (answer.boolValue ?? false);
+
+    return CheckboxListTile(
+      key: ValueKey('bool-field-${question.id}'),
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      controlAffinity: ListTileControlAffinity.leading,
+      tristate: tristate,
+      title: Text(question.label),
+      subtitle: question.helperText == null ? null : Text(question.helperText!),
+      value: currentValue,
+      onChanged: (value) {
+        setState(() {
+          if (tristate) {
+            answer.boolValue = value;
+          } else {
+            answer.boolValue = value ?? false;
+          }
+        });
+      },
+    );
+  }
+
+  Widget? _buildAnamnesisSingleChoiceField(ClientQuestionDefinition? question) {
+    if (question == null || question.options.isEmpty) {
+      return null;
+    }
+    final answer = _answers[question.id];
+    if (answer == null) {
+      return null;
+    }
+    final selected = answer.optionIds.isEmpty ? null : answer.optionIds.first;
+
+    return DropdownButtonFormField<String>(
+      key: ValueKey('single-${question.id}'),
+      value: selected,
+      decoration: InputDecoration(
+        labelText: question.label,
+        helperText: question.helperText,
+      ),
+      items: question.options
+          .map(
+            (option) => DropdownMenuItem<String>(
+              value: option.id,
+              child: Text(option.label),
+            ),
+          )
+          .toList(growable: false),
+      onChanged: (value) {
+        setState(() {
+          answer.optionIds.clear();
+          if (value != null) {
+            answer.optionIds.add(value);
+          }
+        });
+      },
+    );
+  }
+
+  Widget? _buildAnamnesisTextField(ClientQuestionDefinition? question) {
+    if (question == null) {
+      return null;
+    }
+    final answer = _answers[question.id];
+    if (answer == null) {
+      return null;
+    }
+    final isMultiline = question.type == ClientQuestionType.textarea;
+    return TextFormField(
+      key: ValueKey('text-${question.id}'),
+      controller: answer.textController,
+      minLines: isMultiline ? 3 : 1,
+      maxLines: isMultiline ? null : 1,
+      decoration: InputDecoration(
+        labelText: question.label,
+        helperText: question.helperText,
+      ),
+    );
+  }
+
+  Widget? _buildAnamnesisNumberField(ClientQuestionDefinition? question) {
+    if (question == null) {
+      return null;
+    }
+    final answer = _answers[question.id];
+    if (answer == null) {
+      return null;
+    }
+    return TextFormField(
+      key: ValueKey('number-${question.id}'),
+      controller: answer.textController,
+      decoration: InputDecoration(
+        labelText: question.label,
+        helperText: question.helperText,
+      ),
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      onChanged: (value) => answer.numberValue = double.tryParse(value.trim()),
+    );
+  }
+
+  Widget? _buildAnamnesisDateField(ClientQuestionDefinition? question) {
+    if (question == null) {
+      return null;
+    }
+    final answer = _answers[question.id];
+    if (answer == null) {
+      return null;
+    }
+    final theme = Theme.of(context);
+    final value = answer.dateValue;
+    final formatted =
+        value == null
+            ? 'Seleziona data'
+            : DateFormat('dd/MM/yyyy').format(value);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(question.label, style: theme.textTheme.bodyMedium),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            FilledButton.tonalIcon(
+              onPressed: () => _pickDate(answer),
+              icon: const Icon(Icons.event_rounded),
+              label: Text(formatted),
+            ),
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed:
+                  value == null
+                      ? null
+                      : () => setState(() => answer.dateValue = null),
+              child: const Text('Pulisci'),
+            ),
+          ],
+        ),
+        if (question.helperText != null) ...[
+          const SizedBox(height: 8),
+          Text(question.helperText!, style: theme.textTheme.bodySmall),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildQuestionField(ClientQuestionDefinition question) {
+    final answer = _answers[question.id];
+    if (answer == null) {
+      return const SizedBox.shrink();
+    }
+    final label = _questionLabel(question);
+
+    switch (question.type) {
+      case ClientQuestionType.boolean:
+        return DropdownButtonFormField<bool?>(
+          value: answer.boolValue,
+          decoration: InputDecoration(
+            labelText: label,
+            helperText: question.helperText,
+          ),
+          items: const [
+            DropdownMenuItem<bool?>(value: null, child: Text('Non compilato')),
+            DropdownMenuItem<bool?>(value: true, child: Text('Si')),
+            DropdownMenuItem<bool?>(value: false, child: Text('No')),
+          ],
+          onChanged: (value) => setState(() => answer.boolValue = value),
+        );
+      case ClientQuestionType.text:
+        return TextFormField(
+          controller: answer.textController,
+          decoration: InputDecoration(
+            labelText: label,
+            helperText: question.helperText,
+          ),
+        );
+      case ClientQuestionType.textarea:
+        return TextFormField(
+          controller: answer.textController,
+          decoration: InputDecoration(
+            labelText: label,
+            helperText: question.helperText,
+          ),
+          maxLines: 4,
+        );
+      case ClientQuestionType.singleChoice:
+        final selected =
+            answer.optionIds.isEmpty ? null : answer.optionIds.first;
+        return DropdownButtonFormField<String>(
+          value: selected,
+          decoration: InputDecoration(
+            labelText: label,
+            helperText: question.helperText,
+          ),
+          items:
+              question.options
+                  .map(
+                    (option) => DropdownMenuItem(
+                      value: option.id,
+                      child: Text(option.label),
+                    ),
+                  )
+                  .toList(),
+          onChanged:
+              (value) => setState(() {
+                answer.optionIds
+                  ..clear()
+                  ..addAll(value == null ? const <String>[] : <String>[value]);
+              }),
+        );
+      case ClientQuestionType.multiChoice:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
+            ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children:
+                  question.options
+                      .map(
+                        (option) => FilterChip(
+                          label: Text(option.label),
+                          selected: answer.optionIds.contains(option.id),
+                          onSelected:
+                              (value) => setState(() {
+                                if (value) {
+                                  answer.optionIds.add(option.id);
+                                } else {
+                                  answer.optionIds.remove(option.id);
+                                }
+                              }),
+                        ),
+                      )
+                      .toList(),
+            ),
+            if (question.helperText != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  question.helperText!,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+          ],
+        );
+      case ClientQuestionType.number:
+        return TextFormField(
+          controller: answer.textController,
+          decoration: InputDecoration(
+            labelText: label,
+            helperText: question.helperText,
+          ),
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          onChanged:
+              (value) => answer.numberValue = double.tryParse(value.trim()),
+        );
+      case ClientQuestionType.date:
+        final value = answer.dateValue;
+        final dateLabel =
+            value == null
+                ? 'Nessuna data selezionata'
+                : DateFormat('dd/MM/yyyy').format(value);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: Theme.of(context).textTheme.bodyMedium),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                FilledButton.tonalIcon(
+                  onPressed: () => _pickDate(answer),
+                  icon: const Icon(Icons.event_rounded),
+                  label: Text(
+                    value == null
+                        ? 'Seleziona data'
+                        : DateFormat('dd/MM/yyyy').format(value),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed:
+                      value == null
+                          ? null
+                          : () => setState(() => answer.dateValue = null),
+                  child: const Text('Pulisci'),
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                dateLabel,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+            if (question.helperText != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  question.helperText!,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+          ],
+        );
+    }
+  }
+
+  Future<void> _pickDate(_QuestionAnswerEditor answer) async {
+    final now = DateTime.now();
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: answer.dateValue ?? now,
+      firstDate: DateTime(now.year - 10),
+      lastDate: DateTime(now.year + 10),
+    );
+    if (selected != null) {
+      setState(() => answer.dateValue = selected);
+    }
+  }
+
+  void _handleTemplateChange(
+    String? value,
+    List<ClientQuestionnaireTemplate> templates,
+    List<ClientQuestionnaire> questionnaires,
+  ) {
+    if (value == null) {
+      return;
+    }
+    _selectTemplate(value, templates, questionnaires);
+  }
+
+  void _syncState(
+    List<ClientQuestionnaireTemplate> templates,
+    List<ClientQuestionnaire> questionnaires,
+  ) {
+    if (_isSaving) {
+      return;
+    }
+    if (templates.isEmpty) {
+      if (_selectedTemplateId != null || _answers.isNotEmpty) {
+        _disposeAnswers();
+        _selectedTemplateId = null;
+        _currentQuestionnaireId = null;
+        _currentCreatedAt = null;
+        _currentUpdatedAt = null;
+        _initialized = false;
+      }
+      return;
+    }
+    final selected = templates.firstWhereOrNull(
+      (template) => template.id == _selectedTemplateId,
+    );
+    if (!_initialized || selected == null) {
+      final initial = _determineInitialTemplate(templates, questionnaires);
+      if (initial != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _selectTemplate(initial.id, templates, questionnaires);
+        });
+      }
+      return;
+    }
+
+    final latest = _latestQuestionnaireForTemplate(questionnaires, selected.id);
+    final latestUpdatedAt = latest?.updatedAt;
+    if (latestUpdatedAt != _currentUpdatedAt) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _selectTemplate(selected.id, templates, questionnaires);
+      });
+    }
+  }
+
+  ClientQuestionnaireTemplate? _determineInitialTemplate(
+    List<ClientQuestionnaireTemplate> templates,
+    List<ClientQuestionnaire> questionnaires,
+  ) {
+    if (templates.isEmpty) {
+      return null;
+    }
+    final sorted =
+        questionnaires.toList()
+          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    final existing = sorted.firstWhereOrNull(
+      (item) => templates.any((template) => template.id == item.templateId),
+    );
+    if (existing != null) {
+      return templates.firstWhereOrNull((t) => t.id == existing.templateId);
+    }
+    return templates.firstWhereOrNull((template) => template.isDefault) ??
+        templates.first;
+  }
+
+  ClientQuestionnaire? _latestQuestionnaireForTemplate(
+    List<ClientQuestionnaire> questionnaires,
+    String templateId,
+  ) {
+    final matches =
+        questionnaires.where((item) => item.templateId == templateId).toList();
+    if (matches.isEmpty) {
+      return null;
+    }
+    matches.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return matches.first;
+  }
+
+  void _selectTemplate(
+    String templateId,
+    List<ClientQuestionnaireTemplate> templates,
+    List<ClientQuestionnaire> questionnaires,
+  ) {
+    final template = templates.firstWhereOrNull((t) => t.id == templateId);
+    if (template == null) {
+      return;
+    }
+    final latest = _latestQuestionnaireForTemplate(questionnaires, template.id);
+    final newAnswers = <String, _QuestionAnswerEditor>{};
+    for (final group in template.groups) {
+      for (final question in group.questions) {
+        final existing = latest?.answerFor(question.id);
+        newAnswers[question.id] = _QuestionAnswerEditor(
+          boolValue: existing?.boolValue,
+          textValue: existing?.textValue,
+          optionIds: existing == null ? <String>{} : existing.optionIds.toSet(),
+          numberValue: existing?.numberValue,
+          dateValue: existing?.dateValue,
+        );
+      }
+    }
+
+    _disposeAnswers();
+    setState(() {
+      _selectedTemplateId = template.id;
+      _answers = newAnswers;
+      _currentQuestionnaireId = latest?.id;
+      _currentCreatedAt = latest?.createdAt;
+      _currentUpdatedAt = latest?.updatedAt;
+      _initialized = true;
+    });
+  }
+
+  void _disposeAnswers() {
+    for (final entry in _answers.values) {
+      entry.dispose();
+    }
+    _answers = <String, _QuestionAnswerEditor>{};
+  }
+
+  Future<void> _save(
+    ClientQuestionnaireTemplate template,
+    List<ClientQuestionnaire> questionnaires,
+  ) async {
+    final error = _validateAnswers(template);
+    if (error != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error)));
+      return;
+    }
+
+    final answers = _collectAnswers(template);
+    final now = DateTime.now();
+    final questionnaire = ClientQuestionnaire(
+      id: _currentQuestionnaireId ?? _uuid.v4(),
+      clientId: widget.client.id,
+      salonId: widget.client.salonId,
+      templateId: template.id,
+      answers: answers,
+      createdAt: _currentCreatedAt ?? now,
+      updatedAt: now,
+    );
+
+    setState(() => _isSaving = true);
+    try {
+      await ref
+          .read(appDataProvider.notifier)
+          .upsertClientQuestionnaire(questionnaire);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSaving = false;
+        _currentQuestionnaireId = questionnaire.id;
+        _currentCreatedAt = questionnaire.createdAt;
+        _currentUpdatedAt = questionnaire.updatedAt;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Questionario aggiornato.')));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Errore durante il salvataggio: $error')),
+      );
+    }
+  }
+
+  String? _validateAnswers(ClientQuestionnaireTemplate template) {
+    for (final group in template.groups) {
+      for (final question in group.questions) {
+        final answer = _answers[question.id];
+        if (answer == null) {
+          continue;
+        }
+        switch (question.type) {
+          case ClientQuestionType.boolean:
+            if (question.isRequired && answer.boolValue == null) {
+              return 'Compila la domanda "${question.label}"';
+            }
+            break;
+          case ClientQuestionType.text:
+          case ClientQuestionType.textarea:
+            final text = answer.textController.text.trim();
+            if (question.isRequired && text.isEmpty) {
+              return 'Compila la domanda "${question.label}"';
+            }
+            break;
+          case ClientQuestionType.singleChoice:
+            if (question.isRequired && answer.optionIds.isEmpty) {
+              return 'Seleziona un valore per "${question.label}"';
+            }
+            break;
+          case ClientQuestionType.multiChoice:
+            if (question.isRequired && answer.optionIds.isEmpty) {
+              return 'Seleziona almeno un valore per "${question.label}"';
+            }
+            break;
+          case ClientQuestionType.number:
+            final text = answer.textController.text.trim();
+            if (text.isEmpty) {
+              if (question.isRequired) {
+                return 'Inserisci un valore numerico per "${question.label}"';
+              }
+            } else {
+              final parsed = double.tryParse(text);
+              if (parsed == null) {
+                return 'Inserisci un numero valido per "${question.label}"';
+              }
+              answer.numberValue = parsed;
+            }
+            break;
+          case ClientQuestionType.date:
+            if (question.isRequired && answer.dateValue == null) {
+              return 'Seleziona una data per "${question.label}"';
+            }
+            break;
+        }
+      }
+    }
+    return null;
+  }
+
+  List<ClientQuestionAnswer> _collectAnswers(
+    ClientQuestionnaireTemplate template,
+  ) {
+    final answers = <ClientQuestionAnswer>[];
+    for (final group in template.groups) {
+      for (final question in group.questions) {
+        final editor = _answers[question.id];
+        if (editor == null) {
+          continue;
+        }
+        switch (question.type) {
+          case ClientQuestionType.boolean:
+            answers.add(
+              ClientQuestionAnswer(
+                questionId: question.id,
+                boolValue: editor.boolValue,
+              ),
+            );
+            break;
+          case ClientQuestionType.text:
+          case ClientQuestionType.textarea:
+            final text = editor.textController.text.trim();
+            answers.add(
+              ClientQuestionAnswer(
+                questionId: question.id,
+                textValue: text.isEmpty ? null : text,
+              ),
+            );
+            break;
+          case ClientQuestionType.singleChoice:
+            final selected =
+                editor.optionIds.isEmpty ? null : editor.optionIds.first;
+            answers.add(
+              ClientQuestionAnswer(
+                questionId: question.id,
+                optionIds:
+                    selected == null ? const <String>[] : <String>[selected],
+              ),
+            );
+            break;
+          case ClientQuestionType.multiChoice:
+            answers.add(
+              ClientQuestionAnswer(
+                questionId: question.id,
+                optionIds: editor.optionIds.toList(growable: false),
+              ),
+            );
+            break;
+          case ClientQuestionType.number:
+            final text = editor.textController.text.trim();
+            final parsed = text.isEmpty ? null : double.tryParse(text);
+            answers.add(
+              ClientQuestionAnswer(
+                questionId: question.id,
+                numberValue: parsed,
+              ),
+            );
+            break;
+          case ClientQuestionType.date:
+            answers.add(
+              ClientQuestionAnswer(
+                questionId: question.id,
+                dateValue: editor.dateValue,
+              ),
+            );
+            break;
+        }
+      }
+    }
+    return answers;
+  }
+
+  String _questionLabel(ClientQuestionDefinition question) {
+    return question.isRequired ? '${question.label} *' : question.label;
+  }
+}
+
+class _QuestionAnswerEditor {
+  _QuestionAnswerEditor({
+    this.boolValue,
+    String? textValue,
+    Set<String>? optionIds,
+    num? numberValue,
+    DateTime? dateValue,
+  }) : textController = TextEditingController(
+         text: textValue ?? (numberValue?.toString() ?? ''),
+       ),
+       optionIds = optionIds ?? <String>{},
+       numberValue = numberValue?.toDouble(),
+       dateValue = dateValue;
+
+  bool? boolValue;
+  final TextEditingController textController;
+  Set<String> optionIds;
+  double? numberValue;
+  DateTime? dateValue;
+
+  void dispose() {
+    textController.dispose();
+  }
+}
+
+class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
+  final Set<String> _deleting = <String>{};
+  final Set<String> _updatingNotes = <String>{};
+  final TextEditingController _noteController = TextEditingController();
+  bool _isUploading = false;
+  final Uuid _uuid = const Uuid();
+  static const int _maxUploadBytes = 10 * 1024 * 1024;
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final photos = ref.watch(clientPhotosProvider(widget.client.id));
+    final sortedPhotos = photos.toList(growable: false)
+      ..sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
+
+    final photoCount = sortedPhotos.length;
+    final subtitle =
+        photoCount == 0
+            ? 'Nessuna foto'
+            : photoCount == 1
+            ? '1 foto'
+            : '$photoCount foto';
+
+    return Card(
+      child: ExpansionTile(
+        key: ValueKey('photos-${widget.client.id}'),
+        initiallyExpanded: true,
+        title: Text('Archivio fotografico', style: theme.textTheme.titleMedium),
+        subtitle: Text(subtitle, style: theme.textTheme.bodySmall),
+        childrenPadding: const EdgeInsets.all(16),
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Align(
+                alignment: Alignment.centerRight,
+                child: IconButton(
+                  tooltip: 'Aggiorna elenco foto',
+                  onPressed:
+                      _isUploading
+                          ? null
+                          : () => ref.invalidate(
+                            clientPhotosProvider(widget.client.id),
+                          ),
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
+              ),
+              TextField(
+                controller: _noteController,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Nota da allegare (opzionale)',
+                  hintText: 'Esempio: Prima del trattamento viso',
+                  helperText:
+                      'La nota viene applicata a tutte le foto selezionate al prossimo caricamento.',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  onPressed: _isUploading ? null : _pickAndUpload,
+                  icon:
+                      _isUploading
+                          ? const SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                          : const Icon(Icons.file_upload_outlined),
+                  label: Text(
+                    _isUploading ? 'Caricamento in corso…' : 'Carica foto',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (sortedPhotos.isEmpty)
+                Text(
+                  'Nessuna foto presente nella scheda cliente. Carica una o più immagini per iniziare.',
+                  style: theme.textTheme.bodyMedium,
+                )
+              else
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: sortedPhotos.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final photo = sortedPhotos[index];
+                    final isDeleting = _deleting.contains(photo.id);
+                    final isUpdating = _updatingNotes.contains(photo.id);
+                    return _ClientPhotoTile(
+                      photo: photo,
+                      isDeleting: isDeleting,
+                      isUpdating: isUpdating,
+                      onPreview: () => _previewPhoto(photo),
+                      onEditNote: () => _editNote(photo),
+                      onDelete: () => _deletePhoto(photo),
+                    );
+                  },
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickAndUpload() async {
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: true,
+      type: FileType.image,
+      withData: true,
+      withReadStream: true,
+    );
+    if (result == null || result.files.isEmpty) {
+      return;
+    }
+
+    final storage = ref.read(firebaseStorageServiceProvider);
+    final dataStore = ref.read(appDataProvider.notifier);
+    final session = ref.read(sessionControllerProvider);
+    final uploaderId = session.uid ?? 'unknown';
+    final noteText = _noteController.text.trim();
+    final note = noteText.isEmpty ? null : noteText;
+
+    setState(() => _isUploading = true);
+
+    try {
+      var uploadedCount = 0;
+      final skippedTooLarge = <String>[];
+      final skippedUnreadable = <String>[];
+      for (final file in result.files) {
+        if (file.size > _maxUploadBytes) {
+          skippedTooLarge.add(file.name);
+          continue;
+        }
+        final Uint8List? bytes = await _resolveBytes(file);
+        if (bytes == null || bytes.isEmpty) {
+          skippedUnreadable.add(file.name);
+          continue;
+        }
+        final upload = await storage.uploadClientPhoto(
+          salonId: widget.client.salonId,
+          clientId: widget.client.id,
+          photoId: _uuid.v4(),
+          uploaderId: uploaderId,
+          data: bytes,
+          fileName: file.name,
+        );
+        final photo = ClientPhoto(
+          id: upload.photoId,
+          salonId: upload.salonId,
+          clientId: upload.clientId,
+          storagePath: upload.storagePath,
+          downloadUrl: upload.downloadUrl,
+          uploadedAt: upload.uploadedAt,
+          uploadedBy: upload.uploadedBy,
+          fileName: upload.fileName,
+          contentType: upload.contentType,
+          sizeBytes: upload.sizeBytes,
+          notes: note,
+        );
+        await dataStore.upsertClientPhoto(photo);
+        uploadedCount += 1;
+      }
+      if (!mounted) {
+        return;
+      }
+      if (uploadedCount > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              uploadedCount == 1
+                  ? 'Foto caricata correttamente.'
+                  : '$uploadedCount foto caricate correttamente.',
+            ),
+          ),
+        );
+      }
+      if (skippedTooLarge.isNotEmpty || skippedUnreadable.isNotEmpty) {
+        final messages = <String>[];
+        if (skippedTooLarge.isNotEmpty) {
+          messages.add(
+            'File troppo grandi (>${_maxUploadBytes ~/ (1024 * 1024)} MB): ${skippedTooLarge.join(', ')}',
+          );
+        }
+        if (skippedUnreadable.isNotEmpty) {
+          messages.add('File non leggibili: ${skippedUnreadable.join(', ')}');
+        }
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(messages.join('\n'))));
+      }
+      if (uploadedCount == 0 &&
+          skippedTooLarge.isEmpty &&
+          skippedUnreadable.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nessun file valido selezionato.')),
+        );
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Impossibile caricare le foto: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isUploading = false);
+      }
+    }
+  }
+
+  Future<Uint8List?> _resolveBytes(PlatformFile file) async {
+    if (file.bytes != null && file.bytes!.isNotEmpty) {
+      return file.bytes;
+    }
+    final stream = file.readStream;
+    if (stream == null) {
+      return null;
+    }
+    final builder = BytesBuilder();
+    try {
+      await for (final chunk in stream) {
+        builder.add(chunk);
+        if (builder.length > _maxUploadBytes) {
+          // Stop early if the stream exceeds the allowed size.
+          return null;
+        }
+      }
+      final data = builder.takeBytes();
+      return data.isEmpty ? null : data;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _deletePhoto(ClientPhoto photo) async {
+    if (_deleting.contains(photo.id)) {
+      return;
+    }
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Elimina foto'),
+          content: const Text(
+            'La foto verrà rimossa definitivamente sia dall\'archivio sia dal cloud storage.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Annulla'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Elimina'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirm != true) {
+      return;
+    }
+
+    final dataStore = ref.read(appDataProvider.notifier);
+    final storage = ref.read(firebaseStorageServiceProvider);
+
+    setState(() => _deleting.add(photo.id));
+    try {
+      await dataStore.deleteClientPhoto(photo.id);
+      await storage.deleteFile(photo.storagePath);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Foto eliminata.')));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Non è stato possibile eliminare la foto: $error'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _deleting.remove(photo.id));
+      }
+    }
+  }
+
+  Future<void> _editNote(ClientPhoto photo) async {
+    if (_updatingNotes.contains(photo.id)) {
+      return;
+    }
+    final controller = TextEditingController(text: photo.notes ?? '');
+    final result = await showDialog<String?>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Modifica nota'),
+          content: TextField(
+            controller: controller,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              hintText: 'Annotazioni sulla foto (facoltative)',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(null),
+              child: const Text('Annulla'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(''),
+              child: const Text('Rimuovi nota'),
+            ),
+            FilledButton(
+              onPressed:
+                  () => Navigator.of(dialogContext).pop(controller.text.trim()),
+              child: const Text('Salva'),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+
+    if (result == null) {
+      return;
+    }
+
+    final updatedNote = result.isEmpty ? null : result;
+    final updatedPhoto = photo.copyWith(notes: updatedNote);
+    final dataStore = ref.read(appDataProvider.notifier);
+
+    setState(() => _updatingNotes.add(photo.id));
+    try {
+      await dataStore.upsertClientPhoto(updatedPhoto);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Nota aggiornata.')));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Aggiornamento nota non riuscito: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _updatingNotes.remove(photo.id));
+      }
+    }
+  }
+
+  void _previewPhoto(ClientPhoto photo) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        return Dialog(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 600, maxHeight: 600),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Expanded(
+                  child: InteractiveViewer(
+                    child: Image.network(
+                      photo.downloadUrl,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+                if (photo.notes != null && photo.notes!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        photo.notes!,
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ),
+                  ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Chiudi'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ClientPhotoTile extends StatelessWidget {
+  const _ClientPhotoTile({
+    required this.photo,
+    required this.isDeleting,
+    required this.isUpdating,
+    required this.onPreview,
+    required this.onEditNote,
+    required this.onDelete,
+  });
+
+  final ClientPhoto photo;
+  final bool isDeleting;
+  final bool isUpdating;
+  final VoidCallback onPreview;
+  final VoidCallback onEditNote;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final fileLabel =
+        (photo.fileName != null && photo.fileName!.trim().isNotEmpty)
+            ? photo.fileName!.trim()
+            : 'Foto cliente';
+    final uploadedAt = DateFormat(
+      'dd/MM/yyyy HH:mm',
+    ).format(photo.uploadedAt.toLocal());
+
+    final editAction =
+        isUpdating
+            ? const SizedBox(
+              height: 20,
+              width: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+            : IconButton(
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              icon: const Icon(Icons.edit_note_outlined),
+              tooltip: 'Modifica nota',
+              color: theme.colorScheme.primary,
+              onPressed: onEditNote,
+            );
+
+    final deleteAction =
+        isDeleting
+            ? const SizedBox(
+              height: 20,
+              width: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+            : IconButton(
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              icon: const Icon(Icons.delete_outline_rounded),
+              tooltip: 'Elimina foto',
+              color: theme.colorScheme.error,
+              onPressed: onDelete,
+            );
+
+    return ListTile(
+      onTap: onPreview,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      title: Text(
+        fileLabel,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: theme.textTheme.titleSmall?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            uploadedAt,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Tocca per visualizzare',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [editAction, const SizedBox(width: 8), deleteAction],
+      ),
+    );
   }
 }
 
@@ -1339,6 +3473,1213 @@ class _PackagesTabState extends ConsumerState<_PackagesTab> {
       category: 'Acconti',
     );
     await ref.read(appDataProvider.notifier).upsertCashFlowEntry(entry);
+  }
+}
+
+class _QuotesTab extends ConsumerStatefulWidget {
+  const _QuotesTab({required this.clientId});
+
+  final String clientId;
+
+  @override
+  ConsumerState<_QuotesTab> createState() => _QuotesTabState();
+}
+
+class _QuotesTabState extends ConsumerState<_QuotesTab> {
+  final Set<String> _sendingQuotes = <String>{};
+  final Set<String> _updatingQuotes = <String>{};
+  final Set<String> _deletingQuotes = <String>{};
+
+  @override
+  Widget build(BuildContext context) {
+    final data = ref.watch(appDataProvider);
+    final client = data.clients.firstWhereOrNull(
+      (element) => element.id == widget.clientId,
+    );
+
+    if (client == null) {
+      return const Center(child: Text('Cliente non trovato.'));
+    }
+
+    final quotes =
+        data.quotes.where((quote) => quote.clientId == widget.clientId).toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final services = data.services
+        .where((service) => service.salonId == client.salonId)
+        .toList(growable: false);
+    final salonPackages = data.packages
+        .where((pkg) => pkg.salonId == client.salonId)
+        .toList(growable: false);
+    final userRole = ref.watch(
+      sessionControllerProvider.select((state) => state.role),
+    );
+    final canSendQuotes =
+        userRole == UserRole.admin || userRole == UserRole.staff;
+
+    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    final dateFormat = DateFormat('dd/MM/yyyy');
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.icon(
+            onPressed:
+                () => _createQuote(
+                  context,
+                  client: client,
+                  existingQuotes: quotes,
+                  services: services,
+                  packages: salonPackages,
+                ),
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Nuovo preventivo'),
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (quotes.isEmpty)
+          const Card(
+            child: ListTile(
+              leading: Icon(Icons.description_outlined),
+              title: Text('Non ci sono preventivi registrati.'),
+              subtitle: Text('Crea il primo preventivo per questo cliente.'),
+            ),
+          )
+        else
+          ...quotes.map(
+            (quote) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _QuoteCard(
+                quote: quote,
+                currency: currency,
+                dateFormat: dateFormat,
+                isSending: _sendingQuotes.contains(quote.id),
+                isUpdating: _updatingQuotes.contains(quote.id),
+                isDeleting: _deletingQuotes.contains(quote.id),
+                onEdit:
+                    quote.isEditable
+                        ? () => _editQuote(
+                          context,
+                          quote: quote,
+                          client: client,
+                          existingQuotes: quotes,
+                          services: services,
+                          packages: salonPackages,
+                        )
+                        : null,
+                onSend:
+                    quote.status == QuoteStatus.accepted || !canSendQuotes
+                        ? null
+                        : () => _sendQuote(
+                          context,
+                          quote: quote,
+                          client: client,
+                          currency: currency,
+                        ),
+                onAccept:
+                    quote.status == QuoteStatus.accepted
+                        ? null
+                        : () => _acceptQuote(context, quote),
+                onDecline:
+                    (quote.status == QuoteStatus.declined ||
+                            quote.status == QuoteStatus.accepted)
+                        ? null
+                        : () => _declineQuote(context, quote),
+                onDelete: () => _deleteQuote(context, quote),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  List<MessageChannel> _preferredChannels(ChannelPreferences preferences) {
+    final channels = <MessageChannel>[];
+    if (preferences.email) {
+      channels.add(MessageChannel.email);
+    }
+    if (preferences.whatsapp) {
+      channels.add(MessageChannel.whatsapp);
+    }
+    if (preferences.sms) {
+      channels.add(MessageChannel.sms);
+    }
+    if (preferences.push) {
+      channels.add(MessageChannel.push);
+    }
+    return channels;
+  }
+
+  String _quoteLabel(Quote quote) {
+    final number = quote.number;
+    if (number != null && number.isNotEmpty) {
+      return number;
+    }
+    return '#${quote.id.substring(0, 6)}';
+  }
+
+  Future<void> _createQuote(
+    BuildContext context, {
+    required Client client,
+    required List<Quote> existingQuotes,
+    required List<Service> services,
+    required List<ServicePackage> packages,
+  }) async {
+    final quote = await showAppModalSheet<Quote>(
+      context: context,
+      builder:
+          (ctx) => QuoteFormSheet(
+            client: client,
+            existingQuotes: existingQuotes,
+            services: services,
+            packages: packages,
+          ),
+    );
+    if (quote == null) {
+      return;
+    }
+    try {
+      await ref.read(appDataProvider.notifier).upsertQuote(quote);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Preventivo ${_quoteLabel(quote)} salvato.')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Errore durante il salvataggio: $error')),
+      );
+    }
+  }
+
+  Future<void> _editQuote(
+    BuildContext context, {
+    required Quote quote,
+    required Client client,
+    required List<Quote> existingQuotes,
+    required List<Service> services,
+    required List<ServicePackage> packages,
+  }) async {
+    final otherQuotes =
+        existingQuotes.where((item) => item.id != quote.id).toList();
+    final updated = await showAppModalSheet<Quote>(
+      context: context,
+      builder:
+          (ctx) => QuoteFormSheet(
+            client: client,
+            existingQuotes: otherQuotes,
+            services: services,
+            packages: packages,
+            initial: quote,
+          ),
+    );
+    if (updated == null) {
+      return;
+    }
+    try {
+      await ref.read(appDataProvider.notifier).upsertQuote(updated);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Preventivo ${_quoteLabel(updated)} aggiornato.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Errore durante l\'aggiornamento: $error')),
+      );
+    }
+  }
+
+  Future<void> _deleteQuote(BuildContext context, Quote quote) async {
+    if (_deletingQuotes.contains(quote.id)) {
+      return;
+    }
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text('Elimina preventivo'),
+            content: Text(
+              'Vuoi eliminare in modo permanente il preventivo ${_quoteLabel(quote)}? ',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Annulla'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: Theme.of(ctx).colorScheme.error,
+                  foregroundColor: Theme.of(ctx).colorScheme.onError,
+                ),
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Elimina'),
+              ),
+            ],
+          ),
+    );
+    if (confirm != true) {
+      return;
+    }
+
+    setState(() => _deletingQuotes.add(quote.id));
+    try {
+      await ref.read(appDataProvider.notifier).deleteQuote(quote.id);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Preventivo ${_quoteLabel(quote)} eliminato.')),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Errore durante l\'eliminazione: $error')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _deletingQuotes.remove(quote.id));
+      }
+    }
+  }
+
+  Future<void> _sendQuote(
+    BuildContext context, {
+    required Quote quote,
+    required Client client,
+    required NumberFormat currency,
+  }) async {
+    if (_sendingQuotes.contains(quote.id)) {
+      return;
+    }
+    if (!_canCurrentUserSendQuotes()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Non hai i permessi necessari per inviare preventivi.'),
+        ),
+      );
+      return;
+    }
+    final preferred = _preferredChannels(client.channelPreferences);
+    final available =
+        preferred.isEmpty ? MessageChannel.values.toList() : preferred;
+    final defaultSelection =
+        quote.sentChannels.isNotEmpty ? quote.sentChannels : available;
+
+    final selected = await _pickChannels(
+      context: context,
+      available: available,
+      initiallySelected: defaultSelection,
+    );
+    if (selected == null || selected.isEmpty) {
+      return;
+    }
+
+    setState(() => _sendingQuotes.add(quote.id));
+    try {
+      final pdfStoragePath = await _generateAndShareQuotePdf(
+        context: context,
+        quote: quote,
+        client: client,
+        currency: currency,
+        channels: selected,
+      );
+
+      await ref
+          .read(appDataProvider.notifier)
+          .markQuoteSent(
+            quote.id,
+            viaChannels: selected,
+            pdfStoragePath: pdfStoragePath,
+          );
+      if (!mounted) {
+        return;
+      }
+      final channelsLabel = selected.map(_QuoteCard.labelForChannel).join(', ');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Preventivo inviato via $channelsLabel.')),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Errore durante l\'invio: $error')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _sendingQuotes.remove(quote.id));
+      }
+    }
+  }
+
+  Future<void> _acceptQuote(BuildContext context, Quote quote) async {
+    if (_updatingQuotes.contains(quote.id)) {
+      return;
+    }
+    setState(() => _updatingQuotes.add(quote.id));
+    try {
+      await ref.read(appDataProvider.notifier).acceptQuote(quote.id);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Preventivo ${_quoteLabel(quote)} accettato: creato ticket di pagamento.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Errore durante l\'aggiornamento: $error')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _updatingQuotes.remove(quote.id));
+      }
+    }
+  }
+
+  Future<void> _declineQuote(BuildContext context, Quote quote) async {
+    if (_updatingQuotes.contains(quote.id)) {
+      return;
+    }
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text('Rifiuta preventivo'),
+            content: Text(
+              'Vuoi segnare il preventivo ${_quoteLabel(quote)} come rifiutato?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Annulla'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Conferma'),
+              ),
+            ],
+          ),
+    );
+    if (confirm != true) {
+      return;
+    }
+
+    setState(() => _updatingQuotes.add(quote.id));
+    try {
+      await ref.read(appDataProvider.notifier).declineQuote(quote.id);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Preventivo ${_quoteLabel(quote)} rifiutato.')),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Errore durante l\'aggiornamento: $error')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _updatingQuotes.remove(quote.id));
+      }
+    }
+  }
+
+  Future<List<MessageChannel>?> _pickChannels({
+    required BuildContext context,
+    required List<MessageChannel> available,
+    required List<MessageChannel> initiallySelected,
+  }) {
+    final effectiveAvailable =
+        available.isEmpty ? MessageChannel.values.toList() : available;
+    final initialSelection =
+        initiallySelected
+            .where((channel) => effectiveAvailable.contains(channel))
+            .toSet();
+
+    return showModalBottomSheet<List<MessageChannel>>(
+      context: context,
+      builder: (ctx) {
+        final selections = Set<MessageChannel>.from(initialSelection);
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Invia preventivo',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('Seleziona i canali preferenziali:'),
+                    const SizedBox(height: 8),
+                    ...effectiveAvailable.map(
+                      (channel) => CheckboxListTile(
+                        value: selections.contains(channel),
+                        onChanged: (checked) {
+                          setModalState(() {
+                            if (checked == true) {
+                              selections.add(channel);
+                            } else {
+                              selections.remove(channel);
+                            }
+                          });
+                        },
+                        title: Text(_QuoteCard.labelForChannel(channel)),
+                        secondary: Icon(_QuoteCard.iconForChannel(channel)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const Text('Annulla'),
+                        ),
+                        const SizedBox(width: 12),
+                        FilledButton(
+                          onPressed:
+                              selections.isEmpty
+                                  ? null
+                                  : () => Navigator.of(context).pop(
+                                    List<MessageChannel>.unmodifiable(
+                                      selections,
+                                    ),
+                                  ),
+                          child: const Text('Invia'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<String?> _generateAndShareQuotePdf({
+    required BuildContext context,
+    required Quote quote,
+    required Client client,
+    required NumberFormat currency,
+    required List<MessageChannel> channels,
+  }) async {
+    if (kIsWeb) {
+      throw StateError(
+        'La generazione e la condivisione del PDF è disponibile solo da app mobile o desktop.',
+      );
+    }
+
+    final shareableChannels = channels.where(_supportsManualShare).toSet();
+    final unsupportedChannels =
+        channels.where((channel) => !_supportsManualShare(channel)).toSet();
+
+    if (unsupportedChannels.isNotEmpty && mounted) {
+      final unsupportedLabel = unsupportedChannels
+          .map(_QuoteCard.labelForChannel)
+          .join(', ');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'I canali $unsupportedLabel non sono ancora gestiti automaticamente. '
+            'Generiamo comunque il PDF per l\'invio manuale.',
+          ),
+        ),
+      );
+    }
+
+    if (shareableChannels.isEmpty) {
+      throw StateError(
+        'Seleziona almeno un canale supportato (Email, WhatsApp o SMS) per condividere il PDF.',
+      );
+    }
+
+    final data = ref.read(appDataProvider);
+    final salon = data.salons.firstWhereOrNull(
+      (element) => element.id == quote.salonId,
+    );
+
+    final pdfBytes = await _buildQuotePdf(
+      quote: quote,
+      client: client,
+      salon: salon,
+      currency: currency,
+    );
+
+    final storageService = ref.read(firebaseStorageServiceProvider);
+    final fileName = _buildQuoteFileName(quote);
+    final uploadResult = await storageService.uploadQuotePdf(
+      salonId: quote.salonId,
+      quoteId: quote.id,
+      clientId: client.id,
+      quoteNumber: quote.number,
+      fileName: fileName,
+      data: pdfBytes,
+    );
+
+    final tempDir = await getTemporaryDirectory();
+    final tempFile = File('${tempDir.path}/$fileName');
+    await tempFile.writeAsBytes(pdfBytes, flush: true);
+
+    final shareMessage = _buildQuoteShareMessage(
+      client: client,
+      quote: quote,
+      currency: currency,
+      salon: salon,
+      downloadUrl: uploadResult.downloadUrl,
+      selectedChannels: shareableChannels.toList(growable: false),
+    );
+
+    final shareResult = await Share.shareXFiles(
+      [XFile(tempFile.path, mimeType: 'application/pdf', name: fileName)],
+      subject: 'Preventivo ${quote.number ?? _quoteLabel(quote)}',
+      text: shareMessage,
+    );
+
+    if (shareResult.status == ShareResultStatus.unavailable) {
+      throw StateError('Nessuna app disponibile per condividere il PDF.');
+    }
+
+    return uploadResult.storagePath;
+  }
+
+  bool _supportsManualShare(MessageChannel channel) {
+    switch (channel) {
+      case MessageChannel.email:
+      case MessageChannel.whatsapp:
+      case MessageChannel.sms:
+        return true;
+      case MessageChannel.push:
+        return false;
+    }
+  }
+
+  bool _canCurrentUserSendQuotes() {
+    final role = ref.read(sessionControllerProvider).role;
+    return role == UserRole.admin || role == UserRole.staff;
+  }
+
+  String _sanitizePdfText(String? input) {
+    if (input == null || input.isEmpty) {
+      return '';
+    }
+    const replacements = {
+      'à': 'a',
+      'è': 'e',
+      'é': 'e',
+      'ì': 'i',
+      'ò': 'o',
+      'ù': 'u',
+      'À': 'A',
+      'È': 'E',
+      'É': 'E',
+      'Ì': 'I',
+      'Ò': 'O',
+      'Ù': 'U',
+      'ç': 'c',
+      'Ç': 'C',
+      'ß': 'ss',
+      'œ': 'oe',
+      'Œ': 'OE',
+      '’': "'",
+      '‘': "'",
+      '‚': "'",
+      '‛': "'",
+      '“': '"',
+      '”': '"',
+      '„': '"',
+      '«': '"',
+      '»': '"',
+      '€': 'EUR',
+    };
+    final buffer = StringBuffer();
+    for (final rune in input.runes) {
+      final char = String.fromCharCode(rune);
+      final replacement = replacements[char];
+      if (replacement != null) {
+        buffer.write(replacement);
+      } else if ((rune >= 32 && rune <= 126) || rune == 10 || rune == 13) {
+        buffer.write(char);
+      } else {
+        buffer.write('?');
+      }
+    }
+    return buffer.toString();
+  }
+
+  Future<Uint8List> _buildQuotePdf({
+    required Quote quote,
+    required Client client,
+    required Salon? salon,
+    required NumberFormat currency,
+  }) async {
+    final document = pw.Document();
+    final label = quote.number ?? _quoteLabel(quote);
+    final dateFormat = DateFormat('dd MMMM yyyy', 'it_IT');
+    final dateTimeFormat = DateFormat('dd MMMM yyyy HH:mm', 'it_IT');
+    final validUntil = quote.validUntil;
+
+    final currencySymbol =
+        currency.currencySymbol == '€' ? 'EUR' : currency.currencySymbol;
+    final sanitizedSalonName = _sanitizePdfText(salon?.name ?? 'Preventivo');
+    final sanitizedQuoteTitle =
+        label.isEmpty
+            ? _sanitizePdfText('Preventivo')
+            : _sanitizePdfText('Preventivo $label');
+    final sanitizedClientName = _sanitizePdfText(client.fullName);
+    final sanitizedClientPhone = _sanitizePdfText(client.phone);
+    final sanitizedClientEmail = _sanitizePdfText(client.email);
+    final sanitizedCreatedAt = _sanitizePdfText(
+      'Creato il ${dateTimeFormat.format(quote.createdAt)}',
+    );
+    final sanitizedValidUntil =
+        validUntil == null
+            ? null
+            : _sanitizePdfText(
+              'Valido fino al ${dateFormat.format(validUntil)}',
+            );
+    final sanitizedSentAt =
+        quote.sentAt == null
+            ? null
+            : _sanitizePdfText(
+              'Ultimo invio ${dateTimeFormat.format(quote.sentAt!)}',
+            );
+    final itemsTable = <List<String>>[
+      [
+        '#',
+        _sanitizePdfText('Descrizione'),
+        _sanitizePdfText('Qta'),
+        _sanitizePdfText('Prezzo unit.'),
+        _sanitizePdfText('Totale'),
+      ],
+      ...quote.items.asMap().entries.map((entry) {
+        final index = entry.key + 1;
+        final item = entry.value;
+        return [
+          index.toString(),
+          _sanitizePdfText(item.description),
+          _sanitizePdfText(_QuoteCard._formatQuantity(item.quantity)),
+          _sanitizePdfText(
+            '${currencySymbol} ${item.unitPrice.toStringAsFixed(2)}',
+          ),
+          _sanitizePdfText(
+            '${currencySymbol} ${item.total.toStringAsFixed(2)}',
+          ),
+        ];
+      }),
+    ];
+
+    document.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.symmetric(horizontal: 32, vertical: 36),
+        build:
+            (context) => [
+              pw.Header(
+                level: 0,
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      sanitizedSalonName,
+                      style: pw.TextStyle(
+                        fontSize: 22,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.SizedBox(height: 8),
+                    pw.Text(
+                      sanitizedQuoteTitle,
+                      style: pw.TextStyle(fontSize: 16),
+                    ),
+                  ],
+                ),
+              ),
+              pw.SizedBox(height: 12),
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Expanded(
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          _sanitizePdfText('Cliente'),
+                          style: pw.TextStyle(
+                            fontSize: 14,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                        ),
+                        pw.Text(sanitizedClientName),
+                        pw.Text(sanitizedClientPhone),
+                        if (client.email != null && client.email!.isNotEmpty)
+                          pw.Text(sanitizedClientEmail),
+                      ],
+                    ),
+                  ),
+                  pw.SizedBox(width: 16),
+                  pw.Expanded(
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          _sanitizePdfText('Dettagli'),
+                          style: pw.TextStyle(
+                            fontSize: 14,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                        ),
+                        pw.Text(sanitizedCreatedAt),
+                        if (sanitizedValidUntil != null)
+                          pw.Text(sanitizedValidUntil),
+                        if (sanitizedSentAt != null) pw.Text(sanitizedSentAt),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 24),
+              pw.Table.fromTextArray(
+                data: itemsTable,
+                headerStyle: pw.TextStyle(
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.white,
+                ),
+                headerDecoration: const pw.BoxDecoration(
+                  color: PdfColors.blueGrey800,
+                ),
+                cellAlignment: pw.Alignment.centerLeft,
+                headerAlignment: pw.Alignment.centerLeft,
+                cellHeight: 24,
+                columnWidths: {
+                  0: const pw.FlexColumnWidth(0.6),
+                  1: const pw.FlexColumnWidth(3),
+                  2: const pw.FlexColumnWidth(0.9),
+                  3: const pw.FlexColumnWidth(1.2),
+                  4: const pw.FlexColumnWidth(1.2),
+                },
+              ),
+              pw.SizedBox(height: 16),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.end,
+                children: [
+                  pw.Container(
+                    width: 200,
+                    padding: const pw.EdgeInsets.all(12),
+                    decoration: pw.BoxDecoration(
+                      border: pw.Border.all(
+                        color: PdfColors.grey600,
+                        width: 0.6,
+                      ),
+                      borderRadius: pw.BorderRadius.circular(8),
+                    ),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                      children: [
+                        pw.Row(
+                          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                          children: [
+                            pw.Text(
+                              _sanitizePdfText('Totale'),
+                              style: pw.TextStyle(
+                                fontWeight: pw.FontWeight.bold,
+                              ),
+                            ),
+                            pw.Text(
+                              _sanitizePdfText(
+                                '${currencySymbol} ${quote.total.toStringAsFixed(2)}',
+                              ),
+                              style: pw.TextStyle(
+                                fontWeight: pw.FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              if (quote.notes?.isNotEmpty == true) ...[
+                pw.SizedBox(height: 16),
+                pw.Text(
+                  _sanitizePdfText('Note'),
+                  style: pw.TextStyle(
+                    fontSize: 14,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.Text(_sanitizePdfText(quote.notes)),
+              ],
+            ],
+      ),
+    );
+
+    return await document.save();
+  }
+
+  String _buildQuoteFileName(Quote quote) {
+    final raw = quote.number ?? _quoteLabel(quote);
+    final sanitized = raw
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp('-+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+    final fallback = quote.id.length > 8 ? quote.id.substring(0, 8) : quote.id;
+    return 'preventivo-${sanitized.isEmpty ? fallback : sanitized}.pdf';
+  }
+
+  String _buildQuoteShareMessage({
+    required Client client,
+    required Quote quote,
+    required NumberFormat currency,
+    Salon? salon,
+    String? downloadUrl,
+    required List<MessageChannel> selectedChannels,
+  }) {
+    final buffer = StringBuffer();
+    final label = quote.number ?? _quoteLabel(quote);
+    final currencySymbol =
+        currency.currencySymbol == '€' ? 'EUR' : currency.currencySymbol;
+    final validUntil = quote.validUntil;
+    final salonName = _sanitizePdfText(salon?.name ?? 'Civiapp');
+    final sanitizedFirstName = _sanitizePdfText(client.firstName);
+    buffer.writeln('Ciao $sanitizedFirstName,');
+    buffer.writeln();
+    buffer.writeln(
+      'ti inviamo il preventivo $label del salone $salonName '
+      'per un totale di $currencySymbol ${quote.total.toStringAsFixed(2)}.',
+    );
+    if (validUntil != null) {
+      final format = DateFormat('dd MMMM yyyy', 'it_IT');
+      buffer.writeln(
+        'Validita fino al ${_sanitizePdfText(format.format(validUntil))}.',
+      );
+    }
+    if (downloadUrl != null && downloadUrl.isNotEmpty) {
+      buffer.writeln('Puoi consultarlo anche online: $downloadUrl');
+    }
+    buffer.writeln();
+    buffer.writeln(
+      'Canali scelti: ${selectedChannels.map(_QuoteCard.labelForChannel).join(', ')}.',
+    );
+    buffer.writeln();
+    buffer.writeln('Grazie e a presto!');
+    return buffer.toString();
+  }
+}
+
+class _QuoteCard extends StatelessWidget {
+  const _QuoteCard({
+    required this.quote,
+    required this.currency,
+    required this.dateFormat,
+    required this.isSending,
+    required this.isUpdating,
+    required this.isDeleting,
+    this.onEdit,
+    this.onSend,
+    this.onAccept,
+    this.onDecline,
+    this.onDelete,
+  });
+
+  final Quote quote;
+  final NumberFormat currency;
+  final DateFormat dateFormat;
+  final bool isSending;
+  final bool isUpdating;
+  final bool isDeleting;
+  final VoidCallback? onEdit;
+  final VoidCallback? onSend;
+  final VoidCallback? onAccept;
+  final VoidCallback? onDecline;
+  final VoidCallback? onDelete;
+
+  static String labelForChannel(MessageChannel channel) {
+    switch (channel) {
+      case MessageChannel.push:
+        return 'Push';
+      case MessageChannel.whatsapp:
+        return 'WhatsApp';
+      case MessageChannel.email:
+        return 'Email';
+      case MessageChannel.sms:
+        return 'SMS';
+    }
+  }
+
+  static IconData iconForChannel(MessageChannel channel) {
+    switch (channel) {
+      case MessageChannel.push:
+        return Icons.notifications_active_rounded;
+      case MessageChannel.whatsapp:
+        return Icons.chat_rounded;
+      case MessageChannel.email:
+        return Icons.email_rounded;
+      case MessageChannel.sms:
+        return Icons.sms_rounded;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final effectiveStatus =
+        quote.isExpired && quote.status != QuoteStatus.accepted
+            ? QuoteStatus.expired
+            : quote.status;
+    final statusColors = _QuoteStatusColors.resolve(effectiveStatus, theme);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    quote.title?.isNotEmpty == true
+                        ? quote.title!
+                        : 'Preventivo ${quote.number ?? ''}'.trim(),
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: statusColors.background,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    effectiveStatus.label,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: statusColors.foreground,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (quote.number != null && quote.number!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Numero: ${quote.number}',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+            const SizedBox(height: 12),
+            Text(
+              'Creato il ${dateFormat.format(quote.createdAt)}',
+              style: theme.textTheme.bodyMedium,
+            ),
+            if (quote.sentAt != null)
+              Text(
+                'Inviato il ${dateFormat.format(quote.sentAt!)}',
+                style: theme.textTheme.bodyMedium,
+              ),
+            if (quote.validUntil != null)
+              Text(
+                'Valido fino al ${dateFormat.format(quote.validUntil!)}',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color:
+                      quote.isExpired
+                          ? theme.colorScheme.error
+                          : theme.textTheme.bodyMedium?.color,
+                ),
+              ),
+            if (quote.notes?.isNotEmpty == true) ...[
+              const SizedBox(height: 12),
+              Text(quote.notes!, style: theme.textTheme.bodyMedium),
+            ],
+            const SizedBox(height: 12),
+            for (final item in quote.items)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  '${_formatQuantity(item.quantity)} × ${item.description} — '
+                  '${currency.format(item.total)}',
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+            const SizedBox(height: 12),
+            Text(
+              'Totale: ${currency.format(quote.total)}',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (quote.sentChannels.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children:
+                    quote.sentChannels
+                        .map(
+                          (channel) => Chip(
+                            avatar: Icon(iconForChannel(channel), size: 16),
+                            label: Text(labelForChannel(channel)),
+                          ),
+                        )
+                        .toList(),
+              ),
+            ],
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                if (onEdit != null)
+                  OutlinedButton.icon(
+                    onPressed: _isBusy ? null : onEdit,
+                    icon: const Icon(Icons.edit_rounded),
+                    label: const Text('Modifica'),
+                  ),
+                if (onSend != null)
+                  FilledButton.tonalIcon(
+                    onPressed: _isBusy ? null : onSend,
+                    icon:
+                        isSending
+                            ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                            : const Icon(Icons.picture_as_pdf_rounded),
+                    label: const Text('Invia PDF'),
+                  ),
+                if (onAccept != null)
+                  FilledButton.icon(
+                    onPressed: _isBusy ? null : onAccept,
+                    icon:
+                        isUpdating
+                            ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                            : const Icon(Icons.check_rounded),
+                    label: const Text('Accetta'),
+                  ),
+                if (onDecline != null)
+                  OutlinedButton.icon(
+                    onPressed: _isBusy ? null : onDecline,
+                    icon:
+                        isUpdating
+                            ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                            : const Icon(Icons.close_rounded),
+                    label: const Text('Rifiuta'),
+                  ),
+                if (onDelete != null)
+                  TextButton.icon(
+                    onPressed: (_isBusy || isDeleting) ? null : onDelete,
+                    icon:
+                        isDeleting
+                            ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                            : const Icon(Icons.delete_outline_rounded),
+                    style: TextButton.styleFrom(
+                      foregroundColor: theme.colorScheme.error,
+                    ),
+                    label: const Text('Elimina'),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool get _isBusy => isSending || isUpdating || isDeleting;
+
+  static String _formatQuantity(double quantity) {
+    if (quantity == quantity.roundToDouble()) {
+      return quantity.toInt().toString();
+    }
+    return quantity.toStringAsFixed(2);
+  }
+}
+
+class _QuoteStatusColors {
+  const _QuoteStatusColors({
+    required this.background,
+    required this.foreground,
+  });
+
+  final Color background;
+  final Color foreground;
+
+  static _QuoteStatusColors resolve(QuoteStatus status, ThemeData theme) {
+    final scheme = theme.colorScheme;
+    switch (status) {
+      case QuoteStatus.draft:
+        return _QuoteStatusColors(
+          background: scheme.surfaceVariant,
+          foreground: scheme.onSurfaceVariant,
+        );
+      case QuoteStatus.sent:
+        return _QuoteStatusColors(
+          background: scheme.primaryContainer,
+          foreground: scheme.onPrimaryContainer,
+        );
+      case QuoteStatus.accepted:
+        return _QuoteStatusColors(
+          background: scheme.secondaryContainer,
+          foreground: scheme.onSecondaryContainer,
+        );
+      case QuoteStatus.declined:
+        return _QuoteStatusColors(
+          background: scheme.errorContainer,
+          foreground: scheme.onErrorContainer,
+        );
+      case QuoteStatus.expired:
+        return _QuoteStatusColors(
+          background: scheme.tertiaryContainer,
+          foreground: scheme.onTertiaryContainer,
+        );
+    }
   }
 }
 
