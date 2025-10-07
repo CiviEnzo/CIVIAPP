@@ -374,6 +374,24 @@ service cloud.firestore {
               : resourceSalonId());
     }
 
+    match /promotions/{promotionId} {
+      allow read: if isSignedIn() && canReadSalonDocument(resourceSalonId());
+      allow create, update, delete: if isSignedIn() &&
+          canManageSalonDocument(request.resource != null && request.resource.data != null &&
+              request.resource.data.salonId is string
+              ? request.resource.data.salonId
+              : resourceSalonId());
+    }
+
+    match /last_minute_slots/{slotId} {
+      allow read: if isSignedIn() && canReadSalonDocument(resourceSalonId());
+      allow create, update, delete: if isSignedIn() &&
+          canManageSalonDocument(request.resource != null && request.resource.data != null &&
+              request.resource.data.salonId is string
+              ? request.resource.data.salonId
+              : resourceSalonId());
+    }
+
     match /quotes/{quoteId} {
       allow read: if isSignedIn() && (
         canManageSalonDocument(resourceSalonId()) ||

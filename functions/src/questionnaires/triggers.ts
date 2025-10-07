@@ -6,8 +6,9 @@ const firestore = admin.firestore();
 const TEMPLATES_COLLECTION = 'client_questionnaire_templates';
 const QUESTIONNAIRES_COLLECTION = 'client_questionnaires';
 const BATCH_LIMIT = 500;
+const functionsEU = functions.region('europe-west1');
 
-export const onClientQuestionnaireTemplateWrite = functions.firestore
+export const onClientQuestionnaireTemplateWrite = functionsEU.firestore
   .document(`${TEMPLATES_COLLECTION}/{templateId}`)
   .onWrite(async (change, context) => {
     const after = change.after.exists ? change.after.data() : null;
@@ -49,7 +50,7 @@ export const onClientQuestionnaireTemplateWrite = functions.firestore
     }
   });
 
-export const onClientQuestionnaireTemplateDelete = functions.firestore
+export const onClientQuestionnaireTemplateDelete = functionsEU.firestore
   .document(`${TEMPLATES_COLLECTION}/{templateId}`)
   .onDelete(async (_snap, context) => {
     const templateId = context.params.templateId as string;

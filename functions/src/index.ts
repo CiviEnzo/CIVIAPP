@@ -15,3 +15,5 @@ export {
   onClientQuestionnaireTemplateWrite,
   onClientQuestionnaireTemplateDelete,
 } from './questionnaires/triggers';
+export { bookLastMinuteSlot } from './appointments/bookLastMinuteSlot';
+export { syncAppointmentWithLastMinuteSlot } from './appointments/onAppointmentWrite';

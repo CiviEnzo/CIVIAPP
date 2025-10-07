@@ -4,8 +4,9 @@ import * as functions from 'firebase-functions';
 import { firestore, readSalonLoyaltySettings, toInt } from './utils';
 
 const COLLECTION_CLIENTS = 'clients';
+const functionsEU = functions.region('europe-west1');
 
-export const adjustClientLoyalty = functions.https.onCall(
+export const adjustClientLoyalty = functionsEU.https.onCall(
   async (data, context) => {
     if (!context.auth) {
       throw new functions.https.HttpsError(

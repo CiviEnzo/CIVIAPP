@@ -49,6 +49,7 @@ class Salon {
     this.schedule = const [],
     this.status = SalonStatus.active,
     this.loyaltySettings = const LoyaltySettings(),
+    this.featureFlags = const SalonFeatureFlags(),
   });
 
   final String id;
@@ -68,6 +69,7 @@ class Salon {
   final List<SalonDailySchedule> schedule;
   final SalonStatus status;
   final LoyaltySettings loyaltySettings;
+  final SalonFeatureFlags featureFlags;
 
   Salon copyWith({
     String? id,
@@ -87,6 +89,7 @@ class Salon {
     List<SalonDailySchedule>? schedule,
     SalonStatus? status,
     LoyaltySettings? loyaltySettings,
+    SalonFeatureFlags? featureFlags,
   }) {
     return Salon(
       id: id ?? this.id,
@@ -106,8 +109,60 @@ class Salon {
       schedule: schedule ?? this.schedule,
       status: status ?? this.status,
       loyaltySettings: loyaltySettings ?? this.loyaltySettings,
+      featureFlags: featureFlags ?? this.featureFlags,
     );
   }
+}
+
+class SalonFeatureFlags {
+  const SalonFeatureFlags({
+    this.clientPromotions = false,
+    this.clientLastMinute = false,
+  });
+
+  final bool clientPromotions;
+  final bool clientLastMinute;
+
+  SalonFeatureFlags copyWith({bool? clientPromotions, bool? clientLastMinute}) {
+    return SalonFeatureFlags(
+      clientPromotions: clientPromotions ?? this.clientPromotions,
+      clientLastMinute: clientLastMinute ?? this.clientLastMinute,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'clientPromotions': clientPromotions,
+      'clientLastMinute': clientLastMinute,
+    };
+  }
+
+  factory SalonFeatureFlags.fromMap(Map<String, dynamic>? data) {
+    if (data == null) {
+      return const SalonFeatureFlags();
+    }
+    return SalonFeatureFlags(
+      clientPromotions: _readFlag(data['clientPromotions']),
+      clientLastMinute: _readFlag(data['clientLastMinute']),
+    );
+  }
+}
+
+bool _readFlag(Object? value) {
+  if (value is bool) {
+    return value;
+  }
+  if (value is num) {
+    return value != 0;
+  }
+  if (value is String) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return false;
+    }
+    return normalized == 'true' || normalized == '1' || normalized == 'yes';
+  }
+  return false;
 }
 
 class SalonRoom {

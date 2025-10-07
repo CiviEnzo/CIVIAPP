@@ -1,0 +1,41 @@
+{
+  "collections": {
+    "salons": {
+      "fields": [
+        "name",
+        "stripe_mode",
+        "country",
+        "vat_number",
+        "sdi_channel",
+        "sdi_config_id"
+      ]
+    },
+    "salon_payment_links": {
+      "fields": [
+        "salonId",
+        "serviceId",
+        "title",
+        "type",
+        "currency",
+        "price",
+        "isSubscription",
+        "stripe_link_url",
+        "metadata",
+        "enabled",
+        "updatedAt"
+      ]
+    },
+    "orders": {
+      "fields": [
+        "salonId",
+        "source",
+        "status",
+        "amount_total",
+        "currency",
+        "customer_email",
+        "stripe",
+        "createdAt"
+      ]
+    }
+  }
+}

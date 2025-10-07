@@ -7,6 +7,7 @@ import { DEFAULT_TIMEZONE, now as nowInTimeZone } from '../utils/time';
 
 
 const messageOutboxCollection = db.collection('message_outbox');
+const REGION = 'europe-west1';
 
 interface ReminderSettingsDoc {
   salonId: string;
@@ -349,6 +350,7 @@ export const createReminders = onSchedule(
   {
     schedule: '*/15 * * * *',
     timeZone: DEFAULT_TIMEZONE,
+    region: REGION,
   },
   async () => {
     if (!REMINDERS_ENABLED) {
@@ -380,6 +382,7 @@ export const birthdayGreetings = onSchedule(
   {
     schedule: '0 7 * * *',
     timeZone: DEFAULT_TIMEZONE,
+    region: REGION,
   },
   async () => {
     if (!BIRTHDAYS_ENABLED) {
@@ -413,6 +416,7 @@ export const runCampaigns = onSchedule(
   {
     schedule: '0 9 * * MON',
     timeZone: DEFAULT_TIMEZONE,
+    region: REGION,
   },
   async () => {
     logger.debug('runCampaigns scheduled - no automation implemented yet');

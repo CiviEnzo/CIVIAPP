@@ -1,0 +1,46 @@
+{
+  "salons": [
+    {
+      "id": "salon-001",
+      "featureFlags": {
+        "clientPromotions": true,
+        "clientLastMinute": true
+      },
+      "promotions": [
+        {
+          "id": "pilot-spring-glow",
+          "title": "Spring Glow Facial",
+          "subtitle": "Illumina la tua pelle in 30 minuti",
+          "tagline": "Risparmia il 25% se prenoti entro oggi",
+          "imageUrl": "https://example.com/assets/promotions/spring-glow.jpg",
+          "ctaUrl": "https://civibeauty.it/milano/offerte",
+          "startsAt": "2024-10-01T08:00:00+02:00",
+          "endsAt": "2024-10-15T22:00:00+02:00",
+          "discountPercentage": 25,
+          "priority": 10,
+          "isActive": true
+        }
+      ],
+      "lastMinuteSlots": [
+        {
+          "id": "pilot-lm-001",
+          "serviceId": "srv-manicure",
+          "serviceName": "Manicure express",
+          "startAt": "2024-10-05T18:30:00+02:00",
+          "durationMinutes": 30,
+          "basePrice": 39,
+          "discountPct": 25,
+          "priceNow": 29.25,
+          "roomId": "room-2",
+          "roomName": "Sala Estetica",
+          "operatorId": "staff-giulia",
+          "operatorName": "Giulia",
+          "availableSeats": 1,
+          "loyaltyPoints": 15,
+          "windowStart": "2024-10-05T17:30:00+02:00",
+          "windowEnd": "2024-10-05T18:30:00+02:00"
+        }
+      ]
+    }
+  ]
+}

@@ -4,6 +4,7 @@ import 'package:civiapp/domain/availability/appointment_conflicts.dart';
 import 'package:civiapp/domain/availability/equipment_availability.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/client.dart';
+import 'package:civiapp/domain/entities/last_minute_slot.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/shift.dart';
@@ -17,8 +18,11 @@ import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:civiapp/presentation/screens/admin/modules/appointments/express_slot_sheet.dart';
 
 enum _AppointmentDisplayMode { calendar, list }
+
+enum _SlotAction { appointment, express }
 
 class AppointmentsModule extends ConsumerStatefulWidget {
   const AppointmentsModule({super.key, this.salonId});
@@ -207,6 +211,69 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
             .where((absence) => _isWeekdayVisible(absence.start.weekday))
             .toList();
 
+    // Build placeholders for active last-minute slots to flag conflicts visually
+    final nowReference = DateTime.now();
+    final rawLastMinuteSlots = data.lastMinuteSlots;
+    final expressPlaceholders = rawLastMinuteSlots
+        .where((slot) {
+          if (widget.salonId != null && slot.salonId != widget.salonId) {
+            return false;
+          }
+          // We only display active/future slots with a specific operator
+          if (!slot.isAvailable || slot.operatorId == null) {
+            return false;
+          }
+          if (!slot.end.isAfter(nowReference)) {
+            return false;
+          }
+          // Restrict to the currently visible date range for performance
+          final slotStart = slot.start;
+          final slotEnd = slot.end;
+          return _dateRangesOverlap(slotStart, slotEnd, rangeStart, rangeEnd);
+        })
+        .map(
+          (slot) => Appointment(
+            id: 'last-minute-${slot.id}',
+            salonId: slot.salonId,
+            clientId: 'last-minute-${slot.id}',
+            staffId: slot.operatorId!,
+            serviceIds:
+                slot.serviceId != null && slot.serviceId!.isNotEmpty
+                    ? <String>[slot.serviceId!]
+                    : const <String>[],
+            start: slot.start,
+            end: slot.end,
+            status: AppointmentStatus.scheduled,
+            roomId: slot.roomId,
+            notes: 'Slot last-minute disponibile',
+            lastMinuteSlotId: slot.id,
+          ),
+        )
+        .sortedBy((a) => a.start)
+        .toList(growable: false);
+
+    // Augment all-appointments with placeholders for conflict checks and drag behavior
+    final allAppointmentsWithPlaceholders = <Appointment>[
+      ...allSalonAppointments,
+      ...expressPlaceholders,
+    ];
+
+    // Keep the source slots for overlay interaction (edit/delete)
+    final lastMinuteSlotsInRange = rawLastMinuteSlots
+        .where((slot) {
+          if (widget.salonId != null && slot.salonId != widget.salonId) {
+            return false;
+          }
+          if (slot.operatorId == null) {
+            return false;
+          }
+          if (!slot.end.isAfter(nowReference)) {
+            return false;
+          }
+          return _dateRangesOverlap(slot.start, slot.end, rangeStart, rangeEnd);
+        })
+        .toList(growable: false);
+
     final roomsById = _buildRoomsIndex(salons, widget.salonId);
     final rangeLabel = _buildRangeLabel(rangeStart, rangeEnd, _scope);
 
@@ -240,7 +307,9 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                       anchorDate: rangeStart,
                       scope: _scope,
                       appointments: filteredAppointments,
-                      allAppointments: allSalonAppointments,
+                      allAppointments: allAppointmentsWithPlaceholders,
+                      lastMinutePlaceholders: expressPlaceholders,
+                      lastMinuteSlots: lastMinuteSlotsInRange,
                       staff: visibleStaff,
                       clients: clients,
                       services: services,
@@ -254,6 +323,14 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                       lockedAppointmentReasons: lockedAppointmentReasons,
                       anomalies: anomalies,
                       statusColor: (status) => _colorForStatus(context, status),
+                      onTapLastMinuteSlot:
+                          (slot) => _onTapLastMinuteSlot(
+                            context,
+                            slot,
+                            salons: salons,
+                            staff: staffMembers,
+                            services: services,
+                          ),
                       onReschedule:
                           _isRescheduling ? (_) async {} : _onReschedule,
                       onEdit:
@@ -281,6 +358,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                         'list-${_scope.name}-${_selectedStaffId ?? 'all'}-${rangeStart.toIso8601String()}',
                       ),
                       appointments: filteredAppointments,
+                      lastMinutePlaceholders: expressPlaceholders,
                       data: data,
                       rangeStart: rangeStart,
                       rangeEnd: rangeEnd,
@@ -681,7 +759,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     List<Client> clients,
     List<StaffMember> staff,
     List<Service> services,
-  ) {
+  ) async {
     final staffMember = staff.firstWhereOrNull(
       (member) => member.id == selection.staffId,
     );
@@ -689,16 +767,64 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         staffMember?.salonId ??
         widget.salonId ??
         (salons.isNotEmpty ? salons.first.id : null);
-    _openAppointmentForm(
+
+    final slotAction = await showModalBottomSheet<_SlotAction>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.event_available_rounded),
+                title: const Text('Crea appuntamento standard'),
+                onTap:
+                    () =>
+                        Navigator.of(sheetContext).pop(_SlotAction.appointment),
+              ),
+              ListTile(
+                leading: const Icon(Icons.flash_on_rounded),
+                title: const Text('Crea slot express last-minute'),
+                onTap:
+                    () => Navigator.of(sheetContext).pop(_SlotAction.express),
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted) {
+      return;
+    }
+    if (slotAction == null) {
+      return;
+    }
+
+    if (slotAction == _SlotAction.appointment) {
+      _openAppointmentForm(
+        context,
+        salons: salons,
+        clients: clients,
+        staff: staff,
+        services: services,
+        initialStart: selection.start,
+        initialEnd: selection.end,
+        initialStaffId: staffMember?.id,
+        initialSalonId: defaultSalonId,
+      );
+      return;
+    }
+
+    await _openExpressSlotSheet(
       context,
+      selection: selection,
       salons: salons,
-      clients: clients,
       staff: staff,
       services: services,
-      initialStart: selection.start,
-      initialEnd: selection.end,
-      initialStaffId: staffMember?.id,
-      initialSalonId: defaultSalonId,
+      defaultSalonId: defaultSalonId,
     );
   }
 
@@ -731,6 +857,200 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       staff: staff,
       services: services,
       existing: appointment,
+    );
+  }
+
+  Future<void> _onTapLastMinuteSlot(
+    BuildContext context,
+    LastMinuteSlot slot, {
+    required List<Salon> salons,
+    required List<StaffMember> staff,
+    required List<Service> services,
+  }) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.edit_rounded),
+                title: const Text('Modifica slot last-minute'),
+                onTap: () => Navigator.of(sheetContext).pop('edit'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded),
+                title: const Text('Elimina slot last-minute'),
+                onTap: () => Navigator.of(sheetContext).pop('delete'),
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        );
+      },
+    );
+    if (!mounted || action == null) {
+      return;
+    }
+    if (action == 'delete') {
+      final shouldDelete = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) {
+          final when = DateFormat(
+            'dd/MM/yyyy HH:mm',
+            'it_IT',
+          ).format(slot.start);
+          return AlertDialog(
+            title: const Text('Rimuovi slot last-minute'),
+            content: Text('Vuoi rimuovere lo slot last-minute delle $when?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Annulla'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Rimuovi'),
+              ),
+            ],
+          );
+        },
+      );
+      if (shouldDelete == true) {
+        await ref.read(appDataProvider.notifier).deleteLastMinuteSlot(slot.id);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Slot last-minute rimosso.')),
+        );
+      }
+      return;
+    }
+
+    // Edit flow
+    final salon = salons.firstWhereOrNull((s) => s.id == slot.salonId);
+    final servicesForSalon = services
+        .where((service) => service.salonId == slot.salonId && service.isActive)
+        .sortedBy((service) => service.name.toLowerCase());
+    final staffForSalon = staff
+        .where((member) => member.salonId == slot.salonId && member.isActive)
+        .sortedBy((member) => member.fullName.toLowerCase());
+    final rooms = salon?.rooms ?? const <SalonRoom>[];
+
+    final updated = await showModalBottomSheet<LastMinuteSlot>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return ExpressSlotSheet(
+          salonId: slot.salonId,
+          initialStart: slot.start,
+          initialEnd: slot.end,
+          services: servicesForSalon,
+          staff: staffForSalon,
+          rooms: rooms,
+          initialStaffId: slot.operatorId,
+          initialSlot: slot,
+        );
+      },
+    );
+    if (updated == null) {
+      return;
+    }
+    try {
+      await ref.read(appDataProvider.notifier).upsertLastMinuteSlot(updated);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Slot last-minute aggiornato.')),
+      );
+    } on StateError catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+
+  Future<void> _openExpressSlotSheet(
+    BuildContext context, {
+    required AppointmentSlotSelection selection,
+    required List<Salon> salons,
+    required List<StaffMember> staff,
+    required List<Service> services,
+    required String? defaultSalonId,
+  }) async {
+    final resolvedSalonId =
+        defaultSalonId ??
+        widget.salonId ??
+        (salons.isNotEmpty ? salons.first.id : null);
+    if (resolvedSalonId == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Seleziona un salone per creare slot last-minute.'),
+        ),
+      );
+      return;
+    }
+
+    final salon = salons.firstWhereOrNull(
+      (element) => element.id == resolvedSalonId,
+    );
+    final servicesForSalon = services
+        .where(
+          (service) => service.salonId == resolvedSalonId && service.isActive,
+        )
+        .sortedBy((service) => service.name.toLowerCase());
+    final staffForSalon = staff
+        .where((member) => member.salonId == resolvedSalonId && member.isActive)
+        .sortedBy((member) => member.fullName.toLowerCase());
+    final rooms = salon?.rooms ?? const <SalonRoom>[];
+
+    final slot = await showModalBottomSheet<LastMinuteSlot>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return ExpressSlotSheet(
+          salonId: resolvedSalonId,
+          initialStart: selection.start,
+          initialEnd: selection.end,
+          services: servicesForSalon,
+          staff: staffForSalon,
+          rooms: rooms,
+          initialStaffId: selection.staffId,
+        );
+      },
+    );
+
+    if (slot == null) {
+      return;
+    }
+
+    try {
+      await ref.read(appDataProvider.notifier).upsertLastMinuteSlot(slot);
+    } on StateError catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    final featureEnabled = salon?.featureFlags.clientLastMinute ?? false;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          featureEnabled
+              ? 'Slot last-minute creato.'
+              : 'Slot creato. Attiva il flag “clientLastMinute” per renderlo visibile ai clienti.',
+        ),
+      ),
     );
   }
 
@@ -773,8 +1093,47 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
 
     final data = ref.read(appDataProvider);
     final existingAppointments = data.appointments;
+    final nowReference = DateTime.now();
+    final expressPlaceholders =
+        data.lastMinuteSlots
+            .where((slot) {
+              if (slot.salonId != updated.salonId) {
+                return false;
+              }
+              if (slot.operatorId != updated.staffId) {
+                return false;
+              }
+              if (!slot.isAvailable) {
+                return false;
+              }
+              if (!slot.end.isAfter(nowReference)) {
+                return false;
+              }
+              return true;
+            })
+            .map(
+              (slot) => Appointment(
+                id: 'last-minute-${slot.id}',
+                salonId: slot.salonId,
+                clientId: 'last-minute-${slot.id}',
+                staffId: slot.operatorId ?? updated.staffId,
+                serviceIds:
+                    slot.serviceId != null && slot.serviceId!.isNotEmpty
+                        ? <String>[slot.serviceId!]
+                        : const <String>[],
+                start: slot.start,
+                end: slot.end,
+                status: AppointmentStatus.scheduled,
+                roomId: slot.roomId,
+              ),
+            )
+            .toList();
+    final combinedAppointments = <Appointment>[
+      ...existingAppointments,
+      ...expressPlaceholders,
+    ];
     final hasStaffConflict = hasStaffBookingConflict(
-      appointments: existingAppointments,
+      appointments: combinedAppointments,
       staffId: updated.staffId,
       start: updated.start,
       end: updated.end,
@@ -834,7 +1193,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       salon: salon,
       service: service,
       allServices: allServices,
-      appointments: existingAppointments,
+      appointments: combinedAppointments,
       start: updated.start,
       end: updated.end,
       excludeAppointmentId: updated.id,
@@ -897,14 +1256,11 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     final staffMember = staff.firstWhereOrNull(
       (item) => item.id == appointment.staffId,
     );
-    final appointmentServices = appointment.serviceIds
-        .map(
-          (id) => services.firstWhereOrNull(
-            (item) => item.id == id,
-          ),
-        )
-        .whereType<Service>()
-        .toList();
+    final appointmentServices =
+        appointment.serviceIds
+            .map((id) => services.firstWhereOrNull((item) => item.id == id))
+            .whereType<Service>()
+            .toList();
     final salon = salons.firstWhereOrNull(
       (item) => item.id == appointment.salonId,
     );
@@ -1273,6 +1629,7 @@ class _ListAppointmentsView extends StatelessWidget {
   const _ListAppointmentsView({
     super.key,
     required this.appointments,
+    required this.lastMinutePlaceholders,
     required this.data,
     required this.rangeStart,
     required this.rangeEnd,
@@ -1283,6 +1640,7 @@ class _ListAppointmentsView extends StatelessWidget {
   });
 
   final List<Appointment> appointments;
+  final List<Appointment> lastMinutePlaceholders;
   final AppDataState data;
   final DateTime rangeStart;
   final DateTime rangeEnd;
@@ -1293,14 +1651,22 @@ class _ListAppointmentsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (appointments.isEmpty && attentionAppointments.isEmpty) {
+    final combined = <Appointment>[...appointments];
+    final placeholderIds = <String>{};
+    for (final placeholder in lastMinutePlaceholders) {
+      placeholderIds.add(placeholder.id);
+      combined.add(placeholder);
+    }
+    combined.sort((a, b) => a.start.compareTo(b.start));
+
+    if (combined.isEmpty && attentionAppointments.isEmpty) {
       return const Center(
         child: Text('Nessun appuntamento pianificato per questo periodo.'),
       );
     }
 
     final grouped = groupBy<Appointment, DateTime>(
-      appointments,
+      combined,
       (appointment) => DateUtils.dateOnly(appointment.start),
     );
     final orderedDates = grouped.keys.toList()..sort((a, b) => a.compareTo(b));
@@ -1334,6 +1700,7 @@ class _ListAppointmentsView extends StatelessWidget {
             ),
             children:
                 entries.map((appointment) {
+                  final isPlaceholder = placeholderIds.contains(appointment.id);
                   final issues =
                       anomalies[appointment.id] ??
                       const <AppointmentAnomalyType>{};
@@ -1363,12 +1730,16 @@ class _ListAppointmentsView extends StatelessWidget {
                           ? AppointmentAnomalyType.noShift.icon
                           : lockReason != null
                           ? Icons.lock_rounded
+                          : isPlaceholder
+                          ? Icons.flash_on_rounded
                           : Icons.spa_rounded;
                   final iconColor =
                       hasIssues
                           ? theme.colorScheme.error
                           : lockReason != null
                           ? theme.colorScheme.outline
+                          : isPlaceholder
+                          ? theme.colorScheme.primary
                           : theme.colorScheme.primary;
                   return ListTile(
                     contentPadding: const EdgeInsets.symmetric(
@@ -1376,8 +1747,20 @@ class _ListAppointmentsView extends StatelessWidget {
                       vertical: 8,
                     ),
                     leading: Icon(iconData, color: iconColor),
-                    title: Text(_buildTitle(appointment, data)),
-                    subtitle: Text(subtitleLines.join('\n')),
+                    title: Text(
+                      _buildTitle(
+                        appointment,
+                        data,
+                        isPlaceholder: isPlaceholder,
+                      ),
+                    ),
+                    subtitle: Text(
+                      _buildSubtitle(
+                        appointment,
+                        data,
+                        isPlaceholder: isPlaceholder,
+                      ),
+                    ),
                     trailing: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.end,
@@ -1389,7 +1772,8 @@ class _ListAppointmentsView extends StatelessWidget {
                         _StatusPill(status: appointment.status),
                       ],
                     ),
-                    onTap: () => onEdit(appointment),
+                    onTap: isPlaceholder ? null : () => onEdit(appointment),
+                    enabled: !isPlaceholder,
                   );
                 }).toList(),
           ),
@@ -1400,25 +1784,35 @@ class _ListAppointmentsView extends StatelessWidget {
     return ListView(padding: const EdgeInsets.all(16), children: items);
   }
 
-  static String _buildTitle(Appointment appointment, AppDataState data) {
+  static String _buildTitle(
+    Appointment appointment,
+    AppDataState data, {
+    bool isPlaceholder = false,
+  }) {
     final client =
         data.clients
             .firstWhereOrNull((client) => client.id == appointment.clientId)
             ?.fullName ??
-        'Cliente';
-    final services = appointment.serviceIds
-        .map(
-          (id) => data.services.firstWhereOrNull((service) => service.id == id),
-        )
-        .whereType<Service>()
-        .map((service) => service.name)
-        .toList();
+        (isPlaceholder ? 'Slot last-minute' : 'Cliente');
+    final services =
+        appointment.serviceIds
+            .map(
+              (id) =>
+                  data.services.firstWhereOrNull((service) => service.id == id),
+            )
+            .whereType<Service>()
+            .map((service) => service.name)
+            .toList();
     final serviceLabel =
         services.isNotEmpty ? services.join(' + ') : 'Servizio';
     return '$client • $serviceLabel';
   }
 
-  static String _buildSubtitle(Appointment appointment, AppDataState data) {
+  static String _buildSubtitle(
+    Appointment appointment,
+    AppDataState data, {
+    bool isPlaceholder = false,
+  }) {
     final staff =
         data.staff
             .firstWhereOrNull((member) => member.id == appointment.staffId)
@@ -1433,6 +1827,9 @@ class _ListAppointmentsView extends StatelessWidget {
     final buffer = StringBuffer(staff);
     if (room != null) {
       buffer.write(' · $room');
+    }
+    if (isPlaceholder) {
+      buffer.write(' · Disponibile ora');
     }
     if (appointment.notes != null && appointment.notes!.isNotEmpty) {
       buffer.write('\n${appointment.notes}');
@@ -1584,8 +1981,47 @@ Future<void> _openForm(
     final existingAppointments = data.appointments;
     final allServices = data.services.isNotEmpty ? data.services : services;
     final allSalons = data.salons.isNotEmpty ? data.salons : salons;
+    final nowReference = DateTime.now();
+    final expressPlaceholders =
+        data.lastMinuteSlots
+            .where((slot) {
+              if (slot.salonId != result.salonId) {
+                return false;
+              }
+              if (slot.operatorId != result.staffId) {
+                return false;
+              }
+              if (!slot.isAvailable) {
+                return false;
+              }
+              if (!slot.end.isAfter(nowReference)) {
+                return false;
+              }
+              return true;
+            })
+            .map(
+              (slot) => Appointment(
+                id: 'last-minute-${slot.id}',
+                salonId: slot.salonId,
+                clientId: 'last-minute-${slot.id}',
+                staffId: slot.operatorId ?? result.staffId,
+                serviceIds:
+                    slot.serviceId != null && slot.serviceId!.isNotEmpty
+                        ? <String>[slot.serviceId!]
+                        : const <String>[],
+                start: slot.start,
+                end: slot.end,
+                status: AppointmentStatus.scheduled,
+                roomId: slot.roomId,
+              ),
+            )
+            .toList();
+    final combinedAppointments = <Appointment>[
+      ...existingAppointments,
+      ...expressPlaceholders,
+    ];
     final hasStaffConflict = hasStaffBookingConflict(
-      appointments: existingAppointments,
+      appointments: combinedAppointments,
       staffId: result.staffId,
       start: result.start,
       end: result.end,
@@ -1634,7 +2070,7 @@ Future<void> _openForm(
       salon: salon,
       service: service,
       allServices: allServices,
-      appointments: existingAppointments,
+      appointments: combinedAppointments,
       start: result.start,
       end: result.end,
       excludeAppointmentId: result.id,

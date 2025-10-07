@@ -11,6 +11,7 @@ import { sendPush } from './channels/push';
 import { sendWhatsapp } from './channels/whatsapp';
 
 const messageOutboxCollection = db.collection('message_outbox');
+const REGION = 'europe-west1';
 
 const DISPATCH_ENABLED = process.env.MESSAGING_DISPATCH_ENABLED !== 'false';
 const BATCH_SIZE = Number.parseInt(process.env.MESSAGING_DISPATCH_BATCH ?? '10', 10);
@@ -74,6 +75,7 @@ export const dispatchOutbox = onSchedule(
   {
     schedule: '*/10 * * * *',
     timeZone: 'Europe/Rome',
+    region: REGION,
   },
   async () => {
     if (!DISPATCH_ENABLED) {

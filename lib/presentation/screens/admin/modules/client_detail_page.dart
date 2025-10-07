@@ -2624,8 +2624,48 @@ class _AppointmentsTab extends ConsumerWidget {
         data.services.isNotEmpty ? data.services : fallbackServices;
     final salons = data.salons.isNotEmpty ? data.salons : fallbackSalons;
 
+    final now = DateTime.now();
+    final expressPlaceholders =
+        data.lastMinuteSlots
+            .where((slot) {
+              if (slot.salonId != appointment.salonId) {
+                return false;
+              }
+              if (slot.operatorId != appointment.staffId) {
+                return false;
+              }
+              if (!slot.isAvailable) {
+                return false;
+              }
+              if (!slot.end.isAfter(now)) {
+                return false;
+              }
+              return true;
+            })
+            .map(
+              (slot) => Appointment(
+                id: 'last-minute-${slot.id}',
+                salonId: slot.salonId,
+                clientId: 'last-minute-${slot.id}',
+                staffId: slot.operatorId ?? appointment.staffId,
+                serviceIds:
+                    slot.serviceId != null && slot.serviceId!.isNotEmpty
+                        ? <String>[slot.serviceId!]
+                        : const <String>[],
+                start: slot.start,
+                end: slot.end,
+                status: AppointmentStatus.scheduled,
+                roomId: slot.roomId,
+              ),
+            )
+            .toList();
+    final combinedAppointments = <Appointment>[
+      ...existingAppointments,
+      ...expressPlaceholders,
+    ];
+
     final hasStaffConflict = hasStaffBookingConflict(
-      appointments: existingAppointments,
+      appointments: combinedAppointments,
       staffId: appointment.staffId,
       start: appointment.start,
       end: appointment.end,
@@ -2680,7 +2720,7 @@ class _AppointmentsTab extends ConsumerWidget {
         salon: salon,
         service: service,
         allServices: services,
-        appointments: existingAppointments,
+        appointments: combinedAppointments,
         start: appointment.start,
         end: appointment.end,
         excludeAppointmentId: appointment.id,

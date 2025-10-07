@@ -6,7 +6,9 @@ import { firestore, readSalonLoyaltySettings, toInt, toNumber } from './utils';
 const COLLECTION_CLIENTS = 'clients';
 const MOVEMENT_PREFIX = 'sale-';
 
-export const syncLoyaltyOnSaleWrite = functions.firestore
+const functionsEU = functions.region('europe-west1');
+
+export const syncLoyaltyOnSaleWrite = functionsEU.firestore
   .document('sales/{saleId}')
   .onWrite(async (change, context) => {
     const saleId = context.params.saleId as string;

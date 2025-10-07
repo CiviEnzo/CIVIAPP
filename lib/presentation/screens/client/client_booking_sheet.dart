@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/data/repositories/app_data_state.dart';
 import 'package:civiapp/domain/availability/appointment_conflicts.dart';
 import 'package:civiapp/domain/availability/equipment_availability.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/client.dart';
+import 'package:civiapp/domain/entities/last_minute_slot.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/service_category.dart';
@@ -24,17 +27,20 @@ class ClientBookingSheet extends ConsumerStatefulWidget {
     required this.client,
     this.initialServiceId,
     this.initialAppointment,
+    this.lastMinuteSlot,
   });
 
   final Client client;
   final String? initialServiceId;
   final Appointment? initialAppointment;
+  final LastMinuteSlot? lastMinuteSlot;
 
   static Future<Appointment?> show(
     BuildContext context, {
     required Client client,
     Service? preselectedService,
     Appointment? existingAppointment,
+    LastMinuteSlot? lastMinuteSlot,
   }) {
     return showAppModalSheet<Appointment>(
       context: context,
@@ -43,6 +49,7 @@ class ClientBookingSheet extends ConsumerStatefulWidget {
             client: client,
             initialServiceId: preselectedService?.id,
             initialAppointment: existingAppointment,
+            lastMinuteSlot: lastMinuteSlot,
           ),
     );
   }
@@ -121,10 +128,24 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
   List<_ServiceBookingSelection> _selections = <_ServiceBookingSelection>[];
   int _activeSelectionIndex = 0;
   Map<String, Service> _servicesById = const {};
+  Timer? _countdownTimer;
+  Duration _remainingCountdown = Duration.zero;
+  LastMinuteSlot? _expressSlot;
+
+  bool get _isLastMinuteExpress => _expressSlot != null;
+  bool get _isCountdownExpired =>
+      _isLastMinuteExpress && _remainingCountdown <= Duration.zero;
 
   @override
   void initState() {
     super.initState();
+    final slot = widget.lastMinuteSlot;
+    if (slot != null) {
+      _expressSlot = slot;
+      _initializeExpressBooking(slot);
+      return;
+    }
+
     final appointment = widget.initialAppointment;
     final initialServiceIds = <String>[];
     if (appointment != null) {
@@ -164,6 +185,76 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       ),
     ];
     _activeSelectionIndex = 0;
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    super.dispose();
+  }
+
+  void _initializeExpressBooking(LastMinuteSlot slot) {
+    _expressSlot = slot;
+    final end = slot.end;
+    final serviceId =
+        slot.serviceId != null && slot.serviceId!.isNotEmpty
+            ? slot.serviceId
+            : null;
+    _selectedServiceId = serviceId;
+    _selectedStaffId = slot.operatorId;
+    _staffFilterId = slot.operatorId;
+    _selectedSlotStart = slot.start;
+    _selectedDay = _dayFrom(slot.start);
+    _usePackageSession = false;
+    _selectedPackageId = null;
+    _selections = [
+      _ServiceBookingSelection(
+        categoryId: null,
+        serviceIds: serviceId != null ? <String>[serviceId] : const <String>[],
+        staffId: slot.operatorId,
+        start: slot.start,
+        end: end,
+        usePackageSession: false,
+        packageId: null,
+      ),
+    ];
+    _activeSelectionIndex = 0;
+    _currentStep =
+        serviceId != null ? _BookingStep.summary : _BookingStep.services;
+    _remainingCountdown = _safeCountdown(slot.start);
+    _startCountdown();
+  }
+
+  void _startCountdown() {
+    final slot = _expressSlot;
+    if (slot == null) {
+      return;
+    }
+    _countdownTimer?.cancel();
+    void update() {
+      if (!mounted) {
+        _countdownTimer?.cancel();
+        return;
+      }
+      final remaining = _safeCountdown(slot.start);
+      setState(() => _remainingCountdown = remaining);
+      if (remaining <= Duration.zero) {
+        _countdownTimer?.cancel();
+      }
+    }
+
+    update();
+    if (_remainingCountdown > Duration.zero) {
+      _countdownTimer = Timer.periodic(
+        const Duration(seconds: 1),
+        (_) => update(),
+      );
+    }
+  }
+
+  Duration _safeCountdown(DateTime target) {
+    final remaining = target.difference(DateTime.now());
+    return remaining.isNegative ? Duration.zero : remaining;
   }
 
   @override
@@ -304,7 +395,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     }
     final combinedAvailability = _combineAvailability(availabilityByStaff);
 
-    if (_selectedSlotStart != null) {
+    if (_selectedSlotStart != null && !_isLastMinuteExpress) {
       final slotStillAvailable = availabilityByStaff.entries.any((entry) {
         if (_selectedStaffId != null && entry.key != _selectedStaffId) {
           return false;
@@ -529,8 +620,8 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     const labels = <String>[
       'Categoria',
       'Servizi',
-      'Data',
-      'Disponibilita\'',
+      'Giorno',
+      'Orario',
       'Riepilogo',
     ];
     final items = <Widget>[];
@@ -1364,29 +1455,74 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       );
     }
 
+    final isExpress = _isLastMinuteExpress;
+    final isExpired = _isCountdownExpired;
+    final needsServiceSelection = _selections.any(
+      (selection) => !selection.hasServices,
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Step 5 · Riepilogo', style: theme.textTheme.titleMedium),
+        Text(
+          isExpress ? 'Last-Minute Express' : 'Step 5 · Riepilogo',
+          style: theme.textTheme.titleMedium,
+        ),
         const SizedBox(height: 12),
+        if (isExpress)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _buildLastMinuteExpressBanner(
+              theme: theme,
+              currency: NumberFormat.simpleCurrency(locale: 'it_IT'),
+            ),
+          ),
         _buildSelectionsSummary(
           theme: theme,
           servicesById: serviceById,
           staffById: staffById,
         ),
         const SizedBox(height: 24),
-        OutlinedButton.icon(
-          onPressed: _startAdditionalServiceFlow,
-          icon: const Icon(Icons.add_rounded),
-          label: const Text('Aggiungi un altro servizio'),
-        ),
+        if (!isExpress || needsServiceSelection)
+          OutlinedButton.icon(
+            onPressed:
+                needsServiceSelection && isExpress
+                    ? () => _goToStep(_BookingStep.services)
+                    : _startAdditionalServiceFlow,
+            icon: const Icon(Icons.add_rounded),
+            label: Text(
+              needsServiceSelection && isExpress
+                  ? 'Seleziona servizio'
+                  : 'Aggiungi un altro servizio',
+            ),
+          ),
         const SizedBox(height: 16),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             TextButton(
-              onPressed: () => _goToStep(_BookingStep.availability),
-              child: const Text('Indietro'),
+              onPressed: () {
+                if (_isLastMinuteExpress) {
+                  final messenger = ScaffoldMessenger.of(context);
+                  _countdownTimer?.cancel();
+                  setState(() {
+                    _expressSlot = null;
+                    _remainingCountdown = Duration.zero;
+                    _countdownTimer = null;
+                    _currentStep = _BookingStep.availability;
+                  });
+                  messenger.showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        "Se scegli un nuovo slot l'offerta last-minute non sarà più applicata.",
+                      ),
+                    ),
+                  );
+                } else {
+                  _goToStep(_BookingStep.availability);
+                }
+              },
+              child: Text(isExpress ? 'Modifica slot' : 'Indietro'),
             ),
             FilledButton(
               onPressed: _canSubmit ? _confirmBooking : null,
@@ -1397,7 +1533,9 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
                         height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                      : const Text('Conferma prenotazione'),
+                      : Text(
+                        isExpired ? 'Slot scaduto' : 'Conferma prenotazione',
+                      ),
             ),
           ],
         ),
@@ -1422,6 +1560,109 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       _applySelectionToForm(newSelection);
       _currentStep = _BookingStep.category;
     });
+  }
+
+  Widget _buildLastMinuteExpressBanner({
+    required ThemeData theme,
+    required NumberFormat currency,
+  }) {
+    final slot = _expressSlot!;
+    final scheme = theme.colorScheme;
+    final countdownLabel = _formatCountdownLabel(_remainingCountdown);
+    final savings = slot.basePrice - slot.priceNow;
+    final hasSavings = savings > 0.01;
+    final timeFormat = DateFormat('HH:mm', 'it_IT');
+    final dateLabel = _capitalize(_dayLabel.format(slot.start));
+    final isExpired = _isCountdownExpired;
+    return Card(
+      color: scheme.inversePrimary.withOpacity(0.08),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.flash_on_rounded, color: scheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Slot last-minute confermabile entro $countdownLabel',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: isExpired ? scheme.error : scheme.primary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '$dateLabel • ${timeFormat.format(slot.start)} (${slot.duration.inMinutes} min)',
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Text(
+                  currency.format(slot.priceNow),
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (hasSavings)
+                  Flexible(
+                    child: Text(
+                      currency.format(slot.basePrice),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        decoration: TextDecoration.lineThrough,
+                        color: theme.textTheme.bodyMedium?.color?.withOpacity(
+                          0.7,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (hasSavings) ...[
+                  const SizedBox(width: 12),
+                  Chip(
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    labelPadding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 0,
+                    ),
+                    avatar: const Icon(Icons.percent_rounded, size: 16),
+                    label: Text(
+                      '-${slot.discountPercentage.toStringAsFixed(0)}%',
+                    ),
+                  ),
+                ],
+                const Spacer(),
+                if (hasSavings)
+                  Flexible(
+                    child: Text(
+                      'Risparmi ${currency.format(savings)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.end,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: scheme.secondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Last-minute non rimborsabile. Puoi cedere lo slot a un amico fino a 10 minuti prima.',
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _goToStep(_BookingStep step) {
@@ -1479,6 +1720,9 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     if (_isSubmitting || _selections.isEmpty) {
       return false;
     }
+    if (_isCountdownExpired) {
+      return false;
+    }
     for (final selection in _selections) {
       if (!selection.hasServices ||
           selection.staffId == null ||
@@ -1525,6 +1769,18 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
         _showError('Selezione servizi non valida.');
         return;
       }
+      if (_isLastMinuteExpress && index == 0 && _expressSlot != null) {
+        final currentSlot = data.lastMinuteSlots.firstWhereOrNull(
+          (item) => item.id == _expressSlot!.id,
+        );
+        if (currentSlot == null || !currentSlot.isAvailable) {
+          _showError(
+            'Lo slot last-minute selezionato non è più disponibile. Scegli un altro orario.',
+          );
+          return;
+        }
+      }
+
       final staff = data.staff.firstWhereOrNull(
         (member) => member.id == selection.staffId,
       );
@@ -1538,10 +1794,19 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
         (previous, service) => previous + service.totalDuration,
       );
       final slotEnd = selection.end ?? slotStart.add(totalDuration);
+      final blockingSlots =
+          _activeLastMinuteSlotsForStaff(
+            data: data,
+            staffId: staff.id,
+            ignoreSlotId: index == 0 ? _expressSlot?.id : null,
+          ).toList();
+      final blockingSlotAppointments =
+          blockingSlots.map(_appointmentFromLastMinuteSlot).toList();
 
       final appointmentsForConflicts = [
         ...existingAppointments,
         ...plannedAppointments,
+        ...blockingSlotAppointments,
       ];
 
       final staffConflicts =
@@ -1642,6 +1907,10 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             start: slotStart,
             end: slotEnd,
             packageId: packageId,
+            lastMinuteSlotId:
+                _isLastMinuteExpress && index == 0 && _expressSlot != null
+                    ? _expressSlot!.id
+                    : existing?.lastMinuteSlotId,
           ) ??
           Appointment(
             id: _uuid.v4(),
@@ -1653,15 +1922,40 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             end: slotEnd,
             status: AppointmentStatus.scheduled,
             packageId: packageId,
+            lastMinuteSlotId:
+                _isLastMinuteExpress && index == 0 && _expressSlot != null
+                    ? _expressSlot!.id
+                    : null,
           );
-      plannedAppointments.add(appointment);
-      appointmentsToSave.add(appointment);
+      var appointmentToSave = appointment;
+      if (_isLastMinuteExpress && index == 0 && _expressSlot != null) {
+        final note = appointment.notes;
+        final expressNote = 'Prenotazione last-minute ${_expressSlot!.id}';
+        if (note == null || note.isEmpty) {
+          appointmentToSave = appointment.copyWith(notes: expressNote);
+        } else if (!note.contains(expressNote)) {
+          appointmentToSave = appointment.copyWith(
+            notes: '$note\n$expressNote',
+          );
+        }
+      }
+      plannedAppointments.add(appointmentToSave);
+      appointmentsToSave.add(appointmentToSave);
     }
 
     setState(() => _isSubmitting = true);
     try {
-      for (final appointment in appointmentsToSave) {
-        await ref.read(appDataProvider.notifier).upsertAppointment(appointment);
+      final expressSlotId = _expressSlot?.id;
+      for (var index = 0; index < appointmentsToSave.length; index++) {
+        final appointment = appointmentsToSave[index];
+        final consumeSlotId =
+            _isLastMinuteExpress && index == 0 ? expressSlotId : null;
+        await ref
+            .read(appDataProvider.notifier)
+            .upsertAppointment(
+              appointment,
+              consumeLastMinuteSlotId: consumeSlotId,
+            );
       }
       if (!mounted) return;
       Navigator.of(context).pop(appointmentsToSave.first);
@@ -1716,6 +2010,53 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     _selections[_activeSelectionIndex] = updated;
   }
 
+  Iterable<LastMinuteSlot> _activeLastMinuteSlotsForStaff({
+    required AppDataState data,
+    required String staffId,
+    String? ignoreSlotId,
+  }) {
+    if (staffId.isEmpty) {
+      return const <LastMinuteSlot>[];
+    }
+    final now = DateTime.now();
+    return data.lastMinuteSlots.where((slot) {
+      if (slot.salonId != widget.client.salonId) {
+        return false;
+      }
+      if (slot.operatorId != staffId) {
+        return false;
+      }
+      if (!slot.isAvailable) {
+        return false;
+      }
+      if (!slot.end.isAfter(now)) {
+        return false;
+      }
+      if (ignoreSlotId != null && slot.id == ignoreSlotId) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  Appointment _appointmentFromLastMinuteSlot(LastMinuteSlot slot) {
+    final serviceIds =
+        slot.serviceId != null && slot.serviceId!.isNotEmpty
+            ? <String>[slot.serviceId!]
+            : const <String>[];
+    return Appointment(
+      id: 'last-minute-${slot.id}',
+      salonId: slot.salonId,
+      clientId: 'last-minute-${slot.id}',
+      staffId: slot.operatorId ?? '',
+      serviceIds: serviceIds,
+      start: slot.start,
+      end: slot.end,
+      status: AppointmentStatus.scheduled,
+      roomId: slot.roomId,
+    );
+  }
+
   String _selectionLabel(int index, Map<String, Service> serviceById) {
     final selection = _selections[index];
     final names =
@@ -1739,7 +2080,8 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     final warningStyle = infoStyle?.copyWith(color: theme.colorScheme.error);
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
     Duration totalDuration = Duration.zero;
-    double totalPrice = 0;
+    double totalBasePrice = 0;
+    double totalPayablePrice = 0;
     final tiles = <Widget>[];
     for (var index = 0; index < _selections.length; index++) {
       final selection = _selections[index];
@@ -1782,6 +2124,15 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
               ? warningStyle
               : infoStyle;
 
+      final selectionBasePrice = services.fold<double>(
+        0,
+        (sum, service) => sum + service.price,
+      );
+      double selectionPayablePrice = selectionBasePrice;
+      if (_isLastMinuteExpress && index == 0 && _expressSlot != null) {
+        selectionPayablePrice = _expressSlot!.priceNow;
+      }
+
       if (services.isNotEmpty) {
         final contribution =
             selection.start != null && selection.end != null
@@ -1791,10 +2142,8 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
                   (sum, service) => sum + service.totalDuration,
                 );
         totalDuration += contribution;
-        totalPrice += services.fold<double>(
-          0,
-          (sum, service) => sum + service.price,
-        );
+        totalBasePrice += selectionBasePrice;
+        totalPayablePrice += selectionPayablePrice;
       }
 
       tiles.add(
@@ -1833,6 +2182,31 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
                 Text(slotLabel, style: slotStyle),
                 const SizedBox(height: 4),
                 Text(packageLabel, style: packageStyle),
+                if (services.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Text(
+                        currency.format(selectionPayablePrice),
+                        style: theme.textTheme.titleMedium,
+                      ),
+                      if (_isLastMinuteExpress &&
+                          index == 0 &&
+                          _expressSlot != null)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: Text(
+                            currency.format(selectionBasePrice),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              decoration: TextDecoration.lineThrough,
+                              color: theme.textTheme.bodyMedium?.color
+                                  ?.withOpacity(0.7),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
@@ -1841,7 +2215,9 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     }
 
     final summaryTiles = <Widget>[];
-    if (totalDuration > Duration.zero || totalPrice > 0) {
+    if (totalDuration > Duration.zero || totalPayablePrice > 0) {
+      final hasDiscount =
+          _isLastMinuteExpress && totalBasePrice > totalPayablePrice + 0.01;
       summaryTiles.add(
         Card(
           child: Padding(
@@ -1867,9 +2243,28 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
                     children: [
                       Text('Costo stimato', style: theme.textTheme.bodyMedium),
                       const SizedBox(height: 4),
-                      Text(
-                        totalPrice > 0 ? currency.format(totalPrice) : '—',
-                        style: theme.textTheme.titleMedium,
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            totalPayablePrice > 0
+                                ? currency.format(totalPayablePrice)
+                                : '—',
+                            style: theme.textTheme.titleMedium,
+                          ),
+                          if (hasDiscount)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: Text(
+                                currency.format(totalBasePrice),
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  decoration: TextDecoration.lineThrough,
+                                  color: theme.textTheme.bodyMedium?.color
+                                      ?.withOpacity(0.7),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ],
                   ),
@@ -1906,6 +2301,22 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       parts.add('${minutes}m');
     }
     return parts.join(' ');
+  }
+
+  String _formatCountdownLabel(Duration duration) {
+    if (duration <= Duration.zero) {
+      return '00:00';
+    }
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes.remainder(60);
+    final seconds = duration.inSeconds.remainder(60);
+    if (hours > 0) {
+      final minutesTwo = minutes.toString().padLeft(2, '0');
+      return '${hours}h$minutesTwo\'';
+    }
+    final minutesTwo = minutes.toString().padLeft(2, '0');
+    final secondsTwo = seconds.toString().padLeft(2, '0');
+    return '$minutesTwo:$secondsTwo';
   }
 
   List<StaffMember> _availableStaff({
@@ -2062,10 +2473,20 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
               end: horizon,
             );
     final editingAppointmentId = widget.initialAppointment?.id;
-    final allAppointments = _visibleAppointments(
+    final visibleAppointments = _visibleAppointments(
       data,
       excludeAppointmentId: editingAppointmentId,
     );
+    final blockingExpressSlots =
+        _activeLastMinuteSlotsForStaff(
+          data: data,
+          staffId: staffId,
+          ignoreSlotId: null,
+        ).map(_appointmentFromLastMinuteSlot).toList();
+    final allAppointments = <Appointment>[
+      ...visibleAppointments,
+      ...blockingExpressSlots,
+    ];
 
     const slotStep = Duration(minutes: _slotIntervalMinutes);
     final clientAppointments =

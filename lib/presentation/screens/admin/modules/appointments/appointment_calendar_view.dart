@@ -5,6 +5,7 @@ import 'package:civiapp/domain/availability/equipment_availability.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/salon.dart';
+import 'package:civiapp/domain/entities/last_minute_slot.dart';
 import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/shift.dart';
 import 'package:civiapp/domain/entities/staff_absence.dart';
@@ -87,6 +88,7 @@ class AppointmentCalendarView extends StatefulWidget {
     required this.scope,
     required this.appointments,
     required this.allAppointments,
+    required this.lastMinutePlaceholders,
     required this.staff,
     required this.clients,
     required this.services,
@@ -104,12 +106,16 @@ class AppointmentCalendarView extends StatefulWidget {
     required this.anomalies,
     required this.statusColor,
     this.slotMinutes = 15,
+    this.onTapLastMinuteSlot,
+    required this.lastMinuteSlots,
   });
 
   final DateTime anchorDate;
   final AppointmentCalendarScope scope;
   final List<Appointment> appointments;
   final List<Appointment> allAppointments;
+  final List<Appointment> lastMinutePlaceholders;
+  final List<LastMinuteSlot> lastMinuteSlots;
   final List<StaffMember> staff;
   final List<StaffRole> roles;
   final List<Client> clients;
@@ -127,6 +133,7 @@ class AppointmentCalendarView extends StatefulWidget {
   final Map<String, Set<AppointmentAnomalyType>> anomalies;
   final Color Function(AppointmentStatus status) statusColor;
   final int slotMinutes;
+  final Future<void> Function(LastMinuteSlot slot)? onTapLastMinuteSlot;
 
   @override
   State<AppointmentCalendarView> createState() =>
@@ -200,6 +207,8 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           anchorDate: widget.anchorDate,
           appointments: widget.appointments,
           allAppointments: widget.allAppointments,
+          lastMinutePlaceholders: widget.lastMinutePlaceholders,
+          lastMinuteSlots: widget.lastMinuteSlots,
           shifts: widget.shifts,
           absences: widget.absences,
           schedule: widget.schedule,
@@ -214,6 +223,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           onReschedule: widget.onReschedule,
           onEdit: widget.onEdit,
           onCreate: widget.onCreate,
+          onTapLastMinuteSlot: widget.onTapLastMinuteSlot,
           anomalies: widget.anomalies,
           horizontalHeaderController: _horizontalHeaderController,
           horizontalBodyController: _horizontalBodyController,
@@ -225,6 +235,8 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           anchorDate: widget.anchorDate,
           appointments: widget.appointments,
           allAppointments: widget.allAppointments,
+          lastMinutePlaceholders: widget.lastMinutePlaceholders,
+          lastMinuteSlots: widget.lastMinuteSlots,
           shifts: widget.shifts,
           absences: widget.absences,
           schedule: widget.schedule,
@@ -240,6 +252,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           onReschedule: widget.onReschedule,
           onEdit: widget.onEdit,
           onCreate: widget.onCreate,
+          onTapLastMinuteSlot: widget.onTapLastMinuteSlot,
           anomalies: widget.anomalies,
           horizontalHeaderController: _horizontalHeaderController,
           horizontalBodyController: _horizontalBodyController,
@@ -255,6 +268,8 @@ class _DaySchedule extends StatelessWidget {
     required this.anchorDate,
     required this.appointments,
     required this.allAppointments,
+    required this.lastMinutePlaceholders,
+    required this.lastMinuteSlots,
     required this.shifts,
     required this.absences,
     required this.schedule,
@@ -269,6 +284,7 @@ class _DaySchedule extends StatelessWidget {
     required this.onReschedule,
     required this.onEdit,
     required this.onCreate,
+    required this.onTapLastMinuteSlot,
     required this.anomalies,
     required this.horizontalHeaderController,
     required this.horizontalBodyController,
@@ -279,6 +295,8 @@ class _DaySchedule extends StatelessWidget {
   final DateTime anchorDate;
   final List<Appointment> appointments;
   final List<Appointment> allAppointments;
+  final List<Appointment> lastMinutePlaceholders;
+  final List<LastMinuteSlot> lastMinuteSlots;
   final List<Shift> shifts;
   final List<StaffAbsence> absences;
   final List<SalonDailySchedule>? schedule;
@@ -293,6 +311,7 @@ class _DaySchedule extends StatelessWidget {
   final AppointmentRescheduleCallback onReschedule;
   final AppointmentTapCallback onEdit;
   final AppointmentSlotSelectionCallback onCreate;
+  final Future<void> Function(LastMinuteSlot slot)? onTapLastMinuteSlot;
   final Map<String, Set<AppointmentAnomalyType>> anomalies;
   final ScrollController horizontalHeaderController;
   final ScrollController horizontalBodyController;
@@ -579,11 +598,15 @@ class _DaySchedule extends StatelessWidget {
                                           appointmentsByStaff[staff[staffIndex]
                                               .id] ??
                                           const [],
+                                      lastMinutePlaceholders:
+                                          lastMinutePlaceholders,
+                                      lastMinuteSlots: lastMinuteSlots,
+                                      onTapLastMinuteSlot: onTapLastMinuteSlot,
                                       shifts:
                                           shiftsByStaff[staff[staffIndex].id] ??
                                           const [],
                                       absences:
-                                      absencesByStaff[staff[staffIndex]
+                                          absencesByStaff[staff[staffIndex]
                                               .id] ??
                                           const [],
                                       timelineStart: bounds.start,
@@ -699,6 +722,8 @@ class _WeekSchedule extends StatelessWidget {
     required this.anchorDate,
     required this.appointments,
     required this.allAppointments,
+    required this.lastMinutePlaceholders,
+    required this.lastMinuteSlots,
     required this.shifts,
     required this.absences,
     required this.schedule,
@@ -714,6 +739,7 @@ class _WeekSchedule extends StatelessWidget {
     required this.onReschedule,
     required this.onEdit,
     required this.onCreate,
+    required this.onTapLastMinuteSlot,
     required this.horizontalHeaderController,
     required this.horizontalBodyController,
     required this.verticalController,
@@ -724,6 +750,8 @@ class _WeekSchedule extends StatelessWidget {
   final DateTime anchorDate;
   final List<Appointment> appointments;
   final List<Appointment> allAppointments;
+  final List<Appointment> lastMinutePlaceholders;
+  final List<LastMinuteSlot> lastMinuteSlots;
   final List<Shift> shifts;
   final List<StaffAbsence> absences;
   final List<SalonDailySchedule>? schedule;
@@ -739,6 +767,7 @@ class _WeekSchedule extends StatelessWidget {
   final AppointmentRescheduleCallback onReschedule;
   final AppointmentTapCallback onEdit;
   final AppointmentSlotSelectionCallback onCreate;
+  final Future<void> Function(LastMinuteSlot slot)? onTapLastMinuteSlot;
   final ScrollController horizontalHeaderController;
   final ScrollController horizontalBodyController;
   final ScrollController verticalController;
@@ -1122,6 +1151,11 @@ class _WeekSchedule extends StatelessWidget {
                                                   .appointmentsByStaff[staff[staffIndex]
                                                   .id] ??
                                               const [],
+                                          lastMinutePlaceholders:
+                                              lastMinutePlaceholders,
+                                          lastMinuteSlots: lastMinuteSlots,
+                                          onTapLastMinuteSlot:
+                                              onTapLastMinuteSlot,
                                           shifts:
                                               dayData[dayIndex]
                                                   .shiftsByStaff[staff[staffIndex]
@@ -1221,6 +1255,8 @@ class _StaffDayColumn extends StatefulWidget {
   const _StaffDayColumn({
     required this.staffMember,
     required this.appointments,
+    required this.lastMinutePlaceholders,
+    required this.lastMinuteSlots,
     required this.allAppointments,
     required this.shifts,
     required this.absences,
@@ -1237,6 +1273,7 @@ class _StaffDayColumn extends StatefulWidget {
     required this.onReschedule,
     required this.onEdit,
     required this.onCreate,
+    required this.onTapLastMinuteSlot,
     required this.anomalies,
     this.openStart,
     this.openEnd,
@@ -1244,6 +1281,9 @@ class _StaffDayColumn extends StatefulWidget {
 
   final StaffMember staffMember;
   final List<Appointment> appointments;
+  final List<Appointment> lastMinutePlaceholders;
+  final List<LastMinuteSlot> lastMinuteSlots;
+  final Future<void> Function(LastMinuteSlot slot)? onTapLastMinuteSlot;
   final List<Appointment> allAppointments;
   final List<Shift> shifts;
   final List<StaffAbsence> absences;
@@ -1345,6 +1385,28 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
     }
     final snappedMinutes =
         (minuteOffset / widget.slotMinutes).round() * widget.slotMinutes;
+    final tapMoment = widget.timelineStart.add(
+      Duration(minutes: minuteOffset.round()),
+    );
+
+    final tappedHold = widget.lastMinuteSlots.firstWhereOrNull((slot) {
+      if (slot.operatorId != widget.staffMember.id) {
+        return false;
+      }
+      if (!slot.isAvailable) {
+        return false;
+      }
+      final start = slot.start;
+      final end = slot.end;
+      final matchesStart = !tapMoment.isBefore(start);
+      final matchesEnd = tapMoment.isBefore(end);
+      return matchesStart && matchesEnd;
+    });
+    if (tappedHold != null && widget.onTapLastMinuteSlot != null) {
+      widget.onTapLastMinuteSlot!(tappedHold);
+      return;
+    }
+
     final newStart = widget.timelineStart.add(
       Duration(minutes: snappedMinutes.toInt()),
     );
@@ -1504,14 +1566,15 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
             previewed.roomId != null
                 ? widget.roomsById[previewed.roomId!]
                 : null;
-        final services = previewed.serviceIds
-            .map(
-              (id) => widget.servicesById[id],
-            )
-            .whereType<Service>()
-            .toList();
+        final services =
+            previewed.serviceIds
+                .map((id) => widget.servicesById[id])
+                .whereType<Service>()
+                .toList();
         final previewService =
-            services.isNotEmpty ? services.first : widget.servicesById[previewed.serviceId];
+            services.isNotEmpty
+                ? services.first
+                : widget.servicesById[previewed.serviceId];
         dragOverlay = Positioned(
           top: top,
           left: 0,
@@ -1554,11 +1617,18 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
             segment.start.difference(widget.timelineStart).inMinutes /
             widget.slotMinutes *
             widget.slotExtent;
-        final isBusy = widget.appointments.any(
+        final isBusyAppointments = widget.appointments.any(
           (appointment) =>
               appointment.start.isBefore(hoverEnd) &&
               appointment.end.isAfter(hoverStart),
         );
+        final isBusyHolds = widget.lastMinutePlaceholders.any(
+          (hold) =>
+              hold.staffId == widget.staffMember.id &&
+              hold.start.isBefore(hoverEnd) &&
+              hold.end.isAfter(hoverStart),
+        );
+        final isBusy = isBusyAppointments || isBusyHolds;
         final fillColor =
             isBusy
                 ? theme.colorScheme.error.withValues(alpha: 0.08)
@@ -1685,6 +1755,86 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                   if (openOverlay != null) openOverlay,
                   if (dragOverlay != null) dragOverlay,
                   if (hoverOverlay != null) hoverOverlay,
+                  // Visual overlay for last-minute holds (blocked slots)
+                  ...widget.lastMinuteSlots.expand((slot) {
+                    if (!slot.isAvailable) {
+                      return const Iterable<Widget>.empty();
+                    }
+                    if (slot.operatorId != widget.staffMember.id) {
+                      return const Iterable<Widget>.empty();
+                    }
+                    final segment = _segmentWithinTimeline(
+                      slot.start,
+                      slot.end,
+                      widget.timelineStart,
+                      widget.timelineEnd,
+                    );
+                    if (segment == null) {
+                      return const Iterable<Widget>.empty();
+                    }
+                    final top =
+                        segment.start
+                            .difference(widget.timelineStart)
+                            .inMinutes /
+                        widget.slotMinutes *
+                        widget.slotExtent;
+                    final height = max(
+                      widget.slotExtent,
+                      segment.end.difference(segment.start).inMinutes /
+                          widget.slotMinutes *
+                          widget.slotExtent,
+                    );
+                    return [
+                      Positioned(
+                        top: top,
+                        left: 0,
+                        right: 0,
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap:
+                                widget.onTapLastMinuteSlot == null
+                                    ? null
+                                    : () => widget.onTapLastMinuteSlot!(slot),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              height: height,
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.primaryContainer
+                                    .withValues(alpha: 0.30),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: theme.colorScheme.primary.withValues(
+                                    alpha: 0.50,
+                                  ),
+                                ),
+                              ),
+                              padding: const EdgeInsets.all(6),
+                              alignment: Alignment.topLeft,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.flash_on_rounded,
+                                    size: 14,
+                                    color: theme.colorScheme.primary,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Slot last-minute (prenotabile)',
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: theme.colorScheme.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ];
+                  }),
                   ...widget.absences.expand((absence) {
                     final segment = _segmentWithinTimeline(
                       absence.start,
@@ -1858,14 +2008,15 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                           widget.slotExtent,
                     );
                     final client = widget.clientsById[appointment.clientId];
-                    final services = appointment.serviceIds
-                        .map(
-                          (id) => widget.servicesById[id],
-                        )
-                        .whereType<Service>()
-                        .toList();
+                    final services =
+                        appointment.serviceIds
+                            .map((id) => widget.servicesById[id])
+                            .whereType<Service>()
+                            .toList();
                     final service =
-                        services.isNotEmpty ? services.first : widget.servicesById[appointment.serviceId];
+                        services.isNotEmpty
+                            ? services.first
+                            : widget.servicesById[appointment.serviceId];
                     final roomName =
                         appointment.roomId != null
                             ? widget.roomsById[appointment.roomId!]
@@ -1873,6 +2024,13 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                     final issues =
                         widget.anomalies[appointment.id] ??
                         const <AppointmentAnomalyType>{};
+                    final slotId = appointment.lastMinuteSlotId;
+                    final matchingSlot =
+                        slotId == null
+                            ? null
+                            : widget.lastMinuteSlots.firstWhereOrNull(
+                              (slot) => slot.id == slotId,
+                            );
                     final lockReason =
                         widget.lockedAppointmentReasons[appointment.id];
                     final isLocked = lockReason != null;
@@ -1888,6 +2046,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                       height: height,
                       anomalies: issues,
                       lockReason: lockReason,
+                      lastMinuteSlot: matchingSlot,
                     );
                     if (isLocked) {
                       return Positioned(
@@ -1922,21 +2081,23 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                             previewStart: _dragPreviewStart,
                             previewDuration: _dragPreviewDuration,
                             slotMinutes: widget.slotMinutes,
+                            lastMinuteSlot: matchingSlot,
                           ),
                         ),
                         childWhenDragging: Opacity(
                           opacity: 0.4,
-                        child: _AppointmentCard(
-                          appointment: appointment,
-                          client: client,
-                          service: service,
-                          services: services,
-                          staff: widget.staffMember,
-                          roomName: roomName,
-                          statusColor: widget.statusColor,
+                          child: _AppointmentCard(
+                            appointment: appointment,
+                            client: client,
+                            service: service,
+                            services: services,
+                            staff: widget.staffMember,
+                            roomName: roomName,
+                            statusColor: widget.statusColor,
                             height: height,
                             anomalies: issues,
                             lockReason: lockReason,
+                            lastMinuteSlot: matchingSlot,
                           ),
                         ),
                         child: card,
@@ -2054,6 +2215,7 @@ class _AppointmentCard extends StatelessWidget {
     this.anomalies = const <AppointmentAnomalyType>{},
     this.lockReason,
     this.highlight = false,
+    this.lastMinuteSlot,
   });
 
   final Appointment appointment;
@@ -2068,6 +2230,7 @@ class _AppointmentCard extends StatelessWidget {
   final Set<AppointmentAnomalyType> anomalies;
   final String? lockReason;
   final bool highlight;
+  final LastMinuteSlot? lastMinuteSlot;
 
   @override
   Widget build(BuildContext context) {
@@ -2078,19 +2241,20 @@ class _AppointmentCard extends StatelessWidget {
     final color = statusColor(status);
     final hasAnomalies = anomalies.isNotEmpty;
     final isLocked = lockReason != null;
-    final servicesToDisplay = services.isNotEmpty
-        ? services
-        : [
-            if (service != null) service!,
-          ];
-    final serviceLabel = servicesToDisplay.isNotEmpty
-        ? servicesToDisplay.map((service) => service.name).join(' + ')
-        : null;
+    final servicesToDisplay =
+        services.isNotEmpty ? services : [if (service != null) service!];
+    final serviceLabel =
+        servicesToDisplay.isNotEmpty
+            ? servicesToDisplay.map((service) => service.name).join(' + ')
+            : null;
+    final isLastMinute = lastMinuteSlot != null;
     final borderColor =
         hasAnomalies
             ? theme.colorScheme.error.withValues(alpha: 0.6)
             : isLocked
             ? theme.colorScheme.outline.withValues(alpha: 0.8)
+            : isLastMinute
+            ? theme.colorScheme.primary.withValues(alpha: 0.45)
             : color.withValues(alpha: 0.2);
     final borderWidth = hasAnomalies || isLocked ? 1.5 : 1.0;
     final anomaliesTooltip =
@@ -2183,7 +2347,7 @@ class _AppointmentCard extends StatelessWidget {
                 if (serviceLabelShouldShow) ...[
                   SizedBox(height: availableHeight < 68 ? 2 : 4),
                   Text(
-                    serviceLabel!,
+                    serviceLabel,
                     style: theme.textTheme.bodySmall,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -2194,7 +2358,9 @@ class _AppointmentCard extends StatelessWidget {
           }
 
           final showService =
-              serviceLabel != null && serviceLabel.isNotEmpty && availableHeight >= 96;
+              serviceLabel != null &&
+              serviceLabel.isNotEmpty &&
+              availableHeight >= 96;
           final showStaff = availableHeight >= 64;
           final showRoom = roomName != null && availableHeight >= 120;
           final hasBottomSection = showStaff || showRoom;
@@ -2222,7 +2388,7 @@ class _AppointmentCard extends StatelessWidget {
               ..add(const SizedBox(height: 4))
               ..add(
                 Text(
-                  serviceLabel!,
+                  serviceLabel,
                   style: theme.textTheme.bodySmall,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -2307,6 +2473,49 @@ class _AppointmentCard extends StatelessWidget {
         ),
       );
     }
+    if (isLastMinute) {
+      final slot = lastMinuteSlot;
+      if (slot != null) {
+        overlayWidgets.add(
+          Positioned(
+            bottom: 8,
+            right: 8,
+            child: Tooltip(
+              message:
+                  slot.isAvailable
+                      ? 'Slot last-minute disponibile'
+                      : 'Appuntamento last-minute',
+              waitDuration: const Duration(milliseconds: 250),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.flash_on_rounded,
+                      size: 14,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Last-minute',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+    }
 
     Widget decoratedCard =
         overlayWidgets.isEmpty
@@ -2384,6 +2593,7 @@ class _DragPreviewCard extends StatelessWidget {
     this.previewStart,
     this.previewDuration,
     required this.slotMinutes,
+    this.lastMinuteSlot,
   });
 
   final Appointment appointment;
@@ -2398,6 +2608,7 @@ class _DragPreviewCard extends StatelessWidget {
   final DateTime? previewStart;
   final Duration? previewDuration;
   final int slotMinutes;
+  final LastMinuteSlot? lastMinuteSlot;
 
   @override
   Widget build(BuildContext context) {
@@ -2419,6 +2630,7 @@ class _DragPreviewCard extends StatelessWidget {
       anomalies: anomalies,
       lockReason: null,
       highlight: true,
+      lastMinuteSlot: lastMinuteSlot,
     );
   }
 }

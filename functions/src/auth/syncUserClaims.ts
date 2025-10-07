@@ -76,7 +76,7 @@ const claimsEqual = (a: ClaimSnapshot, b: ClaimSnapshot): boolean => {
 };
 
 export const syncUserClaims = onDocumentWritten({
-  region: 'us-central1',
+  region: 'europe-west1',
   document: 'users/{userId}',
 }, async (event) => {
   const userId = event.params.userId as string;

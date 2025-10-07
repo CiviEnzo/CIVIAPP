@@ -6,6 +6,8 @@ import 'package:civiapp/domain/entities/app_notification.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/client_photo.dart';
+import 'package:civiapp/domain/entities/last_minute_slot.dart';
+import 'package:civiapp/domain/entities/promotion.dart';
 import 'package:civiapp/domain/entities/quote.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
@@ -16,6 +18,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import 'client_booking_sheet.dart';
@@ -132,11 +135,13 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
   Future<void> _openBookingSheet(
     Client client, {
     Service? preselectedService,
+    LastMinuteSlot? lastMinuteSlot,
   }) async {
     final appointment = await ClientBookingSheet.show(
       context,
       client: client,
       preselectedService: preselectedService,
+      lastMinuteSlot: lastMinuteSlot,
     );
     if (!mounted || appointment == null) {
       return;
@@ -295,6 +300,137 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     }
   }
 
+  Future<void> _showPromotionDetails(Promotion promotion) async {
+    if (!mounted) {
+      return;
+    }
+    final discountFormat = NumberFormat('##0.#', 'it_IT');
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        final subtitle = promotion.subtitle;
+        final tagline = promotion.tagline;
+        final endsAt = promotion.endsAt;
+        final hasLink = promotion.ctaUrl?.isNotEmpty == true;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(promotion.title, style: theme.textTheme.headlineSmall),
+                if (subtitle != null && subtitle.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(subtitle, style: theme.textTheme.titleMedium),
+                ],
+                if (tagline != null && tagline.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(tagline, style: theme.textTheme.bodyLarge),
+                ],
+                if (promotion.discountPercentage > 0) ...[
+                  const SizedBox(height: 12),
+                  Chip(
+                    avatar: const Icon(Icons.percent_rounded, size: 18),
+                    label: Text(
+                      '-${discountFormat.format(promotion.discountPercentage)}%',
+                    ),
+                  ),
+                ],
+                if (endsAt != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'Valida fino al ${DateFormat('dd/MM', 'it_IT').format(endsAt)}',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ],
+                const SizedBox(height: 16),
+                if (hasLink) ...[
+                  FilledButton.icon(
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: promotion.ctaUrl!));
+                      Navigator.of(sheetContext).pop();
+                      if (!mounted) {
+                        return;
+                      }
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Link dell\'offerta copiato negli appunti.',
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.link_rounded),
+                    label: const Text('Copia link offerta'),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Apri il browser e incolla il link per continuare.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.of(sheetContext).pop(),
+                    child: const Text('Chiudi'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _bookLastMinuteSlot(
+    Client client,
+    LastMinuteSlot slot,
+    List<Service> services,
+  ) {
+    final service = services.firstWhereOrNull(
+      (service) => service.id == slot.serviceId,
+    );
+    _openBookingSheet(
+      client,
+      preselectedService: service,
+      lastMinuteSlot: slot,
+    );
+    if (service == null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Servizio non configurato: completa la prenotazione dalla sezione Appuntamenti.',
+          ),
+        ),
+      );
+    }
+  }
+
+  String _formatCountdown(DateTime start) {
+    final now = DateTime.now();
+    final diff = start.difference(now);
+    if (diff.isNegative) {
+      return 'In corso';
+    }
+    final minutes = diff.inMinutes;
+    if (minutes >= 60) {
+      final hours = diff.inHours;
+      final remainingMinutes = minutes % 60;
+      if (remainingMinutes == 0) {
+        return '${hours}h';
+      }
+      return '${hours}h ${remainingMinutes}m';
+    }
+    final seconds = diff.inSeconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final data = ref.watch(appDataProvider);
@@ -375,6 +511,25 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                   service.salonId == currentClient.salonId && service.isActive,
             )
             .toList();
+    final salonFeatureFlags = salon?.featureFlags ?? const SalonFeatureFlags();
+    final rawPromotions = data.promotions
+        .where((promotion) => promotion.salonId == currentClient.salonId)
+        .toList(growable: false);
+    final promotions =
+        salonFeatureFlags.clientPromotions
+            ? rawPromotions
+                .where((promotion) => promotion.isLiveAt(now))
+                .toList(growable: false)
+            : const <Promotion>[];
+    final rawLastMinuteSlots = data.lastMinuteSlots
+        .where((slot) => slot.salonId == currentClient.salonId)
+        .toList(growable: false);
+    final lastMinuteSlots =
+        salonFeatureFlags.clientLastMinute
+            ? rawLastMinuteSlots
+                .where((slot) => slot.isActiveAt(now))
+                .toList(growable: false)
+            : const <LastMinuteSlot>[];
     final clientPackages = resolveClientPackagePurchases(
       sales: data.sales,
       packages: data.packages,
@@ -413,10 +568,13 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
         context: context,
         client: currentClient,
         salon: salon,
+        featureFlags: salonFeatureFlags,
         notifications: notifications,
         upcoming: upcoming,
         history: history,
         services: salonServices,
+        promotions: promotions,
+        lastMinuteSlots: lastMinuteSlots,
         activePackages: activePackages,
         pastPackages: pastPackages,
         sales: clientSales,
@@ -621,10 +779,13 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     required BuildContext context,
     required Client client,
     required Salon? salon,
+    required SalonFeatureFlags featureFlags,
     required List<AppNotification> notifications,
     required List<Appointment> upcoming,
     required List<Appointment> history,
     required List<Service> services,
+    required List<Promotion> promotions,
+    required List<LastMinuteSlot> lastMinuteSlots,
     required List<ClientPackagePurchase> activePackages,
     required List<ClientPackagePurchase> pastPackages,
     required List<Sale> sales,
@@ -633,6 +794,8 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
     final nextAppointment = upcoming.isEmpty ? null : upcoming.first;
     final loyaltyStats = _calculateLoyaltyStats(client, sales);
+    final showPromotions = featureFlags.clientPromotions;
+    final showLastMinute = featureFlags.clientLastMinute;
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -703,6 +866,64 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
               label: const Text('Mostra tutte'),
             ),
           ),
+          const SizedBox(height: 16),
+        ],
+        if (showPromotions) ...[
+          Text('Promozioni in corso', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 8),
+          if (promotions.isEmpty)
+            const Card(
+              child: ListTile(title: Text('Nessuna promozione attiva')),
+            )
+          else
+            _PromotionsCarousel(
+              promotions: promotions,
+              onPromotionTap: _showPromotionDetails,
+            ),
+          const SizedBox(height: 16),
+        ],
+        if (showLastMinute) ...[
+          Text(
+            'Ultima chiamata (entro 60 min)',
+            style: theme.textTheme.titleLarge,
+          ),
+          const SizedBox(height: 8),
+          if (lastMinuteSlots.isEmpty)
+            const Card(
+              child: ListTile(
+                title: Text('Niente slot ora. Attiva gli avvisi!'),
+              ),
+            )
+          else ...[
+            Column(
+              children:
+                  lastMinuteSlots
+                      .take(4)
+                      .map(
+                        (slot) => Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _LastMinuteSlotCard(
+                            slot: slot,
+                            currency: currency,
+                            countdownText: _formatCountdown(slot.start),
+                            onBook:
+                                () =>
+                                    _bookLastMinuteSlot(client, slot, services),
+                          ),
+                        ),
+                      )
+                      .toList(),
+            ),
+            if (lastMinuteSlots.length > 4)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => setState(() => _currentTab = 1),
+                  icon: const Icon(Icons.schedule_rounded),
+                  label: const Text('Vedi tutti gli slot nelle prossime 2 ore'),
+                ),
+              ),
+          ],
           const SizedBox(height: 16),
         ],
         if (upcoming.isNotEmpty) ...[
@@ -1810,6 +2031,276 @@ class _NotificationCard extends StatelessWidget {
           foreground: theme.colorScheme.onSurface,
         );
     }
+  }
+}
+
+class _PromotionsCarousel extends StatelessWidget {
+  const _PromotionsCarousel({
+    required this.promotions,
+    required this.onPromotionTap,
+  });
+
+  final List<Promotion> promotions;
+  final ValueChanged<Promotion> onPromotionTap;
+
+  @override
+  Widget build(BuildContext context) {
+    if (promotions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final width = MediaQuery.of(context).size.width;
+    if (promotions.length == 1) {
+      final promotion = promotions.first;
+      return SizedBox(
+        height: 400,
+        child: _PromotionCard(
+          promotion: promotion,
+          onTap: () => onPromotionTap(promotion),
+        ),
+      );
+    }
+    return SizedBox(
+      height: 200,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        itemBuilder: (context, index) {
+          final promotion = promotions[index];
+          return SizedBox(
+            width: width * 0.78,
+            child: _PromotionCard(
+              promotion: promotion,
+              onTap: () => onPromotionTap(promotion),
+            ),
+          );
+        },
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        itemCount: promotions.length,
+      ),
+    );
+  }
+}
+
+class _PromotionCard extends StatelessWidget {
+  const _PromotionCard({required this.promotion, required this.onTap});
+
+  final Promotion promotion;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final endsAt = promotion.endsAt;
+    final subtitle = promotion.subtitle;
+    final dateLabel =
+        endsAt == null ? null : DateFormat('dd/MM', 'it_IT').format(endsAt);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Ink(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: LinearGradient(
+            colors: [
+              scheme.primaryContainer,
+              scheme.primaryContainer.withOpacity(0.7),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (dateLabel != null)
+                Align(
+                  alignment: Alignment.topRight,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: scheme.onPrimaryContainer.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      'Fino al $dateLabel',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: scheme.onPrimaryContainer,
+                      ),
+                    ),
+                  ),
+                ),
+              Text(
+                promotion.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: scheme.onPrimaryContainer,
+                ),
+              ),
+              if (subtitle != null && subtitle.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: scheme.onPrimaryContainer,
+                  ),
+                ),
+              ],
+              if (promotion.tagline != null &&
+                  promotion.tagline!.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  promotion.tagline!,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: scheme.onPrimaryContainer.withOpacity(0.9),
+                  ),
+                ),
+              ],
+              const Spacer(),
+              FilledButton.tonalIcon(
+                onPressed: onTap,
+                icon: const Icon(Icons.arrow_forward_rounded),
+                label: const Text('Scopri l\'offerta'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LastMinuteSlotCard extends StatelessWidget {
+  const _LastMinuteSlotCard({
+    required this.slot,
+    required this.currency,
+    required this.countdownText,
+    required this.onBook,
+  });
+
+  final LastMinuteSlot slot;
+  final NumberFormat currency;
+  final String countdownText;
+  final VoidCallback onBook;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final timeFormat = DateFormat('HH:mm', 'it_IT');
+    final savings = slot.basePrice - slot.priceNow;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  timeFormat.format(slot.start),
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                if (slot.discountPercentage > 0)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: scheme.secondaryContainer,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '-${slot.discountPercentage.toStringAsFixed(0)}%',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: scheme.onSecondaryContainer,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                const Spacer(),
+                Icon(Icons.timer_outlined, size: 16, color: scheme.primary),
+                const SizedBox(width: 4),
+                Text(
+                  countdownText,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: scheme.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(slot.serviceName, style: theme.textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(
+              '${slot.duration.inMinutes} min • '
+              '${slot.operatorName ?? 'Operatore da assegnare'}',
+              style: theme.textTheme.bodyMedium,
+            ),
+            if (slot.roomName != null && slot.roomName!.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Cabina: ${slot.roomName}',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  currency.format(slot.priceNow),
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  currency.format(slot.basePrice),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    decoration: TextDecoration.lineThrough,
+                    color: theme.textTheme.bodyMedium?.color?.withOpacity(0.7),
+                  ),
+                ),
+                const Spacer(),
+                if (savings > 0)
+                  Text(
+                    'Risparmi ${currency.format(savings)}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.secondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+              ],
+            ),
+            if (slot.loyaltyPoints > 0) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Guadagni ${slot.loyaltyPoints} punti',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+            const SizedBox(height: 16),
+            FilledButton(onPressed: onBook, child: const Text('Prenota ora')),
+          ],
+        ),
+      ),
+    );
   }
 }
 

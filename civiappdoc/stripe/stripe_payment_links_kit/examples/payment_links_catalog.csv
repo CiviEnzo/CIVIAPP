@@ -1,0 +1,3 @@
+salonId,serviceId,title,type,currency,price,isSubscription,stripe_link_url,enabled
+salon_roma_1,cut_color_2025_10,Taglio + Colore Donna,service,EUR,85.00,false,https://buy.stripe.com/test_abc123,true
+salon_milano_2,mens_cut_2025_10,Taglio Uomo,service,EUR,25.00,false,https://buy.stripe.com/test_def456,true

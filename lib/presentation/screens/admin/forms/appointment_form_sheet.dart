@@ -87,9 +87,9 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         initialServiceIds.isNotEmpty
             ? List<String>.from(initialServiceIds)
             : [
-                if (fallbackServiceId != null && fallbackServiceId.isNotEmpty)
-                  fallbackServiceId,
-              ];
+              if (fallbackServiceId != null && fallbackServiceId.isNotEmpty)
+                fallbackServiceId,
+            ];
     _status = initial?.status ?? AppointmentStatus.scheduled;
     _selectedPackageId = initial?.packageId;
     _usePackageSession = _selectedPackageId != null;
@@ -161,41 +161,46 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           }
           return true;
         }).toList();
-    final filteredServiceIds = filteredServices.map((service) => service.id).toSet();
-    final hasRemovedServices =
-        _serviceIds.any((id) => !filteredServiceIds.contains(id));
+    final filteredServiceIds =
+        filteredServices.map((service) => service.id).toSet();
+    final hasRemovedServices = _serviceIds.any(
+      (id) => !filteredServiceIds.contains(id),
+    );
     if (hasRemovedServices) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         setState(() {
-          _serviceIds =
-              _serviceIds.where(filteredServiceIds.contains).toList(growable: false);
+          _serviceIds = _serviceIds
+              .where(filteredServiceIds.contains)
+              .toList(growable: false);
           _usePackageSession = false;
           _selectedPackageId = null;
           _packageSelectionManuallyChanged = false;
         });
       });
     }
-    final selectedServices = services
-        .where((service) => _serviceIds.contains(service.id))
-        .toList();
+    final selectedServices =
+        services.where((service) => _serviceIds.contains(service.id)).toList();
     final singleSelectedService =
         selectedServices.length == 1 ? selectedServices.first : null;
-    final filteredStaff = staffMembers.where((member) {
-      if (_salonId != null && member.salonId != _salonId) {
-        return false;
-      }
-      if (selectedServices.isNotEmpty) {
-        for (final service in selectedServices) {
-          final allowedRoles = service.staffRoles;
-          if (allowedRoles.isNotEmpty &&
-              !member.roleIds.any((roleId) => allowedRoles.contains(roleId))) {
+    final filteredStaff =
+        staffMembers.where((member) {
+          if (_salonId != null && member.salonId != _salonId) {
             return false;
           }
-        }
-      }
-      return true;
-    }).toList();
+          if (selectedServices.isNotEmpty) {
+            for (final service in selectedServices) {
+              final allowedRoles = service.staffRoles;
+              if (allowedRoles.isNotEmpty &&
+                  !member.roleIds.any(
+                    (roleId) => allowedRoles.contains(roleId),
+                  )) {
+                return false;
+              }
+            }
+          }
+          return true;
+        }).toList();
     if (_staffId != null &&
         filteredStaff.every((member) => member.id != _staffId)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -547,13 +552,19 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                     _packageSelectionManuallyChanged = false;
                     return;
                   }
-                  final allowedServiceIds = services.where((service) {
-                    final roles = service.staffRoles;
-                    if (roles.isEmpty) {
-                      return true;
-                    }
-                    return staffMember.roleIds.any((roleId) => roles.contains(roleId));
-                  }).map((service) => service.id).toSet();
+                  final allowedServiceIds =
+                      services
+                          .where((service) {
+                            final roles = service.staffRoles;
+                            if (roles.isEmpty) {
+                              return true;
+                            }
+                            return staffMember.roleIds.any(
+                              (roleId) => roles.contains(roleId),
+                            );
+                          })
+                          .map((service) => service.id)
+                          .toSet();
                   final filteredSelections =
                       _serviceIds.where(allowedServiceIds.contains).toList();
                   if (filteredSelections.length != _serviceIds.length) {
@@ -597,12 +608,17 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                             _packageSelectionManuallyChanged = false;
                             if (_serviceIds.isNotEmpty) {
                               final durations = services
-                                  .where((service) =>
-                                      _serviceIds.contains(service.id))
+                                  .where(
+                                    (service) =>
+                                        _serviceIds.contains(service.id),
+                                  )
                                   .map((service) => service.totalDuration)
-                                  .fold(Duration.zero,
-                                      (acc, value) => acc + value);
-                              if (!durations.isNegative && durations > Duration.zero) {
+                                  .fold(
+                                    Duration.zero,
+                                    (acc, value) => acc + value,
+                                  );
+                              if (!durations.isNegative &&
+                                  durations > Duration.zero) {
                                 _end = _start.add(durations);
                               }
                             }
@@ -628,13 +644,13 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                 : Wrap(
                                   spacing: 8,
                                   runSpacing: 8,
-                                  children: selectedServices
-                                      .map(
-                                        (service) => Chip(
-                                          label: Text(service.name),
-                                        ),
-                                      )
-                                      .toList(),
+                                  children:
+                                      selectedServices
+                                          .map(
+                                            (service) =>
+                                                Chip(label: Text(service.name)),
+                                          )
+                                          .toList(),
                                 ),
                       ),
                     ),
@@ -812,7 +828,9 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     if (_serviceIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Seleziona almeno un servizio prima di scegliere l\'orario.'),
+          content: Text(
+            'Seleziona almeno un servizio prima di scegliere l\'orario.',
+          ),
         ),
       );
       return;
@@ -828,9 +846,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     final staffMember = staffMembers.firstWhereOrNull(
       (member) => member.id == _staffId,
     );
-    final selectedServices = services
-        .where((item) => _serviceIds.contains(item.id))
-        .toList();
+    final selectedServices =
+        services.where((item) => _serviceIds.contains(item.id)).toList();
     if (staffMember == null || selectedServices.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Operatore o servizi non validi.')),
@@ -843,9 +860,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     );
     if (totalDuration <= Duration.zero) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Durata complessiva servizi non valida.'),
-        ),
+        const SnackBar(content: Text('Durata complessiva servizi non valida.')),
       );
       return;
     }
@@ -944,7 +959,46 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     final dayStart = DateTime(day.year, day.month, day.day);
     final dayEnd = dayStart.add(const Duration(days: 1));
     final slotStep = Duration(minutes: _slotIntervalMinutes);
-    final allAppointments = data.appointments;
+    final existingAppointments = data.appointments;
+    final now = DateTime.now();
+    final expressPlaceholders =
+        data.lastMinuteSlots
+            .where((slot) {
+              if (slot.salonId != salonId) {
+                return false;
+              }
+              if (slot.operatorId != staffMember.id) {
+                return false;
+              }
+              if (!slot.isAvailable) {
+                return false;
+              }
+              if (!slot.end.isAfter(now)) {
+                return false;
+              }
+              return true;
+            })
+            .map(
+              (slot) => Appointment(
+                id: 'last-minute-${slot.id}',
+                salonId: slot.salonId,
+                clientId: 'last-minute-${slot.id}',
+                staffId: slot.operatorId ?? staffMember.id,
+                serviceIds:
+                    slot.serviceId != null && slot.serviceId!.isNotEmpty
+                        ? <String>[slot.serviceId!]
+                        : const <String>[],
+                start: slot.start,
+                end: slot.end,
+                status: AppointmentStatus.scheduled,
+                roomId: slot.roomId,
+              ),
+            )
+            .toList();
+    final allAppointments = <Appointment>[
+      ...existingAppointments,
+      ...expressPlaceholders,
+    ];
 
     final busyAppointments =
         allAppointments.where((appointment) {
@@ -1386,25 +1440,23 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             }
 
             final lowerQuery = query.trim().toLowerCase();
-            final filtered = lowerQuery.isEmpty
-                ? sortedServices
-                : sortedServices
-                    .where(
-                      (service) => service.name
-                          .toLowerCase()
-                          .contains(lowerQuery),
-                    )
-                    .toList();
-            final grouped = groupBy<Service, String>(
-              filtered,
-              (service) {
-                final label = service.category.trim();
-                if (label.isNotEmpty) return label;
-                return 'Altri servizi';
-              },
-            );
-            final categories = grouped.keys.toList()
-              ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+            final filtered =
+                lowerQuery.isEmpty
+                    ? sortedServices
+                    : sortedServices
+                        .where(
+                          (service) =>
+                              service.name.toLowerCase().contains(lowerQuery),
+                        )
+                        .toList();
+            final grouped = groupBy<Service, String>(filtered, (service) {
+              final label = service.category.trim();
+              if (label.isNotEmpty) return label;
+              return 'Altri servizi';
+            });
+            final categories =
+                grouped.keys.toList()
+                  ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
             return Padding(
               padding: EdgeInsets.only(
@@ -1439,9 +1491,10 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                           ],
                         ),
                         TextButton(
-                          onPressed: workingSelection.isEmpty
-                              ? null
-                              : () => setModalState(
+                          onPressed:
+                              workingSelection.isEmpty
+                                  ? null
+                                  : () => setModalState(
                                     () => workingSelection = const [],
                                   ),
                           child: const Text('Pulisci'),
@@ -1454,16 +1507,17 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                       decoration: InputDecoration(
                         labelText: 'Cerca servizio',
                         prefixIcon: const Icon(Icons.search_rounded),
-                        suffixIcon: query.isEmpty
-                            ? null
-                            : IconButton(
-                                tooltip: 'Pulisci ricerca',
-                                icon: const Icon(Icons.clear_rounded),
-                                onPressed: () {
-                                  searchController.clear();
-                                  setModalState(() => query = '');
-                                },
-                              ),
+                        suffixIcon:
+                            query.isEmpty
+                                ? null
+                                : IconButton(
+                                  tooltip: 'Pulisci ricerca',
+                                  icon: const Icon(Icons.clear_rounded),
+                                  onPressed: () {
+                                    searchController.clear();
+                                    setModalState(() => query = '');
+                                  },
+                                ),
                       ),
                       onChanged: (value) => setModalState(() => query = value),
                     ),
@@ -1483,7 +1537,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                           itemCount: categories.length,
                           itemBuilder: (context, index) {
                             final category = categories[index];
-                            final categoryServices = grouped[category] ?? const [];
+                            final categoryServices =
+                                grouped[category] ?? const [];
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -1498,8 +1553,9 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                     ),
                                   ),
                                 ...categoryServices.map((service) {
-                                  final selected =
-                                      workingSelection.contains(service.id);
+                                  final selected = workingSelection.contains(
+                                    service.id,
+                                  );
                                   final subtitleParts = <String>[];
                                   final durationMinutes =
                                       service.totalDuration.inMinutes;
@@ -1513,16 +1569,20 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                       '€ ${service.price.toStringAsFixed(2)}',
                                     );
                                   }
-                                  final subtitle = subtitleParts.isEmpty
-                                      ? null
-                                      : subtitleParts.join(' • ');
+                                  final subtitle =
+                                      subtitleParts.isEmpty
+                                          ? null
+                                          : subtitleParts.join(' • ');
                                   return CheckboxListTile(
                                     value: selected,
-                                    onChanged: (_) => toggleSelection(service.id),
+                                    onChanged:
+                                        (_) => toggleSelection(service.id),
                                     dense: true,
                                     title: Text(service.name),
                                     subtitle:
-                                        subtitle != null ? Text(subtitle) : null,
+                                        subtitle != null
+                                            ? Text(subtitle)
+                                            : null,
                                   );
                                 }),
                               ],
@@ -1543,8 +1603,9 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                         Expanded(
                           child: FilledButton(
                             onPressed: () {
-                              Navigator.of(context)
-                                  .pop<List<String>>(workingSelection);
+                              Navigator.of(
+                                context,
+                              ).pop<List<String>>(workingSelection);
                             },
                             child: const Text('Conferma'),
                           ),
@@ -1621,9 +1682,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     final services = allServices;
     final staffMembers = data.staff.isNotEmpty ? data.staff : widget.staff;
 
-    final selectedServices = services
-        .where((item) => _serviceIds.contains(item.id))
-        .toList();
+    final selectedServices =
+        services.where((item) => _serviceIds.contains(item.id)).toList();
     if (selectedServices.isEmpty) {
       ScaffoldMessenger.of(
         context,
@@ -1646,7 +1706,9 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       if (allowedRoles.isEmpty) {
         return false;
       }
-      return !staffMember.roleIds.any((roleId) => allowedRoles.contains(roleId));
+      return !staffMember.roleIds.any(
+        (roleId) => allowedRoles.contains(roleId),
+      );
     });
     if (incompatibleService != null) {
       ScaffoldMessenger.of(context).showSnackBar(

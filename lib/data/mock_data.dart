@@ -4,8 +4,10 @@ import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/client_questionnaire.dart';
 import 'package:civiapp/domain/entities/client_photo.dart';
 import 'package:civiapp/domain/entities/inventory_item.dart';
+import 'package:civiapp/domain/entities/last_minute_slot.dart';
 import 'package:civiapp/domain/entities/message_template.dart';
 import 'package:civiapp/domain/entities/package.dart';
+import 'package:civiapp/domain/entities/promotion.dart';
 import 'package:civiapp/domain/entities/quote.dart';
 import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/sale.dart';
@@ -97,6 +99,10 @@ class MockData {
         ),
       ],
       schedule: _defaultWeeklySchedule,
+      featureFlags: const SalonFeatureFlags(
+        clientPromotions: true,
+        clientLastMinute: true,
+      ),
     ),
     Salon(
       id: 'salon-002',
@@ -136,6 +142,79 @@ class MockData {
       ],
       closures: const [],
       schedule: _defaultWeeklySchedule,
+      featureFlags: const SalonFeatureFlags(
+        clientPromotions: false,
+        clientLastMinute: true,
+      ),
+    ),
+  ];
+
+  static final promotions = <Promotion>[
+    Promotion(
+      id: 'promo-welcome-spring',
+      salonId: 'salon-001',
+      title: 'Spring Glow Facial',
+      subtitle: 'Illumina la tua pelle in 30 minuti',
+      tagline: 'Risparmia il 25% se prenoti entro oggi',
+      discountPercentage: 25,
+      imageUrl: 'https://example.com/assets/promotions/spring-glow.jpg',
+      ctaUrl: 'https://civibeauty.it/milano/offerte',
+      startsAt: DateTime(_now.year, _now.month, _now.day - 3),
+      endsAt: DateTime(_now.year, _now.month, _now.day + 7),
+      priority: 10,
+    ),
+    Promotion(
+      id: 'promo-wallet-boost',
+      salonId: 'salon-002',
+      title: 'Wallet Boost',
+      subtitle: 'Ricarica 100€, ricevi 20€ in omaggio',
+      discountPercentage: 20,
+      imageUrl: 'https://example.com/assets/promotions/wallet-boost.jpg',
+      ctaUrl: 'https://civibeauty.it/roma/wallet',
+      startsAt: DateTime(_now.year, _now.month, _now.day - 1),
+      endsAt: DateTime(_now.year, _now.month, _now.day + 14),
+      priority: 5,
+    ),
+  ];
+
+  static final lastMinuteSlots = <LastMinuteSlot>[
+    LastMinuteSlot(
+      id: 'lm-slot-001',
+      salonId: 'salon-001',
+      serviceId: 'srv-manicure',
+      serviceName: 'Manicure express',
+      start: _now.add(const Duration(minutes: 45)),
+      duration: const Duration(minutes: 30),
+      basePrice: 39,
+      discountPercentage: 25,
+      priceNow: 29.25,
+      roomId: 'room-2',
+      roomName: 'Sala Estetica',
+      operatorId: 'staff-giulia',
+      operatorName: 'Giulia',
+      availableSeats: 1,
+      loyaltyPoints: 15,
+      windowStart: _now,
+      windowEnd: _now.add(const Duration(minutes: 60)),
+    ),
+    LastMinuteSlot(
+      id: 'lm-slot-002',
+      salonId: 'salon-001',
+      serviceId: 'srv-vacufit',
+      serviceName: "VacuFIT 45'",
+      start: _now.add(const Duration(minutes: 90)),
+      duration: const Duration(minutes: 45),
+      basePrice: 49,
+      discountPercentage: 20,
+      priceNow: 39.2,
+      roomId: 'room-1',
+      roomName: 'Cabina Relax',
+      operatorId: 'staff-luca',
+      operatorName: 'Luca',
+      availableSeats: 1,
+      loyaltyPoints: 25,
+      windowStart: _now.add(const Duration(minutes: 30)),
+      windowEnd: _now.add(const Duration(minutes: 120)),
     ),
   ];
 
@@ -1120,8 +1199,9 @@ class MockData {
       clientId: 'client-003',
       serviceId: 'quote-002-ticket',
       appointmentStart: _now.subtract(const Duration(days: 5)),
-      appointmentEnd:
-          _now.subtract(const Duration(days: 5)).add(const Duration(hours: 1)),
+      appointmentEnd: _now
+          .subtract(const Duration(days: 5))
+          .add(const Duration(hours: 1)),
       createdAt: _now.subtract(const Duration(days: 5)),
       status: PaymentTicketStatus.open,
       expectedTotal: 210,

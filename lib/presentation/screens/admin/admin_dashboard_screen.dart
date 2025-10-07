@@ -4,6 +4,7 @@ import 'package:civiapp/presentation/screens/admin/modules/appointments_module.d
 import 'package:civiapp/presentation/screens/admin/modules/clients_module.dart';
 import 'package:civiapp/presentation/screens/admin/modules/inventory_module.dart';
 import 'package:civiapp/presentation/screens/admin/modules/messages_module.dart';
+import 'package:civiapp/presentation/screens/admin/modules/marketing_module.dart';
 import 'package:civiapp/presentation/screens/admin/modules/questionnaires_module.dart';
 import 'package:civiapp/presentation/screens/admin/modules/overview_module.dart';
 import 'package:civiapp/presentation/screens/admin/modules/reports_module.dart';
@@ -99,6 +100,12 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       title: 'Messaggi',
       icon: Icons.chat_rounded,
       builder: (context, ref, salonId) => MessagesModule(salonId: salonId),
+    ),
+    AdminModuleDefinition(
+      id: 'marketing',
+      title: 'Marketing',
+      icon: Icons.campaign_rounded,
+      builder: (context, ref, salonId) => MarketingModule(salonId: salonId),
     ),
     AdminModuleDefinition(
       id: 'questionnaires',

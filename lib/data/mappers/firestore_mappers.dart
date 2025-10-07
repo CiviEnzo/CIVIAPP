@@ -6,8 +6,10 @@ import 'package:civiapp/domain/entities/client_questionnaire.dart';
 import 'package:civiapp/domain/entities/client_photo.dart';
 import 'package:civiapp/domain/entities/inventory_item.dart';
 import 'package:civiapp/domain/entities/loyalty_settings.dart';
+import 'package:civiapp/domain/entities/last_minute_slot.dart';
 import 'package:civiapp/domain/entities/message_template.dart';
 import 'package:civiapp/domain/entities/package.dart';
+import 'package:civiapp/domain/entities/promotion.dart';
 import 'package:civiapp/domain/entities/quote.dart';
 import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/sale.dart';
@@ -29,6 +31,9 @@ Salon salonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final equipmentRaw = data['equipment'] as List<dynamic>? ?? const [];
   final closuresRaw = data['closures'] as List<dynamic>? ?? const [];
   final loyaltyRaw = data['loyaltySettings'] as Map<String, dynamic>?;
+  final featureFlagsRaw = _mapFromDynamic(
+    data['featureFlags'] ?? data['features'],
+  );
   return Salon(
     id: doc.id,
     name: data['name'] as String? ?? '',
@@ -78,6 +83,7 @@ Salon salonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
             )
             .toList(),
     loyaltySettings: _mapToLoyaltySettings(loyaltyRaw),
+    featureFlags: SalonFeatureFlags.fromMap(featureFlagsRaw),
   );
 }
 
@@ -147,6 +153,133 @@ Map<String, dynamic> salonToMap(Salon salon) {
     map['loyaltySettings'] = loyaltyMap;
   }
 
+  map['featureFlags'] = salon.featureFlags.toMap();
+
+  return map;
+}
+
+Promotion promotionFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+  final data = doc.data() ?? <String, dynamic>{};
+  final startsAt = _coerceToDateTime(data['startsAt'] ?? data['startAt']);
+  final endsAt = _coerceToDateTime(data['endsAt'] ?? data['endAt']);
+  final discount =
+      _coerceToDouble(
+        data['discountPercentage'] ?? data['discountPct'] ?? data['discount'],
+      ) ??
+      0;
+  final priority = (data['priority'] as num?)?.toInt() ?? 0;
+  return Promotion(
+    id: doc.id,
+    salonId: data['salonId'] as String? ?? '',
+    title: data['title'] as String? ?? '',
+    subtitle: data['subtitle'] as String?,
+    tagline: data['tagline'] as String?,
+    imageUrl: data['imageUrl'] as String?,
+    ctaUrl: data['ctaUrl'] as String?,
+    startsAt: startsAt,
+    endsAt: endsAt,
+    discountPercentage: discount,
+    priority: priority,
+    isActive: _coerceToBool(data['isActive'] ?? data['active']),
+  );
+}
+
+Map<String, dynamic> promotionToMap(Promotion promotion) {
+  return <String, dynamic>{
+    'salonId': promotion.salonId,
+    'title': promotion.title,
+    'subtitle': promotion.subtitle,
+    'tagline': promotion.tagline,
+    'imageUrl': promotion.imageUrl,
+    'ctaUrl': promotion.ctaUrl,
+    'startsAt':
+        promotion.startsAt != null
+            ? Timestamp.fromDate(promotion.startsAt!)
+            : null,
+    'endsAt':
+        promotion.endsAt != null ? Timestamp.fromDate(promotion.endsAt!) : null,
+    'discountPercentage': promotion.discountPercentage,
+    'priority': promotion.priority,
+    'isActive': promotion.isActive,
+  }..removeWhere((_, value) => value == null);
+}
+
+LastMinuteSlot lastMinuteSlotFromDoc(
+  DocumentSnapshot<Map<String, dynamic>> doc,
+) {
+  final data = doc.data() ?? <String, dynamic>{};
+  final serviceRaw = _mapFromDynamic(data['service']);
+  final roomRaw = _mapFromDynamic(data['room']);
+  final operatorRaw = _mapFromDynamic(data['operator']);
+  final durationMinutes =
+      (data['durationMinutes'] as num?)?.toInt() ??
+      (data['duration'] as num?)?.toInt() ??
+      30;
+  final safeDurationMinutes = durationMinutes.clamp(5, 480).toInt();
+  final serviceId =
+      data['serviceId'] as String? ?? serviceRaw['id']?.toString();
+  final serviceName =
+      data['serviceName'] as String? ?? serviceRaw['name']?.toString();
+  return LastMinuteSlot(
+    id: doc.id,
+    salonId: data['salonId'] as String? ?? '',
+    serviceId: serviceId?.isNotEmpty == true ? serviceId : null,
+    serviceName:
+        (serviceName == null || serviceName.isEmpty)
+            ? 'Slot last-minute'
+            : serviceName,
+    start: _coerceToDateTime(data['startAt']) ?? DateTime.now(),
+    duration: Duration(minutes: safeDurationMinutes),
+    basePrice: _coerceToDouble(data['basePrice']) ?? 0,
+    discountPercentage:
+        _coerceToDouble(data['discountPct'] ?? data['discount']) ?? 0,
+    priceNow: _coerceToDouble(data['priceNow'] ?? data['price']) ?? 0,
+    roomId: data['roomId'] as String? ?? roomRaw['id']?.toString(),
+    roomName: data['roomName'] as String? ?? roomRaw['name']?.toString(),
+    operatorId: data['operatorId'] as String? ?? operatorRaw['id']?.toString(),
+    operatorName:
+        data['operatorName'] as String? ?? operatorRaw['name']?.toString(),
+    availableSeats:
+        (data['availableSeats'] as num?)?.toInt() ??
+        (data['seats'] as num?)?.toInt() ??
+        1,
+    loyaltyPoints: (data['loyaltyPoints'] as num?)?.toInt() ?? 0,
+    createdAt: _coerceToDateTime(data['createdAt']),
+    updatedAt: _coerceToDateTime(data['updatedAt']),
+    windowStart: _coerceToDateTime(data['windowStart']),
+    windowEnd: _coerceToDateTime(data['windowEnd']),
+    bookedClientId: data['bookedClientId'] as String?,
+    bookedClientName: data['bookedClientName'] as String?,
+  );
+}
+
+Map<String, dynamic> lastMinuteSlotToMap(LastMinuteSlot slot) {
+  final map = <String, dynamic>{
+    'salonId': slot.salonId,
+    'serviceId': slot.serviceId,
+    'serviceName': slot.serviceName,
+    'startAt': Timestamp.fromDate(slot.start),
+    'durationMinutes': slot.duration.inMinutes,
+    'basePrice': slot.basePrice,
+    'discountPct': slot.discountPercentage,
+    'priceNow': slot.priceNow,
+    'roomId': slot.roomId,
+    'roomName': slot.roomName,
+    'operatorId': slot.operatorId,
+    'operatorName': slot.operatorName,
+    'availableSeats': slot.availableSeats,
+    'loyaltyPoints': slot.loyaltyPoints,
+    'createdAt':
+        slot.createdAt != null ? Timestamp.fromDate(slot.createdAt!) : null,
+    'updatedAt':
+        slot.updatedAt != null ? Timestamp.fromDate(slot.updatedAt!) : null,
+    'windowStart':
+        slot.windowStart != null ? Timestamp.fromDate(slot.windowStart!) : null,
+    'windowEnd':
+        slot.windowEnd != null ? Timestamp.fromDate(slot.windowEnd!) : null,
+    'bookedClientId': slot.bookedClientId,
+    'bookedClientName': slot.bookedClientName,
+  }..removeWhere((_, value) => value == null);
   return map;
 }
 
@@ -201,22 +334,25 @@ Map<String, dynamic> paymentTicketToMap(PaymentTicket ticket) {
 Quote quoteFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final data = doc.data() ?? <String, dynamic>{};
   final itemsRaw = data['items'] as List<dynamic>? ?? const [];
-  final items = itemsRaw.map((rawItem) {
-    if (rawItem is! Map<String, dynamic>) {
-      return null;
-    }
-    final quantity = (rawItem['quantity'] as num?)?.toDouble() ?? 1;
-    final unitPrice = (rawItem['unitPrice'] as num?)?.toDouble() ?? 0;
-    final id = rawItem['id'] as String? ?? const Uuid().v4();
-    return QuoteItem(
-      id: id,
-      description: rawItem['description'] as String? ?? '',
-      quantity: quantity,
-      unitPrice: unitPrice,
-      serviceId: rawItem['serviceId'] as String?,
-      packageId: rawItem['packageId'] as String?,
-    );
-  }).whereType<QuoteItem>().toList(growable: false);
+  final items = itemsRaw
+      .map((rawItem) {
+        if (rawItem is! Map<String, dynamic>) {
+          return null;
+        }
+        final quantity = (rawItem['quantity'] as num?)?.toDouble() ?? 1;
+        final unitPrice = (rawItem['unitPrice'] as num?)?.toDouble() ?? 0;
+        final id = rawItem['id'] as String? ?? const Uuid().v4();
+        return QuoteItem(
+          id: id,
+          description: rawItem['description'] as String? ?? '',
+          quantity: quantity,
+          unitPrice: unitPrice,
+          serviceId: rawItem['serviceId'] as String?,
+          packageId: rawItem['packageId'] as String?,
+        );
+      })
+      .whereType<QuoteItem>()
+      .toList(growable: false);
 
   return Quote(
     id: doc.id,
@@ -234,9 +370,7 @@ Quote quoteFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     acceptedAt: _coerceToDateTime(data['acceptedAt']),
     declinedAt: _coerceToDateTime(data['declinedAt']),
     ticketId: data['ticketId'] as String?,
-    sentChannels: _mapToMessageChannels(
-      data['sentChannels'] as List<dynamic>?,
-    ),
+    sentChannels: _mapToMessageChannels(data['sentChannels'] as List<dynamic>?),
     pdfStoragePath: data['pdfStoragePath'] as String?,
   );
 }
@@ -250,13 +384,10 @@ Map<String, dynamic> quoteToMap(Quote quote) {
     'notes': quote.notes,
     'status': quote.status.name,
     'createdAt': Timestamp.fromDate(quote.createdAt),
-    'updatedAt': quote.updatedAt != null
-        ? Timestamp.fromDate(quote.updatedAt!)
-        : null,
+    'updatedAt':
+        quote.updatedAt != null ? Timestamp.fromDate(quote.updatedAt!) : null,
     'validUntil':
-        quote.validUntil != null
-            ? Timestamp.fromDate(quote.validUntil!)
-            : null,
+        quote.validUntil != null ? Timestamp.fromDate(quote.validUntil!) : null,
     'sentAt': quote.sentAt != null ? Timestamp.fromDate(quote.sentAt!) : null,
     'acceptedAt':
         quote.acceptedAt != null ? Timestamp.fromDate(quote.acceptedAt!) : null,
@@ -266,18 +397,19 @@ Map<String, dynamic> quoteToMap(Quote quote) {
     'sentChannels': quote.sentChannels.map((channel) => channel.name).toList(),
     'pdfStoragePath': quote.pdfStoragePath,
     'total': quote.total,
-    'items': quote.items
-        .map(
-          (item) => {
-            'id': item.id,
-            'description': item.description,
-            'quantity': item.quantity,
-            'unitPrice': item.unitPrice,
-            'serviceId': item.serviceId,
-            'packageId': item.packageId,
-          },
-        )
-        .toList(),
+    'items':
+        quote.items
+            .map(
+              (item) => {
+                'id': item.id,
+                'description': item.description,
+                'quantity': item.quantity,
+                'unitPrice': item.unitPrice,
+                'serviceId': item.serviceId,
+                'packageId': item.packageId,
+              },
+            )
+            .toList(),
   };
 
   map.removeWhere((_, value) => value == null);
@@ -1000,6 +1132,7 @@ Appointment appointmentFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     notes: data['notes'] as String?,
     packageId: data['packageId'] as String?,
     roomId: data['roomId'] as String?,
+    lastMinuteSlotId: data['lastMinuteSlotId'] as String?,
   );
 }
 
@@ -1016,6 +1149,7 @@ Map<String, dynamic> appointmentToMap(Appointment appointment) {
     'notes': appointment.notes,
     'packageId': appointment.packageId,
     'roomId': appointment.roomId,
+    'lastMinuteSlotId': appointment.lastMinuteSlotId,
   };
 }
 
@@ -1820,4 +1954,48 @@ TemplateUsage _stringToTemplateUsage(String? value) {
     (usage) => usage.name == value,
     orElse: () => TemplateUsage.reminder,
   );
+}
+
+Map<String, dynamic> _mapFromDynamic(Object? raw) {
+  if (raw is Map<String, dynamic>) {
+    return raw;
+  }
+  if (raw is Map) {
+    return raw.map((key, value) => MapEntry(key.toString(), value));
+  }
+  return const <String, dynamic>{};
+}
+
+double? _coerceToDouble(Object? value) {
+  if (value is num) {
+    return value.toDouble();
+  }
+  if (value is String) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) {
+      return null;
+    }
+    return double.tryParse(normalized);
+  }
+  return null;
+}
+
+bool _coerceToBool(Object? value) {
+  if (value is bool) {
+    return value;
+  }
+  if (value is num) {
+    return value != 0;
+  }
+  if (value is String) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return false;
+    }
+    return normalized == 'true' ||
+        normalized == '1' ||
+        normalized == 'yes' ||
+        normalized == 'on';
+  }
+  return false;
 }

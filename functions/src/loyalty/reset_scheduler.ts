@@ -10,8 +10,9 @@ import {
 
 const COLLECTION_SALONS = 'salons';
 const COLLECTION_CLIENTS = 'clients';
+const functionsEU = functions.region('europe-west1');
 
-export const scheduleLoyaltyReset = functions.pubsub
+export const scheduleLoyaltyReset = functionsEU.pubsub
   .schedule('0 3 * * *')
   .timeZone('Europe/Rome')
   .onRun(async () => {

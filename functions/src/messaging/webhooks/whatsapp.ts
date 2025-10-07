@@ -3,6 +3,7 @@ import logger from 'firebase-functions/logger';
 import type { Request, Response } from 'express';
 
 const SUPPORTED_COMMANDS = new Set(['1', '2', 'STOP']);
+const REGION = 'europe-west1';
 
 function normalizeCommand(value?: unknown): string | undefined {
   if (typeof value !== 'string') {
@@ -11,7 +12,7 @@ function normalizeCommand(value?: unknown): string | undefined {
   return value.trim().toUpperCase();
 }
 
-export const onWhatsappWebhook = onRequest(async (request: Request, response: Response) => {
+export const onWhatsappWebhook = onRequest({ region: REGION }, async (request: Request, response: Response) => {
   const command = normalizeCommand(request.body?.message ?? request.body?.text);
   const from = request.body?.from ?? request.body?.sender;
 

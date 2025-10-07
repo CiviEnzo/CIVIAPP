@@ -13,8 +13,10 @@ import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/client_questionnaire.dart';
 import 'package:civiapp/domain/entities/client_photo.dart';
 import 'package:civiapp/domain/entities/inventory_item.dart';
+import 'package:civiapp/domain/entities/last_minute_slot.dart';
 import 'package:civiapp/domain/entities/message_template.dart';
 import 'package:civiapp/domain/entities/package.dart';
+import 'package:civiapp/domain/entities/promotion.dart';
 import 'package:civiapp/domain/entities/quote.dart';
 import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/sale.dart';
@@ -29,6 +31,7 @@ import 'package:civiapp/domain/entities/reminder_settings.dart';
 import 'package:civiapp/domain/entities/user_role.dart';
 import 'package:collection/collection.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -75,6 +78,8 @@ class AppDataStore extends StateNotifier<AppDataState> {
               clientQuestionnaires: List.unmodifiable(
                 MockData.clientQuestionnaires,
               ),
+              promotions: List.unmodifiable(MockData.promotions),
+              lastMinuteSlots: List.unmodifiable(MockData.lastMinuteSlots),
             ),
       ) {
     final firestore = _firestore;
@@ -83,6 +88,12 @@ class AppDataStore extends StateNotifier<AppDataState> {
       _ensurePublicMirrorsIfNeeded(currentUser);
     } else {
       _subscriptions = <StreamSubscription>[];
+    }
+
+    if (_firestore == null) {
+      _cachedPromotions = state.promotions;
+      _cachedLastMinuteSlots = state.lastMinuteSlots;
+      _refreshFeatureFilteredCollections();
     }
   }
 
@@ -95,6 +106,8 @@ class AppDataStore extends StateNotifier<AppDataState> {
   bool _onboardingSyncScheduled = false;
   bool _isSyncingOnboardingStatus = false;
   bool _hasEnsuredPublicMirrors = false;
+  List<Promotion> _cachedPromotions = const <Promotion>[];
+  List<LastMinuteSlot> _cachedLastMinuteSlots = const <LastMinuteSlot>[];
 
   static const int _firestoreChunkSize = 10;
   static const String _defaultStaffRoleId = 'estetista';
@@ -118,11 +131,12 @@ class AppDataStore extends StateNotifier<AppDataState> {
 
     if (role == null || salonIds.isEmpty) {
       subscriptions.add(
-        _listenCollection<Salon>(
-          firestore.collection('salons'),
-          salonFromDoc,
-          (items) => state = state.copyWith(salons: items),
-        ),
+        _listenCollection<Salon>(firestore.collection('salons'), salonFromDoc, (
+          items,
+        ) {
+          state = state.copyWith(salons: items);
+          _refreshFeatureFilteredCollections();
+        }),
       );
       subscriptions.add(
         _listenCollection<ServiceCategory>(
@@ -141,6 +155,22 @@ class AppDataStore extends StateNotifier<AppDataState> {
           (items) => state = state.copyWith(quotes: items),
         ),
       );
+
+      subscriptions.add(
+        _listenCollection<Promotion>(
+          firestore.collection('promotions'),
+          promotionFromDoc,
+          _onPromotionsData,
+        ),
+      );
+
+      subscriptions.add(
+        _listenCollection<LastMinuteSlot>(
+          firestore.collection('last_minute_slots'),
+          lastMinuteSlotFromDoc,
+          _onLastMinuteSlotsData,
+        ),
+      );
     } else {
       addAll(
         _listenDocumentsByIds<Salon>(
@@ -148,7 +178,10 @@ class AppDataStore extends StateNotifier<AppDataState> {
           collectionPath: 'salons',
           documentIds: salonIds,
           fromDoc: salonFromDoc,
-          onData: (items) => state = state.copyWith(salons: items),
+          onData: (items) {
+            state = state.copyWith(salons: items);
+            _refreshFeatureFilteredCollections();
+          },
         ),
       );
     }
@@ -253,6 +286,26 @@ class AppDataStore extends StateNotifier<AppDataState> {
           salonIds: salonIds,
           fromDoc: packageFromDoc,
           onData: (items) => state = state.copyWith(packages: items),
+        ),
+      );
+
+      addAll(
+        _listenCollectionBySalonIds<Promotion>(
+          firestore: firestore,
+          collectionPath: 'promotions',
+          salonIds: salonIds,
+          fromDoc: promotionFromDoc,
+          onData: _onPromotionsData,
+        ),
+      );
+
+      addAll(
+        _listenCollectionBySalonIds<LastMinuteSlot>(
+          firestore: firestore,
+          collectionPath: 'last_minute_slots',
+          salonIds: salonIds,
+          fromDoc: lastMinuteSlotFromDoc,
+          onData: _onLastMinuteSlotsData,
         ),
       );
 
@@ -492,6 +545,26 @@ class AppDataStore extends StateNotifier<AppDataState> {
             salonIds: normalizedSalonIds,
             fromDoc: packageFromDoc,
             onData: (items) => state = state.copyWith(packages: items),
+          ),
+        );
+
+        addAll(
+          _listenCollectionBySalonIds<Promotion>(
+            firestore: firestore,
+            collectionPath: 'promotions',
+            salonIds: normalizedSalonIds,
+            fromDoc: promotionFromDoc,
+            onData: _onPromotionsData,
+          ),
+        );
+
+        addAll(
+          _listenCollectionBySalonIds<LastMinuteSlot>(
+            firestore: firestore,
+            collectionPath: 'last_minute_slots',
+            salonIds: normalizedSalonIds,
+            fromDoc: lastMinuteSlotFromDoc,
+            onData: _onLastMinuteSlotsData,
           ),
         );
 
@@ -999,6 +1072,64 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
   }
 
+  void _onPromotionsData(List<Promotion> items) {
+    _cachedPromotions = items;
+    _refreshFeatureFilteredCollections();
+  }
+
+  void _onLastMinuteSlotsData(List<LastMinuteSlot> items) {
+    _cachedLastMinuteSlots = items;
+    _refreshFeatureFilteredCollections();
+  }
+
+  void _refreshFeatureFilteredCollections() {
+    final sortedPromotions =
+        _cachedPromotions.toList()..sort((a, b) {
+          final priorityCompare = b.priority.compareTo(a.priority);
+          if (priorityCompare != 0) {
+            return priorityCompare;
+          }
+          final endA = a.endsAt ?? DateTime.utc(2100);
+          final endB = b.endsAt ?? DateTime.utc(2100);
+          final endCompare = endA.compareTo(endB);
+          if (endCompare != 0) {
+            return endCompare;
+          }
+          return a.id.compareTo(b.id);
+        });
+
+    final sortedLastMinuteSlots =
+        _cachedLastMinuteSlots.toList()..sort((a, b) {
+          final startCompare = a.start.compareTo(b.start);
+          if (startCompare != 0) {
+            return startCompare;
+          }
+          return a.id.compareTo(b.id);
+        });
+
+    state = state.copyWith(
+      promotions: List.unmodifiable(sortedPromotions),
+      lastMinuteSlots: List.unmodifiable(sortedLastMinuteSlots),
+    );
+  }
+
+  Set<String> _enabledSalonIds(
+    bool Function(SalonFeatureFlags flags) predicate,
+  ) {
+    final result = <String>{};
+    for (final salon in state.salons) {
+      if (!predicate(salon.featureFlags)) {
+        continue;
+      }
+      final id = salon.id.trim();
+      if (id.isEmpty) {
+        continue;
+      }
+      result.add(id);
+    }
+    return result;
+  }
+
   void _updateScopedStaffRoles(
     List<StaffRole> remoteRoles,
     Set<String> allowedSalonIds,
@@ -1233,6 +1364,27 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
     await firestore.collection('salons').doc(salon.id).set(salonToMap(salon));
     await _ensureCurrentUserLinkedToSalon(salon.id);
+  }
+
+  Future<void> updateSalonFeatureFlags(
+    String salonId,
+    SalonFeatureFlags featureFlags,
+  ) async {
+    final firestore = _firestore;
+    if (firestore != null) {
+      await firestore.collection('salons').doc(salonId).set({
+        'featureFlags': featureFlags.toMap(),
+      }, SetOptions(merge: true));
+    }
+
+    final currentSalon = state.salons.firstWhereOrNull(
+      (salon) => salon.id == salonId,
+    );
+    if (currentSalon != null) {
+      final updatedSalon = currentSalon.copyWith(featureFlags: featureFlags);
+      _upsertLocal(salons: <Salon>[updatedSalon]);
+      _refreshFeatureFilteredCollections();
+    }
   }
 
   Future<void> deleteSalon(String salonId) async {
@@ -1819,71 +1971,269 @@ class AppDataStore extends StateNotifier<AppDataState> {
     await firestore.collection('packages').doc(packageId).delete();
   }
 
-  Future<void> upsertAppointment(Appointment appointment) async {
+  Future<void> upsertPromotion(Promotion promotion) async {
+    final firestore = _firestore;
+    final payload = promotionToMap(promotion);
+    if (firestore != null) {
+      await firestore
+          .collection('promotions')
+          .doc(promotion.id)
+          .set(payload, SetOptions(merge: true));
+    }
+    _cachedPromotions = _merge(_cachedPromotions, <Promotion>[
+      promotion,
+    ], (item) => item.id);
+    _upsertLocal(promotions: <Promotion>[promotion]);
+    _refreshFeatureFilteredCollections();
+  }
+
+  Future<void> deletePromotion(String promotionId) async {
+    final firestore = _firestore;
+    if (firestore != null) {
+      await firestore.collection('promotions').doc(promotionId).delete();
+    }
+    _deletePromotionLocal(promotionId);
+    _cachedPromotions =
+        _cachedPromotions.where((item) => item.id != promotionId).toList();
+    _refreshFeatureFilteredCollections();
+  }
+
+  Future<void> upsertLastMinuteSlot(LastMinuteSlot slot) async {
+    final staffId = slot.operatorId?.trim();
+    if (staffId == null || staffId.isEmpty) {
+      throw StateError('Seleziona un operatore per lo slot last-minute.');
+    }
+    final now = DateTime.now();
+    final slotEnd = slot.end;
+    final hasStaffConflict =
+        slot.isAvailable &&
+        hasStaffBookingConflict(
+          appointments: state.appointments,
+          staffId: staffId,
+          start: slot.start,
+          end: slotEnd,
+        );
+    if (hasStaffConflict) {
+      throw StateError('Operatore già occupato in quell\'intervallo.');
+    }
+    final overlappingSlot =
+        slot.isAvailable
+            ? _cachedLastMinuteSlots.firstWhereOrNull((existing) {
+              if (existing.id == slot.id) {
+                return false;
+              }
+              if (existing.operatorId != staffId) {
+                return false;
+              }
+              if (!existing.isAvailable) {
+                return false;
+              }
+              if (!existing.end.isAfter(now)) {
+                return false;
+              }
+              return appointmentsOverlap(
+                start: existing.start,
+                end: existing.end,
+                otherStart: slot.start,
+                otherEnd: slotEnd,
+              );
+            })
+            : null;
+    if (overlappingSlot != null) {
+      throw StateError('Esiste già uno slot last-minute per questo orario.');
+    }
+
+    final firestore = _firestore;
+    final payload = lastMinuteSlotToMap(slot);
+    if (firestore != null) {
+      await firestore
+          .collection('last_minute_slots')
+          .doc(slot.id)
+          .set(payload, SetOptions(merge: true));
+    }
+    _cachedLastMinuteSlots = _merge(_cachedLastMinuteSlots, <LastMinuteSlot>[
+      slot,
+    ], (item) => item.id);
+    _upsertLocal(lastMinuteSlots: <LastMinuteSlot>[slot]);
+    _refreshFeatureFilteredCollections();
+  }
+
+  Future<void> deleteLastMinuteSlot(String slotId) async {
+    final firestore = _firestore;
+    if (firestore != null) {
+      await firestore.collection('last_minute_slots').doc(slotId).delete();
+    }
+    _deleteLastMinuteSlotLocal(slotId);
+    _cachedLastMinuteSlots =
+        _cachedLastMinuteSlots.where((item) => item.id != slotId).toList();
+    _refreshFeatureFilteredCollections();
+  }
+
+  Future<_LastMinuteBookingResult> _bookLastMinuteAppointment(
+    Appointment appointment,
+    String slotId,
+  ) async {
+    final functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
+    final callable = functions.httpsCallable('bookLastMinuteSlot');
+
+    final clientName =
+        state.clients
+            .firstWhereOrNull((client) => client.id == appointment.clientId)
+            ?.fullName;
+
+    final payload = {
+      'slotId': slotId,
+      'appointment': {
+        'id': appointment.id,
+        'salonId': appointment.salonId,
+        'clientId': appointment.clientId,
+        'staffId': appointment.staffId,
+        'serviceId':
+            appointment.serviceId.isNotEmpty ? appointment.serviceId : null,
+        'serviceIds': appointment.serviceIds,
+        'start': appointment.start.toUtc().toIso8601String(),
+        'end': appointment.end.toUtc().toIso8601String(),
+        'status': appointment.status.name,
+        'notes': appointment.notes,
+        'packageId': appointment.packageId,
+        'roomId': appointment.roomId,
+      },
+      'clientName': clientName,
+    };
+
+    try {
+      final response = await callable.call(payload);
+      final data = Map<String, dynamic>.from(response.data as Map);
+      final appointmentMap = Map<String, dynamic>.from(
+        data['appointment'] as Map,
+      );
+      final slotMap =
+          data['slot'] != null
+              ? Map<String, dynamic>.from(data['slot'] as Map)
+              : null;
+
+      final bookedAppointment = _appointmentFromCallableMap(appointmentMap);
+      final bookedSlot = slotMap != null ? _slotFromCallableMap(slotMap) : null;
+
+      return _LastMinuteBookingResult(
+        appointment: bookedAppointment,
+        slot: bookedSlot,
+      );
+    } on FirebaseFunctionsException catch (error) {
+      final message = error.message ?? 'Slot last-minute non disponibile.';
+      throw StateError(message);
+    } catch (error) {
+      throw StateError('Prenotazione last-minute non riuscita: $error');
+    }
+  }
+
+  Future<void> upsertAppointment(
+    Appointment appointment, {
+    String? consumeLastMinuteSlotId,
+  }) async {
+    final isAdmin = _currentUser?.role == UserRole.admin;
+
+    if (!isAdmin && consumeLastMinuteSlotId != null) {
+      final bookingResult = await _bookLastMinuteAppointment(
+        appointment,
+        consumeLastMinuteSlotId,
+      );
+      _upsertLocal(
+        appointments: <Appointment>[bookingResult.appointment],
+        lastMinuteSlots:
+            bookingResult.slot != null
+                ? <LastMinuteSlot>[bookingResult.slot!]
+                : null,
+      );
+      return;
+    }
+
+    final resolvedAppointment = appointment.copyWith(
+      lastMinuteSlotId: appointment.lastMinuteSlotId ?? consumeLastMinuteSlotId,
+    );
+
     final previous = state.appointments.firstWhereOrNull(
-      (item) => item.id == appointment.id,
+      (item) => item.id == resolvedAppointment.id,
     );
     final now = DateTime.now();
-    if (appointment.end.isAfter(now)) {
+    if (resolvedAppointment.end.isAfter(now)) {
+      final combinedAppointments = <Appointment>[
+        ...state.appointments,
+        ..._blockingLastMinuteAppointments(
+          salonId: resolvedAppointment.salonId,
+          staffId: resolvedAppointment.staffId,
+          ignoreSlotId: consumeLastMinuteSlotId,
+          reference: now,
+        ),
+      ];
       final hasStaffConflict = hasStaffBookingConflict(
-        appointments: state.appointments,
-        staffId: appointment.staffId,
-        start: appointment.start,
-        end: appointment.end,
-        excludeAppointmentId: appointment.id,
+        appointments: combinedAppointments,
+        staffId: resolvedAppointment.staffId,
+        start: resolvedAppointment.start,
+        end: resolvedAppointment.end,
+        excludeAppointmentId: resolvedAppointment.id,
       );
       if (hasStaffConflict) {
         throw StateError('Operatore già occupato in quel periodo');
       }
       final hasClientConflict = hasClientBookingConflict(
         appointments: state.appointments,
-        clientId: appointment.clientId,
-        start: appointment.start,
-        end: appointment.end,
-        excludeAppointmentId: appointment.id,
+        clientId: resolvedAppointment.clientId,
+        start: resolvedAppointment.start,
+        end: resolvedAppointment.end,
+        excludeAppointmentId: resolvedAppointment.id,
       );
       if (hasClientConflict) {
         throw StateError('Cliente già impegnato in quel periodo');
       }
     }
     final shouldConsumeSession =
-        appointment.packageId != null &&
-        appointment.status == AppointmentStatus.completed &&
+        resolvedAppointment.packageId != null &&
+        resolvedAppointment.status == AppointmentStatus.completed &&
         (previous == null || previous.status != AppointmentStatus.completed);
     if (shouldConsumeSession) {
-      await _consumePackageSession(appointment);
+      await _consumePackageSession(resolvedAppointment);
     }
 
     final shouldCreateTicket = _shouldCreatePaymentTicket(
-      appointment: appointment,
+      appointment: resolvedAppointment,
       previous: previous,
     );
     final shouldRemoveTicket =
         previous?.status == AppointmentStatus.completed &&
-        appointment.status != AppointmentStatus.completed;
-    final ticket = shouldCreateTicket ? _buildPaymentTicket(appointment) : null;
+        resolvedAppointment.status != AppointmentStatus.completed;
+    final ticket =
+        shouldCreateTicket ? _buildPaymentTicket(resolvedAppointment) : null;
 
     final firestore = _firestore;
     if (firestore == null) {
       _upsertLocal(
-        appointments: [appointment],
+        appointments: <Appointment>[resolvedAppointment],
         paymentTickets: ticket != null ? [ticket] : null,
       );
       if (shouldRemoveTicket) {
-        _deletePaymentTicketLocal(appointment.id);
+        _deletePaymentTicketLocal(resolvedAppointment.id);
       }
+      await _markLastMinuteSlotBooking(
+        slotId: consumeLastMinuteSlotId,
+        appointment: resolvedAppointment,
+      );
       return;
     }
     await firestore
         .collection('appointments')
-        .doc(appointment.id)
-        .set(appointmentToMap(appointment));
+        .doc(resolvedAppointment.id)
+        .set(appointmentToMap(resolvedAppointment));
     if (ticket != null) {
       await upsertPaymentTicket(ticket);
     }
     if (shouldRemoveTicket) {
-      await deletePaymentTicket(appointment.id);
+      await deletePaymentTicket(resolvedAppointment.id);
     }
+    await _markLastMinuteSlotBooking(
+      slotId: consumeLastMinuteSlotId,
+      appointment: resolvedAppointment,
+    );
   }
 
   bool _shouldCreatePaymentTicket({
@@ -1911,9 +2261,8 @@ class AppDataStore extends StateNotifier<AppDataState> {
   PaymentTicket _buildTicketFromQuote(Quote quote, String ticketId) {
     final now = DateTime.now();
     final primaryItem = quote.items.isNotEmpty ? quote.items.first : null;
-    final fallbackName = quote.number != null
-        ? 'Preventivo ${quote.number}'
-        : 'Preventivo';
+    final fallbackName =
+        quote.number != null ? 'Preventivo ${quote.number}' : 'Preventivo';
     final serviceName =
         quote.title?.isNotEmpty == true
             ? quote.title!
@@ -2211,7 +2560,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
     final now = sentAt ?? DateTime.now();
     final updated = quote.copyWith(
       status:
-          quote.status == QuoteStatus.accepted ? quote.status : QuoteStatus.sent,
+          quote.status == QuoteStatus.accepted
+              ? quote.status
+              : QuoteStatus.sent,
       sentAt: now,
       sentChannels: viaChannels,
       acceptedAt: quote.acceptedAt,
@@ -2242,12 +2593,13 @@ class AppDataStore extends StateNotifier<AppDataState> {
           saleId: null,
           expectedTotal: quote.total,
           notes: quote.notes,
-          serviceName: quote.title?.isNotEmpty == true
-              ? quote.title
-              : (existingTicket?.serviceName ??
-                  (quote.items.isNotEmpty
-                      ? quote.items.first.description
-                      : 'Preventivo')),
+          serviceName:
+              quote.title?.isNotEmpty == true
+                  ? quote.title
+                  : (existingTicket?.serviceName ??
+                      (quote.items.isNotEmpty
+                          ? quote.items.first.description
+                          : 'Preventivo')),
         );
     final updated = quote.copyWith(
       status: QuoteStatus.accepted,
@@ -2727,6 +3079,8 @@ class AppDataStore extends StateNotifier<AppDataState> {
     List<ClientPhoto>? clientPhotos,
     List<ClientQuestionnaireTemplate>? clientQuestionnaireTemplates,
     List<ClientQuestionnaire>? clientQuestionnaires,
+    List<Promotion>? promotions,
+    List<LastMinuteSlot>? lastMinuteSlots,
   }) {
     state = state.copyWith(
       salons:
@@ -2837,6 +3191,14 @@ class AppDataStore extends StateNotifier<AppDataState> {
                 (e) => e.id,
               )
               : state.clientQuestionnaires,
+      promotions:
+          promotions != null
+              ? _merge(state.promotions, promotions, (e) => e.id)
+              : state.promotions,
+      lastMinuteSlots:
+          lastMinuteSlots != null
+              ? _merge(state.lastMinuteSlots, lastMinuteSlots, (e) => e.id)
+              : state.lastMinuteSlots,
     );
   }
 
@@ -3272,6 +3634,282 @@ class AppDataStore extends StateNotifier<AppDataState> {
     );
   }
 
+  void _deletePromotionLocal(String promotionId) {
+    state = state.copyWith(
+      promotions: List.unmodifiable(
+        state.promotions.where((promotion) => promotion.id != promotionId),
+      ),
+    );
+  }
+
+  List<Appointment> _blockingLastMinuteAppointments({
+    required String salonId,
+    required String staffId,
+    required DateTime reference,
+    String? ignoreSlotId,
+  }) {
+    if (staffId.isEmpty) {
+      return const <Appointment>[];
+    }
+    final placeholders = _cachedLastMinuteSlots
+        .where((slot) {
+          if (slot.salonId != salonId) {
+            return false;
+          }
+          if (slot.operatorId != staffId) {
+            return false;
+          }
+          if (!slot.isAvailable) {
+            return false;
+          }
+          if (!slot.end.isAfter(reference)) {
+            return false;
+          }
+          if (ignoreSlotId != null && slot.id == ignoreSlotId) {
+            return false;
+          }
+          return true;
+        })
+        .map(_appointmentFromLastMinuteSlot);
+    return List<Appointment>.unmodifiable(placeholders);
+  }
+
+  Appointment _appointmentFromLastMinuteSlot(LastMinuteSlot slot) {
+    final serviceIds =
+        slot.serviceId != null && slot.serviceId!.isNotEmpty
+            ? <String>[slot.serviceId!]
+            : const <String>[];
+    return Appointment(
+      id: 'last-minute-${slot.id}',
+      salonId: slot.salonId,
+      clientId: 'last-minute-${slot.id}',
+      staffId: slot.operatorId ?? '',
+      serviceIds: serviceIds,
+      start: slot.start,
+      end: slot.end,
+      status: AppointmentStatus.scheduled,
+      notes: slot.serviceName,
+      roomId: slot.roomId,
+      lastMinuteSlotId: slot.id,
+    );
+  }
+
+  void _deleteLastMinuteSlotLocal(String slotId) {
+    state = state.copyWith(
+      lastMinuteSlots: List.unmodifiable(
+        state.lastMinuteSlots.where((slot) => slot.id != slotId),
+      ),
+    );
+  }
+
+  Future<void> _markLastMinuteSlotBooking({
+    String? slotId,
+    required Appointment appointment,
+  }) async {
+    var resolvedSlotId = slotId;
+    if (resolvedSlotId == null || resolvedSlotId.isEmpty) {
+      resolvedSlotId = _extractLastMinuteSlotId(appointment);
+    }
+
+    LastMinuteSlot? target;
+    if (resolvedSlotId != null && resolvedSlotId.isNotEmpty) {
+      target = _cachedLastMinuteSlots.firstWhereOrNull(
+        (slot) => slot.id == resolvedSlotId,
+      );
+    }
+
+    target ??= _cachedLastMinuteSlots.firstWhereOrNull((slot) {
+      if (!slot.isAvailable) {
+        return false;
+      }
+      if (slot.salonId != appointment.salonId) {
+        return false;
+      }
+      if (slot.operatorId != appointment.staffId) {
+        return false;
+      }
+      if (!slot.start.isAtSameMomentAs(appointment.start)) {
+        return false;
+      }
+      if (!slot.end.isAtSameMomentAs(appointment.end)) {
+        return false;
+      }
+      return true;
+    });
+
+    target ??= _cachedLastMinuteSlots.firstWhereOrNull((slot) {
+      if (!slot.isBooked) {
+        return false;
+      }
+      if (slot.bookedClientId != appointment.clientId) {
+        return false;
+      }
+      if (slot.salonId != appointment.salonId) {
+        return false;
+      }
+      return slot.id == resolvedSlotId;
+    });
+    if (target == null) {
+      return;
+    }
+    if (!target.isAvailable && target.bookedClientId == appointment.clientId) {
+      return;
+    }
+    final client = state.clients.firstWhereOrNull(
+      (item) => item.id == appointment.clientId,
+    );
+    final now = DateTime.now();
+    final updatedSlot = target.copyWith(
+      start: appointment.start,
+      duration: appointment.duration,
+      availableSeats: 0,
+      updatedAt: now,
+      bookedClientId: appointment.clientId,
+      bookedClientName: client?.fullName,
+    );
+
+    final isAdmin = _currentUser?.role == UserRole.admin;
+    if (isAdmin && _firestore != null) {
+      try {
+        await upsertLastMinuteSlot(updatedSlot);
+        return;
+      } catch (error, stackTrace) {
+        if (kDebugMode) {
+          debugPrint('Failed to update last-minute slot ${target.id}: $error');
+          debugPrintStack(stackTrace: stackTrace);
+        }
+        try {
+          await deleteLastMinuteSlot(target.id);
+          return;
+        } catch (innerError, innerStack) {
+          if (kDebugMode) {
+            debugPrint(
+              'Failed to remove last-minute slot ${target.id}: $innerError',
+            );
+            debugPrintStack(stackTrace: innerStack);
+          }
+        }
+      }
+    }
+
+    _cachedLastMinuteSlots = _merge(_cachedLastMinuteSlots, <LastMinuteSlot>[
+      updatedSlot,
+    ], (slot) => slot.id);
+    _upsertLocal(lastMinuteSlots: <LastMinuteSlot>[updatedSlot]);
+  }
+
+  String? _extractLastMinuteSlotId(Appointment appointment) {
+    final notes = appointment.notes;
+    if (notes == null || notes.isEmpty) {
+      return null;
+    }
+    final regex = RegExp(r'Prenotazione last-minute ([a-zA-Z0-9\-]+)');
+    final match = regex.firstMatch(notes);
+    return match?.group(1);
+  }
+
+  Appointment _appointmentFromCallableMap(Map<String, dynamic> data) {
+    final start = _parseIsoDate(data['start'] as String? ?? '');
+    final end = _parseIsoDate(data['end'] as String? ?? '');
+    final serviceIdsRaw = data['serviceIds'];
+    final serviceIds =
+        serviceIdsRaw is Iterable
+            ? serviceIdsRaw.map((e) => e.toString()).toList()
+            : <String>[];
+    final serviceIdRaw = data['serviceId'];
+    final serviceId =
+        serviceIdRaw is String && serviceIdRaw.trim().isNotEmpty
+            ? serviceIdRaw.trim()
+            : null;
+
+    return Appointment(
+      id: data['id'] as String,
+      salonId: data['salonId'] as String,
+      clientId: data['clientId'] as String,
+      staffId: data['staffId'] as String,
+      serviceId: serviceId,
+      serviceIds: serviceIds,
+      start: start,
+      end: end,
+      status: _statusFromName(data['status'] as String? ?? 'scheduled'),
+      notes:
+          (data['notes'] as String?)?.trim().isNotEmpty == true
+              ? data['notes'] as String
+              : null,
+      packageId:
+          (data['packageId'] as String?)?.isNotEmpty == true
+              ? data['packageId'] as String
+              : null,
+      roomId:
+          (data['roomId'] as String?)?.isNotEmpty == true
+              ? data['roomId'] as String
+              : null,
+      lastMinuteSlotId:
+          (data['lastMinuteSlotId'] as String?)?.isNotEmpty == true
+              ? data['lastMinuteSlotId'] as String
+              : null,
+    );
+  }
+
+  LastMinuteSlot _slotFromCallableMap(Map<String, dynamic> data) {
+    final start = _parseIsoDate(data['start'] as String? ?? '');
+    final durationMinutes = (data['durationMinutes'] as num?)?.toInt() ?? 0;
+    final duration = Duration(
+      minutes: durationMinutes > 0 ? durationMinutes : 15,
+    );
+
+    return LastMinuteSlot(
+      id: data['id'] as String,
+      salonId: (data['salonId'] as String?) ?? '',
+      serviceId:
+          (data['serviceId'] as String?)?.isNotEmpty == true
+              ? data['serviceId'] as String
+              : null,
+      serviceName: (data['serviceName'] as String?) ?? 'Slot last-minute',
+      start: start,
+      duration: duration,
+      basePrice: (data['basePrice'] as num?)?.toDouble() ?? 0,
+      discountPercentage: (data['discountPercentage'] as num?)?.toDouble() ?? 0,
+      priceNow: (data['priceNow'] as num?)?.toDouble() ?? 0,
+      roomId:
+          (data['roomId'] as String?)?.isNotEmpty == true
+              ? data['roomId'] as String
+              : null,
+      roomName: data['roomName'] as String?,
+      operatorId:
+          (data['operatorId'] as String?)?.isNotEmpty == true
+              ? data['operatorId'] as String
+              : null,
+      operatorName: data['operatorName'] as String?,
+      availableSeats: (data['availableSeats'] as num?)?.toInt() ?? 0,
+      loyaltyPoints: (data['loyaltyPoints'] as num?)?.toInt() ?? 0,
+      createdAt: null,
+      updatedAt: DateTime.now(),
+      windowStart: null,
+      windowEnd: null,
+      bookedClientId:
+          (data['bookedClientId'] as String?)?.isNotEmpty == true
+              ? data['bookedClientId'] as String
+              : null,
+      bookedClientName: data['bookedClientName'] as String?,
+    );
+  }
+
+  AppointmentStatus _statusFromName(String value) {
+    return AppointmentStatus.values.firstWhere(
+      (status) => status.name == value,
+      orElse: () => AppointmentStatus.scheduled,
+    );
+  }
+
+  DateTime _parseIsoDate(String value) {
+    final parsed = DateTime.tryParse(value);
+    if (parsed == null) {
+      throw StateError('Data non valida: $value');
+    }
+    return parsed.isUtc ? parsed.toLocal() : parsed;
+  }
+
   void _deleteShiftLocal(String shiftId) {
     state = state.copyWith(
       shifts: List.unmodifiable(
@@ -3322,4 +3960,11 @@ class _PackageConsumptionCandidate {
   final int remainingSessions;
   final DateTime? expirationDate;
   final ServicePackage? servicePackage;
+}
+
+class _LastMinuteBookingResult {
+  const _LastMinuteBookingResult({required this.appointment, this.slot});
+
+  final Appointment appointment;
+  final LastMinuteSlot? slot;
 }

@@ -7,7 +7,9 @@ import 'package:civiapp/domain/entities/client_photo.dart';
 import 'package:civiapp/domain/entities/inventory_item.dart';
 import 'package:civiapp/domain/entities/message_template.dart';
 import 'package:civiapp/domain/entities/app_notification.dart';
+import 'package:civiapp/domain/entities/last_minute_slot.dart';
 import 'package:civiapp/domain/entities/package.dart';
+import 'package:civiapp/domain/entities/promotion.dart';
 import 'package:civiapp/domain/entities/quote.dart';
 import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/sale.dart';
@@ -45,6 +47,8 @@ class AppDataState {
     required this.clientPhotos,
     required this.clientQuestionnaireTemplates,
     required this.clientQuestionnaires,
+    required this.promotions,
+    required this.lastMinuteSlots,
   });
 
   factory AppDataState.initial() {
@@ -72,6 +76,8 @@ class AppDataState {
       clientPhotos: [],
       clientQuestionnaireTemplates: [],
       clientQuestionnaires: [],
+      promotions: [],
+      lastMinuteSlots: [],
     );
   }
 
@@ -98,6 +104,8 @@ class AppDataState {
   final List<ClientPhoto> clientPhotos;
   final List<ClientQuestionnaireTemplate> clientQuestionnaireTemplates;
   final List<ClientQuestionnaire> clientQuestionnaires;
+  final List<Promotion> promotions;
+  final List<LastMinuteSlot> lastMinuteSlots;
 
   AppDataState copyWith({
     List<Salon>? salons,
@@ -123,6 +131,8 @@ class AppDataState {
     List<ClientPhoto>? clientPhotos,
     List<ClientQuestionnaireTemplate>? clientQuestionnaireTemplates,
     List<ClientQuestionnaire>? clientQuestionnaires,
+    List<Promotion>? promotions,
+    List<LastMinuteSlot>? lastMinuteSlots,
   }) {
     return AppDataState(
       salons: salons ?? this.salons,
@@ -149,6 +159,8 @@ class AppDataState {
       clientQuestionnaireTemplates:
           clientQuestionnaireTemplates ?? this.clientQuestionnaireTemplates,
       clientQuestionnaires: clientQuestionnaires ?? this.clientQuestionnaires,
+      promotions: promotions ?? this.promotions,
+      lastMinuteSlots: lastMinuteSlots ?? this.lastMinuteSlots,
     );
   }
 }
