@@ -16,7 +16,8 @@
     "axios": "^1.7.4",
     "date-fns-tz": "^2.0.0",
     "firebase-admin": "^12.5.0",
-    "firebase-functions": "^5.1.1"
+    "firebase-functions": "^5.1.1",
+    "@google-cloud/secret-manager": "^5.6.0"
   },
   "devDependencies": {
     "@types/node": "^22.5.4",

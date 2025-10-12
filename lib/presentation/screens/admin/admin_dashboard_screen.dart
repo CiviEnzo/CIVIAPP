@@ -12,6 +12,7 @@ import 'package:civiapp/presentation/screens/admin/modules/sales_module.dart';
 import 'package:civiapp/presentation/screens/admin/modules/salon_management_module.dart';
 import 'package:civiapp/presentation/screens/admin/modules/services_module.dart';
 import 'package:civiapp/presentation/screens/admin/modules/staff_module.dart';
+import 'package:civiapp/presentation/screens/admin/modules/whatsapp_module.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -100,6 +101,12 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       title: 'Messaggi',
       icon: Icons.chat_rounded,
       builder: (context, ref, salonId) => MessagesModule(salonId: salonId),
+    ),
+    AdminModuleDefinition(
+      id: 'whatsapp',
+      title: 'WhatsApp',
+      icon: Icons.phone_android_rounded,
+      builder: (context, ref, salonId) => WhatsAppModule(salonId: salonId),
     ),
     AdminModuleDefinition(
       id: 'marketing',

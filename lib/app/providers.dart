@@ -8,6 +8,7 @@ import 'package:civiapp/data/repositories/auth_repository.dart';
 import 'package:civiapp/data/storage/firebase_storage_service.dart';
 import 'package:civiapp/domain/entities/client_photo.dart';
 import 'package:civiapp/domain/entities/user_role.dart';
+import 'package:civiapp/services/whatsapp_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -67,6 +68,17 @@ final firebaseMessagingProvider = Provider<FirebaseMessaging>((ref) {
 
 final currentSalonIdProvider = Provider<String?>((ref) {
   return ref.watch(sessionControllerProvider).salonId;
+});
+
+final whatsappServiceProvider = Provider<WhatsAppService>((ref) {
+  final service = WhatsAppService();
+  ref.onDispose(service.dispose);
+  return service;
+});
+
+final whatsappConfigProvider = StreamProvider.family<WhatsAppConfig?, String>((ref, salonId) {
+  final service = ref.watch(whatsappServiceProvider);
+  return service.watchConfig(salonId);
 });
 
 final salonBrandingProvider = StreamProvider<BrandingModel>((ref) {

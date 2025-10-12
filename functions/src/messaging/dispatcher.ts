@@ -91,6 +91,7 @@ export const dispatchOutbox = onSchedule(
 
     const snapshot = await messageOutboxCollection
       .where('status', '==', 'pending')
+      .where('channel', 'in', ['push', 'email'])
       .orderBy('scheduledAt', 'asc')
       .limit(BATCH_SIZE)
       .get();
