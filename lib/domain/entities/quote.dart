@@ -38,8 +38,10 @@ class Quote {
     this.ticketId,
     List<MessageChannel>? sentChannels,
     this.pdfStoragePath,
-  })  : items = List.unmodifiable(items),
-        sentChannels = List.unmodifiable(sentChannels ?? const <MessageChannel>[]);
+  }) : items = List.unmodifiable(items),
+       sentChannels = List.unmodifiable(
+         sentChannels ?? const <MessageChannel>[],
+       );
 
   static const Object _unset = Object();
 
@@ -62,14 +64,12 @@ class Quote {
   final String? pdfStoragePath;
 
   double get total {
-    final rawTotal = items.fold<double>(
-      0,
-      (sum, item) => sum + item.total,
-    );
+    final rawTotal = items.fold<double>(0, (sum, item) => sum + item.total);
     return double.parse(rawTotal.toStringAsFixed(2));
   }
 
-  bool get isEditable => status == QuoteStatus.draft || status == QuoteStatus.sent;
+  bool get isEditable =>
+      status == QuoteStatus.draft || status == QuoteStatus.sent;
 
   bool get isDecisionPending =>
       status == QuoteStatus.sent || status == QuoteStatus.draft;
@@ -116,8 +116,7 @@ class Quote {
       notes: notes ?? this.notes,
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
-      updatedAt:
-          updatedAt == _unset ? this.updatedAt : updatedAt as DateTime?,
+      updatedAt: updatedAt == _unset ? this.updatedAt : updatedAt as DateTime?,
       validUntil:
           validUntil == _unset ? this.validUntil : validUntil as DateTime?,
       sentAt: sentAt == _unset ? this.sentAt : sentAt as DateTime?,
@@ -128,7 +127,9 @@ class Quote {
       ticketId: ticketId == _unset ? this.ticketId : ticketId as String?,
       sentChannels: sentChannels ?? this.sentChannels,
       pdfStoragePath:
-          pdfStoragePath == _unset ? this.pdfStoragePath : pdfStoragePath as String?,
+          pdfStoragePath == _unset
+              ? this.pdfStoragePath
+              : pdfStoragePath as String?,
     );
   }
 }

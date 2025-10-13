@@ -21,6 +21,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
+import 'client_theme.dart';
+
 class ClientBookingSheet extends ConsumerStatefulWidget {
   const ClientBookingSheet({
     super.key,
@@ -564,54 +566,81 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
         member.id: member,
     };
 
-    final theme = Theme.of(context);
-    final bottomPadding = 16.0 + MediaQuery.of(context).viewInsets.bottom;
-
-    final stepContent = _buildStepContent(
-      theme: theme,
-      bookingCategories: bookingCategories,
-      selectedCategory: selectedCategory,
-      visibleServices: visibleServices,
-      serviceById: serviceById,
-      selectedServices: selectedServices,
-      salon: salon,
-      staff: staff,
-      staffById: staffByIdMap,
-      availabilityByStaff: availabilityByStaff,
-      combinedAvailability: combinedAvailability,
-      selectedDayClosures: selectedDayClosures,
-      suggestions: suggestions,
-      hasAnyAvailability: hasAnyAvailability,
-      packagesForService: packagesForService,
-      selectedPackage: selectedPackage,
-      packageSubtitle: packageSubtitle,
-    );
-
     final showSelectionNavigator = _selections.isNotEmpty;
 
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(24, 24, 24, bottomPadding),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Prenota un appuntamento', style: theme.textTheme.titleLarge),
-            const SizedBox(height: 8),
-            _buildProgressHeader(theme),
-            if (showSelectionNavigator) ...[
-              const SizedBox(height: 24),
-              Text(
-                'Servizi in prenotazione',
-                style: theme.textTheme.titleMedium,
+    final themedData = ClientTheme.resolve(Theme.of(context));
+
+    return Theme(
+      data: themedData,
+      child: Builder(
+        builder: (themeContext) {
+          final theme = Theme.of(themeContext);
+          final bottomPadding =
+              16.0 + MediaQuery.of(themeContext).viewInsets.bottom;
+
+          final stepContent = _buildStepContent(
+            theme: theme,
+            bookingCategories: bookingCategories,
+            selectedCategory: selectedCategory,
+            visibleServices: visibleServices,
+            serviceById: serviceById,
+            selectedServices: selectedServices,
+            salon: salon,
+            staff: staff,
+            staffById: staffByIdMap,
+            availabilityByStaff: availabilityByStaff,
+            combinedAvailability: combinedAvailability,
+            selectedDayClosures: selectedDayClosures,
+            suggestions: suggestions,
+            hasAnyAvailability: hasAnyAvailability,
+            packagesForService: packagesForService,
+            selectedPackage: selectedPackage,
+            packageSubtitle: packageSubtitle,
+          );
+
+          return SafeArea(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(24, 24, 24, bottomPadding),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Prenota un appuntamento',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Scegli il tuo trattamento',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: theme.colorScheme.onSurface.withOpacity(0.7),
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  _buildProgressHeader(theme),
+                  if (showSelectionNavigator) ...[
+                    const SizedBox(height: 24),
+                    Text(
+                      'Servizi in prenotazione',
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    _buildSelectionNavigator(
+                      theme: theme,
+                      serviceById: serviceById,
+                    ),
+                  ],
+                  const SizedBox(height: 24),
+                  stepContent,
+                ],
               ),
-              const SizedBox(height: 8),
-              _buildSelectionNavigator(theme: theme, serviceById: serviceById),
-            ],
-            const SizedBox(height: 24),
-            stepContent,
-          ],
-        ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -1497,32 +1526,21 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             ),
           ),
         const SizedBox(height: 16),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 12,
+          runSpacing: 12,
           children: [
             TextButton(
               onPressed: () {
                 if (_isLastMinuteExpress) {
-                  final messenger = ScaffoldMessenger.of(context);
-                  _countdownTimer?.cancel();
-                  setState(() {
-                    _expressSlot = null;
-                    _remainingCountdown = Duration.zero;
-                    _countdownTimer = null;
-                    _currentStep = _BookingStep.availability;
-                  });
-                  messenger.showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        "Se scegli un nuovo slot l'offerta last-minute non sarà più applicata.",
-                      ),
-                    ),
-                  );
+                  Navigator.of(context).maybePop();
                 } else {
                   _goToStep(_BookingStep.availability);
                 }
               },
-              child: Text(isExpress ? 'Modifica slot' : 'Indietro'),
+              child: Text(isExpress ? 'Annulla' : 'Indietro'),
             ),
             FilledButton(
               onPressed: _canSubmit ? _confirmBooking : null,

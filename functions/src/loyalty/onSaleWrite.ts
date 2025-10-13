@@ -49,6 +49,50 @@ export const syncLoyaltyOnSaleWrite = functionsEU.firestore
     const movementId = `${MOVEMENT_PREFIX}${saleId}`;
     const clientRef = firestore.collection(COLLECTION_CLIENTS).doc(clientId);
     const saleRef = change.after.ref;
+    const processedMovementIds = Array.isArray(loyalty.processedMovementIds)
+      ? (loyalty.processedMovementIds as unknown[]).map((value) => String(value))
+      : [];
+    const alreadyProcessed = processedMovementIds.includes(movementId);
+    const hasComputedAt =
+      loyalty.computedAt instanceof admin.firestore.Timestamp;
+
+    const earnedPoints = resolveEarnedPoints(loyalty);
+    const redeemedPoints = toInt(loyalty.redeemedPoints);
+    const earnedValue = resolveEarnedValue(loyalty);
+    const redeemedValue = toNumber(loyalty.redeemedValue);
+    const eligibleAmount = toNumber(loyalty.eligibleAmount);
+    const requestedEarnPoints = toInt(loyalty.requestedEarnPoints);
+    const requestedEarnValue = toNumber(loyalty.requestedEarnValue);
+    const netPoints = resolveNetPoints(loyalty, earnedPoints, redeemedPoints);
+
+    if (alreadyProcessed && hasComputedAt) {
+      const prevEarnedPoints = toInt(loyalty.earnedPoints);
+      const prevRedeemedPoints = toInt(loyalty.redeemedPoints);
+      const prevNetPoints = toInt(
+        (loyalty.netPoints as number | undefined) ??
+          prevEarnedPoints - prevRedeemedPoints,
+      );
+      const prevEarnedValue = toNumber(loyalty.earnedValue);
+      const prevRedeemedValue = toNumber(loyalty.redeemedValue);
+      const prevRequestedPoints = toInt(loyalty.requestedEarnPoints);
+      const prevRequestedValue = toNumber(loyalty.requestedEarnValue);
+      const shouldSkip =
+        prevEarnedPoints === earnedPoints &&
+        prevRedeemedPoints === redeemedPoints &&
+        prevNetPoints === netPoints &&
+        prevEarnedValue === earnedValue &&
+        prevRedeemedValue === redeemedValue &&
+        prevRequestedPoints === requestedEarnPoints &&
+        prevRequestedValue === requestedEarnValue;
+
+      if (shouldSkip) {
+        functions.logger.debug('Loyalty already synced for sale, skipping', {
+          saleId,
+          movementId,
+        });
+        return;
+      }
+    }
 
     await firestore.runTransaction(async (tx) => {
       const clientSnap = await tx.get(clientRef);
@@ -69,15 +113,6 @@ export const syncLoyaltyOnSaleWrite = functionsEU.firestore
       const prevNet = toInt(
         prevMovement.netPoints ?? prevEarned - prevRedeemed,
       );
-
-      const earnedPoints = resolveEarnedPoints(loyalty);
-      const redeemedPoints = toInt(loyalty.redeemedPoints);
-      const earnedValue = resolveEarnedValue(loyalty);
-      const redeemedValue = toNumber(loyalty.redeemedValue);
-      const eligibleAmount = toNumber(loyalty.eligibleAmount);
-      const requestedEarnPoints = toInt(loyalty.requestedEarnPoints);
-      const requestedEarnValue = toNumber(loyalty.requestedEarnValue);
-      const netPoints = resolveNetPoints(loyalty, earnedPoints, redeemedPoints);
 
       const clientData = clientSnap.data() ?? {};
       const currentBalance = toInt(clientData.loyaltyPoints);

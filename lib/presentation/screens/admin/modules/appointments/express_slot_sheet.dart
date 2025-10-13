@@ -79,15 +79,14 @@ class _ExpressSlotSheetState extends State<ExpressSlotSheet> {
       _priceNowController.text = slot.priceNow.toStringAsFixed(2);
       _loyaltyController.text = slot.loyaltyPoints.toString();
       _seatsController.text = slot.availableSeats.toString();
-      final lead = slot.effectiveWindowStart
-          .difference(slot.start)
-          .inMinutes
-          .abs()
-          .toString();
-      final ext = slot.effectiveWindowEnd
-          .difference(slot.start)
-          .inMinutes
-          .toString();
+      final lead =
+          slot.effectiveWindowStart
+              .difference(slot.start)
+              .inMinutes
+              .abs()
+              .toString();
+      final ext =
+          slot.effectiveWindowEnd.difference(slot.start).inMinutes.toString();
       _windowLeadController.text = lead;
       _windowExtendController.text = ext;
       _selectedServiceId = slot.serviceId;

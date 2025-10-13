@@ -38,7 +38,9 @@ class _CashFlowFormSheetState extends State<CashFlowFormSheet> {
     _amount = TextEditingController(text: '0');
     _description = TextEditingController();
     _category = TextEditingController();
-    _salonId = widget.defaultSalonId ?? (widget.salons.isNotEmpty ? widget.salons.first.id : null);
+    _salonId =
+        widget.defaultSalonId ??
+        (widget.salons.isNotEmpty ? widget.salons.first.id : null);
   }
 
   @override
@@ -51,7 +53,10 @@ class _CashFlowFormSheetState extends State<CashFlowFormSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final staff = widget.staff.where((member) => _salonId == null || member.salonId == _salonId).toList();
+    final staff =
+        widget.staff
+            .where((member) => _salonId == null || member.salonId == _salonId)
+            .toList();
     final dateFormat = DateFormat('dd/MM/yyyy');
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -61,7 +66,10 @@ class _CashFlowFormSheetState extends State<CashFlowFormSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Movimento di cassa', style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              'Movimento di cassa',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
             const SizedBox(height: 16),
             Row(
               children: [
@@ -70,7 +78,10 @@ class _CashFlowFormSheetState extends State<CashFlowFormSheet> {
                     value: CashFlowType.income,
                     groupValue: _type,
                     title: const Text('Entrata'),
-                    onChanged: (value) => setState(() => _type = value ?? CashFlowType.income),
+                    onChanged:
+                        (value) => setState(
+                          () => _type = value ?? CashFlowType.income,
+                        ),
                   ),
                 ),
                 Expanded(
@@ -78,7 +89,10 @@ class _CashFlowFormSheetState extends State<CashFlowFormSheet> {
                     value: CashFlowType.expense,
                     groupValue: _type,
                     title: const Text('Uscita'),
-                    onChanged: (value) => setState(() => _type = value ?? CashFlowType.expense),
+                    onChanged:
+                        (value) => setState(
+                          () => _type = value ?? CashFlowType.expense,
+                        ),
                   ),
                 ),
               ],
@@ -87,26 +101,45 @@ class _CashFlowFormSheetState extends State<CashFlowFormSheet> {
             DropdownButtonFormField<String>(
               value: _salonId,
               decoration: const InputDecoration(labelText: 'Salone'),
-              items: widget.salons
-                  .map((salon) => DropdownMenuItem(value: salon.id, child: Text(salon.name)))
-                  .toList(),
-              onChanged: (value) => setState(() {
-                _salonId = value;
-                _staffId = null;
-              }),
+              items:
+                  widget.salons
+                      .map(
+                        (salon) => DropdownMenuItem(
+                          value: salon.id,
+                          child: Text(salon.name),
+                        ),
+                      )
+                      .toList(),
+              onChanged:
+                  (value) => setState(() {
+                    _salonId = value;
+                    _staffId = null;
+                  }),
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _amount,
               decoration: const InputDecoration(labelText: 'Importo (€)'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (value) => (double.tryParse(value?.replaceAll(',', '.') ?? '') ?? 0) <= 0 ? 'Importo non valido' : null,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              validator:
+                  (value) =>
+                      (double.tryParse(value?.replaceAll(',', '.') ?? '') ??
+                                  0) <=
+                              0
+                          ? 'Importo non valido'
+                          : null,
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _description,
               decoration: const InputDecoration(labelText: 'Descrizione'),
-              validator: (value) => value == null || value.trim().isEmpty ? 'Inserisci una descrizione' : null,
+              validator:
+                  (value) =>
+                      value == null || value.trim().isEmpty
+                          ? 'Inserisci una descrizione'
+                          : null,
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -116,10 +149,18 @@ class _CashFlowFormSheetState extends State<CashFlowFormSheet> {
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               value: _staffId,
-              decoration: const InputDecoration(labelText: 'Operatore (opzionale)'),
-              items: staff
-                  .map((member) => DropdownMenuItem(value: member.id, child: Text(member.fullName)))
-                  .toList(),
+              decoration: const InputDecoration(
+                labelText: 'Operatore (opzionale)',
+              ),
+              items:
+                  staff
+                      .map(
+                        (member) => DropdownMenuItem(
+                          value: member.id,
+                          child: Text(member.fullName),
+                        ),
+                      )
+                      .toList(),
               onChanged: (value) => setState(() => _staffId = value),
             ),
             const SizedBox(height: 12),
@@ -163,9 +204,9 @@ class _CashFlowFormSheetState extends State<CashFlowFormSheet> {
       return;
     }
     if (_salonId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Seleziona un salone')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Seleziona un salone')));
       return;
     }
 

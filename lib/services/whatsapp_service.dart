@@ -6,10 +6,14 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
-const _sendEndpointDefine =
-    String.fromEnvironment('SEND_ENDPOINT', defaultValue: '');
-const _functionsRegionDefine =
-    String.fromEnvironment('WA_REGION', defaultValue: 'europe-west1');
+const _sendEndpointDefine = String.fromEnvironment(
+  'SEND_ENDPOINT',
+  defaultValue: '',
+);
+const _functionsRegionDefine = String.fromEnvironment(
+  'WA_REGION',
+  defaultValue: 'europe-west1',
+);
 
 class WhatsAppConfig {
   const WhatsAppConfig({
@@ -35,7 +39,9 @@ class WhatsAppConfig {
   final DateTime? updatedAt;
 
   bool get isConfigured =>
-      phoneNumberId != null && phoneNumberId!.isNotEmpty && tokenSecretId != null;
+      phoneNumberId != null &&
+      phoneNumberId!.isNotEmpty &&
+      tokenSecretId != null;
 
   factory WhatsAppConfig.fromMap(
     Map<String, dynamic> map, {
@@ -93,8 +99,7 @@ class WhatsAppConfig {
       if (businessId != null) 'businessId': businessId,
       if (wabaId != null) 'wabaId': wabaId,
       if (phoneNumberId != null) 'phoneNumberId': phoneNumberId,
-      if (displayPhoneNumber != null)
-        'displayPhoneNumber': displayPhoneNumber,
+      if (displayPhoneNumber != null) 'displayPhoneNumber': displayPhoneNumber,
       if (tokenSecretId != null) 'tokenSecretId': tokenSecretId,
       if (verifyTokenSecretId != null)
         'verifyTokenSecretId': verifyTokenSecretId,
@@ -104,11 +109,7 @@ class WhatsAppConfig {
 }
 
 class WhatsAppSendResult {
-  const WhatsAppSendResult({
-    required this.success,
-    this.messageId,
-    this.raw,
-  });
+  const WhatsAppSendResult({required this.success, this.messageId, this.raw});
 
   final bool success;
   final String? messageId;
@@ -120,9 +121,9 @@ class WhatsAppService {
     http.Client? httpClient,
     FirebaseFirestore? firestore,
     Uri? sendEndpoint,
-  })  : _client = httpClient ?? http.Client(),
-        _firestore = firestore ?? FirebaseFirestore.instance,
-        _sendEndpoint = sendEndpoint ?? _tryResolveEndpoint();
+  }) : _client = httpClient ?? http.Client(),
+       _firestore = firestore ?? FirebaseFirestore.instance,
+       _sendEndpoint = sendEndpoint ?? _tryResolveEndpoint();
 
   final http.Client _client;
   final FirebaseFirestore _firestore;
@@ -174,7 +175,8 @@ class WhatsAppService {
   }
 
   Uri _resolveSendUrl() {
-    final endpoint = _sendEndpoint ?? _computeDefaultFunctionUrl('sendWhatsappTemplate');
+    final endpoint =
+        _sendEndpoint ?? _computeDefaultFunctionUrl('sendWhatsappTemplate');
     if (endpoint == null) {
       throw StateError(
         'SEND_ENDPOINT non configurato. Passa un endpoint al costruttore o usa --dart-define=SEND_ENDPOINT=...',
@@ -256,7 +258,9 @@ class WhatsAppService {
     );
 
     final decodedBody =
-        response.body.isEmpty ? const <String, dynamic>{} : jsonDecode(response.body);
+        response.body.isEmpty
+            ? const <String, dynamic>{}
+            : jsonDecode(response.body);
     final body =
         decodedBody is Map<String, dynamic> ? decodedBody : <String, dynamic>{};
 

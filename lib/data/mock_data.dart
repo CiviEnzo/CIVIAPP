@@ -103,6 +103,12 @@ class MockData {
         clientPromotions: true,
         clientLastMinute: true,
       ),
+      stripeAccountId: 'acct_mock_salon001',
+      stripeAccount: const StripeAccountSnapshot(
+        chargesEnabled: true,
+        payoutsEnabled: true,
+        detailsSubmitted: true,
+      ),
     ),
     Salon(
       id: 'salon-002',
@@ -145,6 +151,12 @@ class MockData {
       featureFlags: const SalonFeatureFlags(
         clientPromotions: false,
         clientLastMinute: true,
+      ),
+      stripeAccountId: 'acct_mock_salon002',
+      stripeAccount: const StripeAccountSnapshot(
+        chargesEnabled: true,
+        payoutsEnabled: true,
+        detailsSubmitted: true,
       ),
     ),
   ];
@@ -683,6 +695,7 @@ class MockData {
       profession: 'Impiegata',
       referralSource: 'Instagram',
       email: 'sara.verdi@example.com',
+      stripeCustomerId: 'cus_mock_001',
       loyaltyPoints: 120,
       marketedConsents: [
         ClientConsent(
@@ -716,6 +729,7 @@ class MockData {
       address: 'Piazza Garibaldi 5, Milano',
       profession: 'Graphic Designer',
       referralSource: 'Passaparola',
+      stripeCustomerId: 'cus_mock_002',
       loyaltyPoints: 45,
       marketedConsents: [
         ClientConsent(
@@ -745,6 +759,7 @@ class MockData {
       profession: 'Personal Trainer',
       referralSource: 'Google Ads',
       email: 'daniele.moretti@example.com',
+      stripeCustomerId: 'cus_mock_003',
       loyaltyPoints: 10,
       marketedConsents: [
         ClientConsent(

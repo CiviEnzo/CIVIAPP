@@ -31,17 +31,18 @@ class _AppointmentDetailSheet extends ConsumerWidget {
     final client = data.clients.firstWhereOrNull(
       (element) => element.id == appointment.clientId,
     );
-    final appointmentServices = appointment.serviceIds
-        .map(
-          (id) => data.services.firstWhereOrNull(
-            (element) => element.id == id,
-          ),
-        )
-        .whereType<Service>()
-        .toList();
-    final serviceLabel = appointmentServices.isNotEmpty
-        ? appointmentServices.map((service) => service.name).join(' + ')
-        : 'Servizio';
+    final appointmentServices =
+        appointment.serviceIds
+            .map(
+              (id) =>
+                  data.services.firstWhereOrNull((element) => element.id == id),
+            )
+            .whereType<Service>()
+            .toList();
+    final serviceLabel =
+        appointmentServices.isNotEmpty
+            ? appointmentServices.map((service) => service.name).join(' + ')
+            : 'Servizio';
     final staff = data.staff.firstWhereOrNull(
       (element) => element.id == appointment.staffId,
     );
@@ -118,10 +119,7 @@ class _AppointmentDetailSheet extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        serviceLabel,
-                        style: theme.textTheme.titleMedium,
-                      ),
+                      Text(serviceLabel, style: theme.textTheme.titleMedium),
                       const SizedBox(height: 12),
                       _InfoRow(
                         icon: Icons.calendar_month_outlined,
@@ -524,17 +522,19 @@ class _TodayView extends ConsumerWidget {
               final client = data.clients.firstWhereOrNull(
                 (client) => client.id == appointment.clientId,
               );
-              final services = appointment.serviceIds
-                  .map(
-                    (id) => data.services.firstWhereOrNull(
-                      (service) => service.id == id,
-                    ),
-                  )
-                  .whereType<Service>()
-                  .toList();
-              final serviceLabel = services.isNotEmpty
-                  ? services.map((service) => service.name).join(' + ')
-                  : 'Servizio';
+              final services =
+                  appointment.serviceIds
+                      .map(
+                        (id) => data.services.firstWhereOrNull(
+                          (service) => service.id == id,
+                        ),
+                      )
+                      .whereType<Service>()
+                      .toList();
+              final serviceLabel =
+                  services.isNotEmpty
+                      ? services.map((service) => service.name).join(' + ')
+                      : 'Servizio';
               return Card(
                 child: ListTile(
                   leading: CircleAvatar(
@@ -591,17 +591,19 @@ class _AgendaView extends ConsumerWidget {
         final client = data.clients.firstWhereOrNull(
           (client) => client.id == appointment.clientId,
         );
-        final services = appointment.serviceIds
-            .map(
-              (id) => data.services.firstWhereOrNull(
-                (service) => service.id == id,
-              ),
-            )
-            .whereType<Service>()
-            .toList();
-        final serviceLabel = services.isNotEmpty
-            ? services.map((service) => service.name).join(' + ')
-            : 'Servizio';
+        final services =
+            appointment.serviceIds
+                .map(
+                  (id) => data.services.firstWhereOrNull(
+                    (service) => service.id == id,
+                  ),
+                )
+                .whereType<Service>()
+                .toList();
+        final serviceLabel =
+            services.isNotEmpty
+                ? services.map((service) => service.name).join(' + ')
+                : 'Servizio';
         return Card(
           child: ListTile(
             leading: const Icon(Icons.calendar_month_rounded),

@@ -22,10 +22,7 @@ class CiviApp extends ConsumerWidget {
         GlobalCupertinoLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
       ],
-      supportedLocales: const [
-        Locale('it'),
-        Locale('en'),
-      ],
+      supportedLocales: const [Locale('it'), Locale('en')],
     );
   }
 
@@ -57,7 +54,9 @@ class CiviApp extends ConsumerWidget {
           foregroundColor: baseScheme.onPrimary,
           backgroundColor: baseScheme.primary,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(

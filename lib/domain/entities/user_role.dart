@@ -1,8 +1,4 @@
-enum UserRole {
-  admin,
-  staff,
-  client,
-}
+enum UserRole { admin, staff, client }
 
 extension UserRoleX on UserRole {
   String get label {

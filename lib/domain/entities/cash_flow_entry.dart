@@ -20,7 +20,4 @@ class CashFlowEntry {
   final String? staffId;
 }
 
-enum CashFlowType {
-  income,
-  expense,
-}
+enum CashFlowType { income, expense }

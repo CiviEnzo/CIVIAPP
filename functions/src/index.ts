@@ -24,3 +24,10 @@ export {
   handleWhatsappOAuthCallback,
 } from './wa/oauth';
 export { syncWhatsappOAuth } from './wa/onboarding';
+export {
+  createStripeConnectAccount,
+  createStripeOnboardingLink,
+  createStripePaymentIntent,
+  createStripeEphemeralKey,
+  handleStripeWebhook,
+} from './stripe/routes';

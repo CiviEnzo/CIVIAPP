@@ -53,6 +53,7 @@ class Client {
     this.referralSource,
     this.email,
     this.notes,
+    this.stripeCustomerId,
     this.loyaltyInitialPoints = 0,
     this.loyaltyPoints = 0,
     this.loyaltyUpdatedAt,
@@ -81,6 +82,7 @@ class Client {
   final String? referralSource;
   final String? email;
   final String? notes;
+  final String? stripeCustomerId;
   final int loyaltyInitialPoints;
   final int loyaltyPoints;
   final DateTime? loyaltyUpdatedAt;
@@ -109,6 +111,7 @@ class Client {
     Object? referralSource = _unset,
     Object? email = _unset,
     Object? notes = _unset,
+    Object? stripeCustomerId = _unset,
     int? loyaltyInitialPoints,
     int? loyaltyPoints,
     Object? loyaltyUpdatedAt = _unset,
@@ -141,6 +144,10 @@ class Client {
               : referralSource as String?,
       email: email == _unset ? this.email : email as String?,
       notes: notes == _unset ? this.notes : notes as String?,
+      stripeCustomerId:
+          stripeCustomerId == _unset
+              ? this.stripeCustomerId
+              : stripeCustomerId as String?,
       loyaltyInitialPoints: loyaltyInitialPoints ?? this.loyaltyInitialPoints,
       loyaltyPoints: loyaltyPoints ?? this.loyaltyPoints,
       loyaltyUpdatedAt:

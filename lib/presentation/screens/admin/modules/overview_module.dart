@@ -16,21 +16,49 @@ class AdminOverviewModule extends ConsumerWidget {
     final data = ref.watch(appDataProvider);
     final theme = Theme.of(context);
 
-    final appointments = data.appointments
-        .where((appointment) => salonId == null || appointment.salonId == salonId)
-        .toList()
-      ..sort((a, b) => a.start.compareTo(b.start));
-    final upcoming = appointments.where((a) => a.start.isAfter(DateTime.now())).take(6).toList();
+    final appointments =
+        data.appointments
+            .where(
+              (appointment) =>
+                  salonId == null || appointment.salonId == salonId,
+            )
+            .toList()
+          ..sort((a, b) => a.start.compareTo(b.start));
+    final upcoming =
+        appointments
+            .where((a) => a.start.isAfter(DateTime.now()))
+            .take(6)
+            .toList();
 
-    final staff = data.staff.where((item) => salonId == null || item.salonId == salonId).toList();
-    final clients = data.clients.where((item) => salonId == null || item.salonId == salonId).toList();
-    final services = data.services.where((item) => salonId == null || item.salonId == salonId).toList();
-    final packages = data.packages.where((item) => salonId == null || item.salonId == salonId).toList();
-    final sales = data.sales.where((item) => salonId == null || item.salonId == salonId).toList();
+    final staff =
+        data.staff
+            .where((item) => salonId == null || item.salonId == salonId)
+            .toList();
+    final clients =
+        data.clients
+            .where((item) => salonId == null || item.salonId == salonId)
+            .toList();
+    final services =
+        data.services
+            .where((item) => salonId == null || item.salonId == salonId)
+            .toList();
+    final packages =
+        data.packages
+            .where((item) => salonId == null || item.salonId == salonId)
+            .toList();
+    final sales =
+        data.sales
+            .where((item) => salonId == null || item.salonId == salonId)
+            .toList();
 
     final today = DateTime.now();
     final todayRevenue = sales
-        .where((sale) => sale.createdAt.year == today.year && sale.createdAt.month == today.month && sale.createdAt.day == today.day)
+        .where(
+          (sale) =>
+              sale.createdAt.year == today.year &&
+              sale.createdAt.month == today.month &&
+              sale.createdAt.day == today.day,
+        )
         .fold<double>(0, (total, sale) => total + sale.total);
 
     return SingleChildScrollView(
@@ -65,7 +93,9 @@ class AdminOverviewModule extends ConsumerWidget {
               ),
               _MetricCard(
                 title: 'Incasso oggi',
-                value: NumberFormat.simpleCurrency(locale: 'it_IT').format(todayRevenue),
+                value: NumberFormat.simpleCurrency(
+                  locale: 'it_IT',
+                ).format(todayRevenue),
                 subtitle: 'Vendite registrate',
                 icon: Icons.point_of_sale_rounded,
                 color: theme.colorScheme.error,
@@ -98,27 +128,45 @@ class AdminOverviewModule extends ConsumerWidget {
                 physics: const NeverScrollableScrollPhysics(),
                 itemBuilder: (context, index) {
                   final appointment = upcoming[index];
-                  final client = data.clients.firstWhereOrNull((c) => c.id == appointment.clientId);
-                  final services = appointment.serviceIds
-                      .map(
-                        (id) => data.services.firstWhereOrNull(
-                          (service) => service.id == id,
-                        ),
-                      )
-                      .whereType<Service>()
-                      .toList();
-                  final staffMember = data.staff.firstWhereOrNull((s) => s.id == appointment.staffId);
-                  final date = DateFormat('EEEE dd MMMM HH:mm', 'it_IT').format(appointment.start);
+                  final client = data.clients.firstWhereOrNull(
+                    (c) => c.id == appointment.clientId,
+                  );
+                  final services =
+                      appointment.serviceIds
+                          .map(
+                            (id) => data.services.firstWhereOrNull(
+                              (service) => service.id == id,
+                            ),
+                          )
+                          .whereType<Service>()
+                          .toList();
+                  final staffMember = data.staff.firstWhereOrNull(
+                    (s) => s.id == appointment.staffId,
+                  );
+                  final date = DateFormat(
+                    'EEEE dd MMMM HH:mm',
+                    'it_IT',
+                  ).format(appointment.start);
                   final serviceLabel =
-                      services.isNotEmpty ? services.map((service) => service.name).join(' + ') : 'Servizio';
+                      services.isNotEmpty
+                          ? services.map((service) => service.name).join(' + ')
+                          : 'Servizio';
                   return ListTile(
                     leading: CircleAvatar(
                       backgroundColor: theme.colorScheme.primary,
                       foregroundColor: theme.colorScheme.onPrimary,
-                      child: Text(client?.firstName.characters.firstOrNull?.toUpperCase() ?? '?'),
+                      child: Text(
+                        client?.firstName.characters.firstOrNull
+                                ?.toUpperCase() ??
+                            '?',
+                      ),
                     ),
-                    title: Text('${client?.fullName ?? 'Cliente'} • $serviceLabel'),
-                    subtitle: Text('$date • ${staffMember?.fullName ?? 'Staff'}'),
+                    title: Text(
+                      '${client?.fullName ?? 'Cliente'} • $serviceLabel',
+                    ),
+                    subtitle: Text(
+                      '$date • ${staffMember?.fullName ?? 'Staff'}',
+                    ),
                     trailing: _statusChip(appointment.status, theme),
                   );
                 },
@@ -130,7 +178,10 @@ class AdminOverviewModule extends ConsumerWidget {
             Center(
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 32),
-                child: Text('Nessun appuntamento imminente', style: theme.textTheme.bodyLarge),
+                child: Text(
+                  'Nessun appuntamento imminente',
+                  style: theme.textTheme.bodyLarge,
+                ),
               ),
             ),
           ],
@@ -210,11 +261,27 @@ class _MetricCard extends StatelessWidget {
             children: [
               Icon(icon, color: foreground, size: 28),
               const SizedBox(height: 12),
-              Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(color: foreground)),
+              Text(
+                title,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(color: foreground),
+              ),
               const SizedBox(height: 8),
-              Text(value, style: Theme.of(context).textTheme.displaySmall?.copyWith(color: foreground, fontWeight: FontWeight.bold)),
+              Text(
+                value,
+                style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                  color: foreground,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 4),
-              Text(subtitle, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: foreground.withValues(alpha: 0.8))),
+              Text(
+                subtitle,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: foreground.withValues(alpha: 0.8),
+                ),
+              ),
             ],
           ),
         ),

@@ -16,10 +16,11 @@ class InventoryModule extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final data = ref.watch(appDataProvider);
     final salons = data.salons;
-    final items = data.inventoryItems
-        .where((item) => salonId == null || item.salonId == salonId)
-        .toList()
-      ..sort((a, b) => a.category.compareTo(b.category));
+    final items =
+        data.inventoryItems
+            .where((item) => salonId == null || item.salonId == salonId)
+            .toList()
+          ..sort((a, b) => a.category.compareTo(b.category));
 
     return ListView.separated(
       padding: const EdgeInsets.all(16),
@@ -30,7 +31,13 @@ class InventoryModule extends ConsumerWidget {
           return Align(
             alignment: Alignment.centerLeft,
             child: FilledButton.icon(
-              onPressed: () => _openForm(context, ref, salons: salons, defaultSalonId: salonId),
+              onPressed:
+                  () => _openForm(
+                    context,
+                    ref,
+                    salons: salons,
+                    defaultSalonId: salonId,
+                  ),
               icon: const Icon(Icons.add_box_rounded),
               label: const Text('Nuovo articolo'),
             ),
@@ -38,7 +45,10 @@ class InventoryModule extends ConsumerWidget {
         }
         final item = items[index - 1];
         final alert = item.quantity <= item.threshold;
-        final progress = item.threshold == 0 ? 1.0 : (item.quantity / (item.threshold * 2)).clamp(0.0, 1.0);
+        final progress =
+            item.threshold == 0
+                ? 1.0
+                : (item.quantity / (item.threshold * 2)).clamp(0.0, 1.0);
         final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
         return Card(
           child: Padding(
@@ -52,13 +62,19 @@ class InventoryModule extends ConsumerWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(item.name, style: Theme.of(context).textTheme.titleMedium),
+                          Text(
+                            item.name,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
                           const SizedBox(height: 4),
                           Text(item.category),
                         ],
                       ),
                     ),
-                    IconButton(onPressed: () {}, icon: const Icon(Icons.edit_rounded)),
+                    IconButton(
+                      onPressed: () {},
+                      icon: const Icon(Icons.edit_rounded),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -68,15 +84,23 @@ class InventoryModule extends ConsumerWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Quantità: ${item.quantity.toStringAsFixed(0)} ${item.unit}'),
-                          Text('Soglia minima: ${item.threshold.toStringAsFixed(0)}'),
+                          Text(
+                            'Quantità: ${item.quantity.toStringAsFixed(0)} ${item.unit}',
+                          ),
+                          Text(
+                            'Soglia minima: ${item.threshold.toStringAsFixed(0)}',
+                          ),
                           const SizedBox(height: 8),
                           LinearProgressIndicator(
                             value: progress,
-                            backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                            color: alert
-                                ? Theme.of(context).colorScheme.error
-                                : Theme.of(context).colorScheme.primary,
+                            backgroundColor:
+                                Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHighest,
+                            color:
+                                alert
+                                    ? Theme.of(context).colorScheme.error
+                                    : Theme.of(context).colorScheme.primary,
                           ),
                         ],
                       ),
@@ -89,13 +113,14 @@ class InventoryModule extends ConsumerWidget {
                         Text('Prezzo: ${currency.format(item.sellingPrice)}'),
                         IconButton(
                           icon: const Icon(Icons.edit_rounded),
-                          onPressed: () => _openForm(
-                            context,
-                            ref,
-                            salons: salons,
-                            defaultSalonId: salonId,
-                            existing: item,
-                          ),
+                          onPressed:
+                              () => _openForm(
+                                context,
+                                ref,
+                                salons: salons,
+                                defaultSalonId: salonId,
+                                existing: item,
+                              ),
                         ),
                       ],
                     ),
@@ -103,7 +128,9 @@ class InventoryModule extends ConsumerWidget {
                 ),
                 if (item.updatedAt != null) ...[
                   const SizedBox(height: 8),
-                  Text('Ultimo aggiornamento: ${DateFormat('dd/MM/yyyy').format(item.updatedAt!)}'),
+                  Text(
+                    'Ultimo aggiornamento: ${DateFormat('dd/MM/yyyy').format(item.updatedAt!)}',
+                  ),
                 ],
               ],
             ),
@@ -123,17 +150,20 @@ Future<void> _openForm(
 }) async {
   if (salons.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Crea un salone prima di gestire il magazzino.')),
+      const SnackBar(
+        content: Text('Crea un salone prima di gestire il magazzino.'),
+      ),
     );
     return;
   }
   final result = await showAppModalSheet<InventoryItem>(
     context: context,
-    builder: (ctx) => InventoryFormSheet(
-      salons: salons,
-      defaultSalonId: defaultSalonId,
-      initial: existing,
-    ),
+    builder:
+        (ctx) => InventoryFormSheet(
+          salons: salons,
+          defaultSalonId: defaultSalonId,
+          initial: existing,
+        ),
   );
   if (result != null) {
     await ref.read(appDataProvider.notifier).upsertInventoryItem(result);

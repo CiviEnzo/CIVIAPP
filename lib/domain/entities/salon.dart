@@ -1,5 +1,7 @@
 import 'loyalty_settings.dart';
 
+const Object _sentinel = Object();
+
 enum SalonStatus { active, suspended, archived }
 
 extension SalonStatusDisplay on SalonStatus {
@@ -30,6 +32,59 @@ extension SalonEquipmentStatusDisplay on SalonEquipmentStatus {
   }
 }
 
+class StripeAccountSnapshot {
+  const StripeAccountSnapshot({
+    this.chargesEnabled = false,
+    this.payoutsEnabled = false,
+    this.detailsSubmitted = false,
+    this.currentlyDue = const <String>[],
+    this.pastDue = const <String>[],
+    this.eventuallyDue = const <String>[],
+    this.disabledReason,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final bool chargesEnabled;
+  final bool payoutsEnabled;
+  final bool detailsSubmitted;
+  final List<String> currentlyDue;
+  final List<String> pastDue;
+  final List<String> eventuallyDue;
+  final String? disabledReason;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  bool get isReadyForPayments => chargesEnabled && detailsSubmitted;
+
+  StripeAccountSnapshot copyWith({
+    bool? chargesEnabled,
+    bool? payoutsEnabled,
+    bool? detailsSubmitted,
+    List<String>? currentlyDue,
+    List<String>? pastDue,
+    List<String>? eventuallyDue,
+    Object? disabledReason = _sentinel,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return StripeAccountSnapshot(
+      chargesEnabled: chargesEnabled ?? this.chargesEnabled,
+      payoutsEnabled: payoutsEnabled ?? this.payoutsEnabled,
+      detailsSubmitted: detailsSubmitted ?? this.detailsSubmitted,
+      currentlyDue: currentlyDue ?? this.currentlyDue,
+      pastDue: pastDue ?? this.pastDue,
+      eventuallyDue: eventuallyDue ?? this.eventuallyDue,
+      disabledReason:
+          identical(disabledReason, _sentinel)
+              ? this.disabledReason
+              : disabledReason as String?,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+}
+
 class Salon {
   const Salon({
     required this.id,
@@ -50,6 +105,8 @@ class Salon {
     this.status = SalonStatus.active,
     this.loyaltySettings = const LoyaltySettings(),
     this.featureFlags = const SalonFeatureFlags(),
+    this.stripeAccountId,
+    this.stripeAccount = const StripeAccountSnapshot(),
   });
 
   final String id;
@@ -70,6 +127,11 @@ class Salon {
   final SalonStatus status;
   final LoyaltySettings loyaltySettings;
   final SalonFeatureFlags featureFlags;
+  final String? stripeAccountId;
+  final StripeAccountSnapshot stripeAccount;
+
+  bool get canAcceptOnlinePayments =>
+      stripeAccountId != null && stripeAccount.isReadyForPayments;
 
   Salon copyWith({
     String? id,
@@ -90,6 +152,8 @@ class Salon {
     SalonStatus? status,
     LoyaltySettings? loyaltySettings,
     SalonFeatureFlags? featureFlags,
+    Object? stripeAccountId = _sentinel,
+    StripeAccountSnapshot? stripeAccount,
   }) {
     return Salon(
       id: id ?? this.id,
@@ -110,6 +174,11 @@ class Salon {
       status: status ?? this.status,
       loyaltySettings: loyaltySettings ?? this.loyaltySettings,
       featureFlags: featureFlags ?? this.featureFlags,
+      stripeAccountId:
+          identical(stripeAccountId, _sentinel)
+              ? this.stripeAccountId
+              : stripeAccountId as String?,
+      stripeAccount: stripeAccount ?? this.stripeAccount,
     );
   }
 }

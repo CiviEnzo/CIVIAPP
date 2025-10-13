@@ -17,32 +17,52 @@ class ReportsModule extends ConsumerWidget {
     final data = ref.watch(appDataProvider);
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
 
-    final filteredSales = data.sales
-        .where((sale) => salonId == null || sale.salonId == salonId)
-        .toList();
-    final filteredAppointments = data.appointments
-        .where((appointment) => salonId == null || appointment.salonId == salonId)
-        .toList();
-    final filteredServices = data.services
-        .where((service) => salonId == null || service.salonId == salonId)
-        .toList();
+    final filteredSales =
+        data.sales
+            .where((sale) => salonId == null || sale.salonId == salonId)
+            .toList();
+    final filteredAppointments =
+        data.appointments
+            .where(
+              (appointment) =>
+                  salonId == null || appointment.salonId == salonId,
+            )
+            .toList();
+    final filteredServices =
+        data.services
+            .where((service) => salonId == null || service.salonId == salonId)
+            .toList();
 
     final monthlyGroups = groupBy<Sale, String>(
       filteredSales,
       (sale) => DateFormat('yyyy-MM').format(sale.createdAt),
     );
 
-    final monthlyTotals = monthlyGroups.entries.map((entry) {
-      final total = entry.value.fold<double>(0, (sum, sale) => sum + sale.total);
-      return _MonthlyTotal(month: entry.key, value: total);
-    }).sorted((a, b) => b.month.compareTo(a.month));
+    final monthlyTotals = monthlyGroups.entries
+        .map((entry) {
+          final total = entry.value.fold<double>(
+            0,
+            (sum, sale) => sum + sale.total,
+          );
+          return _MonthlyTotal(month: entry.key, value: total);
+        })
+        .sorted((a, b) => b.month.compareTo(a.month));
 
     final topServices = _calculateTopServices(filteredSales, filteredServices);
 
     final totalAppointments = filteredAppointments.length;
-    final completed = filteredAppointments.where((app) => app.status == AppointmentStatus.completed).length;
-    final cancelled = filteredAppointments.where((app) => app.status == AppointmentStatus.cancelled).length;
-    final noShow = filteredAppointments.where((app) => app.status == AppointmentStatus.noShow).length;
+    final completed =
+        filteredAppointments
+            .where((app) => app.status == AppointmentStatus.completed)
+            .length;
+    final cancelled =
+        filteredAppointments
+            .where((app) => app.status == AppointmentStatus.cancelled)
+            .length;
+    final noShow =
+        filteredAppointments
+            .where((app) => app.status == AppointmentStatus.noShow)
+            .length;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -56,7 +76,12 @@ class ReportsModule extends ConsumerWidget {
               _ReportCard(
                 title: 'Incasso totale',
                 subtitle: 'Vendite registrate',
-                value: currency.format(filteredSales.fold<double>(0, (sum, sale) => sum + sale.total)),
+                value: currency.format(
+                  filteredSales.fold<double>(
+                    0,
+                    (sum, sale) => sum + sale.total,
+                  ),
+                ),
                 icon: Icons.account_balance_wallet_rounded,
               ),
               _ReportCard(
@@ -80,17 +105,32 @@ class ReportsModule extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 24),
-          Text('Andamento mensile', style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            'Andamento mensile',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
           const SizedBox(height: 12),
           if (monthlyTotals.isEmpty)
-            const Card(child: ListTile(title: Text('Nessuna vendita registrata')))
+            const Card(
+              child: ListTile(title: Text('Nessuna vendita registrata')),
+            )
           else
-            _MonthlyChartPlaceholder(monthlyTotals: monthlyTotals, currency: currency),
+            _MonthlyChartPlaceholder(
+              monthlyTotals: monthlyTotals,
+              currency: currency,
+            ),
           const SizedBox(height: 24),
-          Text('Servizi più venduti', style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            'Servizi più venduti',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
           const SizedBox(height: 12),
           if (topServices.isEmpty)
-            const Card(child: ListTile(title: Text('Nessuna vendita di servizi registrata')))
+            const Card(
+              child: ListTile(
+                title: Text('Nessuna vendita di servizi registrata'),
+              ),
+            )
           else
             Card(
               child: DataTable(
@@ -99,17 +139,18 @@ class ReportsModule extends ConsumerWidget {
                   DataColumn(label: Text('Quantità')),
                   DataColumn(label: Text('Fatturato')),
                 ],
-                rows: topServices
-                    .map(
-                      (service) => DataRow(
-                        cells: [
-                          DataCell(Text(service.name)),
-                          DataCell(Text('${service.quantity}')),
-                          DataCell(Text(currency.format(service.revenue))),
-                        ],
-                      ),
-                    )
-                    .toList(),
+                rows:
+                    topServices
+                        .map(
+                          (service) => DataRow(
+                            cells: [
+                              DataCell(Text(service.name)),
+                              DataCell(Text('${service.quantity}')),
+                              DataCell(Text(currency.format(service.revenue))),
+                            ],
+                          ),
+                        )
+                        .toList(),
               ),
             ),
         ],
@@ -117,15 +158,26 @@ class ReportsModule extends ConsumerWidget {
     );
   }
 
-  List<_TopService> _calculateTopServices(List<Sale> sales, List<Service> services) {
+  List<_TopService> _calculateTopServices(
+    List<Sale> sales,
+    List<Service> services,
+  ) {
     final grouped = <String, _TopService>{};
     for (final sale in sales) {
       for (final item in sale.items) {
         if (item.referenceType == SaleReferenceType.service) {
-          final name = services.firstWhereOrNull((service) => service.id == item.referenceId)?.name ?? item.referenceId;
+          final name =
+              services
+                  .firstWhereOrNull((service) => service.id == item.referenceId)
+                  ?.name ??
+              item.referenceId;
           final entry = grouped[item.referenceId];
           if (entry == null) {
-            grouped[item.referenceId] = _TopService(name: name, quantity: item.quantity, revenue: item.amount);
+            grouped[item.referenceId] = _TopService(
+              name: name,
+              quantity: item.quantity,
+              revenue: item.amount,
+            );
           } else {
             grouped[item.referenceId] = _TopService(
               name: name,
@@ -136,12 +188,16 @@ class ReportsModule extends ConsumerWidget {
         }
       }
     }
-    return grouped.values.toList()..sort((a, b) => b.revenue.compareTo(a.revenue));
+    return grouped.values.toList()
+      ..sort((a, b) => b.revenue.compareTo(a.revenue));
   }
 }
 
 class _MonthlyChartPlaceholder extends StatelessWidget {
-  const _MonthlyChartPlaceholder({required this.monthlyTotals, required this.currency});
+  const _MonthlyChartPlaceholder({
+    required this.monthlyTotals,
+    required this.currency,
+  });
 
   final List<_MonthlyTotal> monthlyTotals;
   final NumberFormat currency;
@@ -154,25 +210,34 @@ class _MonthlyChartPlaceholder extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Grafico vendite (placeholder)', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            ...monthlyTotals.take(6).map(
-              (total) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Row(
-                  children: [
-                    SizedBox(width: 120, child: Text(_formatMonth(total.month))),
-                    Expanded(
-                      child: LinearProgressIndicator(
-                        value: (total.value / monthlyTotals.first.value).clamp(0.0, 1.0),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(currency.format(total.value)),
-                  ],
-                ),
-              ),
+            Text(
+              'Grafico vendite (placeholder)',
+              style: Theme.of(context).textTheme.titleMedium,
             ),
+            const SizedBox(height: 12),
+            ...monthlyTotals
+                .take(6)
+                .map(
+                  (total) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 120,
+                          child: Text(_formatMonth(total.month)),
+                        ),
+                        Expanded(
+                          child: LinearProgressIndicator(
+                            value: (total.value / monthlyTotals.first.value)
+                                .clamp(0.0, 1.0),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(currency.format(total.value)),
+                      ],
+                    ),
+                  ),
+                ),
           ],
         ),
       ),
@@ -212,7 +277,12 @@ class _ReportCard extends StatelessWidget {
               const SizedBox(height: 12),
               Text(title, style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 4),
-              Text(value, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                value,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 4),
               Text(subtitle),
             ],
@@ -231,7 +301,11 @@ class _MonthlyTotal {
 }
 
 class _TopService {
-  const _TopService({required this.name, required this.quantity, required this.revenue});
+  const _TopService({
+    required this.name,
+    required this.quantity,
+    required this.revenue,
+  });
 
   final String name;
   final double quantity;

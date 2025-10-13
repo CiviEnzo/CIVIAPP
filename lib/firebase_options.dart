@@ -85,5 +85,4 @@ class DefaultFirebaseOptions {
     storageBucket: 'civiapp-38b51.firebasestorage.app',
     measurementId: 'G-3NBLM9XEL2',
   );
-
 }

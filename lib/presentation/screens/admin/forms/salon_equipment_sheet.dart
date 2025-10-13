@@ -21,9 +21,7 @@ class _SalonEquipmentSheetState extends State<SalonEquipmentSheet> {
   void initState() {
     super.initState();
     _equipment =
-        widget.initialEquipment
-            .map(_EditableEquipment.fromEquipment)
-            .toList();
+        widget.initialEquipment.map(_EditableEquipment.fromEquipment).toList();
     if (_equipment.isEmpty) {
       _equipment = [_EditableEquipment(id: _uuid.v4())];
     }
@@ -66,7 +64,9 @@ class _SalonEquipmentSheetState extends State<SalonEquipmentSheet> {
       final quantity = int.tryParse(item.quantity.text.trim());
       if (quantity == null || quantity <= 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Imposta una quantità valida maggiore di 0.')),
+          const SnackBar(
+            content: Text('Imposta una quantità valida maggiore di 0.'),
+          ),
         );
         return;
       }
@@ -109,7 +109,9 @@ class _SalonEquipmentSheetState extends State<SalonEquipmentSheet> {
                   setState(() => item.status = value);
                 },
                 onRemove:
-                    _equipment.length <= 1 ? null : () => _removeEquipment(item),
+                    _equipment.length <= 1
+                        ? null
+                        : () => _removeEquipment(item),
               ),
             ),
             const SizedBox(height: 12),
@@ -236,7 +238,9 @@ class _EquipmentCard extends StatelessWidget {
             const SizedBox(height: 12),
             TextFormField(
               controller: data.quantity,
-              decoration: const InputDecoration(labelText: 'Quantità disponibile'),
+              decoration: const InputDecoration(
+                labelText: 'Quantità disponibile',
+              ),
               keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               validator: (value) {
@@ -252,7 +256,8 @@ class _EquipmentCard extends StatelessWidget {
               controller: data.notes,
               decoration: const InputDecoration(
                 labelText: 'Note o istruzioni',
-                helperText: 'Visibili solo allo staff (manutenzione, uso, ecc.)',
+                helperText:
+                    'Visibili solo allo staff (manutenzione, uso, ecc.)',
               ),
               maxLines: 2,
             ),

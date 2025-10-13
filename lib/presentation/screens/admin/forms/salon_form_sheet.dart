@@ -143,9 +143,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
     _loyaltyResetDay = TextEditingController(
       text: loyalty.expiration.resetDay.toString(),
     );
-    _loyaltyTimezone = TextEditingController(
-      text: loyalty.expiration.timezone,
-    );
+    _loyaltyTimezone = TextEditingController(text: loyalty.expiration.timezone);
   }
 
   @override
@@ -445,8 +443,9 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
                               labelText: '€ per punto',
                               helperText: 'Es. 10 significa 1 punto ogni 10€',
                             ),
-                            keyboardType:
-                                const TextInputType.numberWithOptions(decimal: true),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -486,8 +485,9 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
                               labelText: 'Valore punto (€)',
                               helperText: 'Conversione in sconto (es. 1 = 1€)',
                             ),
-                            keyboardType:
-                                const TextInputType.numberWithOptions(decimal: true),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -498,8 +498,9 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
                               labelText: 'Max sconto (%)',
                               helperText: 'Percentuale massima per transazione',
                             ),
-                            keyboardType:
-                                const TextInputType.numberWithOptions(decimal: true),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
                           ),
                         ),
                       ],
@@ -507,10 +508,13 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
                     const SizedBox(height: 12),
                     SwitchListTile.adaptive(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('Suggerisci automaticamente punti da usare'),
+                      title: const Text(
+                        'Suggerisci automaticamente punti da usare',
+                      ),
                       value: _loyaltyAutoSuggest,
                       onChanged:
-                          (value) => setState(() => _loyaltyAutoSuggest = value),
+                          (value) =>
+                              setState(() => _loyaltyAutoSuggest = value),
                     ),
                     const SizedBox(height: 12),
                     Row(
@@ -521,8 +525,9 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
                             decoration: const InputDecoration(
                               labelText: 'Saldo iniziale punti',
                             ),
-                            keyboardType:
-                                const TextInputType.numberWithOptions(decimal: false),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: false,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -532,8 +537,9 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
                             decoration: const InputDecoration(
                               labelText: 'Mese reset (1-12)',
                             ),
-                            keyboardType:
-                                const TextInputType.numberWithOptions(decimal: false),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: false,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -543,8 +549,9 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
                             decoration: const InputDecoration(
                               labelText: 'Giorno reset (1-31)',
                             ),
-                            keyboardType:
-                                const TextInputType.numberWithOptions(decimal: false),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: false,
+                            ),
                           ),
                         ),
                       ],
@@ -601,7 +608,9 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
     }
 
     final maxPercentInput = parseDouble(_loyaltyMaxPercent.text);
-    if (maxPercentInput == null || maxPercentInput <= 0 || maxPercentInput > 50) {
+    if (maxPercentInput == null ||
+        maxPercentInput <= 0 ||
+        maxPercentInput > 50) {
       _showError('Lo sconto massimo deve essere compreso tra 1% e 50%.');
       return null;
     }
@@ -625,9 +634,10 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
       return null;
     }
 
-    final timezone = _loyaltyTimezone.text.trim().isEmpty
-        ? 'Europe/Rome'
-        : _loyaltyTimezone.text.trim();
+    final timezone =
+        _loyaltyTimezone.text.trim().isEmpty
+            ? 'Europe/Rome'
+            : _loyaltyTimezone.text.trim();
 
     return LoyaltySettings(
       enabled: true,

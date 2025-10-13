@@ -63,7 +63,9 @@ class _SalonRoomsSheetState extends State<SalonRoomsSheet> {
       final capacity = int.tryParse(room.capacity.text.trim()) ?? 0;
       if (capacity <= 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('La capienza deve essere maggiore di 0.')),
+          const SnackBar(
+            content: Text('La capienza deve essere maggiore di 0.'),
+          ),
         );
         return;
       }
@@ -79,7 +81,9 @@ class _SalonRoomsSheetState extends State<SalonRoomsSheet> {
           name: room.name.text.trim(),
           capacity: capacity,
           category:
-              room.category.text.trim().isEmpty ? null : room.category.text.trim(),
+              room.category.text.trim().isEmpty
+                  ? null
+                  : room.category.text.trim(),
           services: services,
         ),
       );
@@ -215,7 +219,9 @@ class _RoomCard extends StatelessWidget {
             const SizedBox(height: 12),
             TextFormField(
               controller: data.category,
-              decoration: const InputDecoration(labelText: 'Categoria postazione'),
+              decoration: const InputDecoration(
+                labelText: 'Categoria postazione',
+              ),
             ),
             const SizedBox(height: 12),
             TextFormField(

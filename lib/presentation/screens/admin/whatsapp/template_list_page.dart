@@ -13,15 +13,16 @@ class WhatsAppTemplateListPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final data = ref.watch(appDataProvider);
-    final templates = data.messageTemplates
-        .where(
-          (template) =>
-              template.salonId == salonId &&
-              template.channel == MessageChannel.whatsapp,
-        )
-        .where((template) => template.title.trim().isNotEmpty)
-        .toList()
-      ..sort((a, b) => a.title.compareTo(b.title));
+    final templates =
+        data.messageTemplates
+            .where(
+              (template) =>
+                  template.salonId == salonId &&
+                  template.channel == MessageChannel.whatsapp,
+            )
+            .where((template) => template.title.trim().isNotEmpty)
+            .toList()
+          ..sort((a, b) => a.title.compareTo(b.title));
 
     if (templates.isEmpty) {
       return const Center(
@@ -83,7 +84,9 @@ class _TemplateCard extends ConsumerWidget {
                 Chip(
                   label: Text(template.isActive ? 'Attivo' : 'Disattivato'),
                   avatar: Icon(
-                    template.isActive ? Icons.check_circle_outline : Icons.pause_circle_outline,
+                    template.isActive
+                        ? Icons.check_circle_outline
+                        : Icons.pause_circle_outline,
                     size: 16,
                   ),
                 ),
@@ -156,26 +159,27 @@ class _TemplateCard extends ConsumerWidget {
   void _duplicateTemplate(BuildContext context, MessageTemplate template) {
     showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Duplicazione non ancora disponibile'),
-        content: const Text(
-          'Questo è uno stub: implementa la duplicazione e l’approvazione dei template direttamente dal backoffice Meta.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Capito'),
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Duplicazione non ancora disponibile'),
+            content: const Text(
+              'Questo è uno stub: implementa la duplicazione e l’approvazione dei template direttamente dal backoffice Meta.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Capito'),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
   void _copyTemplateId(BuildContext context, MessageTemplate template) {
     Clipboard.setData(ClipboardData(text: template.id));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('ID template copiato.')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('ID template copiato.')));
   }
 }
 

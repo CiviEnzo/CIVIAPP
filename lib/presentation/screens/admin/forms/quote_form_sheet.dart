@@ -44,12 +44,10 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
     _titleController = TextEditingController(text: initial?.title ?? '');
     _notesController = TextEditingController(text: initial?.notes ?? '');
     _validUntil = initial?.validUntil;
-    _quoteNumber =
-        initial?.number ?? nextQuoteNumber(widget.existingQuotes);
-    _items =
-        (initial?.items ?? const <QuoteItem>[])
-            .map(_QuoteItemFormData.fromQuoteItem)
-            .toList(growable: true);
+    _quoteNumber = initial?.number ?? nextQuoteNumber(widget.existingQuotes);
+    _items = (initial?.items ?? const <QuoteItem>[])
+        .map(_QuoteItemFormData.fromQuoteItem)
+        .toList(growable: true);
     if (_items.isEmpty) {
       _items.add(_QuoteItemFormData.empty());
     }
@@ -66,16 +64,12 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
   }
 
   double _computeTotal() {
-    return _items.fold<double>(
-      0,
-      (sum, item) => sum + item.estimateTotal,
-    );
+    return _items.fold<double>(0, (sum, item) => sum + item.estimateTotal);
   }
 
   Future<void> _pickValidUntil() async {
     final now = DateTime.now();
-    final initialDate =
-        _validUntil ?? now.add(const Duration(days: 30));
+    final initialDate = _validUntil ?? now.add(const Duration(days: 30));
     final picked = await showDatePicker(
       context: context,
       initialDate: initialDate,
@@ -123,7 +117,10 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
     }
 
     final items =
-        _items.map((item) => item.toQuoteItem()).whereType<QuoteItem>().toList();
+        _items
+            .map((item) => item.toQuoteItem())
+            .whereType<QuoteItem>()
+            .toList();
     if (items.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Aggiungi almeno una voce.')),
@@ -194,7 +191,9 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
                     IconButton(
                       tooltip: 'Chiudi',
                       onPressed:
-                          _saving ? null : () => Navigator.of(context).maybePop(),
+                          _saving
+                              ? null
+                              : () => Navigator.of(context).maybePop(),
                       icon: const Icon(Icons.close_rounded),
                     ),
                   ],
@@ -248,23 +247,20 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                Text(
-                  'Voci preventivo',
-                  style: theme.textTheme.titleMedium,
-                ),
+                Text('Voci preventivo', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 8),
                 for (var index = 0; index < _items.length; index += 1)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: _QuoteItemCard(
-                        data: _items[index],
-                        index: index,
-                        services: widget.services,
-                        packages: widget.packages,
-                        onChanged: () => setState(() {}),
-                        onRemove: _saving ? null : () => _removeItem(index),
-                        currency: _numberFormat,
-                      ),
+                    child: _QuoteItemCard(
+                      data: _items[index],
+                      index: index,
+                      services: widget.services,
+                      packages: widget.packages,
+                      onChanged: () => setState(() {}),
+                      onRemove: _saving ? null : () => _removeItem(index),
+                      currency: _numberFormat,
+                    ),
                   ),
                 Align(
                   alignment: Alignment.centerLeft,
@@ -287,7 +283,9 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
                   children: [
                     TextButton(
                       onPressed:
-                          _saving ? null : () => Navigator.of(context).maybePop(),
+                          _saving
+                              ? null
+                              : () => Navigator.of(context).maybePop(),
                       child: const Text('Annulla'),
                     ),
                     const SizedBox(width: 12),
@@ -298,7 +296,9 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
                               ? const SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                               : const Text('Salva'),
                     ),
@@ -335,8 +335,9 @@ class _QuoteItemCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final activeServices =
-        services.where((service) => service.isActive).toList(growable: false);
+    final activeServices = services
+        .where((service) => service.isActive)
+        .toList(growable: false);
     final availablePackages = packages.toList(growable: false);
 
     final dropdownItems = <DropdownMenuItem<String?>>[
@@ -375,10 +376,7 @@ class _QuoteItemCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Text(
-                  'Voce ${index + 1}',
-                  style: theme.textTheme.titleSmall,
-                ),
+                Text('Voce ${index + 1}', style: theme.textTheme.titleSmall),
                 const Spacer(),
                 IconButton(
                   tooltip: 'Rimuovi voce',
@@ -409,8 +407,8 @@ class _QuoteItemCard extends StatelessWidget {
                         );
                         if (matched != null) {
                           data.descriptionController.text = matched.name;
-                          data.unitPriceController.text =
-                              matched.price.toStringAsFixed(2);
+                          data.unitPriceController.text = matched.price
+                              .toStringAsFixed(2);
                         }
                       } else if (type == 'package') {
                         data.packageId = id;
@@ -419,8 +417,8 @@ class _QuoteItemCard extends StatelessWidget {
                         );
                         if (matched != null) {
                           data.descriptionController.text = matched.name;
-                          data.unitPriceController.text =
-                              matched.price.toStringAsFixed(2);
+                          data.unitPriceController.text = matched.price
+                              .toStringAsFixed(2);
                         }
                       }
                     }
@@ -456,8 +454,9 @@ class _QuoteItemCard extends StatelessWidget {
                   child: TextFormField(
                     controller: data.quantityController,
                     decoration: const InputDecoration(labelText: 'Quantità'),
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     validator: (value) {
                       final parsed = double.tryParse(
                         (value ?? '').replaceAll(',', '.'),
@@ -478,8 +477,9 @@ class _QuoteItemCard extends StatelessWidget {
                       labelText: 'Prezzo unitario',
                       prefixText: '€ ',
                     ),
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     validator: (value) {
                       final parsed = double.tryParse(
                         (value ?? '').replaceAll(',', '.'),
@@ -564,14 +564,10 @@ class _QuoteItemFormData {
     if (description.isEmpty) {
       return null;
     }
-    final quantity = double.tryParse(
-          quantityController.text.replaceAll(',', '.'),
-        ) ??
-        0;
-    final unitPrice = double.tryParse(
-          unitPriceController.text.replaceAll(',', '.'),
-        ) ??
-        0;
+    final quantity =
+        double.tryParse(quantityController.text.replaceAll(',', '.')) ?? 0;
+    final unitPrice =
+        double.tryParse(unitPriceController.text.replaceAll(',', '.')) ?? 0;
     if (quantity <= 0) {
       return null;
     }

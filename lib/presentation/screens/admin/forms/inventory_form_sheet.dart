@@ -37,12 +37,21 @@ class _InventoryFormSheetState extends State<InventoryFormSheet> {
     final initial = widget.initial;
     _name = TextEditingController(text: initial?.name ?? '');
     _category = TextEditingController(text: initial?.category ?? '');
-    _quantity = TextEditingController(text: initial?.quantity.toString() ?? '0');
+    _quantity = TextEditingController(
+      text: initial?.quantity.toString() ?? '0',
+    );
     _unit = TextEditingController(text: initial?.unit ?? 'pz');
-    _threshold = TextEditingController(text: initial?.threshold.toString() ?? '0');
+    _threshold = TextEditingController(
+      text: initial?.threshold.toString() ?? '0',
+    );
     _cost = TextEditingController(text: initial?.cost.toString() ?? '0');
-    _price = TextEditingController(text: initial?.sellingPrice.toString() ?? '0');
-    _salonId = initial?.salonId ?? widget.defaultSalonId ?? (widget.salons.isNotEmpty ? widget.salons.first.id : null);
+    _price = TextEditingController(
+      text: initial?.sellingPrice.toString() ?? '0',
+    );
+    _salonId =
+        initial?.salonId ??
+        widget.defaultSalonId ??
+        (widget.salons.isNotEmpty ? widget.salons.first.id : null);
   }
 
   @override
@@ -75,20 +84,25 @@ class _InventoryFormSheetState extends State<InventoryFormSheet> {
             TextFormField(
               controller: _name,
               decoration: const InputDecoration(labelText: 'Nome'),
-              validator: (value) => value == null || value.trim().isEmpty ? 'Inserisci il nome' : null,
+              validator:
+                  (value) =>
+                      value == null || value.trim().isEmpty
+                          ? 'Inserisci il nome'
+                          : null,
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               value: _salonId,
               decoration: const InputDecoration(labelText: 'Salone'),
-              items: widget.salons
-                  .map(
-                    (salon) => DropdownMenuItem(
-                      value: salon.id,
-                      child: Text(salon.name),
-                    ),
-                  )
-                  .toList(),
+              items:
+                  widget.salons
+                      .map(
+                        (salon) => DropdownMenuItem(
+                          value: salon.id,
+                          child: Text(salon.name),
+                        ),
+                      )
+                      .toList(),
               onChanged: (value) => setState(() => _salonId = value),
             ),
             const SizedBox(height: 12),
@@ -100,7 +114,9 @@ class _InventoryFormSheetState extends State<InventoryFormSheet> {
             TextFormField(
               controller: _quantity,
               decoration: const InputDecoration(labelText: 'Quantità'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -111,19 +127,29 @@ class _InventoryFormSheetState extends State<InventoryFormSheet> {
             TextFormField(
               controller: _threshold,
               decoration: const InputDecoration(labelText: 'Soglia minima'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _cost,
-              decoration: const InputDecoration(labelText: 'Costo unitario (€)'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Costo unitario (€)',
+              ),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _price,
-              decoration: const InputDecoration(labelText: 'Prezzo vendita (€)'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Prezzo vendita (€)',
+              ),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
             ),
             const SizedBox(height: 24),
             Align(
@@ -144,9 +170,9 @@ class _InventoryFormSheetState extends State<InventoryFormSheet> {
       return;
     }
     if (_salonId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Seleziona un salone')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Seleziona un salone')));
       return;
     }
 
@@ -154,7 +180,8 @@ class _InventoryFormSheetState extends State<InventoryFormSheet> {
       id: widget.initial?.id ?? _uuid.v4(),
       salonId: _salonId!,
       name: _name.text.trim(),
-      category: _category.text.trim().isEmpty ? 'Magazzino' : _category.text.trim(),
+      category:
+          _category.text.trim().isEmpty ? 'Magazzino' : _category.text.trim(),
       quantity: double.tryParse(_quantity.text.replaceAll(',', '.')) ?? 0,
       unit: _unit.text.trim().isEmpty ? 'pz' : _unit.text.trim(),
       threshold: double.tryParse(_threshold.text.replaceAll(',', '.')) ?? 0,

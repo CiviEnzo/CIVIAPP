@@ -34,6 +34,45 @@ Salon salonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final featureFlagsRaw = _mapFromDynamic(
     data['featureFlags'] ?? data['features'],
   );
+  final stripeAccountRaw = _mapFromDynamic(data['stripeAccount']);
+  final stripeRequirementsRaw = _mapFromDynamic(
+    stripeAccountRaw['requirements'],
+  );
+  final currentlyDueRaw =
+      (stripeRequirementsRaw['currentlyDue'] as List<dynamic>? ??
+          stripeAccountRaw['currentlyDue'] as List<dynamic>? ??
+          const <dynamic>[]);
+  final pastDueRaw =
+      (stripeRequirementsRaw['pastDue'] as List<dynamic>? ??
+          stripeAccountRaw['pastDue'] as List<dynamic>? ??
+          const <dynamic>[]);
+  final eventuallyDueRaw =
+      (stripeRequirementsRaw['eventuallyDue'] as List<dynamic>? ??
+          stripeAccountRaw['eventuallyDue'] as List<dynamic>? ??
+          const <dynamic>[]);
+  final stripeAccount = StripeAccountSnapshot(
+    chargesEnabled: _coerceToBool(stripeAccountRaw['chargesEnabled']),
+    payoutsEnabled: _coerceToBool(stripeAccountRaw['payoutsEnabled']),
+    detailsSubmitted: _coerceToBool(stripeAccountRaw['detailsSubmitted']),
+    currentlyDue: currentlyDueRaw
+        .map((value) => value.toString())
+        .toList(growable: false),
+    pastDue: pastDueRaw
+        .map((value) => value.toString())
+        .toList(growable: false),
+    eventuallyDue: eventuallyDueRaw
+        .map((value) => value.toString())
+        .toList(growable: false),
+    disabledReason:
+        (stripeRequirementsRaw['disabledReason'] as String?) ??
+        stripeAccountRaw['disabledReason'] as String?,
+    createdAt: _timestampToDate(
+      stripeAccountRaw['createdAt'] ?? stripeRequirementsRaw['createdAt'],
+    ),
+    updatedAt: _timestampToDate(
+      stripeAccountRaw['updatedAt'] ?? stripeRequirementsRaw['updatedAt'],
+    ),
+  );
   return Salon(
     id: doc.id,
     name: data['name'] as String? ?? '',
@@ -84,6 +123,8 @@ Salon salonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
             .toList(),
     loyaltySettings: _mapToLoyaltySettings(loyaltyRaw),
     featureFlags: SalonFeatureFlags.fromMap(featureFlagsRaw),
+    stripeAccountId: data['stripeAccountId'] as String?,
+    stripeAccount: stripeAccount,
   );
 }
 
@@ -154,6 +195,23 @@ Map<String, dynamic> salonToMap(Salon salon) {
   }
 
   map['featureFlags'] = salon.featureFlags.toMap();
+  if (salon.stripeAccountId != null) {
+    map['stripeAccountId'] = salon.stripeAccountId;
+  }
+  map['stripeAccount'] = {
+    'chargesEnabled': salon.stripeAccount.chargesEnabled,
+    'payoutsEnabled': salon.stripeAccount.payoutsEnabled,
+    'detailsSubmitted': salon.stripeAccount.detailsSubmitted,
+    'currentlyDue': salon.stripeAccount.currentlyDue,
+    'pastDue': salon.stripeAccount.pastDue,
+    'eventuallyDue': salon.stripeAccount.eventuallyDue,
+    if (salon.stripeAccount.disabledReason != null)
+      'disabledReason': salon.stripeAccount.disabledReason,
+    if (salon.stripeAccount.createdAt != null)
+      'createdAt': Timestamp.fromDate(salon.stripeAccount.createdAt!),
+    if (salon.stripeAccount.updatedAt != null)
+      'updatedAt': Timestamp.fromDate(salon.stripeAccount.updatedAt!),
+  };
 
   return map;
 }
@@ -660,6 +718,7 @@ Client clientFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     referralSource: data['referralSource'] as String?,
     email: data['email'] as String?,
     notes: data['notes'] as String?,
+    stripeCustomerId: data['stripeCustomerId'] as String?,
     loyaltyInitialPoints: (data['loyaltyInitialPoints'] as num?)?.toInt() ?? 0,
     loyaltyPoints: (data['loyaltyPoints'] as num?)?.toInt() ?? 0,
     loyaltyUpdatedAt: _timestampToDate(data['loyaltyUpdatedAt']),
@@ -753,6 +812,10 @@ Map<String, dynamic> clientToMap(Client client) {
     },
     'invitationStatus': client.onboardingStatus.name,
   };
+
+  if (client.stripeCustomerId != null) {
+    map['stripeCustomerId'] = client.stripeCustomerId;
+  }
 
   if (client.invitationSentAt != null) {
     map['invitationSentAt'] = Timestamp.fromDate(client.invitationSentAt!);

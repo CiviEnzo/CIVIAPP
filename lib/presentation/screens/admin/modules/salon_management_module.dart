@@ -3,9 +3,12 @@ import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/presentation/branding/admin/branding_admin_page.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:civiapp/presentation/screens/admin/forms/salon_form_sheet.dart';
+import 'package:civiapp/services/payments/stripe_connect_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class SalonManagementModule extends ConsumerWidget {
   const SalonManagementModule({super.key, this.selectedSalonId});
@@ -162,6 +165,8 @@ class SalonManagementModule extends ConsumerWidget {
                 const SizedBox(height: 16),
                 _SalonStats(salon: salon),
                 const SizedBox(height: 12),
+                _StripeConnectSection(salon: salon),
+                const SizedBox(height: 12),
                 _BrandingActions(salonId: salon.id),
                 const SizedBox(height: 12),
                 _EquipmentList(equipment: salon.equipment),
@@ -221,6 +226,330 @@ class _SalonStats extends ConsumerWidget {
           value: upcomingAppointments.toString(),
         ),
       ],
+    );
+  }
+}
+
+class _StripeConnectSection extends ConsumerStatefulWidget {
+  const _StripeConnectSection({required this.salon});
+
+  final Salon salon;
+
+  @override
+  ConsumerState<_StripeConnectSection> createState() =>
+      _StripeConnectSectionState();
+}
+
+class _StripeConnectSectionState extends ConsumerState<_StripeConnectSection> {
+  bool _isCreatingAccount = false;
+  bool _isGeneratingLink = false;
+
+  static const _defaultReturnUrl =
+      'https://civiapp.app/stripe/onboarding/success';
+  static const _defaultRefreshUrl =
+      'https://civiapp.app/stripe/onboarding/retry';
+
+  @override
+  Widget build(BuildContext context) {
+    final salon = widget.salon;
+    final theme = Theme.of(context);
+    final accountId = salon.stripeAccountId;
+    final accountSnapshot = salon.stripeAccount;
+    final chargesEnabled = accountSnapshot.chargesEnabled;
+    final payoutsEnabled = accountSnapshot.payoutsEnabled;
+    final detailsSubmitted = accountSnapshot.detailsSubmitted;
+
+    final statusText =
+        accountId == null
+            ? 'Account non collegato'
+            : chargesEnabled
+            ? 'Pagamenti attivi'
+            : 'In attesa di verifica';
+
+    final statusColor =
+        accountId == null
+            ? theme.colorScheme.error
+            : chargesEnabled
+            ? theme.colorScheme.primary
+            : theme.colorScheme.secondary;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('Pagamenti Stripe', style: theme.textTheme.titleMedium),
+            const SizedBox(width: 12),
+            Chip(
+              label: Text(statusText),
+              avatar: Icon(
+                chargesEnabled
+                    ? Icons.verified_rounded
+                    : accountId == null
+                    ? Icons.warning_amber_rounded
+                    : Icons.pending_actions_rounded,
+              ),
+              backgroundColor: statusColor.withOpacity(0.12),
+              labelStyle: theme.textTheme.labelSmall?.copyWith(
+                color: statusColor,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            if (accountId != null)
+              ActionChip(
+                avatar: const Icon(Icons.copy, size: 16),
+                label: Text(accountId),
+                tooltip: 'Copia ID account',
+                onPressed: () => _copyToClipboard(context, accountId),
+              ),
+            ActionChip(
+              avatar: Icon(
+                chargesEnabled
+                    ? Icons.check_circle_outline
+                    : Icons.payment_rounded,
+              ),
+              label: Text(
+                chargesEnabled
+                    ? 'Transazioni abilitate'
+                    : 'Transazioni disabilitate',
+              ),
+              onPressed: null,
+            ),
+            if (accountId != null)
+              ActionChip(
+                avatar: Icon(
+                  payoutsEnabled
+                      ? Icons.account_balance_wallet_rounded
+                      : Icons.savings_rounded,
+                ),
+                label: Text(
+                  payoutsEnabled ? 'Bonifici attivi' : 'Bonifici da abilitare',
+                ),
+                onPressed: null,
+              ),
+            if (accountId != null)
+              ActionChip(
+                avatar: Icon(
+                  detailsSubmitted
+                      ? Icons.assignment_turned_in_rounded
+                      : Icons.assignment_late_rounded,
+                ),
+                label: Text(
+                  detailsSubmitted
+                      ? 'Dati fiscali completi'
+                      : 'Completa l\'onboarding',
+                ),
+                onPressed: null,
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            if (accountId == null)
+              FilledButton.icon(
+                onPressed:
+                    _isCreatingAccount
+                        ? null
+                        : () => _handleCreateAccount(context),
+                icon:
+                    _isCreatingAccount
+                        ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                        : const Icon(Icons.link_rounded),
+                label: Text(
+                  _isCreatingAccount
+                      ? 'Creazione in corso...'
+                      : 'Crea account Stripe Connect',
+                ),
+              )
+            else ...[
+              FilledButton.icon(
+                onPressed:
+                    _isGeneratingLink
+                        ? null
+                        : () => _handleOnboardingLink(context),
+                icon:
+                    _isGeneratingLink
+                        ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                        : const Icon(Icons.login_rounded),
+                label: Text(
+                  _isGeneratingLink
+                      ? 'Generazione link...'
+                      : 'Apri onboarding Stripe',
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed:
+                    accountId.isEmpty
+                        ? null
+                        : () => _copyToClipboard(context, accountId),
+                icon: const Icon(Icons.copy_outlined),
+                label: const Text('Copia ID account'),
+              ),
+            ],
+            TextButton.icon(
+              onPressed:
+                  () => launchUrl(
+                    Uri.parse(
+                      'https://support.stripe.com/questions/express-dashboard-overview',
+                    ),
+                    mode: LaunchMode.externalApplication,
+                  ),
+              icon: const Icon(Icons.help_outline_rounded),
+              label: const Text('Guida Stripe Connect'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Future<void> _handleCreateAccount(BuildContext context) async {
+    final salon = widget.salon;
+    final email = await _promptForEmail(context, salon.email);
+    if (email == null) {
+      return;
+    }
+    setState(() => _isCreatingAccount = true);
+    try {
+      final service = ref.read(stripeConnectServiceProvider);
+      await service.createAccount(email: email, salonId: salon.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Account Stripe creato per $email. Completa l\'onboarding.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Errore durante la creazione dell\'account: $error'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isCreatingAccount = false);
+      }
+    }
+  }
+
+  Future<void> _handleOnboardingLink(BuildContext context) async {
+    final salon = widget.salon;
+    final accountId = salon.stripeAccountId;
+    if (accountId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nessun account Stripe collegato.')),
+      );
+      return;
+    }
+    setState(() => _isGeneratingLink = true);
+    try {
+      final service = ref.read(stripeConnectServiceProvider);
+      final url = await service.createOnboardingLink(
+        salonId: salon.id,
+        accountId: accountId,
+        returnUrl: _defaultReturnUrl,
+        refreshUrl: _defaultRefreshUrl,
+      );
+      if (!mounted) return;
+      final launched = await launchUrl(
+        url,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Impossibile aprire il link Stripe.')),
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Errore durante la generazione del link: $error'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isGeneratingLink = false);
+      }
+    }
+  }
+
+  Future<String?> _promptForEmail(
+    BuildContext context,
+    String? defaultEmail,
+  ) async {
+    final controller = TextEditingController(text: defaultEmail);
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        final formKey = GlobalKey<FormState>();
+        return AlertDialog(
+          title: const Text('Collega Stripe Connect'),
+          content: Form(
+            key: formKey,
+            child: TextFormField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: 'Email a cui intestare l\'account Stripe',
+              ),
+              autofocus: true,
+              validator: (value) {
+                final text = value?.trim() ?? '';
+                if (text.isEmpty) {
+                  return 'Inserisci un indirizzo email valido';
+                }
+                final emailRegex = RegExp(r'^[^@]+@[^@]+\.[^@]+');
+                if (!emailRegex.hasMatch(text)) {
+                  return 'Formato email non valido';
+                }
+                return null;
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Annulla'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (formKey.currentState?.validate() ?? false) {
+                  Navigator.of(dialogContext).pop(controller.text.trim());
+                }
+              },
+              child: const Text('Continua'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _copyToClipboard(BuildContext context, String value) async {
+    await Clipboard.setData(ClipboardData(text: value));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('ID account copiato negli appunti')),
     );
   }
 }

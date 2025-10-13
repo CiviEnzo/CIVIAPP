@@ -87,9 +87,10 @@ class EquipmentAvailabilityChecker {
 
     final usageCount = <String, int>{};
     for (final appointment in overlappingAppointments) {
-      final serviceIds = appointment.serviceIds.isNotEmpty
-          ? appointment.serviceIds
-          : [appointment.serviceId];
+      final serviceIds =
+          appointment.serviceIds.isNotEmpty
+              ? appointment.serviceIds
+              : [appointment.serviceId];
       for (final serviceId in serviceIds) {
         final existingService = servicesById[serviceId];
         if (existingService == null) {

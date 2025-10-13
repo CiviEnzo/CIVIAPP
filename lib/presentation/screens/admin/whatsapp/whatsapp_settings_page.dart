@@ -5,10 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 
 class WhatsAppSettingsPage extends ConsumerWidget {
-  const WhatsAppSettingsPage({
-    super.key,
-    required this.salonId,
-  });
+  const WhatsAppSettingsPage({super.key, required this.salonId});
 
   final String salonId;
 
@@ -33,9 +30,7 @@ class WhatsAppSettingsPage extends ConsumerWidget {
                 isConfigured: isConfigured,
                 onConnect: () => _handleConnect(context, ref),
                 onDisconnect:
-                    isConfigured
-                        ? () => _handleDisconnect(context, ref)
-                        : null,
+                    isConfigured ? () => _handleDisconnect(context, ref) : null,
               ),
               const SizedBox(height: 16),
               _InfoCard(
@@ -49,10 +44,7 @@ class WhatsAppSettingsPage extends ConsumerWidget {
                     label: 'Business Manager ID',
                     value: _mask(config?.businessId),
                   ),
-                  _InfoTile(
-                    label: 'WABA ID',
-                    value: _mask(config?.wabaId),
-                  ),
+                  _InfoTile(label: 'WABA ID', value: _mask(config?.wabaId)),
                   _InfoTile(
                     label: 'Phone Number ID',
                     value: config?.phoneNumberId ?? '—',
@@ -71,9 +63,8 @@ class WhatsAppSettingsPage extends ConsumerWidget {
                   ),
                   _InfoTile(
                     label: 'Ultimo aggiornamento',
-                    value: updatedAt != null
-                        ? updatedAt.toIso8601String()
-                        : '—',
+                    value:
+                        updatedAt != null ? updatedAt.toIso8601String() : '—',
                   ),
                 ],
               ),
@@ -87,9 +78,9 @@ class WhatsAppSettingsPage extends ConsumerWidget {
                   const SizedBox(height: 8),
                   SelectableText(
                     sendEndpoint,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontFamily: 'monospace',
-                    ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodyMedium?.copyWith(fontFamily: 'monospace'),
                   ),
                   const SizedBox(height: 12),
                   TextButton.icon(
@@ -112,7 +103,9 @@ class WhatsAppSettingsPage extends ConsumerWidget {
       await ref.read(whatsappServiceProvider).openOAuthFlow(salonId);
       scaffold.showSnackBar(
         const SnackBar(
-          content: Text('Richiesta di collegamento avviata. Completa il flow nel browser.'),
+          content: Text(
+            'Richiesta di collegamento avviata. Completa il flow nel browser.',
+          ),
         ),
       );
     } on Exception catch (error) {
@@ -126,22 +119,23 @@ class WhatsAppSettingsPage extends ConsumerWidget {
     final scaffold = ScaffoldMessenger.of(context);
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Disconnetti WhatsApp'),
-        content: const Text(
-          'Sei sicuro di voler scollegare il numero WhatsApp del salone? Dovrai ripetere l\'onboarding per inviare nuovi messaggi.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Annulla'),
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Disconnetti WhatsApp'),
+            content: const Text(
+              'Sei sicuro di voler scollegare il numero WhatsApp del salone? Dovrai ripetere l\'onboarding per inviare nuovi messaggi.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Annulla'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Disconnetti'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Disconnetti'),
-          ),
-        ],
-      ),
     );
 
     if (confirm != true) {
@@ -164,8 +158,9 @@ class WhatsAppSettingsPage extends ConsumerWidget {
     if (endpoint == 'Non configurato') {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content:
-              Text('Configura SEND_ENDPOINT con --dart-define o Firebase Remote Config.'),
+          content: Text(
+            'Configura SEND_ENDPOINT con --dart-define o Firebase Remote Config.',
+          ),
         ),
       );
       return;
@@ -213,18 +208,18 @@ class _SettingsHeader extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Stato integrazione',
-                  style: theme.textTheme.titleLarge,
-                ),
+                Text('Stato integrazione', style: theme.textTheme.titleLarge),
                 Chip(
                   label: Text(isConfigured ? 'Collegato' : 'Da configurare'),
                   backgroundColor:
-                      isConfigured ? colorScheme.primaryContainer : colorScheme.surfaceVariant,
+                      isConfigured
+                          ? colorScheme.primaryContainer
+                          : colorScheme.surfaceVariant,
                   labelStyle: theme.textTheme.bodyMedium?.copyWith(
-                    color: isConfigured
-                        ? colorScheme.onPrimaryContainer
-                        : colorScheme.onSurfaceVariant,
+                    color:
+                        isConfigured
+                            ? colorScheme.onPrimaryContainer
+                            : colorScheme.onSurfaceVariant,
                   ),
                 ),
               ],
@@ -243,7 +238,9 @@ class _SettingsHeader extends StatelessWidget {
                 FilledButton.icon(
                   onPressed: onConnect,
                   icon: const Icon(Icons.link_rounded),
-                  label: Text(isConfigured ? 'Ricollega account' : 'Collega account'),
+                  label: Text(
+                    isConfigured ? 'Ricollega account' : 'Collega account',
+                  ),
                 ),
                 if (onDisconnect != null)
                   OutlinedButton.icon(
@@ -308,12 +305,7 @@ class _InfoTile extends StatelessWidget {
               ),
             ),
           ),
-          Expanded(
-            child: Text(
-              value,
-              style: theme.textTheme.bodyLarge,
-            ),
-          ),
+          Expanded(child: Text(value, style: theme.textTheme.bodyLarge)),
         ],
       ),
     );
@@ -340,10 +332,7 @@ class _ErrorState extends StatelessWidget {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
-            Text(
-              '$error',
-              textAlign: TextAlign.center,
-            ),
+            Text('$error', textAlign: TextAlign.center),
           ],
         ),
       ),

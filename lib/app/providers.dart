@@ -6,8 +6,12 @@ import 'package:civiapp/data/repositories/app_data_state.dart';
 import 'package:civiapp/data/repositories/app_data_store.dart';
 import 'package:civiapp/data/repositories/auth_repository.dart';
 import 'package:civiapp/data/storage/firebase_storage_service.dart';
+import 'package:civiapp/domain/cart/cart_controller.dart';
+import 'package:civiapp/domain/cart/cart_models.dart';
 import 'package:civiapp/domain/entities/client_photo.dart';
 import 'package:civiapp/domain/entities/user_role.dart';
+import 'package:civiapp/services/payments/stripe_payments_service.dart';
+import 'package:civiapp/services/payments/stripe_connect_service.dart';
 import 'package:civiapp/services/whatsapp_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -76,7 +80,18 @@ final whatsappServiceProvider = Provider<WhatsAppService>((ref) {
   return service;
 });
 
-final whatsappConfigProvider = StreamProvider.family<WhatsAppConfig?, String>((ref, salonId) {
+final stripePaymentsServiceProvider = Provider<StripePaymentsService>((ref) {
+  return StripePaymentsService();
+});
+
+final stripeConnectServiceProvider = Provider<StripeConnectService>((ref) {
+  return StripeConnectService();
+});
+
+final whatsappConfigProvider = StreamProvider.family<WhatsAppConfig?, String>((
+  ref,
+  salonId,
+) {
   final service = ref.watch(whatsappServiceProvider);
   return service.watchConfig(salonId);
 });
@@ -128,22 +143,31 @@ final salonThemeProvider = Provider.autoDispose((ref) {
   );
 });
 
-final clientPhotosProvider =
-    Provider.family<List<ClientPhoto>, String?>((ref, clientId) {
-      final photos = ref.watch(
-        appDataProvider.select((state) => state.clientPhotos),
-      );
-      if (clientId == null || clientId.isEmpty) {
-        return const <ClientPhoto>[];
-      }
-      return photos
-          .where((photo) => photo.clientId == clientId)
-          .toList(growable: false);
-    });
+final clientPhotosProvider = Provider.family<List<ClientPhoto>, String?>((
+  ref,
+  clientId,
+) {
+  final photos = ref.watch(
+    appDataProvider.select((state) => state.clientPhotos),
+  );
+  if (clientId == null || clientId.isEmpty) {
+    return const <ClientPhoto>[];
+  }
+  return photos
+      .where((photo) => photo.clientId == clientId)
+      .toList(growable: false);
+});
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   return createRouter(ref);
 });
+
+final cartControllerProvider = StateNotifierProvider<CartController, CartState>(
+  (ref) {
+    final paymentsService = ref.watch(stripePaymentsServiceProvider);
+    return CartController(paymentsService: paymentsService);
+  },
+);
 
 class SessionState {
   const SessionState({this.user, this.selectedSalonId, this.selectedEntityId});

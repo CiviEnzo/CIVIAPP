@@ -62,7 +62,8 @@ class AppUser {
       salonIds = salonIdsRaw.map((e) => e.toString()).toList();
     } else {
       final singleSalon = data['salonId']?.toString();
-      salonIds = singleSalon == null || singleSalon.isEmpty ? const [] : [singleSalon];
+      salonIds =
+          singleSalon == null || singleSalon.isEmpty ? const [] : [singleSalon];
     }
 
     return AppUser(
@@ -74,13 +75,18 @@ class AppUser {
       displayName: data['displayName'] as String?,
       email: data['email'] as String?,
       availableRoles: _parseAvailableRoles(
-        rawRoles: data['roles'] ?? data['availableRoles'] ?? data['allowedRoles'],
+        rawRoles:
+            data['roles'] ?? data['availableRoles'] ?? data['allowedRoles'],
         fallbackRole: role,
       ),
     );
   }
 
-  factory AppUser.placeholder(String uid, {String? email, String? displayName}) {
+  factory AppUser.placeholder(
+    String uid, {
+    String? email,
+    String? displayName,
+  }) {
     return AppUser(
       uid: uid,
       role: null,

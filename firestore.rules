@@ -130,6 +130,10 @@ service cloud.firestore {
           : null;
     }
 
+    function isCartStatusEditable(status) {
+      return status is string && ['pending', 'submitted', 'failed'].hasAny([status]);
+    }
+
     function quoteDecisionAllowedForClient() {
       return resource != null && resource.data != null &&
           resource.data.clientId is string &&
@@ -573,6 +577,41 @@ service cloud.firestore {
       allow create, update, delete: if isSignedIn() && (
         (requestSalonId() != null && canManageSalonDocument(requestSalonId())) ||
         (requestSalonId() == null && resourceSalonId() != null && canManageSalonDocument(resourceSalonId()))
+      );
+    }
+
+    match /carts/{cartId} {
+      allow read: if isSignedIn() && (
+        (resource != null && resource.data != null && resource.data.clientId is string &&
+            isOwnClient(resource.data.clientId)) ||
+        (resourceSalonId() != null && canManageSalonDocument(resourceSalonId()))
+      );
+
+      allow create: if isSignedIn() && request.resource != null && request.resource.data != null &&
+        request.resource.data.clientId is string &&
+        request.resource.data.salonId is string &&
+        request.resource.data.status is string &&
+        ['pending', 'submitted'].hasAny([request.resource.data.status]) &&
+        isOwnClient(request.resource.data.clientId) &&
+        hasSalonAccess(request.resource.data.salonId);
+
+      allow update: if isSignedIn() && (
+        (resourceSalonId() != null && canManageSalonDocument(resourceSalonId())) ||
+        (
+          resource != null && resource.data != null &&
+          request.resource != null && request.resource.data != null &&
+          resource.data.clientId is string && request.resource.data.clientId == resource.data.clientId &&
+          resource.data.salonId is string && request.resource.data.salonId == resource.data.salonId &&
+          isOwnClient(resource.data.clientId) &&
+          isCartStatusEditable(resource.data.status) &&
+          isCartStatusEditable(request.resource.data.status)
+        )
+      );
+
+      allow delete: if isSignedIn() && (
+        (resourceSalonId() != null && canManageSalonDocument(resourceSalonId())) ||
+        (resource != null && resource.data != null && resource.data.clientId is string &&
+            isOwnClient(resource.data.clientId))
       );
     }
 

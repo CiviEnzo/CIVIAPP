@@ -86,16 +86,18 @@ class _MarketingModuleState extends ConsumerState<MarketingModule> {
                       "Mostra le promo attive nella schermata principale dell'app cliente.",
                     ),
                     value: featureFlags.clientPromotions,
-                    onChanged: salon == null
-                        ? null
-                        : (value) {
-                            final AppDataStore store =
-                                ref.read(appDataProvider.notifier);
-                            store.updateSalonFeatureFlags(
-                              salonId,
-                              featureFlags.copyWith(clientPromotions: value),
-                            );
-                          },
+                    onChanged:
+                        salon == null
+                            ? null
+                            : (value) {
+                              final AppDataStore store = ref.read(
+                                appDataProvider.notifier,
+                              );
+                              store.updateSalonFeatureFlags(
+                                salonId,
+                                featureFlags.copyWith(clientPromotions: value),
+                              );
+                            },
                   ),
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
@@ -104,16 +106,18 @@ class _MarketingModuleState extends ConsumerState<MarketingModule> {
                       'Permette ai clienti di vedere e prenotare le offerte last-minute.',
                     ),
                     value: featureFlags.clientLastMinute,
-                    onChanged: salon == null
-                        ? null
-                        : (value) {
-                            final AppDataStore store =
-                                ref.read(appDataProvider.notifier);
-                            store.updateSalonFeatureFlags(
-                              salonId,
-                              featureFlags.copyWith(clientLastMinute: value),
-                            );
-                          },
+                    onChanged:
+                        salon == null
+                            ? null
+                            : (value) {
+                              final AppDataStore store = ref.read(
+                                appDataProvider.notifier,
+                              );
+                              store.updateSalonFeatureFlags(
+                                salonId,
+                                featureFlags.copyWith(clientLastMinute: value),
+                              );
+                            },
                   ),
                 ],
               ),

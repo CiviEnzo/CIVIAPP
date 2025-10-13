@@ -10,7 +10,8 @@ class WhatsAppCampaignEditorPage extends ConsumerStatefulWidget {
   final String salonId;
 
   @override
-  ConsumerState<WhatsAppCampaignEditorPage> createState() => _WhatsAppCampaignEditorPageState();
+  ConsumerState<WhatsAppCampaignEditorPage> createState() =>
+      _WhatsAppCampaignEditorPageState();
 }
 
 class _WhatsAppCampaignEditorPageState
@@ -37,15 +38,16 @@ class _WhatsAppCampaignEditorPageState
   @override
   Widget build(BuildContext context) {
     final data = ref.watch(appDataProvider);
-    final templates = data.messageTemplates
-        .where(
-          (template) =>
-              template.salonId == widget.salonId &&
-              template.channel == MessageChannel.whatsapp &&
-              template.isActive,
-        )
-        .toList()
-      ..sort((a, b) => a.title.compareTo(b.title));
+    final templates =
+        data.messageTemplates
+            .where(
+              (template) =>
+                  template.salonId == widget.salonId &&
+                  template.channel == MessageChannel.whatsapp &&
+                  template.isActive,
+            )
+            .toList()
+          ..sort((a, b) => a.title.compareTo(b.title));
 
     return Form(
       key: _formKey,
@@ -75,8 +77,9 @@ class _WhatsAppCampaignEditorPageState
                       )
                       .toList(),
               onChanged: (value) => _onTemplateChanged(value),
-              validator: (value) =>
-                  value == null ? 'Seleziona un template approvato' : null,
+              validator:
+                  (value) =>
+                      value == null ? 'Seleziona un template approvato' : null,
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -87,10 +90,11 @@ class _WhatsAppCampaignEditorPageState
                 border: OutlineInputBorder(),
               ),
               keyboardType: TextInputType.phone,
-              validator: (value) =>
-                  value == null || value.trim().isEmpty
-                      ? 'Inserisci il numero del destinatario'
-                      : null,
+              validator:
+                  (value) =>
+                      value == null || value.trim().isEmpty
+                          ? 'Inserisci il numero del destinatario'
+                          : null,
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -99,10 +103,11 @@ class _WhatsAppCampaignEditorPageState
                 labelText: 'Lingua del template (es. it, en)',
                 border: OutlineInputBorder(),
               ),
-              validator: (value) =>
-                  value == null || value.trim().isEmpty
-                      ? 'Specifica la lingua approvata del template'
-                      : null,
+              validator:
+                  (value) =>
+                      value == null || value.trim().isEmpty
+                          ? 'Specifica la lingua approvata del template'
+                          : null,
             ),
             const SizedBox(height: 16),
             if (_placeholders.isNotEmpty)
@@ -127,10 +132,11 @@ class _WhatsAppCampaignEditorPageState
                               border: const OutlineInputBorder(),
                             ),
                             onChanged: (_) => setState(() {}),
-                            validator: (value) =>
-                                value == null || value.trim().isEmpty
-                                    ? 'Inserisci un valore per ${_placeholders[i]}'
-                                    : null,
+                            validator:
+                                (value) =>
+                                    value == null || value.trim().isEmpty
+                                        ? 'Inserisci un valore per ${_placeholders[i]}'
+                                        : null,
                           ),
                         ),
                     ],
@@ -157,14 +163,17 @@ class _WhatsAppCampaignEditorPageState
               alignment: Alignment.centerRight,
               child: FilledButton.icon(
                 onPressed: _isSending ? null : () => _sendCampaign(context),
-                icon: _isSending
-                    ? const SizedBox(
-                        height: 16,
-                        width: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.send_rounded),
-                label: Text(_isSending ? 'Invio in corso...' : 'Invia anteprima'),
+                icon:
+                    _isSending
+                        ? const SizedBox(
+                          height: 16,
+                          width: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                        : const Icon(Icons.send_rounded),
+                label: Text(
+                  _isSending ? 'Invio in corso...' : 'Invia anteprima',
+                ),
               ),
             ),
           ],
@@ -176,7 +185,8 @@ class _WhatsAppCampaignEditorPageState
   void _onTemplateChanged(MessageTemplate? template) {
     setState(() {
       _selectedTemplate = template;
-      _placeholders = template == null ? const [] : _extractPlaceholders(template.body);
+      _placeholders =
+          template == null ? const [] : _extractPlaceholders(template.body);
       for (final controller in _parameterControllers) {
         controller.dispose();
       }
@@ -198,24 +208,28 @@ class _WhatsAppCampaignEditorPageState
     setState(() => _isSending = true);
     final scaffold = ScaffoldMessenger.of(context);
 
-    final components = _placeholders.isEmpty
-        ? <Map<String, dynamic>>[]
-        : [
-            {
-              'type': 'body',
-              'parameters': _parameterControllers
-                  .map(
-                    (controller) => {
-                      'type': 'text',
-                      'text': controller.text.trim(),
-                    },
-                  )
-                  .toList(),
-            },
-          ];
+    final components =
+        _placeholders.isEmpty
+            ? <Map<String, dynamic>>[]
+            : [
+              {
+                'type': 'body',
+                'parameters':
+                    _parameterControllers
+                        .map(
+                          (controller) => {
+                            'type': 'text',
+                            'text': controller.text.trim(),
+                          },
+                        )
+                        .toList(),
+              },
+            ];
 
     try {
-      final result = await ref.read(whatsappServiceProvider).sendTemplate(
+      final result = await ref
+          .read(whatsappServiceProvider)
+          .sendTemplate(
             salonId: widget.salonId,
             to: _recipientController.text.trim(),
             templateName: template.id,
@@ -298,7 +312,9 @@ class _PreviewCard extends StatelessWidget {
   }
 
   String _buildPreview() {
-    final base = template?.body ?? 'Seleziona un template approvato per visualizzare l\'anteprima.';
+    final base =
+        template?.body ??
+        'Seleziona un template approvato per visualizzare l\'anteprima.';
     var preview = base;
     for (var i = 0; i < placeholders.length; i++) {
       final value = controllers[i].text.trim();
