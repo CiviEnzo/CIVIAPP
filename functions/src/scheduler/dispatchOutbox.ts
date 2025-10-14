@@ -1,6 +1,5 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import logger from 'firebase-functions/logger';
-
 import type { QueryDocumentSnapshot } from 'firebase-admin/firestore';
 
 import { FieldValue, db } from '../utils/firestore';
@@ -30,31 +29,6 @@ interface OutboxDocument {
   scheduledAt?: unknown;
   payload?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
-}
-
-function toDate(value: unknown): Date | null {
-  if (!value) {
-    return null;
-  }
-  if (value instanceof Date) {
-    return value;
-  }
-  if (
-    typeof value === 'object' &&
-    'toDate' in (value as Record<string, unknown>) &&
-    typeof (value as { toDate: () => Date }).toDate === 'function'
-  ) {
-    try {
-      return (value as { toDate: () => Date }).toDate();
-    } catch {
-      return null;
-    }
-  }
-  if (typeof value === 'string' || typeof value === 'number') {
-    const date = new Date(value);
-    return Number.isNaN(date.valueOf()) ? null : date;
-  }
-  return null;
 }
 
 function extractComponents(

@@ -4,7 +4,7 @@ export const parseJsonBody = <T = Record<string, unknown>>(body: unknown): T => 
   if (typeof body === 'string') {
     try {
       return JSON.parse(body) as T;
-    } catch (error) {
+    } catch {
       throw new Error('Invalid JSON body');
     }
   }

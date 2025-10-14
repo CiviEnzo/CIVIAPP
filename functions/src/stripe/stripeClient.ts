@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+
 import { stripeSecretKey } from './config';
 
 let cachedClient: Stripe | undefined;

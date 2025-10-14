@@ -4,6 +4,7 @@ import logger from 'firebase-functions/logger';
 import type { Request, Response } from 'express';
 
 import { FieldValue, db } from '../utils/firestore';
+
 import { getSalonWaConfig } from './config';
 import { readSecret } from './secrets';
 

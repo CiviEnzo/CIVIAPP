@@ -3,6 +3,7 @@ import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import * as logger from 'firebase-functions/logger';
 
 import { FieldValue, db } from '../utils/firestore';
+
 import { upsertSecret, clearSecretCache } from './secrets';
 import { clearWaConfigCache } from './config';
 

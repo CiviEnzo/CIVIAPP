@@ -15,6 +15,7 @@ export {
   onClientQuestionnaireTemplateDelete,
 } from './questionnaires/triggers';
 export { bookLastMinuteSlot } from './appointments/bookLastMinuteSlot';
+export { ensureLastMinutePaymentRecords } from './appointments/ensureLastMinutePaymentRecords';
 export { syncAppointmentWithLastMinuteSlot } from './appointments/onAppointmentWrite';
 export { sendWhatsappTemplate } from './wa/sendTemplate';
 export { onWhatsappWebhook } from './wa/webhook';

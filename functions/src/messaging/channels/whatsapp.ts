@@ -1,7 +1,6 @@
 import logger from 'firebase-functions/logger';
 
 import { ChannelDispatchResult, OutboxMessage } from '../types';
-
 import {
   sendTemplateMessage,
   WhatsAppTemplateComponent,

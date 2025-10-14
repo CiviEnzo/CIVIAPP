@@ -1,7 +1,10 @@
-import { onRequest } from 'firebase-functions/v2/https';
 import type { Request, Response } from 'express';
-import Stripe from 'stripe';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
+import { onRequest } from 'firebase-functions/v2/https';
+import Stripe from 'stripe';
+
+import { coerceLoyaltySettings } from '../loyalty/utils';
+
 import {
   stripeSecretKey,
   stripeWebhookSecret,
@@ -11,7 +14,6 @@ import {
 } from './config';
 import { getStripeClient } from './stripeClient';
 import { applyCors, parseJsonBody, toStripeMetadata } from './utils';
-import { coerceLoyaltySettings } from '../loyalty/utils';
 
 const db = getFirestore();
 
@@ -374,15 +376,15 @@ async function handlePaymentIntentSuccess(paymentIntent: Stripe.PaymentIntent): 
         const staffId =
           normalizeString(slotData.operatorId) || 'auto-stripe';
         const roomId = normalizeString(slotData.roomId) || null;
+        const clientDisplayName =
+          (await fetchClientDisplayName(tx, resolvedClientId)) ||
+          metadata.clientName ||
+          null;
         const appointmentRef = db
           .collection(APPOINTMENTS_COLLECTION)
           .doc(`stripe-${paymentIntent.id}`);
         const appointmentSnap = await tx.get(appointmentRef);
         if (!appointmentSnap.exists) {
-          const clientName =
-            (await fetchClientDisplayName(tx, resolvedClientId)) ||
-            metadata.clientName ||
-            null;
           tx.set(
             appointmentRef,
             {
@@ -405,17 +407,12 @@ async function handlePaymentIntentSuccess(paymentIntent: Stripe.PaymentIntent): 
           generatedAppointmentIdLocal = appointmentRef.id;
         }
 
-        const bookedName =
-          (await fetchClientDisplayName(tx, resolvedClientId)) ||
-          metadata.clientName ||
-          null;
-
         tx.set(
           slotRef,
           {
             availableSeats: 0,
             bookedClientId: resolvedClientId,
-            bookedClientName: bookedName,
+            bookedClientName: clientDisplayName,
             updatedAt: FieldValue.serverTimestamp(),
           },
           { merge: true },

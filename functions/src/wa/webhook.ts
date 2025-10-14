@@ -3,6 +3,7 @@ import logger from 'firebase-functions/logger';
 import type { Request, Response } from 'express';
 
 import { FieldValue, Timestamp, db } from '../utils/firestore';
+
 import { getSalonWaConfigByPhoneNumberId } from './config';
 import { readSecret } from './secrets';
 
