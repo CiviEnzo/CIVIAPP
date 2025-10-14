@@ -16,9 +16,11 @@ import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/presentation/shared/client_package_purchase.dart';
 import 'package:civiapp/services/payments/stripe_payments_service.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:collection/collection.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -39,6 +41,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
   StreamSubscription<RemoteMessage>? _foregroundSub;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   int _currentTab = 0;
+  final Set<String> _processingQuotePayments = <String>{};
 
   int _resolveLoyaltyValue(int? stored, int aggregated) {
     if (stored == null) {
@@ -814,6 +817,169 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     return false;
   }
 
+  Future<void> _acceptQuoteWithStripe({
+    required BuildContext context,
+    required Client client,
+    required Quote quote,
+    required Salon salon,
+  }) async {
+    if (_processingQuotePayments.contains(quote.id)) {
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    if (quote.status != QuoteStatus.sent) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Il preventivo deve essere inviato dal salone prima di poter essere accettato.',
+          ),
+        ),
+      );
+      return;
+    }
+    if (quote.isExpired) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Questo preventivo è scaduto. Richiedi al salone una nuova offerta.',
+          ),
+        ),
+      );
+      return;
+    }
+    if (quote.total <= 0) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Il totale del preventivo non è valido per il pagamento online.',
+          ),
+        ),
+      );
+      return;
+    }
+    if (!salon.canAcceptOnlinePayments) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Il salone non ha ancora attivato i pagamenti online.',
+          ),
+        ),
+      );
+      return;
+    }
+    final stripeAccountId = salon.stripeAccountId;
+    if (stripeAccountId == null || stripeAccountId.isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Account Stripe del salone non disponibile. Contatta il salone.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final paymentsService = ref.read(stripePaymentsServiceProvider);
+    if (!paymentsService.isConfigured) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Pagamento non disponibile. Riavvia l\'app e riprova.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _processingQuotePayments.add(quote.id));
+
+    var dialogVisible = false;
+    if (mounted) {
+      dialogVisible = true;
+      unawaited(
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => const _ProcessingPaymentDialog(),
+        ),
+      );
+    }
+
+    StripeCheckoutResult? checkoutResult;
+
+    try {
+      checkoutResult = await paymentsService.checkoutQuote(
+        quoteId: quote.id,
+        quoteNumber: quote.number,
+        quoteTitle: quote.title,
+        totalAmount: quote.total,
+        salonId: salon.id,
+        clientId: client.id,
+        currency: 'eur',
+        salonStripeAccountId: stripeAccountId,
+        customerId: client.stripeCustomerId,
+        clientName: client.fullName,
+        salonName: salon.name,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      try {
+        final functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
+        await functions
+            .httpsCallable('finalizeQuotePaymentIntent')
+            .call(<String, dynamic>{
+          'paymentIntentId': checkoutResult.paymentIntentId,
+        });
+      } on FirebaseFunctionsException catch (error) {
+        if (mounted && kDebugMode) {
+          debugPrint(
+            'finalizeQuotePaymentIntent failed: ${error.code} ${error.message}',
+          );
+        }
+      } catch (error, stackTrace) {
+        if (mounted && kDebugMode) {
+          debugPrint(
+            'finalizeQuotePaymentIntent error: $error',
+          );
+          debugPrintStack(stackTrace: stackTrace);
+        }
+      }
+
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Pagamento completato! Il salone riceverà subito il preventivo accettato.',
+          ),
+        ),
+      );
+    } on StripePaymentsException catch (error) {
+      if (mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } on Exception catch (error) {
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Pagamento non riuscito: ${error.toString()}'),
+          ),
+        );
+      }
+    } finally {
+      if (dialogVisible && mounted) {
+        final navigator = Navigator.maybeOf(context, rootNavigator: true);
+        navigator?.maybePop();
+      }
+      if (mounted) {
+        setState(() => _processingQuotePayments.remove(quote.id));
+      } else {
+        _processingQuotePayments.remove(quote.id);
+      }
+    }
+  }
+
   Future<void> _finalizeLastMinuteBooking({
     required Client client,
     required Salon salon,
@@ -843,6 +1009,52 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
       appointment,
       consumeLastMinuteSlotId: slot.id,
     );
+    await _ensureLastMinuteSaleAndCashFlow(
+      client: client,
+      salon: salon,
+      slot: slot,
+      paymentIntentId: paymentIntentId,
+    );
+  }
+
+  Future<void> _ensureLastMinuteSaleAndCashFlow({
+    required Client client,
+    required Salon salon,
+    required LastMinuteSlot slot,
+    required String paymentIntentId,
+  }) async {
+    try {
+      final functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
+      await functions.httpsCallable('ensureLastMinutePaymentRecords').call({
+        'paymentIntentId': paymentIntentId,
+        'salonId': salon.id,
+        'clientId': client.id,
+        'slotId': slot.id,
+        'clientName': client.fullName,
+        'slot': {
+          'serviceId': slot.serviceId,
+          'serviceName': slot.serviceName,
+          'operatorId': slot.operatorId,
+          'priceNow': slot.priceNow,
+          'basePrice': slot.basePrice,
+          'discountPercentage': slot.discountPercentage,
+          'start': slot.start.toIso8601String(),
+          'durationMinutes': slot.duration.inMinutes,
+          'roomId': slot.roomId,
+        },
+      });
+    } on FirebaseFunctionsException catch (error) {
+      if (kDebugMode) {
+        debugPrint(
+          'ensureLastMinutePaymentRecords failed: ${error.code} ${error.message}',
+        );
+      }
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('ensureLastMinutePaymentRecords error: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+    }
   }
 
   Future<void> _showCartSheet({
@@ -2095,11 +2307,12 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
               heightFactor: 0.9,
               child: Consumer(
                 builder: (consumerContext, sheetRef, _) {
+                  final data = sheetRef.watch(appDataProvider);
+                  final salonsById = <String, Salon>{
+                    for (final salon in data.salons) salon.id: salon,
+                  };
                   final quotes =
-                      sheetRef
-                          .watch(
-                            appDataProvider.select((state) => state.quotes),
-                          )
+                      data.quotes
                           .where((quote) => quote.clientId == client.id)
                           .toList()
                         ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
@@ -2142,13 +2355,39 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                                 (_, __) => const SizedBox(height: 12),
                             itemBuilder: (ctx, index) {
                               final quote = quotes[index];
+                              final salonForQuote = salonsById[quote.salonId];
+                              final isProcessing =
+                                  _processingQuotePayments.contains(quote.id);
+                              final canAcceptOnline =
+                                  salonForQuote != null &&
+                                  salonForQuote.canAcceptOnlinePayments &&
+                                  quote.status == QuoteStatus.sent &&
+                                  !quote.isExpired &&
+                                  quote.acceptedAt == null &&
+                                  quote.declinedAt == null &&
+                                  quote.total > 0;
+                              final VoidCallback? onAccept =
+                                  canAcceptOnline
+                                      ? () {
+                                          unawaited(
+                                            _acceptQuoteWithStripe(
+                                              context: sheetContext,
+                                              client: client,
+                                              quote: quote,
+                                              salon: salonForQuote,
+                                            ),
+                                          );
+                                        }
+                                      : null;
                               return _buildClientQuoteCard(
                                 theme: theme,
                                 currency: currency,
                                 dateFormat: dateFormat,
                                 dateTimeFormat: dateTimeFormat,
                                 quote: quote,
-                                sheetContext: sheetContext,
+                                salon: salonForQuote,
+                                isProcessing: isProcessing,
+                                onAcceptAndPay: onAccept,
                               );
                             },
                           ),
@@ -2170,7 +2409,9 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     required DateFormat dateFormat,
     required DateFormat dateTimeFormat,
     required Quote quote,
-    required BuildContext sheetContext,
+    required Salon? salon,
+    required bool isProcessing,
+    required VoidCallback? onAcceptAndPay,
   }) {
     final isAccepted = quote.status == QuoteStatus.accepted;
     final isDeclined = quote.status == QuoteStatus.declined;
@@ -2182,6 +2423,9 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     final validUntil = quote.validUntil;
     final acceptedAt = quote.acceptedAt;
     final declinedAt = quote.declinedAt;
+    final canShowPaymentAction =
+        onAcceptAndPay != null && !isAccepted && !isDeclined && !isExpired;
+    final salonSupportsStripe = salon?.canAcceptOnlinePayments ?? false;
 
     return Card(
       child: Padding(
@@ -2290,6 +2534,30 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
               Text(
                 'Rifiutato il ${dateTimeFormat.format(declinedAt)}. Puoi sempre richiedere un nuovo preventivo al salone.',
                 style: theme.textTheme.bodySmall,
+              ),
+            ],
+            if (canShowPaymentAction) ...[
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: isProcessing ? null : onAcceptAndPay,
+                icon:
+                    isProcessing
+                        ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                        : const Icon(Icons.credit_card_rounded),
+                label: const Text('Accetta e paga'),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                salonSupportsStripe
+                    ? 'Concludi il pagamento con Stripe per attivare i servizi inclusi.'
+                    : 'Il pagamento online sarà attivo non appena il salone completa la configurazione Stripe.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
             ],
           ],
@@ -3130,10 +3398,9 @@ class _LastMinuteSlotCard extends StatelessWidget {
       duration: const Duration(milliseconds: 450),
       curve: Curves.easeOutBack,
       tween: Tween<double>(begin: 0.95, end: 1),
-      builder: (context, scale, child) => Transform.scale(
-        scale: scale,
-        child: child,
-      ),
+      builder:
+          (context, scale, child) =>
+              Transform.scale(scale: scale, child: child),
       child: Card(
         elevation: 4,
         shadowColor: scheme.primary.withOpacity(0.15),
@@ -3239,7 +3506,9 @@ class _LastMinuteSlotCard extends StatelessWidget {
                     currency.format(slot.basePrice),
                     style: theme.textTheme.bodyMedium?.copyWith(
                       decoration: TextDecoration.lineThrough,
-                      color: theme.textTheme.bodyMedium?.color?.withOpacity(0.7),
+                      color: theme.textTheme.bodyMedium?.color?.withOpacity(
+                        0.7,
+                      ),
                     ),
                   ),
                   const Spacer(),
@@ -3492,7 +3761,7 @@ class _ServicesCarousel extends StatelessWidget {
                           child: OutlinedButton.icon(
                             onPressed: () => onAddToCart!(service),
                             icon: const Icon(Icons.add_shopping_cart_rounded),
-                            label: const Text('Aggiungi al carrello'),
+                            label: const Text('Acquista'),
                           ),
                         ),
                       ],
@@ -3579,7 +3848,7 @@ class _PackagesCarousel extends StatelessWidget {
                         child: FilledButton.icon(
                           onPressed: () => onAddToCart(pkg),
                           icon: const Icon(Icons.add_shopping_cart_rounded),
-                          label: const Text('Aggiungi al carrello'),
+                          label: const Text('Acquista'),
                         ),
                       ),
                     ],

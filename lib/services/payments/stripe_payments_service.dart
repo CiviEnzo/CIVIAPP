@@ -99,46 +99,113 @@ class StripePaymentsService {
       ephemeralKeySecret = keyResponse['secret'] as String?;
     }
 
-    try {
-      await Stripe.instance.initPaymentSheet(
-        paymentSheetParameters: SetupPaymentSheetParameters(
-          merchantDisplayName: _merchantDisplayNameDefine,
-          paymentIntentClientSecret: clientSecret,
-          customerId: customerId,
-          customerEphemeralKeySecret: ephemeralKeySecret,
-          applePay: PaymentSheetApplePay(
-            merchantCountryCode: _merchantCountryCodeDefine,
-          ),
-          googlePay: PaymentSheetGooglePay(
-            merchantCountryCode: _merchantCountryCodeDefine,
-            testEnv: kDebugMode,
-          ),
-          style: ThemeMode.system,
-          allowsDelayedPaymentMethods: true,
-        ),
-      );
-    } on StripeException catch (error) {
-      throw StripePaymentsException.failed(
-        message: error.error.message ?? 'Configurazione pagamento non riuscita',
-      );
-    } catch (error) {
-      throw StripePaymentsException.failed(
-        message: 'Configurazione pagamento non riuscita: $error',
+    await _initPaymentSheet(
+      clientSecret: clientSecret,
+      customerId: customerId,
+      customerEphemeralKeySecret: ephemeralKeySecret,
+    );
+
+    await _presentPaymentSheet();
+
+    return StripeCheckoutResult(
+      paymentIntentId: paymentIntentId,
+      clientSecret: clientSecret,
+    );
+  }
+
+  Future<StripeCheckoutResult> checkoutQuote({
+    required String quoteId,
+    String? quoteNumber,
+    String? quoteTitle,
+    required double totalAmount,
+    required String salonId,
+    required String clientId,
+    String currency = 'eur',
+    String? salonStripeAccountId,
+    String? customerId,
+    String? clientName,
+    String? salonName,
+  }) async {
+    if (totalAmount <= 0) {
+      throw StateError('Il totale del preventivo non è valido.');
+    }
+    if (!isConfigured) {
+      throw StateError(
+        'Stripe non è configurato. Assicurati di impostare STRIPE_PUBLISHABLE_KEY nei dart-define.',
       );
     }
 
-    try {
-      await Stripe.instance.presentPaymentSheet();
-    } on StripeException catch (error) {
-      if (error.error.code == FailureCode.Canceled) {
-        throw StripePaymentsException.canceled(
-          message: error.error.message ?? 'Pagamento annullato',
-        );
-      }
-      throw StripePaymentsException.failed(
-        message: error.error.message ?? 'Pagamento non riuscito',
-      );
+    final amountCents = _toMinorUnits(totalAmount);
+    final metadata = <String, String>{
+      'quoteId': quoteId,
+      'quoteTotal': totalAmount.toStringAsFixed(2),
+      'quoteAmountCents': amountCents.toString(),
+      'origin': 'quoteCheckout',
+    };
+    if (quoteNumber != null && quoteNumber.isNotEmpty) {
+      metadata['quoteNumber'] = quoteNumber;
     }
+    if (quoteTitle != null && quoteTitle.isNotEmpty) {
+      metadata['quoteTitle'] = quoteTitle;
+    }
+    if (clientName != null && clientName.isNotEmpty) {
+      metadata['clientName'] = clientName;
+    }
+    if (salonName != null && salonName.isNotEmpty) {
+      metadata['salonName'] = salonName;
+    }
+    final descriptionSource =
+        quoteTitle?.trim().isNotEmpty == true
+            ? quoteTitle!.trim()
+            : (quoteNumber != null && quoteNumber.isNotEmpty)
+                ? 'Preventivo $quoteNumber'
+                : 'Preventivo $quoteId';
+    metadata['description'] = descriptionSource;
+
+    final requestBody = <String, dynamic>{
+      'amount': amountCents,
+      'currency': currency.toLowerCase(),
+      'salonId': salonId,
+      'clientId': clientId,
+      'type': 'quote',
+      'metadata': metadata,
+    };
+    if (salonStripeAccountId != null && salonStripeAccountId.isNotEmpty) {
+      requestBody['salonStripeAccountId'] = salonStripeAccountId;
+    }
+    if (customerId != null && customerId.isNotEmpty) {
+      requestBody['customerId'] = customerId;
+    }
+
+    final intentResponse = await _postJson(
+      path: 'createStripePaymentIntent',
+      body: requestBody,
+    );
+
+    final clientSecret = intentResponse['clientSecret'] as String?;
+    final paymentIntentId = intentResponse['paymentIntentId'] as String?;
+
+    if (clientSecret == null || paymentIntentId == null) {
+      throw StateError('Risposta non valida dal backend Stripe.');
+    }
+
+    String? ephemeralKeySecret;
+    if (customerId != null && customerId.isNotEmpty) {
+      final keyResponse = await _postJson(
+        path: 'createStripeEphemeralKey',
+        body: <String, dynamic>{'customerId': customerId},
+        headers: const <String, String>{'Stripe-Version': '2024-06-20'},
+      );
+      ephemeralKeySecret = keyResponse['secret'] as String?;
+    }
+
+    await _initPaymentSheet(
+      clientSecret: clientSecret,
+      customerId: customerId,
+      customerEphemeralKeySecret: ephemeralKeySecret,
+    );
+
+    await _presentPaymentSheet();
 
     return StripeCheckoutResult(
       paymentIntentId: paymentIntentId,
@@ -168,6 +235,63 @@ class StripePaymentsService {
     throw StripePaymentsException.failed(
       message: 'Errore Stripe ${response.statusCode}: ${response.body}',
     );
+  }
+
+  Future<void> _initPaymentSheet({
+    required String clientSecret,
+    String? customerId,
+    String? customerEphemeralKeySecret,
+  }) async {
+    try {
+      await Stripe.instance.initPaymentSheet(
+        paymentSheetParameters: SetupPaymentSheetParameters(
+          merchantDisplayName: _merchantDisplayNameDefine,
+          paymentIntentClientSecret: clientSecret,
+          customerId: customerId,
+          customerEphemeralKeySecret: customerEphemeralKeySecret,
+          applePay: PaymentSheetApplePay(
+            merchantCountryCode: _merchantCountryCodeDefine,
+          ),
+          googlePay: PaymentSheetGooglePay(
+            merchantCountryCode: _merchantCountryCodeDefine,
+            testEnv: kDebugMode,
+          ),
+          style: ThemeMode.system,
+          allowsDelayedPaymentMethods: true,
+        ),
+      );
+    } on StripeException catch (error) {
+      throw StripePaymentsException.failed(
+        message: error.error.message ?? 'Configurazione pagamento non riuscita',
+      );
+    } catch (error) {
+      throw StripePaymentsException.failed(
+        message: 'Configurazione pagamento non riuscita: $error',
+      );
+    }
+  }
+
+  Future<void> _presentPaymentSheet() async {
+    try {
+      await Stripe.instance.presentPaymentSheet();
+    } on StripeException catch (error) {
+      if (error.error.code == FailureCode.Canceled) {
+        throw StripePaymentsException.canceled(
+          message: error.error.message ?? 'Pagamento annullato',
+        );
+      }
+      throw StripePaymentsException.failed(
+        message: error.error.message ?? 'Pagamento non riuscito',
+      );
+    }
+  }
+
+  int _toMinorUnits(double amount) {
+    final normalized = amount.toStringAsFixed(2);
+    final isNegative = normalized.startsWith('-');
+    final digits = normalized.replaceAll('-', '').replaceAll('.', '');
+    final value = int.parse(digits);
+    return isNegative ? -value : value;
   }
 
   Uri _resolveFunctionUrl(String functionName) {

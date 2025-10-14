@@ -38,6 +38,8 @@ class Quote {
     this.ticketId,
     List<MessageChannel>? sentChannels,
     this.pdfStoragePath,
+    this.saleId,
+    this.stripePaymentIntentId,
   }) : items = List.unmodifiable(items),
        sentChannels = List.unmodifiable(
          sentChannels ?? const <MessageChannel>[],
@@ -62,6 +64,8 @@ class Quote {
   final String? ticketId;
   final List<MessageChannel> sentChannels;
   final String? pdfStoragePath;
+  final String? saleId;
+  final String? stripePaymentIntentId;
 
   double get total {
     final rawTotal = items.fold<double>(0, (sum, item) => sum + item.total);
@@ -105,6 +109,8 @@ class Quote {
     Object? ticketId = _unset,
     List<MessageChannel>? sentChannels,
     Object? pdfStoragePath = _unset,
+    Object? saleId = _unset,
+    Object? stripePaymentIntentId = _unset,
   }) {
     return Quote(
       id: id ?? this.id,
@@ -130,6 +136,11 @@ class Quote {
           pdfStoragePath == _unset
               ? this.pdfStoragePath
               : pdfStoragePath as String?,
+      saleId: saleId == _unset ? this.saleId : saleId as String?,
+      stripePaymentIntentId:
+          stripePaymentIntentId == _unset
+              ? this.stripePaymentIntentId
+              : stripePaymentIntentId as String?,
     );
   }
 }

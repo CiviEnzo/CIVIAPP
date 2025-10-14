@@ -31,4 +31,5 @@ export {
   createStripePaymentIntent,
   createStripeEphemeralKey,
   handleStripeWebhook,
+  finalizeQuotePaymentIntent,
 } from './stripe/routes';

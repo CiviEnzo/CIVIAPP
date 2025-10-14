@@ -430,6 +430,8 @@ Quote quoteFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     ticketId: data['ticketId'] as String?,
     sentChannels: _mapToMessageChannels(data['sentChannels'] as List<dynamic>?),
     pdfStoragePath: data['pdfStoragePath'] as String?,
+    saleId: data['saleId'] as String?,
+    stripePaymentIntentId: data['stripePaymentIntentId'] as String?,
   );
 }
 
@@ -454,6 +456,8 @@ Map<String, dynamic> quoteToMap(Quote quote) {
     'ticketId': quote.ticketId,
     'sentChannels': quote.sentChannels.map((channel) => channel.name).toList(),
     'pdfStoragePath': quote.pdfStoragePath,
+    'saleId': quote.saleId,
+    'stripePaymentIntentId': quote.stripePaymentIntentId,
     'total': quote.total,
     'items':
         quote.items
@@ -1698,6 +1702,7 @@ CashFlowEntry cashFlowFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     type: _stringToCashFlowType(data['type'] as String?),
     amount: (data['amount'] as num?)?.toDouble() ?? 0,
     date: ((data['date'] as Timestamp?) ?? Timestamp.now()).toDate(),
+    createdAt: _coerceToDateTime(data['createdAt']),
     description: data['description'] as String?,
     category: data['category'] as String?,
     staffId: data['staffId'] as String?,
@@ -1710,6 +1715,7 @@ Map<String, dynamic> cashFlowToMap(CashFlowEntry entry) {
     'type': entry.type.name,
     'amount': entry.amount,
     'date': Timestamp.fromDate(entry.date),
+    'createdAt': Timestamp.fromDate(entry.createdAt),
     'description': entry.description,
     'category': entry.category,
     'staffId': entry.staffId,

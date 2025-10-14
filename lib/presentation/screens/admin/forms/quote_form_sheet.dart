@@ -155,6 +155,8 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
       ticketId: initial?.ticketId,
       sentChannels: initial?.sentChannels,
       pdfStoragePath: initial?.pdfStoragePath,
+      saleId: initial?.saleId,
+      stripePaymentIntentId: initial?.stripePaymentIntentId,
     );
 
     if (!mounted) {

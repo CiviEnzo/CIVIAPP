@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { onRequest } from 'firebase-functions/v2/https';
+import * as functions from 'firebase-functions';
 import Stripe from 'stripe';
 
 import { coerceLoyaltySettings } from '../loyalty/utils';
@@ -25,6 +26,7 @@ const APPOINTMENTS_COLLECTION = 'appointments';
 const CLIENTS_COLLECTION = 'clients';
 const SALON_SEQUENCES_COLLECTION = 'salon_sequences';
 const CASH_FLOWS_COLLECTION = 'cash_flows';
+const PAYMENT_TICKETS_COLLECTION = 'payment_tickets';
 
 const getCorsOrigin = (): string => stripeAllowedOrigin.value() || '*';
 const getPlatformName = (): string => stripePlatformName.value() || 'CIVIAPP';
@@ -183,8 +185,21 @@ type SaleItemSummary = {
   unitPrice: number;
 };
 
+type QuoteItemFirestore = {
+  id?: string;
+  description?: string;
+  quantity?: number;
+  unitPrice?: number;
+  serviceId?: string;
+  packageId?: string;
+};
+
 async function handlePaymentIntentSuccess(paymentIntent: Stripe.PaymentIntent): Promise<void> {
   const metadata = extractMetadata(paymentIntent.metadata);
+  if (normalizeString(metadata.type) === 'quote') {
+    await handleQuotePaymentIntentSuccess(paymentIntent, metadata);
+    return;
+  }
   const cartId = normalizeString(metadata.cartId);
   const orderRef = db.collection(ORDERS_COLLECTION).doc(paymentIntent.id);
   const saleRef = db.collection(SALES_COLLECTION).doc(paymentIntent.id);
@@ -338,6 +353,51 @@ async function handlePaymentIntentSuccess(paymentIntent: Stripe.PaymentIntent): 
         salonId: resolvedSalonId,
         clientId: resolvedClientId,
       });
+    } else {
+      const existingSale = saleSnap.data() ?? {};
+      const updates: FirebaseFirestore.DocumentData = {};
+      let shouldUpdate = false;
+      const normalizedPaidAmount =
+        typeof existingSale.paidAmount === 'number'
+          ? normalizeCurrency(existingSale.paidAmount)
+          : 0;
+      if (existingSale.paymentStatus !== 'paid') {
+        updates.paymentStatus = 'paid';
+        shouldUpdate = true;
+      }
+      if (Math.abs(normalizedPaidAmount - totalAmount) > 0.01) {
+        updates.paidAmount = totalAmount;
+        shouldUpdate = true;
+      }
+      const paymentHistoryRaw = Array.isArray(existingSale.paymentHistory)
+        ? existingSale.paymentHistory
+        : [];
+      const settlementId = `${paymentIntent.id}-settlement`;
+      const hasSettlement = paymentHistoryRaw.some((entry: unknown) => {
+        if (!entry || typeof entry !== 'object') {
+          return false;
+        }
+        const id = (entry as Record<string, unknown>).id;
+        return typeof id === 'string' && id === settlementId;
+      });
+      if (!hasSettlement) {
+        const updatedHistory = [
+          ...paymentHistoryRaw,
+          {
+            id: settlementId,
+            amount: totalAmount,
+            type: 'settlement',
+            date: createdTimestamp,
+            paymentMethod: 'pos',
+            recordedBy: 'auto-stripe',
+          },
+        ];
+        updates.paymentHistory = updatedHistory;
+        shouldUpdate = true;
+      }
+      if (shouldUpdate) {
+        tx.set(saleRef, updates, { merge: true });
+      }
     }
 
     if (resolvedClientId && stripeCustomerId) {
@@ -739,6 +799,525 @@ function buildSaleItemSummary(item: Record<string, unknown>): SaleItemSummary {
   };
 }
 
+function roundToTwo(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.round(value * 100) / 100;
+}
+
+function parsePackageServiceSessions(
+  raw: unknown,
+): Record<string, number> {
+  if (!raw || typeof raw !== 'object') {
+    return {};
+  }
+  const result: Record<string, number> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      result[key] = Math.trunc(parsed);
+    }
+  }
+  return result;
+}
+
+async function buildSaleItemsFromQuote(
+  tx: FirebaseFirestore.Transaction,
+  quoteId: string,
+  rawItems: QuoteItemFirestore[],
+  saleDate: Date,
+): Promise<Record<string, unknown>[]> {
+  const saleItems: Record<string, unknown>[] = [];
+  const packageIds = new Set<string>();
+
+  for (const item of rawItems) {
+    const packageId = normalizeString(item.packageId);
+    if (packageId) {
+      packageIds.add(packageId);
+    }
+  }
+
+  const packagesById = new Map<string, FirebaseFirestore.DocumentData>();
+  for (const packageId of packageIds) {
+    const pkgRef = db.collection('packages').doc(packageId);
+    const pkgSnap = await tx.get(pkgRef);
+    if (pkgSnap.exists) {
+      packagesById.set(packageId, pkgSnap.data() ?? {});
+    }
+  }
+
+  for (let index = 0; index < rawItems.length; index += 1) {
+    const rawItem = rawItems[index] ?? {};
+    const descriptionRaw =
+      typeof rawItem.description === 'string' ? rawItem.description.trim() : '';
+    const description = descriptionRaw.length > 0 ? descriptionRaw : '';
+    const quantityRaw = normalizeNumber(rawItem.quantity, 1);
+    const quantity = quantityRaw > 0 ? roundToTwo(quantityRaw) : 1;
+    const unitPrice = roundToTwo(normalizeCurrency(rawItem.unitPrice ?? 0));
+    const packageId = normalizeString(rawItem.packageId);
+    const serviceId = normalizeString(rawItem.serviceId);
+
+    if (packageId) {
+      const packageData = packagesById.get(packageId) ?? {};
+      const serviceSessions = parsePackageServiceSessions(
+        (packageData.serviceSessionCounts as Record<string, unknown> | undefined) ?? {},
+      );
+      let perPackageSessions: number | null = null;
+      const configuredSessions = Object.values(serviceSessions).reduce(
+        (sum, entry) => sum + entry,
+        0,
+      );
+      if (configuredSessions > 0) {
+        perPackageSessions = configuredSessions;
+      } else {
+        const sessionCountRaw = normalizeNumber(packageData.sessionCount, 0);
+        if (sessionCountRaw > 0) {
+          perPackageSessions = Math.trunc(sessionCountRaw);
+        }
+      }
+      let totalSessions: number | null = null;
+      if (perPackageSessions != null) {
+        const computed = perPackageSessions * quantity;
+        if (Number.isFinite(computed)) {
+          totalSessions = Math.max(0, Math.round(computed));
+        }
+      }
+      const validDaysRaw = normalizeNumber(packageData.validDays, 0);
+      const validDays =
+        Number.isFinite(validDaysRaw) && validDaysRaw > 0
+          ? Math.trunc(validDaysRaw)
+          : null;
+      const expirationDate =
+        validDays && validDays > 0
+          ? new Date(saleDate.getTime() + validDays * 86400000)
+          : null;
+
+      const packageName =
+        typeof packageData.name === 'string' && packageData.name.trim().length > 0
+          ? packageData.name.trim()
+          : 'Pacchetto';
+
+      const saleItem: Record<string, unknown> = {
+        referenceId: packageId,
+        referenceType: 'package',
+        description: description.length > 0 ? description : packageName,
+        quantity,
+        unitPrice,
+        packageStatus: 'active',
+        packagePaymentStatus: 'paid',
+        depositAmount: roundToTwo(quantity * unitPrice),
+      };
+
+      if (totalSessions != null && totalSessions > 0) {
+        saleItem.totalSessions = totalSessions;
+        saleItem.remainingSessions = totalSessions;
+      }
+      if (Object.keys(serviceSessions).length > 0) {
+        saleItem.packageServiceSessions = serviceSessions;
+      }
+      if (expirationDate) {
+        saleItem.expirationDate = Timestamp.fromDate(expirationDate);
+      }
+      saleItems.push(saleItem);
+      continue;
+    }
+
+    if (serviceId) {
+      const saleItem: Record<string, unknown> = {
+        referenceId: serviceId,
+        referenceType: 'service',
+        description: description.length > 0 ? description : 'Servizio',
+        quantity,
+        unitPrice,
+      };
+      saleItems.push(saleItem);
+      continue;
+    }
+
+    const fallbackId = normalizeString(rawItem.id) || `item-${index + 1}`;
+    saleItems.push({
+      referenceId: `quote-${quoteId}-${fallbackId}`,
+      referenceType: 'service',
+      description: description.length > 0 ? description : 'Servizio',
+      quantity,
+      unitPrice,
+    });
+  }
+
+  return saleItems;
+}
+
+async function handleQuotePaymentIntentSuccess(
+  paymentIntent: Stripe.PaymentIntent,
+  metadata: Record<string, string>,
+): Promise<void> {
+  const quoteId = normalizeString(metadata.quoteId);
+  if (!quoteId) {
+    console.warn('Stripe webhook: quote payment missing quoteId', {
+      paymentIntentId: paymentIntent.id,
+    });
+    return;
+  }
+
+  const saleRef = db.collection(SALES_COLLECTION).doc(paymentIntent.id);
+  const quoteRef = db.collection('quotes').doc(quoteId);
+  const orderRef = db.collection(ORDERS_COLLECTION).doc(paymentIntent.id);
+  const ticketCollection = db.collection(PAYMENT_TICKETS_COLLECTION);
+
+  const totalAmountCents = paymentIntent.amount_received ?? paymentIntent.amount ?? 0;
+  const totalAmount = normalizeCurrency(totalAmountCents / 100);
+  const createdDate = paymentIntent.created
+    ? new Date(paymentIntent.created * 1000)
+    : new Date();
+  const createdTimestamp = Timestamp.fromDate(createdDate);
+  const stripeCustomerId =
+    typeof paymentIntent.customer === 'string' ? paymentIntent.customer : null;
+
+  let resolvedSalonId: string | null = normalizeString(metadata.salonId);
+  let resolvedClientId: string | null = normalizeString(metadata.clientId);
+  let quoteNumber = normalizeString(metadata.quoteNumber);
+  let quoteTitle = normalizeString(metadata.quoteTitle);
+  let quoteNotes: string | null = null;
+  let ticketId: string | null = null;
+  let saleNumber: string | null = null;
+  let invoiceNumber: string | null = null;
+  let saleItemsSummary: SaleItemSummary[] = [];
+  let computedQuoteTotal = totalAmount;
+
+  await db.runTransaction(async (tx) => {
+    const quoteSnap = await tx.get(quoteRef);
+    if (!quoteSnap.exists) {
+      throw new Error(`Preventivo ${quoteId} non trovato`);
+    }
+    const quoteData = quoteSnap.data() ?? {};
+    resolvedSalonId = normalizeString(quoteData.salonId) || resolvedSalonId;
+    resolvedClientId = normalizeString(quoteData.clientId) || resolvedClientId;
+    quoteNumber = normalizeString(quoteData.number) || quoteNumber;
+    quoteTitle =
+      typeof quoteData.title === 'string' && quoteData.title.trim().length > 0
+        ? quoteData.title.trim()
+        : quoteTitle;
+    quoteNotes =
+      typeof quoteData.notes === 'string' && quoteData.notes.trim().length > 0
+        ? quoteData.notes.trim()
+        : null;
+
+    const quoteItemsRaw = Array.isArray(quoteData.items)
+      ? (quoteData.items as QuoteItemFirestore[])
+      : [];
+    const saleItems = await buildSaleItemsFromQuote(tx, quoteId, quoteItemsRaw, createdDate);
+    saleItemsSummary = saleItems.map(buildSaleItemSummary);
+    computedQuoteTotal = saleItems.reduce((sum, item) => {
+      const quantity = normalizeNumber(item.quantity, 1);
+      const unitPrice = normalizeCurrency(item.unitPrice);
+      return normalizeCurrency(sum + quantity * unitPrice);
+    }, 0);
+    if (Math.abs(computedQuoteTotal - totalAmount) > 0.05) {
+      console.warn('Stripe webhook: quote total mismatch', {
+        quoteId,
+        expected: computedQuoteTotal,
+        paid: totalAmount,
+      });
+    }
+
+    const defaultTicketId =
+      normalizeString(quoteData.ticketId) || `quote-${quoteId}`;
+    const ticketRef = ticketCollection.doc(defaultTicketId);
+    const ticketSnap = await tx.get(ticketRef);
+    const baseTicket = ticketSnap.exists ? ticketSnap.data() ?? {} : {};
+
+    const cashFlowRef =
+      resolvedSalonId
+        ? db.collection(CASH_FLOWS_COLLECTION).doc(paymentIntent.id)
+        : null;
+    const cashFlowSnap = cashFlowRef ? await tx.get(cashFlowRef) : null;
+
+    const saleSnap = await tx.get(saleRef);
+    const saleExists = saleSnap.exists;
+
+    const loyaltyPayload = await buildInitialLoyaltyPayload(
+      tx,
+      resolvedSalonId,
+      totalAmount,
+      metadata,
+    );
+
+    if (!saleExists) {
+      if (!resolvedSalonId) {
+        throw new Error(`Preventivo ${quoteId} senza salonId`);
+      }
+      if (!resolvedClientId) {
+        throw new Error(`Preventivo ${quoteId} senza clientId`);
+      }
+
+      const sequencesRef = db
+        .collection(SALON_SEQUENCES_COLLECTION)
+        .doc(resolvedSalonId);
+      const sequencesSnap = await tx.get(sequencesRef);
+      let saleSequence = 0;
+      let invoiceSequence = 0;
+      if (sequencesSnap.exists) {
+        const seqData = sequencesSnap.data() ?? {};
+        saleSequence = coercePositiveInt(seqData.saleSequence);
+        invoiceSequence = coercePositiveInt(seqData.invoiceSequence);
+      }
+      saleSequence += 1;
+      invoiceSequence += 1;
+      tx.set(
+        sequencesRef,
+        {
+          saleSequence,
+          invoiceSequence,
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+      saleNumber = formatSaleNumber(saleSequence);
+      invoiceNumber = formatInvoiceNumber(invoiceSequence);
+
+      const salePayload: FirebaseFirestore.DocumentData = {
+        salonId: resolvedSalonId,
+        clientId: resolvedClientId,
+        items: saleItems,
+        total: totalAmount,
+        createdAt: createdTimestamp,
+        paymentMethod: 'pos',
+        paymentStatus: 'paid',
+        paidAmount: totalAmount,
+        discountAmount: 0,
+        invoiceNumber,
+        saleNumber,
+        paymentHistory: [
+          {
+            id: `${paymentIntent.id}-settlement`,
+            amount: totalAmount,
+            type: 'settlement',
+            date: createdTimestamp,
+            paymentMethod: 'pos',
+            recordedBy: 'auto-stripe',
+          },
+        ],
+        loyalty: loyaltyPayload,
+        notes: quoteNotes,
+        metadata: {
+          source: 'stripe',
+          origin: 'quote',
+          quoteId,
+        },
+        stripe: {
+          paymentIntentId: paymentIntent.id,
+          customerId: stripeCustomerId,
+          latestChargeId: paymentIntent.latest_charge ?? null,
+          chargeIds: extractChargeIds(paymentIntent),
+        },
+      };
+      tx.set(saleRef, salePayload, { merge: false });
+    } else {
+      const existingSale = saleSnap.data() ?? {};
+      if (!saleNumber && typeof existingSale.saleNumber === 'string') {
+        saleNumber = existingSale.saleNumber;
+      }
+      if (!invoiceNumber && typeof existingSale.invoiceNumber === 'string') {
+        invoiceNumber = existingSale.invoiceNumber;
+      }
+
+      const updates: FirebaseFirestore.DocumentData = {};
+      let shouldUpdate = false;
+      if (existingSale.paymentStatus !== 'paid') {
+        updates.paymentStatus = 'paid';
+        shouldUpdate = true;
+      }
+      const normalizedPaidAmount =
+        typeof existingSale.paidAmount === 'number'
+          ? normalizeCurrency(existingSale.paidAmount)
+          : 0;
+      if (Math.abs(normalizedPaidAmount - totalAmount) > 0.01) {
+        updates.paidAmount = totalAmount;
+        shouldUpdate = true;
+      }
+      const paymentHistoryRaw = Array.isArray(existingSale.paymentHistory)
+        ? existingSale.paymentHistory
+        : [];
+      const settlementId = `${paymentIntent.id}-settlement`;
+      const hasSettlement = paymentHistoryRaw.some((entry: unknown) => {
+        if (!entry || typeof entry !== 'object') {
+          return false;
+        }
+        const id = (entry as Record<string, unknown>).id;
+        return typeof id === 'string' && id === settlementId;
+      });
+      if (!hasSettlement) {
+        const updatedHistory = [
+          ...paymentHistoryRaw,
+          {
+            id: settlementId,
+            amount: totalAmount,
+            type: 'settlement',
+            date: createdTimestamp,
+            paymentMethod: 'pos',
+            recordedBy: 'auto-stripe',
+          },
+        ];
+        updates.paymentHistory = updatedHistory;
+        shouldUpdate = true;
+      }
+      if (shouldUpdate) {
+        tx.set(saleRef, updates, { merge: true });
+      }
+    }
+
+    if (resolvedClientId && stripeCustomerId) {
+      const clientRef = db.collection(CLIENTS_COLLECTION).doc(resolvedClientId);
+      tx.set(
+        clientRef,
+        { stripeCustomerId },
+        { merge: true },
+      );
+    }
+
+    ticketId = defaultTicketId;
+    const primaryItem = quoteItemsRaw.length > 0 ? quoteItemsRaw[0] : null;
+    const serviceIdCandidate = normalizeString(primaryItem?.serviceId);
+    const existingServiceId = normalizeString(baseTicket.serviceId);
+    const serviceIdForTicket =
+      serviceIdCandidate || existingServiceId || defaultTicketId;
+    const serviceName =
+      quoteTitle && quoteTitle.length > 0
+        ? quoteTitle
+        : (typeof primaryItem?.description === 'string' &&
+                primaryItem.description.trim().length > 0
+            ? primaryItem.description.trim()
+            : quoteNumber && quoteNumber.length > 0
+                ? `Preventivo ${quoteNumber}`
+                : 'Preventivo');
+
+    const ticketPayload: FirebaseFirestore.DocumentData = {
+      salonId: resolvedSalonId,
+      appointmentId:
+        normalizeString(baseTicket.appointmentId) || defaultTicketId,
+      clientId: resolvedClientId,
+      serviceId: serviceIdForTicket,
+      staffId: baseTicket.staffId ?? null,
+      appointmentStart:
+        baseTicket.appointmentStart instanceof Timestamp
+          ? baseTicket.appointmentStart
+          : createdTimestamp,
+      appointmentEnd:
+        baseTicket.appointmentEnd instanceof Timestamp
+          ? baseTicket.appointmentEnd
+          : createdTimestamp,
+      createdAt:
+        baseTicket.createdAt instanceof Timestamp
+          ? baseTicket.createdAt
+          : createdTimestamp,
+      status: 'closed',
+      closedAt: FieldValue.serverTimestamp(),
+      saleId: saleRef.id,
+      expectedTotal: totalAmount,
+      serviceName,
+      notes:
+        quoteNotes ??
+        (typeof baseTicket.notes === 'string' ? baseTicket.notes : null),
+    };
+    tx.set(ticketRef, ticketPayload, { merge: true });
+
+    const quoteUpdate: FirebaseFirestore.DocumentData = {
+      status: 'accepted',
+      acceptedAt: createdTimestamp,
+      declinedAt: null,
+      updatedAt: FieldValue.serverTimestamp(),
+      ticketId: defaultTicketId,
+      stripePaymentIntentId: paymentIntent.id,
+      saleId: saleRef.id,
+    };
+    tx.set(quoteRef, quoteUpdate, { merge: true });
+
+    if (resolvedSalonId && cashFlowRef) {
+      const cashFlowPayload: FirebaseFirestore.DocumentData = {
+        salonId: resolvedSalonId,
+        type: 'income',
+        amount: totalAmount,
+        currency: paymentIntent.currency ?? 'eur',
+        date: createdTimestamp,
+        description:
+          quoteTitle && quoteTitle.length > 0
+            ? `Preventivo ${quoteTitle}`
+            : quoteNumber && quoteNumber.length > 0
+                ? `Preventivo ${quoteNumber}`
+                : 'Preventivo online',
+        staffId: 'auto-stripe',
+        source: 'stripe',
+        updatedAt: FieldValue.serverTimestamp(),
+        saleId: saleRef.id,
+        clientId: resolvedClientId ?? null,
+      };
+      if (!cashFlowSnap?.exists) {
+        cashFlowPayload.createdAt = FieldValue.serverTimestamp();
+      }
+      tx.set(
+        cashFlowRef,
+        cashFlowPayload,
+        cashFlowSnap?.exists ? { merge: true } : { merge: false },
+      );
+    }
+  });
+
+  const saleSnapAfter = await saleRef.get();
+  if (saleSnapAfter.exists) {
+    const saleData = saleSnapAfter.data() ?? {};
+    if (!resolvedSalonId && typeof saleData.salonId === 'string') {
+      resolvedSalonId = saleData.salonId;
+    }
+    if (!resolvedClientId && typeof saleData.clientId === 'string') {
+      resolvedClientId = saleData.clientId;
+    }
+    if (!saleNumber && typeof saleData.saleNumber === 'string') {
+      saleNumber = saleData.saleNumber;
+    }
+    if (!invoiceNumber && typeof saleData.invoiceNumber === 'string') {
+      invoiceNumber = saleData.invoiceNumber;
+    }
+    if (Array.isArray(saleData.items)) {
+      saleItemsSummary = saleData.items.map((item: unknown) =>
+        buildSaleItemSummary(item as Record<string, unknown>),
+      );
+    }
+  }
+
+  const orderPayload: FirebaseFirestore.DocumentData = {
+    status: 'paid',
+    amount: paymentIntent.amount,
+    amountReceived: paymentIntent.amount_received ?? paymentIntent.amount ?? null,
+    currency: paymentIntent.currency,
+    clientId: resolvedClientId ?? null,
+    salonId: resolvedSalonId ?? null,
+    cartId: null,
+    type: 'quote',
+    metadata: {
+      ...metadata,
+      quoteId,
+      saleNumber,
+      invoiceNumber,
+      ticketId,
+    },
+    quoteId,
+    items: saleItemsSummary,
+    stripe: {
+      paymentIntentId: paymentIntent.id,
+      customerId: stripeCustomerId,
+      latestChargeId: paymentIntent.latest_charge ?? null,
+      chargeIds: extractChargeIds(paymentIntent),
+    },
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+
+  const orderSnap = await orderRef.get();
+  if (!orderSnap.exists || !orderSnap.data()?.createdAt) {
+    orderPayload.createdAt = FieldValue.serverTimestamp();
+  }
+  await orderRef.set(orderPayload, { merge: true });
+}
 function buildEmptyLoyaltyPayload(totalAmount: number): Record<string, unknown> {
   return {
     earnedPoints: 0,
@@ -1221,3 +1800,67 @@ export const handleStripeWebhook = onRequest(
     }
   },
 );
+
+type FinalizeQuotePayload = {
+  paymentIntentId?: string;
+};
+
+export const finalizeQuotePaymentIntent = functions
+  .runWith({ secrets: [stripeSecretKey.name] })
+  .region('europe-west1')
+  .https.onCall(
+    async (data: FinalizeQuotePayload, context): Promise<{ status: 'ok' }> => {
+      if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
+      }
+
+      const paymentIntentId = normalizeString(data.paymentIntentId);
+      if (!paymentIntentId) {
+        throw new functions.https.HttpsError(
+          'invalid-argument',
+          'paymentIntentId is required.',
+        );
+      }
+
+      try {
+        const stripe = getStripeClient();
+        const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+        if (!paymentIntent) {
+          throw new functions.https.HttpsError(
+            'not-found',
+            `PaymentIntent ${paymentIntentId} not found.`,
+          );
+        }
+
+        if (paymentIntent.status !== 'succeeded') {
+          throw new functions.https.HttpsError(
+            'failed-precondition',
+            `PaymentIntent ${paymentIntentId} is not succeeded.`,
+          );
+        }
+
+        const metadata = extractMetadata(paymentIntent.metadata);
+        if (normalizeString(metadata.type) !== 'quote') {
+          throw new functions.https.HttpsError(
+            'failed-precondition',
+            'PaymentIntent is not associated with a quote.',
+          );
+        }
+
+        await handleQuotePaymentIntentSuccess(paymentIntent, metadata);
+        return { status: 'ok' };
+      } catch (error) {
+        if (error instanceof functions.https.HttpsError) {
+          throw error;
+        }
+        if (error instanceof Stripe.errors.StripeError) {
+          throw new functions.https.HttpsError(
+            'failed-precondition',
+            error.message ?? 'Stripe error during quote finalization.',
+          );
+        }
+        console.error('finalizeQuotePaymentIntent error', error);
+        throw new functions.https.HttpsError('internal', 'Internal error.');
+      }
+    },
+  );

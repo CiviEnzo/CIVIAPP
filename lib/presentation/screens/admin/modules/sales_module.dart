@@ -77,7 +77,7 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
         data.cashFlowEntries
             .where((entry) => salonId == null || entry.salonId == salonId)
             .toList()
-          ..sort((a, b) => b.date.compareTo(a.date));
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
     final income = allCashFlow
@@ -102,15 +102,23 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
 
     final cashFlow =
         allCashFlow
-            .where((entry) => DateUtils.isSameDay(entry.date, _selectedDate))
+            .where(
+              (entry) =>
+                  DateUtils.isSameDay(entry.createdAt.toLocal(), _selectedDate),
+            )
             .toList();
     final today = DateUtils.dateOnly(DateTime.now());
+    final fallbackStartDate = today.subtract(const Duration(days: 365));
     final earliestEntryDate =
         allCashFlow.isEmpty
-            ? today.subtract(const Duration(days: 365))
-            : DateUtils.dateOnly(allCashFlow.last.date);
+            ? null
+            : DateUtils.dateOnly(allCashFlow.last.createdAt.toLocal());
     final firstAvailableDate =
-        earliestEntryDate.isAfter(today) ? today : earliestEntryDate;
+        earliestEntryDate == null
+            ? fallbackStartDate
+            : (earliestEntryDate.isBefore(fallbackStartDate)
+                ? earliestEntryDate
+                : fallbackStartDate);
     final canGoBackward = _selectedDate.isAfter(firstAvailableDate);
     final canGoForward = _selectedDate.isBefore(today);
     final formattedSelectedDate = DateFormat.yMMMMEEEEd(
@@ -120,7 +128,10 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
 
     final selectedSales =
         sales
-            .where((sale) => DateUtils.isSameDay(sale.createdAt, _selectedDate))
+            .where(
+              (sale) =>
+                  DateUtils.isSameDay(sale.createdAt.toLocal(), _selectedDate),
+            )
             .toList();
     final selectedEarnedPoints = selectedSales.fold<int>(
       0,
@@ -367,6 +378,7 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
               separatorBuilder: (_, __) => const SizedBox(height: 12),
               itemBuilder: (context, index) {
                 final entry = cashFlow[index];
+                final entryDate = entry.date.toLocal();
                 return Card(
                   child: ListTile(
                     leading: CircleAvatar(
@@ -383,7 +395,7 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                     ),
                     title: Text(entry.description ?? 'Movimento'),
                     subtitle: Text(
-                      '${DateFormat('dd/MM/yyyy').format(entry.date)} · ${entry.category ?? 'Generale'}',
+                      '${DateFormat('dd/MM/yyyy').format(entryDate)} · ${entry.category ?? 'Generale'}',
                     ),
                     trailing: Text(
                       currency.format(entry.amount),
@@ -624,6 +636,7 @@ Future<void> _recordSaleCashFlow({
     type: CashFlowType.income,
     amount: amount,
     date: sale.createdAt,
+    createdAt: DateTime.now(),
     description:
         sale.paymentStatus == SalePaymentStatus.deposit
             ? 'Acconto vendita a $clientName'

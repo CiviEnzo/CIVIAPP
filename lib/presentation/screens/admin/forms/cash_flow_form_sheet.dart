@@ -216,6 +216,7 @@ class _CashFlowFormSheetState extends State<CashFlowFormSheet> {
       type: _type,
       amount: double.tryParse(_amount.text.replaceAll(',', '.')) ?? 0,
       date: _date,
+      createdAt: DateTime.now(),
       description: _description.text.trim(),
       category: _category.text.trim().isEmpty ? null : _category.text.trim(),
       staffId: _staffId,

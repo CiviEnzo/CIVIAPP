@@ -3509,6 +3509,7 @@ class _PackagesTabState extends ConsumerState<_PackagesTab> {
       type: normalized >= 0 ? CashFlowType.income : CashFlowType.expense,
       amount: normalized.abs(),
       date: date ?? DateTime.now(),
+      createdAt: DateTime.now(),
       description: description,
       category: 'Acconti',
     );
@@ -3617,6 +3618,10 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
                           client: client,
                           currency: currency,
                         ),
+                onMarkSent:
+                    quote.status == QuoteStatus.draft
+                        ? () => _markQuoteSentManual(context, quote)
+                        : null,
                 onAccept:
                     quote.status == QuoteStatus.accepted
                         ? null
@@ -3877,7 +3882,7 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Preventivo ${_quoteLabel(quote)} accettato: creato ticket di pagamento.',
+            'Preventivo ${_quoteLabel(quote)} accettato: registrata la vendita.',
           ),
         ),
       );
@@ -3930,6 +3935,36 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Preventivo ${_quoteLabel(quote)} rifiutato.')),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Errore durante l\'aggiornamento: $error')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _updatingQuotes.remove(quote.id));
+      }
+    }
+  }
+
+  Future<void> _markQuoteSentManual(BuildContext context, Quote quote) async {
+    if (_updatingQuotes.contains(quote.id)) {
+      return;
+    }
+    setState(() => _updatingQuotes.add(quote.id));
+    try {
+      await ref.read(appDataProvider.notifier).markQuoteSentManual(quote.id);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Preventivo ${_quoteLabel(quote)} impostato su "Inviato".',
+          ),
+        ),
       );
     } catch (error) {
       if (mounted) {
@@ -4446,6 +4481,7 @@ class _QuoteCard extends StatelessWidget {
     required this.isDeleting,
     this.onEdit,
     this.onSend,
+    this.onMarkSent,
     this.onAccept,
     this.onDecline,
     this.onDelete,
@@ -4459,6 +4495,7 @@ class _QuoteCard extends StatelessWidget {
   final bool isDeleting;
   final VoidCallback? onEdit;
   final VoidCallback? onSend;
+  final VoidCallback? onMarkSent;
   final VoidCallback? onAccept;
   final VoidCallback? onDecline;
   final VoidCallback? onDelete;
@@ -4582,6 +4619,23 @@ class _QuoteCard extends StatelessWidget {
                 fontWeight: FontWeight.w600,
               ),
             ),
+            if (quote.saleId != null && quote.saleId!.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Vendita collegata: ${quote.saleId}',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+            if (quote.stripePaymentIntentId != null &&
+                quote.stripePaymentIntentId!.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                'PaymentIntent: ${quote.stripePaymentIntentId}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
             if (quote.sentChannels.isNotEmpty) ...[
               const SizedBox(height: 12),
               Wrap(
@@ -4608,6 +4662,12 @@ class _QuoteCard extends StatelessWidget {
                     onPressed: _isBusy ? null : onEdit,
                     icon: const Icon(Icons.edit_rounded),
                     label: const Text('Modifica'),
+                  ),
+                if (onMarkSent != null)
+                  OutlinedButton.icon(
+                    onPressed: _isBusy ? null : onMarkSent,
+                    icon: const Icon(Icons.check_circle_rounded),
+                    label: const Text('Segna inviato'),
                   ),
                 if (onSend != null)
                   FilledButton.tonalIcon(
@@ -5904,6 +5964,7 @@ class _BillingTab extends ConsumerWidget {
       type: type,
       amount: magnitude,
       date: date ?? DateTime.now(),
+      createdAt: DateTime.now(),
       description: description,
       category: 'Vendite',
       staffId: sale.staffId,

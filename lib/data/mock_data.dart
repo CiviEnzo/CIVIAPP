@@ -1173,6 +1173,8 @@ class MockData {
       updatedAt: _now.subtract(const Duration(days: 5)),
       ticketId: 'quote-002-ticket',
       sentChannels: const [MessageChannel.email, MessageChannel.whatsapp],
+      saleId: 'sale-002',
+      stripePaymentIntentId: 'pi_mock_002',
       items: const [
         QuoteItem(
           id: 'quote-002-item-1',
@@ -1337,6 +1339,7 @@ class MockData {
       type: CashFlowType.income,
       amount: 250,
       date: _now.subtract(const Duration(days: 1)),
+      createdAt: _now.subtract(const Duration(days: 1, hours: 3)),
       description: 'Vendita pacchetto promo primavera',
       category: 'Vendite',
       staffId: 'staff-001',
@@ -1347,6 +1350,7 @@ class MockData {
       type: CashFlowType.expense,
       amount: 85,
       date: _now.subtract(const Duration(days: 2)),
+      createdAt: _now.subtract(const Duration(days: 2, hours: 6)),
       description: 'Rifornimento oli massaggi',
       category: 'Magazzino',
       staffId: 'staff-001',

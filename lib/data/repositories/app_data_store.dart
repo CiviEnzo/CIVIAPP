@@ -36,6 +36,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 class AppDataStore extends StateNotifier<AppDataState> {
   AppDataStore({FirebaseFirestore? firestore, AppUser? currentUser})
@@ -2573,6 +2574,25 @@ class AppDataStore extends StateNotifier<AppDataState> {
     await upsertQuote(updated);
   }
 
+  Future<void> markQuoteSentManual(String quoteId) async {
+    final quote = state.quotes.firstWhereOrNull((item) => item.id == quoteId);
+    if (quote == null) {
+      throw StateError('Preventivo non trovato');
+    }
+    if (quote.status == QuoteStatus.accepted ||
+        quote.status == QuoteStatus.declined) {
+      return;
+    }
+    final now = DateTime.now();
+    final updated = quote.copyWith(
+      status: QuoteStatus.sent,
+      sentAt: now,
+      sentChannels: quote.sentChannels,
+      updatedAt: now,
+    );
+    await upsertQuote(updated);
+  }
+
   Future<void> acceptQuote(String quoteId) async {
     final quote = state.quotes.firstWhereOrNull((item) => item.id == quoteId);
     if (quote == null) {
@@ -2582,16 +2602,17 @@ class AppDataStore extends StateNotifier<AppDataState> {
       return;
     }
     final now = DateTime.now();
+    final sale = _buildSaleFromQuote(quote, now);
     final ticketId = quote.ticketId ?? 'quote-${quote.id}';
     final existingTicket = state.paymentTickets.firstWhereOrNull(
       (ticket) => ticket.id == ticketId,
     );
     final ticket = (existingTicket ?? _buildTicketFromQuote(quote, ticketId))
         .copyWith(
-          status: PaymentTicketStatus.open,
-          closedAt: null,
-          saleId: null,
-          expectedTotal: quote.total,
+          status: PaymentTicketStatus.closed,
+          closedAt: now,
+          saleId: sale.id,
+          expectedTotal: sale.total,
           notes: quote.notes,
           serviceName:
               quote.title?.isNotEmpty == true
@@ -2606,10 +2627,114 @@ class AppDataStore extends StateNotifier<AppDataState> {
       acceptedAt: now,
       declinedAt: null,
       ticketId: ticketId,
+      saleId: sale.id,
       updatedAt: now,
     );
+    await upsertSale(sale);
     await upsertQuote(updated);
     await upsertPaymentTicket(ticket);
+  }
+
+  Sale _buildSaleFromQuote(Quote quote, DateTime saleDate) {
+    final servicesById = {
+      for (final service in state.services) service.id: service,
+    };
+    final packagesById = {for (final pkg in state.packages) pkg.id: pkg};
+    final saleItems = <SaleItem>[];
+    for (final item in quote.items) {
+      saleItems.add(
+        _saleItemFromQuoteItem(
+          quote: quote,
+          item: item,
+          saleDate: saleDate,
+          servicesById: servicesById,
+          packagesById: packagesById,
+        ),
+      );
+    }
+    final total = double.parse(
+      saleItems
+          .fold<double>(0, (sum, entry) => sum + entry.amount)
+          .toStringAsFixed(2),
+    );
+    return Sale(
+      id: const Uuid().v4(),
+      salonId: quote.salonId,
+      clientId: quote.clientId,
+      items: saleItems,
+      total: total,
+      createdAt: saleDate,
+      paymentStatus: SalePaymentStatus.deposit,
+      paidAmount: 0,
+      notes: quote.notes,
+    );
+  }
+
+  SaleItem _saleItemFromQuoteItem({
+    required Quote quote,
+    required QuoteItem item,
+    required DateTime saleDate,
+    required Map<String, Service> servicesById,
+    required Map<String, ServicePackage> packagesById,
+  }) {
+    final quantity = double.parse(item.quantity.toStringAsFixed(2));
+    final unitPrice = double.parse(item.unitPrice.toStringAsFixed(2));
+    final packageId = item.packageId;
+    if (packageId != null && packageId.isNotEmpty) {
+      final package = packagesById[packageId];
+      final serviceSessions =
+          package?.serviceSessionCounts ?? const <String, int>{};
+      final perPackageSessions = package?.totalConfiguredSessions;
+      int? totalSessions;
+      if (perPackageSessions != null) {
+        final computed = perPackageSessions * quantity;
+        if (computed.isFinite) {
+          totalSessions = computed.round();
+        }
+      }
+      final expiration =
+          package?.validDays != null
+              ? saleDate.add(Duration(days: package!.validDays!))
+              : null;
+      return SaleItem(
+        referenceId: packageId,
+        referenceType: SaleReferenceType.package,
+        description: item.description,
+        quantity: quantity,
+        unitPrice: unitPrice,
+        totalSessions: totalSessions,
+        remainingSessions: totalSessions,
+        packageStatus: PackagePurchaseStatus.active,
+        packagePaymentStatus: PackagePaymentStatus.deposit,
+        expirationDate: expiration,
+        packageServiceSessions: serviceSessions,
+      );
+    }
+
+    final serviceId = item.serviceId;
+    if (serviceId != null && serviceId.isNotEmpty) {
+      final service = servicesById[serviceId];
+      final description =
+          item.description.isNotEmpty
+              ? item.description
+              : (service?.name ?? 'Servizio');
+      return SaleItem(
+        referenceId: serviceId,
+        referenceType: SaleReferenceType.service,
+        description: description,
+        quantity: quantity,
+        unitPrice: unitPrice,
+      );
+    }
+
+    final fallbackId = 'quote-${quote.id}-${item.id}';
+    return SaleItem(
+      referenceId: fallbackId,
+      referenceType: SaleReferenceType.service,
+      description: item.description,
+      quantity: quantity,
+      unitPrice: unitPrice,
+    );
   }
 
   Future<void> declineQuote(String quoteId) async {
@@ -3406,6 +3531,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
               type: entry.type,
               amount: entry.amount,
               date: entry.date,
+              createdAt: entry.createdAt,
               description: entry.description,
               category: entry.category,
               staffId: null,
