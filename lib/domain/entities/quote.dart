@@ -151,8 +151,10 @@ class QuoteItem {
     required this.description,
     required this.quantity,
     required this.unitPrice,
+    this.referenceType = QuoteItemReferenceType.manual,
     this.serviceId,
     this.packageId,
+    this.inventoryItemId,
   });
 
   static const Object _unset = Object();
@@ -161,8 +163,10 @@ class QuoteItem {
   final String description;
   final double quantity;
   final double unitPrice;
+  final QuoteItemReferenceType referenceType;
   final String? serviceId;
   final String? packageId;
+  final String? inventoryItemId;
 
   double get total => double.parse((quantity * unitPrice).toStringAsFixed(2));
 
@@ -171,18 +175,37 @@ class QuoteItem {
     String? description,
     double? quantity,
     double? unitPrice,
+    QuoteItemReferenceType? referenceType,
     Object? serviceId = _unset,
     Object? packageId = _unset,
+    Object? inventoryItemId = _unset,
   }) {
     return QuoteItem(
       id: id ?? this.id,
       description: description ?? this.description,
       quantity: quantity ?? this.quantity,
       unitPrice: unitPrice ?? this.unitPrice,
+      referenceType: referenceType ?? this.referenceType,
       serviceId: serviceId == _unset ? this.serviceId : serviceId as String?,
       packageId: packageId == _unset ? this.packageId : packageId as String?,
+      inventoryItemId:
+          inventoryItemId == _unset
+              ? this.inventoryItemId
+              : inventoryItemId as String?,
     );
   }
+}
+
+enum QuoteItemReferenceType { manual, service, package, product }
+
+QuoteItemReferenceType quoteItemReferenceTypeFromString(String? value) {
+  if (value == null || value.isEmpty) {
+    return QuoteItemReferenceType.manual;
+  }
+  return QuoteItemReferenceType.values.firstWhere(
+    (type) => type.name == value,
+    orElse: () => QuoteItemReferenceType.manual,
+  );
 }
 
 String nextQuoteNumber(Iterable<Quote> quotes, {DateTime? now}) {

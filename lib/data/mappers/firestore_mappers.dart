@@ -14,6 +14,7 @@ import 'package:civiapp/domain/entities/quote.dart';
 import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/domain/entities/salon.dart';
+import 'package:civiapp/domain/entities/salon_access_request.dart';
 import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/service_category.dart';
 import 'package:civiapp/domain/entities/shift.dart';
@@ -34,6 +35,7 @@ Salon salonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final featureFlagsRaw = _mapFromDynamic(
     data['featureFlags'] ?? data['features'],
   );
+  final clientRegistrationRaw = _mapFromDynamic(data['clientRegistration']);
   final stripeAccountRaw = _mapFromDynamic(data['stripeAccount']);
   final stripeRequirementsRaw = _mapFromDynamic(
     stripeAccountRaw['requirements'],
@@ -123,6 +125,7 @@ Salon salonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
             .toList(),
     loyaltySettings: _mapToLoyaltySettings(loyaltyRaw),
     featureFlags: SalonFeatureFlags.fromMap(featureFlagsRaw),
+    clientRegistration: _mapToClientRegistrationSettings(clientRegistrationRaw),
     stripeAccountId: data['stripeAccountId'] as String?,
     stripeAccount: stripeAccount,
   );
@@ -195,6 +198,9 @@ Map<String, dynamic> salonToMap(Salon salon) {
   }
 
   map['featureFlags'] = salon.featureFlags.toMap();
+  map['clientRegistration'] = _clientRegistrationToMap(
+    salon.clientRegistration,
+  );
   if (salon.stripeAccountId != null) {
     map['stripeAccountId'] = salon.stripeAccountId;
   }
@@ -400,13 +406,30 @@ Quote quoteFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
         final quantity = (rawItem['quantity'] as num?)?.toDouble() ?? 1;
         final unitPrice = (rawItem['unitPrice'] as num?)?.toDouble() ?? 0;
         final id = rawItem['id'] as String? ?? const Uuid().v4();
+        final serviceId = rawItem['serviceId'] as String?;
+        final packageId = rawItem['packageId'] as String?;
+        final inventoryItemId = rawItem['inventoryItemId'] as String?;
+        final referenceTypeRaw = rawItem['referenceType'] as String?;
+        QuoteItemReferenceType referenceType =
+            quoteItemReferenceTypeFromString(referenceTypeRaw);
+        if (referenceTypeRaw == null || referenceType == QuoteItemReferenceType.manual) {
+          if (packageId != null && packageId.isNotEmpty) {
+            referenceType = QuoteItemReferenceType.package;
+          } else if (serviceId != null && serviceId.isNotEmpty) {
+            referenceType = QuoteItemReferenceType.service;
+          } else if (inventoryItemId != null && inventoryItemId.isNotEmpty) {
+            referenceType = QuoteItemReferenceType.product;
+          }
+        }
         return QuoteItem(
           id: id,
           description: rawItem['description'] as String? ?? '',
           quantity: quantity,
           unitPrice: unitPrice,
-          serviceId: rawItem['serviceId'] as String?,
-          packageId: rawItem['packageId'] as String?,
+          referenceType: referenceType,
+          serviceId: serviceId,
+          packageId: packageId,
+          inventoryItemId: inventoryItemId,
         );
       })
       .whereType<QuoteItem>()
@@ -467,8 +490,10 @@ Map<String, dynamic> quoteToMap(Quote quote) {
                 'description': item.description,
                 'quantity': item.quantity,
                 'unitPrice': item.unitPrice,
+                'referenceType': item.referenceType.name,
                 'serviceId': item.serviceId,
                 'packageId': item.packageId,
+                'inventoryItemId': item.inventoryItemId,
               },
             )
             .toList(),
@@ -833,6 +858,52 @@ Map<String, dynamic> clientToMap(Client client) {
     );
   }
 
+  return map;
+}
+
+SalonAccessRequest salonAccessRequestFromDoc(
+  DocumentSnapshot<Map<String, dynamic>> doc,
+) {
+  final data = doc.data() ?? const <String, dynamic>{};
+  final extraRaw = data['extraData'] as Map<String, dynamic>? ?? const {};
+  return SalonAccessRequest(
+    id: doc.id,
+    salonId: data['salonId'] as String? ?? '',
+    userId: data['userId'] as String? ?? '',
+    clientId: data['clientId'] as String?,
+    firstName: data['firstName'] as String? ?? '',
+    lastName: data['lastName'] as String? ?? '',
+    email: data['email'] as String? ?? '',
+    phone: data['phone'] as String? ?? '',
+    dateOfBirth: _timestampToDate(data['dateOfBirth']),
+    extraData: Map<String, dynamic>.from(extraRaw),
+    status: _stringToAccessRequestStatus(data['status'] as String?),
+    createdAt: _timestampToDate(data['createdAt']),
+    updatedAt: _timestampToDate(data['updatedAt']),
+  );
+}
+
+Map<String, dynamic> salonAccessRequestToMap(SalonAccessRequest request) {
+  final map = <String, dynamic>{
+    'salonId': request.salonId,
+    'userId': request.userId,
+    'clientId': request.clientId,
+    'firstName': request.firstName,
+    'lastName': request.lastName,
+    'email': request.email,
+    'phone': request.phone,
+    'status': _accessRequestStatusToString(request.status),
+    'extraData': request.extraData,
+  };
+  if (request.dateOfBirth != null) {
+    map['dateOfBirth'] = Timestamp.fromDate(request.dateOfBirth!);
+  }
+  if (request.createdAt != null) {
+    map['createdAt'] = Timestamp.fromDate(request.createdAt!);
+  }
+  if (request.updatedAt != null) {
+    map['updatedAt'] = Timestamp.fromDate(request.updatedAt!);
+  }
   return map;
 }
 
@@ -1558,6 +1629,112 @@ LoyaltyRoundingMode _loyaltyRoundingFromString(String? value) {
   }
 }
 
+ClientRegistrationSettings _mapToClientRegistrationSettings(
+  Map<String, dynamic>? data,
+) {
+  if (data == null) {
+    return const ClientRegistrationSettings();
+  }
+  final mode = _stringToClientRegistrationAccessMode(
+    data['accessMode'] as String?,
+  );
+  final extraRaw = data['extraFields'] as List<dynamic>? ?? const [];
+  final extra = extraRaw
+      .map((value) => _stringToClientRegistrationExtraField(value?.toString()))
+      .whereType<ClientRegistrationExtraField>()
+      .toList(growable: false);
+  return ClientRegistrationSettings(accessMode: mode, extraFields: extra);
+}
+
+Map<String, dynamic> _clientRegistrationToMap(
+  ClientRegistrationSettings settings,
+) {
+  return {
+    'accessMode': _clientRegistrationAccessModeToString(settings.accessMode),
+    'extraFields': settings.extraFields
+        .map(_clientRegistrationExtraFieldToString)
+        .toList(growable: false),
+  };
+}
+
+ClientRegistrationAccessMode _stringToClientRegistrationAccessMode(
+  String? value,
+) {
+  switch (value) {
+    case 'approval':
+      return ClientRegistrationAccessMode.approval;
+    case 'open':
+    default:
+      return ClientRegistrationAccessMode.open;
+  }
+}
+
+String _clientRegistrationAccessModeToString(
+  ClientRegistrationAccessMode mode,
+) {
+  switch (mode) {
+    case ClientRegistrationAccessMode.open:
+      return 'open';
+    case ClientRegistrationAccessMode.approval:
+      return 'approval';
+  }
+}
+
+ClientRegistrationExtraField? _stringToClientRegistrationExtraField(
+  String? value,
+) {
+  switch (value) {
+    case 'address':
+      return ClientRegistrationExtraField.address;
+    case 'profession':
+      return ClientRegistrationExtraField.profession;
+    case 'referralSource':
+      return ClientRegistrationExtraField.referralSource;
+    case 'notes':
+      return ClientRegistrationExtraField.notes;
+    default:
+      return null;
+  }
+}
+
+String _clientRegistrationExtraFieldToString(
+  ClientRegistrationExtraField field,
+) {
+  switch (field) {
+    case ClientRegistrationExtraField.address:
+      return 'address';
+    case ClientRegistrationExtraField.profession:
+      return 'profession';
+    case ClientRegistrationExtraField.referralSource:
+      return 'referralSource';
+    case ClientRegistrationExtraField.notes:
+      return 'notes';
+  }
+}
+
+SalonAccessRequestStatus _stringToAccessRequestStatus(String? value) {
+  switch (value) {
+    case 'approved':
+      return SalonAccessRequestStatus.approved;
+    case 'rejected':
+      return SalonAccessRequestStatus.rejected;
+    case 'pending':
+    default:
+      return SalonAccessRequestStatus.pending;
+  }
+}
+
+String _accessRequestStatusToString(SalonAccessRequestStatus status) {
+  switch (status) {
+    case SalonAccessRequestStatus.pending:
+      return 'pending';
+    case SalonAccessRequestStatus.approved:
+      return 'approved';
+    case SalonAccessRequestStatus.rejected:
+      return 'rejected';
+  }
+}
+
 SaleLoyaltySummary _mapToSaleLoyaltySummary(Map<String, dynamic>? raw) {
   if (raw == null || raw.isEmpty) {
     return SaleLoyaltySummary();
@@ -1789,6 +1966,7 @@ AppNotification appNotificationFromDoc(
   final createdAtRaw = data['createdAt'];
   final scheduledAtRaw = data['scheduledAt'];
   final sentAtRaw = data['sentAt'];
+  final readAtRaw = data['readAt'];
 
   return AppNotification(
     id: doc.id,
@@ -1813,6 +1991,10 @@ AppNotification appNotificationFromDoc(
             : (sentAtRaw is DateTime ? sentAtRaw : null),
     type: data['type'] as String? ?? payload['type'] as String?,
     offsetMinutes: (payload['offsetMinutes'] as num?)?.toInt(),
+    readAt:
+        (readAtRaw is Timestamp)
+            ? readAtRaw.toDate()
+            : (readAtRaw is DateTime ? readAtRaw : null),
   );
 }
 

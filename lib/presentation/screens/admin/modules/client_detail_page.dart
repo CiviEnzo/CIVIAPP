@@ -3545,11 +3545,22 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
     final quotes =
         data.quotes.where((quote) => quote.clientId == widget.clientId).toList()
           ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final salon = data.salons.firstWhereOrNull(
+      (element) => element.id == client.salonId,
+    );
+    if (salon == null) {
+      return const Center(
+        child: Text('Salone associato al cliente non disponibile.'),
+      );
+    }
     final services = data.services
         .where((service) => service.salonId == client.salonId)
         .toList(growable: false);
     final salonPackages = data.packages
         .where((pkg) => pkg.salonId == client.salonId)
+        .toList(growable: false);
+    final inventory = data.inventoryItems
+        .where((item) => item.salonId == client.salonId)
         .toList(growable: false);
     final userRole = ref.watch(
       sessionControllerProvider.select((state) => state.role),
@@ -3570,9 +3581,12 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
                 () => _createQuote(
                   context,
                   client: client,
+                  salon: salon,
                   existingQuotes: quotes,
                   services: services,
                   packages: salonPackages,
+                  inventory: inventory,
+                  allSalons: data.salons,
                 ),
             icon: const Icon(Icons.add_rounded),
             label: const Text('Nuovo preventivo'),
@@ -3604,9 +3618,12 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
                           context,
                           quote: quote,
                           client: client,
+                          salon: salon,
                           existingQuotes: quotes,
                           services: services,
                           packages: salonPackages,
+                          inventory: inventory,
+                          allSalons: data.salons,
                         )
                         : null,
                 onSend:
@@ -3667,18 +3684,24 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
   Future<void> _createQuote(
     BuildContext context, {
     required Client client,
+    required Salon salon,
     required List<Quote> existingQuotes,
     required List<Service> services,
     required List<ServicePackage> packages,
+    required List<InventoryItem> inventory,
+    required List<Salon> allSalons,
   }) async {
     final quote = await showAppModalSheet<Quote>(
       context: context,
       builder:
           (ctx) => QuoteFormSheet(
             client: client,
+            salon: salon,
             existingQuotes: existingQuotes,
             services: services,
             packages: packages,
+            inventoryItems: inventory,
+            salons: allSalons,
           ),
     );
     if (quote == null) {
@@ -3706,9 +3729,12 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
     BuildContext context, {
     required Quote quote,
     required Client client,
+    required Salon salon,
     required List<Quote> existingQuotes,
     required List<Service> services,
     required List<ServicePackage> packages,
+    required List<InventoryItem> inventory,
+    required List<Salon> allSalons,
   }) async {
     final otherQuotes =
         existingQuotes.where((item) => item.id != quote.id).toList();
@@ -3717,9 +3743,12 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
       builder:
           (ctx) => QuoteFormSheet(
             client: client,
+            salon: salon,
             existingQuotes: otherQuotes,
             services: services,
             packages: packages,
+            inventoryItems: inventory,
+            salons: allSalons,
             initial: quote,
           ),
     );

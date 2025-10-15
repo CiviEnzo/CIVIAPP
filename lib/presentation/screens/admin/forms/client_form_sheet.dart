@@ -25,6 +25,7 @@ class ClientFormSheet extends StatefulWidget {
 }
 
 class _ClientFormSheetState extends State<ClientFormSheet> {
+  static const String _pendingClientNumberDisplay = 'Assegnato al salvataggio';
   final _formKey = GlobalKey<FormState>();
   final _uuid = const Uuid();
   final DateFormat _dateFormat = DateFormat('dd/MM/yyyy');
@@ -89,6 +90,9 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     _clientNumber = TextEditingController(
       text: _resolveInitialClientNumber(initial),
     );
+    if (!_hasPersistedClientNumber && _clientNumber.text.isEmpty) {
+      _clientNumber.text = _pendingClientNumberDisplay;
+    }
     _address = TextEditingController(text: initial?.address ?? '');
     _profession = TextEditingController(text: initial?.profession ?? '');
     _referralSource = initial?.referralSource;
@@ -129,26 +133,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     if (clientNumber != null && clientNumber.isNotEmpty) {
       return clientNumber;
     }
-    return _generateSequentialClientNumber(_salonId);
-  }
-
-  List<Client> _clientsForSalon(String? salonId) {
-    return widget.clients.where((client) {
-      if (_isEditing &&
-          widget.initial != null &&
-          client.id == widget.initial!.id) {
-        return false;
-      }
-      if (salonId == null) {
-        return true;
-      }
-      return client.salonId == salonId;
-    }).toList();
-  }
-
-  String _generateSequentialClientNumber(String? salonId) {
-    final relevantClients = _clientsForSalon(salonId);
-    return nextSequentialClientNumber(relevantClients);
+    return '';
   }
 
   int _initialBalanceForSalon(String? salonId) {
@@ -191,7 +176,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     if (_hasPersistedClientNumber) {
       return;
     }
-    _clientNumber.text = _generateSequentialClientNumber(salonId);
+    _clientNumber.text = _pendingClientNumberDisplay;
   }
 
   Future<void> _pickDateOfBirth() async {
@@ -276,7 +261,8 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
               readOnly: true,
               decoration: const InputDecoration(
                 labelText: 'Numero cliente',
-                helperText: 'Generato automaticamente in ordine progressivo',
+                helperText:
+                    'Assegnato automaticamente al salvataggio in base al salone',
               ),
             ),
             const SizedBox(height: 12),
@@ -295,6 +281,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
               controller: _email,
               decoration: const InputDecoration(labelText: 'Email'),
               keyboardType: TextInputType.emailAddress,
+              validator: _validateEmail,
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -493,8 +480,6 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
       firstName: _firstName.text.trim(),
       lastName: _lastName.text.trim(),
       phone: _phone.text.trim(),
-      clientNumber:
-          _clientNumber.text.trim().isEmpty ? null : _clientNumber.text.trim(),
       dateOfBirth: _dateOfBirth,
       address: _address.text.trim().isEmpty ? null : _address.text.trim(),
       profession:
@@ -503,7 +488,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
           _referralSource == null || _referralSource!.trim().isEmpty
               ? null
               : _referralSource!.trim(),
-      email: _email.text.trim().isEmpty ? null : _email.text.trim(),
+      email: _email.text.trim(),
       notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
       loyaltyInitialPoints: initialPoints,
       loyaltyPoints: loyaltyPoints,
@@ -516,6 +501,10 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
       invitationSentAt: widget.initial?.invitationSentAt,
       firstLoginAt: widget.initial?.firstLoginAt,
       onboardingCompletedAt: widget.initial?.onboardingCompletedAt,
+      clientNumber:
+          existing?.clientNumber != null && existing!.clientNumber!.isNotEmpty
+              ? existing.clientNumber
+              : null,
     );
 
     Navigator.of(context).pop(client);
@@ -526,6 +515,32 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
       updater();
       _preferencesDirty = _didPreferencesChange();
     });
+  }
+
+  String? _validateEmail(String? value) {
+    final raw = value?.trim() ?? '';
+    if (raw.isEmpty) {
+      return "Inserisci un indirizzo email";
+    }
+    final emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+    if (!emailPattern.hasMatch(raw)) {
+      return "Email non valida";
+    }
+    final normalized = raw.toLowerCase();
+    final duplicate = widget.clients.firstWhereOrNull((client) {
+      if (client.id == widget.initial?.id) {
+        return false;
+      }
+      final candidate = client.email?.trim();
+      if (candidate == null || candidate.isEmpty) {
+        return false;
+      }
+      return candidate.toLowerCase() == normalized;
+    });
+    if (duplicate != null) {
+      return "Esiste gia' un cliente con questa email";
+    }
+    return null;
   }
 
   bool _didPreferencesChange() {

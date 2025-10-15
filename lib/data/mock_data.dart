@@ -1149,6 +1149,7 @@ class MockData {
           description: 'Pacchetto pressoterapia 5 sessioni',
           quantity: 1,
           unitPrice: 320,
+          referenceType: QuoteItemReferenceType.service,
           serviceId: 'srv-massage',
         ),
         QuoteItem(
@@ -1181,12 +1182,14 @@ class MockData {
           description: 'Percorso spa giornaliero',
           quantity: 2,
           unitPrice: 85,
+          referenceType: QuoteItemReferenceType.manual,
         ),
         QuoteItem(
           id: 'quote-002-item-2',
           description: 'Massaggio decontratturante',
           quantity: 1,
           unitPrice: 40,
+          referenceType: QuoteItemReferenceType.service,
           serviceId: 'srv-massage',
         ),
       ],

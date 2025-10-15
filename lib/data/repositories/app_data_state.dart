@@ -21,6 +21,7 @@ import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/domain/entities/staff_role.dart';
 import 'package:civiapp/domain/entities/reminder_settings.dart';
+import 'package:civiapp/domain/entities/salon_access_request.dart';
 
 class AppDataState {
   const AppDataState({
@@ -49,6 +50,7 @@ class AppDataState {
     required this.clientQuestionnaires,
     required this.promotions,
     required this.lastMinuteSlots,
+    required this.salonAccessRequests,
   });
 
   factory AppDataState.initial() {
@@ -78,6 +80,7 @@ class AppDataState {
       clientQuestionnaires: [],
       promotions: [],
       lastMinuteSlots: [],
+      salonAccessRequests: [],
     );
   }
 
@@ -106,6 +109,7 @@ class AppDataState {
   final List<ClientQuestionnaire> clientQuestionnaires;
   final List<Promotion> promotions;
   final List<LastMinuteSlot> lastMinuteSlots;
+  final List<SalonAccessRequest> salonAccessRequests;
 
   AppDataState copyWith({
     List<Salon>? salons,
@@ -133,6 +137,7 @@ class AppDataState {
     List<ClientQuestionnaire>? clientQuestionnaires,
     List<Promotion>? promotions,
     List<LastMinuteSlot>? lastMinuteSlots,
+    List<SalonAccessRequest>? salonAccessRequests,
   }) {
     return AppDataState(
       salons: salons ?? this.salons,
@@ -161,6 +166,7 @@ class AppDataState {
       clientQuestionnaires: clientQuestionnaires ?? this.clientQuestionnaires,
       promotions: promotions ?? this.promotions,
       lastMinuteSlots: lastMinuteSlots ?? this.lastMinuteSlots,
+      salonAccessRequests: salonAccessRequests ?? this.salonAccessRequests,
     );
   }
 }

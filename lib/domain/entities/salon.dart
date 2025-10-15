@@ -105,6 +105,7 @@ class Salon {
     this.status = SalonStatus.active,
     this.loyaltySettings = const LoyaltySettings(),
     this.featureFlags = const SalonFeatureFlags(),
+    this.clientRegistration = const ClientRegistrationSettings(),
     this.stripeAccountId,
     this.stripeAccount = const StripeAccountSnapshot(),
   });
@@ -127,6 +128,7 @@ class Salon {
   final SalonStatus status;
   final LoyaltySettings loyaltySettings;
   final SalonFeatureFlags featureFlags;
+  final ClientRegistrationSettings clientRegistration;
   final String? stripeAccountId;
   final StripeAccountSnapshot stripeAccount;
 
@@ -152,6 +154,7 @@ class Salon {
     SalonStatus? status,
     LoyaltySettings? loyaltySettings,
     SalonFeatureFlags? featureFlags,
+    ClientRegistrationSettings? clientRegistration,
     Object? stripeAccountId = _sentinel,
     StripeAccountSnapshot? stripeAccount,
   }) {
@@ -174,11 +177,39 @@ class Salon {
       status: status ?? this.status,
       loyaltySettings: loyaltySettings ?? this.loyaltySettings,
       featureFlags: featureFlags ?? this.featureFlags,
+      clientRegistration: clientRegistration ?? this.clientRegistration,
       stripeAccountId:
           identical(stripeAccountId, _sentinel)
               ? this.stripeAccountId
               : stripeAccountId as String?,
       stripeAccount: stripeAccount ?? this.stripeAccount,
+    );
+  }
+}
+
+enum ClientRegistrationAccessMode { open, approval }
+
+enum ClientRegistrationExtraField { address, profession, referralSource, notes }
+
+class ClientRegistrationSettings {
+  const ClientRegistrationSettings({
+    this.accessMode = ClientRegistrationAccessMode.open,
+    this.extraFields = const <ClientRegistrationExtraField>[],
+  });
+
+  final ClientRegistrationAccessMode accessMode;
+  final List<ClientRegistrationExtraField> extraFields;
+
+  bool get requiresApproval =>
+      accessMode == ClientRegistrationAccessMode.approval;
+
+  ClientRegistrationSettings copyWith({
+    ClientRegistrationAccessMode? accessMode,
+    List<ClientRegistrationExtraField>? extraFields,
+  }) {
+    return ClientRegistrationSettings(
+      accessMode: accessMode ?? this.accessMode,
+      extraFields: extraFields ?? this.extraFields,
     );
   }
 }

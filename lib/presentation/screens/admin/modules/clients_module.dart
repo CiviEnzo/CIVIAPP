@@ -1,5 +1,6 @@
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/salon.dart';
+import 'package:civiapp/domain/entities/salon_access_request.dart';
 import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/data/repositories/auth_repository.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
@@ -21,6 +22,7 @@ class ClientsModule extends ConsumerStatefulWidget {
 
 class _ClientsModuleState extends ConsumerState<ClientsModule> {
   final Set<String> _sendingInvites = <String>{};
+  final Set<String> _processingRequests = <String>{};
   final TextEditingController _generalQueryController = TextEditingController();
   final TextEditingController _clientNumberController = TextEditingController();
 
@@ -154,6 +156,200 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     );
   }
 
+  Widget _buildAccessRequestsCard({
+    required BuildContext context,
+    required List<SalonAccessRequest> requests,
+    required Map<String, Salon> salonLookup,
+  }) {
+    final theme = Theme.of(context);
+    final dateTimeFormat = DateFormat('dd/MM/yyyy HH:mm');
+    final dateFormat = DateFormat('dd/MM/yyyy');
+
+    Widget buildInfoRow(String label, String value) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '$label: ',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            Expanded(child: Text(value, style: theme.textTheme.bodyMedium)),
+          ],
+        ),
+      );
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Richieste di accesso',
+                  style: theme.textTheme.titleMedium,
+                ),
+                Chip(
+                  avatar: const Icon(Icons.hourglass_empty, size: 18),
+                  label: Text('${requests.length} in attesa'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            for (var i = 0; i < requests.length; i++) ...[
+              () {
+                final request = requests[i];
+                final salonName =
+                    salonLookup[request.salonId]?.name ?? request.salonId;
+                final createdLabel =
+                    request.createdAt != null
+                        ? dateTimeFormat.format(request.createdAt!)
+                        : 'Data non disponibile';
+                final dateOfBirthLabel =
+                    request.dateOfBirth != null
+                        ? dateFormat.format(request.dateOfBirth!)
+                        : null;
+                final isProcessing = _processingRequests.contains(request.id);
+                final extra = request.extraData;
+                final address = _stringOrNull(extra['address']);
+                final profession = _stringOrNull(extra['profession']);
+                final referral = _stringOrNull(extra['referralSource']);
+                final notes = _stringOrNull(extra['notes']);
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${request.firstName} ${request.lastName}',
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(salonName, style: theme.textTheme.bodyMedium),
+                    buildInfoRow('Email', request.email),
+                    buildInfoRow('Telefono', request.phone),
+                    buildInfoRow('Creata il', createdLabel),
+                    if (dateOfBirthLabel != null)
+                      buildInfoRow('Data di nascita', dateOfBirthLabel),
+                    if (address != null)
+                      buildInfoRow('Citta di residenza', address),
+                    if (profession != null)
+                      buildInfoRow('Professione', profession),
+                    if (referral != null)
+                      buildInfoRow('Come ci ha conosciuto', referral),
+                    if (notes != null) buildInfoRow('Note', notes),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 8,
+                      children: [
+                        FilledButton.icon(
+                          onPressed:
+                              isProcessing
+                                  ? null
+                                  : () => _approveRequest(context, request),
+                          icon:
+                              isProcessing
+                                  ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                  : const Icon(Icons.check_circle_outline),
+                          label: const Text('Approva'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed:
+                              isProcessing
+                                  ? null
+                                  : () => _rejectRequest(context, request),
+                          icon: const Icon(Icons.close_rounded),
+                          label: const Text('Rifiuta'),
+                        ),
+                      ],
+                    ),
+                  ],
+                );
+              }(),
+              if (i != requests.length - 1) const Divider(),
+              if (i != requests.length - 1) const SizedBox(height: 16),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _approveRequest(
+    BuildContext context,
+    SalonAccessRequest request,
+  ) async {
+    if (_processingRequests.contains(request.id)) {
+      return;
+    }
+    setState(() => _processingRequests.add(request.id));
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref
+          .read(appDataProvider.notifier)
+          .approveSalonAccessRequest(request: request);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Richiesta approvata.')),
+      );
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Errore durante l\'approvazione: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _processingRequests.remove(request.id));
+      }
+    }
+  }
+
+  Future<void> _rejectRequest(
+    BuildContext context,
+    SalonAccessRequest request,
+  ) async {
+    if (_processingRequests.contains(request.id)) {
+      return;
+    }
+    setState(() => _processingRequests.add(request.id));
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref
+          .read(appDataProvider.notifier)
+          .rejectSalonAccessRequest(request: request);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Richiesta rifiutata.')),
+      );
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Errore durante il rifiuto: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _processingRequests.remove(request.id));
+      }
+    }
+  }
+
+  static String? _stringOrNull(Object? value) {
+    if (value == null) {
+      return null;
+    }
+    final text = value.toString().trim();
+    return text.isEmpty ? null : text;
+  }
+
   @override
   Widget build(BuildContext context) {
     final data = ref.watch(appDataProvider);
@@ -178,6 +374,20 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
             : <Client>[];
     final dateFormatter = DateFormat('dd/MM/yyyy');
     final theme = Theme.of(context);
+    final salonLookup = {for (final salon in salons) salon.id: salon};
+    final pendingRequests =
+        data.salonAccessRequests
+            .where(
+              (request) =>
+                  request.status == SalonAccessRequestStatus.pending &&
+                  (widget.salonId == null || request.salonId == widget.salonId),
+            )
+            .toList()
+          ..sort((a, b) {
+            final left = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+            final right = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+            return right.compareTo(left);
+          });
 
     final children = <Widget>[
       Card(
@@ -251,6 +461,17 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
       ),
       const SizedBox(height: 16),
     ];
+
+    if (pendingRequests.isNotEmpty) {
+      children.add(
+        _buildAccessRequestsCard(
+          context: context,
+          requests: pendingRequests,
+          salonLookup: salonLookup,
+        ),
+      );
+      children.add(const SizedBox(height: 16));
+    }
 
     if (!_searchPerformed) {
       final message =

@@ -42,6 +42,8 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
   late TextEditingController _loyaltyTimezone;
   late bool _loyaltyAutoSuggest;
   late LoyaltyRoundingMode _loyaltyRounding;
+  late ClientRegistrationAccessMode _registrationAccessMode;
+  late Set<ClientRegistrationExtraField> _registrationExtraFields;
 
   static const int _minutesInDay = 24 * 60;
   static const int _defaultOpeningMinutes = 9 * 60;
@@ -144,6 +146,10 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
       text: loyalty.expiration.resetDay.toString(),
     );
     _loyaltyTimezone = TextEditingController(text: loyalty.expiration.timezone);
+    final registration =
+        initial?.clientRegistration ?? const ClientRegistrationSettings();
+    _registrationAccessMode = registration.accessMode;
+    _registrationExtraFields = registration.extraFields.toSet();
   }
 
   @override
@@ -282,6 +288,8 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
                 }
               },
             ),
+            const SizedBox(height: 12),
+            _buildClientRegistrationSection(context),
             const SizedBox(height: 12),
             TextFormField(
               controller: _description,
@@ -660,6 +668,87 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
     );
   }
 
+  Widget _buildClientRegistrationSection(BuildContext context) {
+    final theme = Theme.of(context);
+    final modeItems = ClientRegistrationAccessMode.values
+        .map(
+          (mode) => DropdownMenuItem<ClientRegistrationAccessMode>(
+            value: mode,
+            child: Text(_accessModeLabel(mode)),
+          ),
+        )
+        .toList(growable: false);
+    final extraOptions = <ClientRegistrationExtraField, String>{
+      ClientRegistrationExtraField.address: 'Richiedi città di residenza',
+      ClientRegistrationExtraField.profession: 'Richiedi professione',
+      ClientRegistrationExtraField.referralSource:
+          'Richiedi "Come ci ha conosciuto?"',
+      ClientRegistrationExtraField.notes: 'Richiedi note aggiuntive',
+    };
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Registrazione clienti', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 12),
+            Text(
+              'Configura il comportamento della registrazione via app: puoi richiedere approvazione manuale e selezionare dati aggiuntivi obbligatori.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<ClientRegistrationAccessMode>(
+              value: _registrationAccessMode,
+              decoration: const InputDecoration(
+                labelText: 'Modalità di accesso',
+              ),
+              items: modeItems,
+              onChanged: (value) {
+                if (value == null) {
+                  return;
+                }
+                setState(() => _registrationAccessMode = value);
+              },
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Campi aggiuntivi obbligatori',
+              style: theme.textTheme.labelLarge,
+            ),
+            ...extraOptions.entries.map((entry) {
+              final isSelected = _registrationExtraFields.contains(entry.key);
+              return CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: isSelected,
+                onChanged: (value) {
+                  setState(() {
+                    if (value == true) {
+                      _registrationExtraFields.add(entry.key);
+                    } else {
+                      _registrationExtraFields.remove(entry.key);
+                    }
+                  });
+                },
+                title: Text(entry.value),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _accessModeLabel(ClientRegistrationAccessMode mode) {
+    switch (mode) {
+      case ClientRegistrationAccessMode.open:
+        return 'Accesso immediato (salone aperto)';
+      case ClientRegistrationAccessMode.approval:
+        return 'Solo previa approvazione';
+    }
+  }
+
   void _submit() {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -825,6 +914,10 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
       schedule: schedule,
       status: _status,
       loyaltySettings: loyaltySettings,
+      clientRegistration: ClientRegistrationSettings(
+        accessMode: _registrationAccessMode,
+        extraFields: _registrationExtraFields.toList(growable: false),
+      ),
     );
 
     Navigator.of(context).pop(salon);

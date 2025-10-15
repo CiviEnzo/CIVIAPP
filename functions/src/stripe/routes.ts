@@ -192,6 +192,8 @@ type QuoteItemFirestore = {
   unitPrice?: number;
   serviceId?: string;
   packageId?: string;
+  inventoryItemId?: string;
+  referenceType?: string;
 };
 
 async function handlePaymentIntentSuccess(paymentIntent: Stripe.PaymentIntent): Promise<void> {
@@ -855,8 +857,10 @@ async function buildSaleItemsFromQuote(
     const quantityRaw = normalizeNumber(rawItem.quantity, 1);
     const quantity = quantityRaw > 0 ? roundToTwo(quantityRaw) : 1;
     const unitPrice = roundToTwo(normalizeCurrency(rawItem.unitPrice ?? 0));
+    const referenceType = normalizeString(rawItem.referenceType);
     const packageId = normalizeString(rawItem.packageId);
     const serviceId = normalizeString(rawItem.serviceId);
+    const inventoryItemId = normalizeString(rawItem.inventoryItemId);
 
     if (packageId) {
       const packageData = packagesById.get(packageId) ?? {};
@@ -923,11 +927,23 @@ async function buildSaleItemsFromQuote(
       continue;
     }
 
-    if (serviceId) {
+    if (serviceId && referenceType !== 'product') {
       const saleItem: Record<string, unknown> = {
         referenceId: serviceId,
         referenceType: 'service',
         description: description.length > 0 ? description : 'Servizio',
+        quantity,
+        unitPrice,
+      };
+      saleItems.push(saleItem);
+      continue;
+    }
+
+    if (inventoryItemId) {
+      const saleItem: Record<string, unknown> = {
+        referenceId: inventoryItemId,
+        referenceType: 'product',
+        description: description.length > 0 ? description : 'Prodotto',
         quantity,
         unitPrice,
       };
@@ -1160,6 +1176,105 @@ async function handleQuotePaymentIntentSuccess(
           },
         ];
         updates.paymentHistory = updatedHistory;
+        shouldUpdate = true;
+      }
+      const existingItemsRaw = Array.isArray(existingSale.items)
+        ? (existingSale.items as unknown[])
+        : [];
+      const updatedItems: FirebaseFirestore.DocumentData[] = [];
+      let itemsChanged = false;
+      existingItemsRaw.forEach((rawItem: unknown, index: number) => {
+        if (!rawItem || typeof rawItem !== 'object') {
+          updatedItems.push(rawItem as FirebaseFirestore.DocumentData);
+          return;
+        }
+        const nextItem = { ...(rawItem as Record<string, unknown>) };
+        let itemChanged = false;
+
+        const referenceType = normalizeString(nextItem['referenceType']);
+        if (referenceType === 'package') {
+          const quantity = normalizeNumber(nextItem['quantity'], 1);
+          const unitPrice = normalizeCurrency(nextItem['unitPrice'] ?? 0);
+          const itemTotal = normalizeCurrency(quantity * unitPrice);
+
+          const storedDepositAmount = normalizeCurrency(
+            nextItem['depositAmount'] ?? 0,
+          );
+          const depositsRaw =
+            Array.isArray(nextItem['deposits'])
+              ? (nextItem['deposits'] as unknown[])
+              : [];
+          const depositEntries = depositsRaw
+            .filter(
+              (entry): entry is Record<string, unknown> =>
+                !!entry && typeof entry === 'object',
+            )
+            .map((entry) => ({ ...entry }));
+          let depositSum = 0;
+          depositEntries.forEach((entry) => {
+            depositSum += normalizeNumber(entry['amount'], 0);
+          });
+          depositSum = normalizeCurrency(depositSum);
+          let effectiveDeposit = Math.max(depositSum, storedDepositAmount);
+          let outstanding = normalizeCurrency(itemTotal - effectiveDeposit);
+          if (outstanding < 0) {
+            outstanding = 0;
+          }
+
+          const settlementDepositId = `${paymentIntent.id}-settlement-${index}`;
+          const hasSettlementDeposit = depositEntries.some((entry) => {
+            const id = entry['id'];
+            return typeof id === 'string' && id === settlementDepositId;
+          });
+          if (!hasSettlementDeposit && outstanding > 0.01) {
+            depositEntries.push({
+              id: settlementDepositId,
+              amount: outstanding,
+              date: createdTimestamp,
+              note: 'Saldo preventivo online',
+              paymentMethod: 'pos',
+            });
+            depositSum = normalizeCurrency(depositSum + outstanding);
+            effectiveDeposit = Math.max(depositSum, storedDepositAmount + outstanding);
+            outstanding = 0;
+            itemChanged = true;
+          }
+
+          if (depositEntries.length > 0) {
+            nextItem['deposits'] = depositEntries;
+          }
+
+          if (Math.abs(storedDepositAmount - itemTotal) > 0.01) {
+            nextItem['depositAmount'] = itemTotal;
+            itemChanged = true;
+          } else if (depositEntries.length > 0) {
+            const finalDepositSum = depositEntries.reduce((sum, entry) => {
+              return normalizeCurrency(sum + normalizeNumber(entry['amount'], 0));
+            }, 0);
+            if (Math.abs(finalDepositSum - itemTotal) > 0.01) {
+              nextItem['depositAmount'] = itemTotal;
+              itemChanged = true;
+            }
+          }
+
+          const packagePaymentStatus = normalizeString(
+            nextItem['packagePaymentStatus'],
+          );
+          if (packagePaymentStatus !== 'paid') {
+            nextItem['packagePaymentStatus'] = 'paid';
+            itemChanged = true;
+          }
+        }
+
+        if (itemChanged) {
+          itemsChanged = true;
+          updatedItems.push(nextItem as FirebaseFirestore.DocumentData);
+        } else {
+          updatedItems.push(rawItem as FirebaseFirestore.DocumentData);
+        }
+      });
+      if (itemsChanged) {
+        updates.items = updatedItems;
         shouldUpdate = true;
       }
       if (shouldUpdate) {

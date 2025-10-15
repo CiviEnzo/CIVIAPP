@@ -351,6 +351,61 @@ service cloud.firestore {
           resourceSalonId() != null && canManageSalonDocument(resourceSalonId());
     }
 
+    match /salon_access_requests/{requestId} {
+      allow read: if isSignedIn() && (
+        (resource != null && resource.data != null &&
+            resource.data.salonId is string &&
+            canManageSalonDocument(resource.data.salonId)) ||
+        (request.auth != null &&
+            resource != null && resource.data != null &&
+            resource.data.userId is string &&
+            resource.data.userId == request.auth.uid)
+      );
+
+      allow create: if isSignedIn() &&
+          request.auth != null &&
+          request.resource != null && request.resource.data != null &&
+          request.resource.data.userId is string &&
+          request.resource.data.userId == request.auth.uid &&
+          request.resource.data.salonId is string &&
+          request.resource.data.firstName is string &&
+          request.resource.data.lastName is string &&
+          request.resource.data.email is string &&
+          request.resource.data.phone is string &&
+          (request.resource.data.dateOfBirth == null ||
+              request.resource.data.dateOfBirth is timestamp) &&
+          (request.resource.data.extraData == null ||
+              request.resource.data.extraData is map) &&
+          request.resource.data.status == 'pending';
+
+      allow update: if isSignedIn() &&
+          request.resource != null && request.resource.data != null &&
+          resource != null && resource.data != null &&
+          resource.data.salonId is string &&
+          canManageSalonDocument(resource.data.salonId) &&
+          request.resource.data.userId == resource.data.userId &&
+          request.resource.data.salonId == resource.data.salonId &&
+          request.resource.data.firstName == resource.data.firstName &&
+          request.resource.data.lastName == resource.data.lastName &&
+          request.resource.data.email == resource.data.email &&
+          request.resource.data.phone == resource.data.phone &&
+          resource.data.status == 'pending' &&
+          (request.resource.data.status == 'approved' ||
+              request.resource.data.status == 'rejected') &&
+          (request.resource.data.clientId == null ||
+              request.resource.data.clientId is string) &&
+          (request.resource.data.extraData == null ||
+              request.resource.data.extraData is map) &&
+          (request.resource.data.dateOfBirth == null ||
+              request.resource.data.dateOfBirth is timestamp) &&
+          (request.resource.data.updatedAt == null ||
+              request.resource.data.updatedAt is timestamp) &&
+          request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if false;
+    }
+
+
     match /services/{serviceId} {
       allow read: if isSignedIn() && canReadSalonDocument(resourceSalonId());
       allow create, update, delete: if isSignedIn() &&
@@ -496,6 +551,16 @@ service cloud.firestore {
           hasSalonAccess(requestSalonId());
       allow delete: if isSignedIn() && canManageSalonDocument(resourceSalonId());
       allow update: if false;
+    }
+
+    match /salon_sequences/{salonId} {
+      allow read: if isSignedIn();
+
+      allow create: if false;
+
+      allow update: if false;
+
+      allow delete: if false;
     }
 
     match /cash_flows/{entryId} {

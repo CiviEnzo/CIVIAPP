@@ -28,6 +28,7 @@ import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/domain/entities/staff_role.dart';
 import 'package:civiapp/domain/entities/reminder_settings.dart';
+import 'package:civiapp/domain/entities/salon_access_request.dart';
 import 'package:civiapp/domain/entities/user_role.dart';
 import 'package:collection/collection.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -81,6 +82,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
               ),
               promotions: List.unmodifiable(MockData.promotions),
               lastMinuteSlots: List.unmodifiable(MockData.lastMinuteSlots),
+              salonAccessRequests: const [],
             ),
       ) {
     final firestore = _firestore;
@@ -113,6 +115,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
   static const int _firestoreChunkSize = 10;
   static const String _defaultStaffRoleId = 'estetista';
   static const String _unknownStaffRoleId = 'staff-role-unknown';
+  static const String _salonAccessRequestsCollection = 'salon_access_requests';
 
   AppUser? get currentUser => _currentUser;
 
@@ -252,6 +255,28 @@ class AppDataStore extends StateNotifier<AppDataState> {
           onData: (items) {
             state = state.copyWith(clients: items);
             _scheduleClientOnboardingSync();
+          },
+        ),
+      );
+
+      addAll(
+        _listenCollectionBySalonIds<SalonAccessRequest>(
+          firestore: firestore,
+          collectionPath: _salonAccessRequestsCollection,
+          salonIds: salonIds,
+          fromDoc: salonAccessRequestFromDoc,
+          onData: (items) {
+            final sorted =
+                items.toList()..sort((a, b) {
+                  final left =
+                      a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+                  final right =
+                      b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+                  return right.compareTo(left);
+                });
+            state = state.copyWith(
+              salonAccessRequests: List.unmodifiable(sorted),
+            );
           },
         ),
       );
@@ -465,6 +490,25 @@ class AppDataStore extends StateNotifier<AppDataState> {
       state = state.copyWith(reminderSettings: const []);
 
       final clientId = currentUser.clientId;
+      final userId = currentUser.uid;
+      if (userId.isNotEmpty) {
+        subscriptions.add(
+          _listenCollection<SalonAccessRequest>(
+            firestore
+                .collection(_salonAccessRequestsCollection)
+                .where('userId', isEqualTo: userId)
+                .orderBy('createdAt', descending: true),
+            salonAccessRequestFromDoc,
+            (items) =>
+                state = state.copyWith(
+                  salonAccessRequests: List.unmodifiable(items),
+                ),
+          ),
+        );
+      } else {
+        state = state.copyWith(salonAccessRequests: const []);
+      }
+
       if (clientId != null && clientId.isNotEmpty) {
         subscriptions.add(
           _listenCollection<AppNotification>(
@@ -490,6 +534,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
       } else {
         state = state.copyWith(clientNotifications: const []);
         state = state.copyWith(quotes: const []);
+        if (userId.isEmpty) {
+          state = state.copyWith(salonAccessRequests: const []);
+        }
       }
 
       void subscribeSalonCollections(List<String> rawSalonIds) {
@@ -1736,15 +1783,95 @@ class AppDataStore extends StateNotifier<AppDataState> {
   }
 
   Future<void> upsertClient(Client client) async {
+    final prepared = await _ensureClientNumber(client);
     final firestore = _firestore;
     if (firestore == null) {
-      _upsertLocal(clients: [client]);
+      _upsertLocal(clients: [prepared]);
       return;
     }
     await firestore
         .collection('clients')
-        .doc(client.id)
-        .set(clientToMap(client));
+        .doc(prepared.id)
+        .set(clientToMap(prepared));
+  }
+
+  Future<Client> _ensureClientNumber(Client client) async {
+    final existing = state.clients.firstWhereOrNull(
+      (element) => element.id == client.id,
+    );
+    final hasExistingNumber =
+        existing?.clientNumber != null && existing!.clientNumber!.isNotEmpty;
+    final salonChanged = existing != null && existing.salonId != client.salonId;
+    if (existing != null && hasExistingNumber && !salonChanged) {
+      return client.copyWith(clientNumber: existing.clientNumber);
+    }
+    final providedNumber =
+        client.clientNumber != null && client.clientNumber!.isNotEmpty
+            ? client.clientNumber
+            : null;
+    if (existing == null && providedNumber != null) {
+      return client;
+    }
+    final nextNumber = await _reserveClientNumber(client.salonId);
+    return client.copyWith(clientNumber: nextNumber);
+  }
+
+  Future<String> _reserveClientNumber(String salonId) async {
+    final firestore = _firestore;
+    if (firestore != null) {
+      try {
+        final functions = FirebaseFunctions.instanceFor(region: 'europe-west3');
+        final callable = functions.httpsCallable('assignClientNumber');
+        final response = await callable.call(<String, dynamic>{
+          'salonId': salonId,
+        });
+        final data = response.data;
+        if (data is Map && data['clientNumber'] != null) {
+          final value = data['clientNumber'].toString();
+          if (value.isNotEmpty) {
+            return value;
+          }
+        }
+      } on FirebaseFunctionsException catch (error, stackTrace) {
+        debugPrint(
+          'assignClientNumber callable failed: ${error.code} ${error.message}',
+        );
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            exception: error,
+            stack: stackTrace,
+            library: 'AppDataStore',
+            informationCollector:
+                () => [
+                  DiagnosticsProperty<String>(
+                    'Context',
+                    'assignClientNumber callable',
+                  ),
+                ],
+          ),
+        );
+      } catch (error, stackTrace) {
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            exception: error,
+            stack: stackTrace,
+            library: 'AppDataStore',
+            informationCollector:
+                () => [
+                  DiagnosticsProperty<String>(
+                    'Context',
+                    'assignClientNumber callable (fallback)',
+                  ),
+                ],
+          ),
+        );
+      }
+    }
+
+    final relevantClients = state.clients.where(
+      (client) => client.salonId == salonId,
+    );
+    return nextSequentialClientNumber(relevantClients);
   }
 
   Future<void> upsertClientPhoto(ClientPhoto photo) async {
@@ -1780,6 +1907,216 @@ class AppDataStore extends StateNotifier<AppDataState> {
       return;
     }
     await firestore.collection('client_photos').doc(photoId).delete();
+  }
+
+  Future<void> submitSalonAccessRequest({
+    required String salonId,
+    required String userId,
+    required String firstName,
+    required String lastName,
+    required String email,
+    required String phone,
+    DateTime? dateOfBirth,
+    Map<String, dynamic>? extraData,
+  }) async {
+    final firestore = _firestore;
+    final now = DateTime.now();
+    final sanitizedExtra = <String, dynamic>{};
+    (extraData ?? const <String, dynamic>{}).forEach((key, value) {
+      if (value == null) {
+        return;
+      }
+      final text = value.toString().trim();
+      if (text.isNotEmpty) {
+        sanitizedExtra[key] = text;
+      }
+    });
+    if (firestore == null) {
+      final request = SalonAccessRequest(
+        id: const Uuid().v4(),
+        salonId: salonId,
+        userId: userId,
+        firstName: firstName,
+        lastName: lastName,
+        email: email,
+        phone: phone,
+        dateOfBirth: dateOfBirth,
+        extraData: sanitizedExtra,
+        status: SalonAccessRequestStatus.pending,
+        createdAt: now,
+        updatedAt: now,
+      );
+      final updated =
+          List<SalonAccessRequest>.from(state.salonAccessRequests)
+            ..removeWhere((element) => element.id == request.id)
+            ..add(request);
+      state = state.copyWith(salonAccessRequests: List.unmodifiable(updated));
+      return;
+    }
+
+    final collection = firestore.collection(_salonAccessRequestsCollection);
+    final pendingSnapshot =
+        await collection
+            .where('salonId', isEqualTo: salonId)
+            .where('userId', isEqualTo: userId)
+            .where('status', isEqualTo: 'pending')
+            .limit(1)
+            .get();
+    final timestamp = FieldValue.serverTimestamp();
+    if (pendingSnapshot.docs.isNotEmpty) {
+      final docRef = pendingSnapshot.docs.first.reference;
+      final updateData = <String, dynamic>{
+        'firstName': firstName,
+        'lastName': lastName,
+        'email': email,
+        'phone': phone,
+        'extraData': sanitizedExtra,
+        'updatedAt': timestamp,
+      };
+      if (dateOfBirth != null) {
+        updateData['dateOfBirth'] = Timestamp.fromDate(dateOfBirth);
+      }
+      await docRef.update(updateData);
+    } else {
+      final docRef = collection.doc();
+      final createData = <String, dynamic>{
+        'salonId': salonId,
+        'userId': userId,
+        'firstName': firstName,
+        'lastName': lastName,
+        'email': email,
+        'phone': phone,
+        'status': 'pending',
+        'extraData': sanitizedExtra,
+        'createdAt': timestamp,
+        'updatedAt': timestamp,
+      };
+      if (dateOfBirth != null) {
+        createData['dateOfBirth'] = Timestamp.fromDate(dateOfBirth);
+      }
+      await docRef.set(createData);
+    }
+  }
+
+  Future<void> approveSalonAccessRequest({
+    required SalonAccessRequest request,
+  }) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      final updatedRequests = state.salonAccessRequests
+          .map((item) {
+            if (item.id != request.id) {
+              return item;
+            }
+            return item.copyWith(
+              status: SalonAccessRequestStatus.approved,
+              clientId: request.clientId,
+              updatedAt: DateTime.now(),
+            );
+          })
+          .toList(growable: false);
+      state = state.copyWith(
+        salonAccessRequests: List.unmodifiable(updatedRequests),
+      );
+      return;
+    }
+
+    final salons = state.salons;
+    final salon = salons.firstWhereOrNull((item) => item.id == request.salonId);
+    final now = DateTime.now();
+    final clientId = request.clientId ?? const Uuid().v4();
+    final assignedNumber = await _reserveClientNumber(request.salonId);
+    final loyaltyInitial =
+        (salon?.loyaltySettings.enabled ?? false)
+            ? salon!.loyaltySettings.initialBalance
+            : 0;
+    final address = _stringOrNull(request.extraData['address']);
+    final profession = _stringOrNull(request.extraData['profession']);
+    final referral = _stringOrNull(request.extraData['referralSource']);
+    final notes = _stringOrNull(request.extraData['notes']);
+
+    final client = Client(
+      id: clientId,
+      salonId: request.salonId,
+      firstName: request.firstName,
+      lastName: request.lastName,
+      phone: request.phone,
+      email: request.email,
+      clientNumber: assignedNumber,
+      dateOfBirth: request.dateOfBirth,
+      address: address?.isEmpty == true ? null : address,
+      profession: profession?.isEmpty == true ? null : profession,
+      referralSource: referral?.isEmpty == true ? null : referral,
+      notes: notes?.isEmpty == true ? null : notes,
+      loyaltyInitialPoints: loyaltyInitial,
+      loyaltyPoints: loyaltyInitial,
+      loyaltyUpdatedAt: loyaltyInitial > 0 ? now : null,
+      onboardingStatus: ClientOnboardingStatus.onboardingCompleted,
+      onboardingCompletedAt: now,
+      firstLoginAt: now,
+    );
+
+    await upsertClient(client);
+
+    await firestore
+        .collection(_salonAccessRequestsCollection)
+        .doc(request.id)
+        .update(<String, dynamic>{
+          'status': 'approved',
+          'clientId': clientId,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+    await firestore.collection('users').doc(request.userId).set(
+      <String, dynamic>{
+        'role': UserRole.client.name,
+        'salonIds': FieldValue.arrayUnion(<String>[request.salonId]),
+        'salonId': request.salonId,
+        'clientId': clientId,
+        'roles': FieldValue.arrayUnion(<String>[UserRole.client.name]),
+        'displayName': '${request.firstName} ${request.lastName}',
+      },
+      SetOptions(merge: true),
+    );
+  }
+
+  Future<void> rejectSalonAccessRequest({
+    required SalonAccessRequest request,
+  }) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      final updatedRequests = state.salonAccessRequests
+          .map((item) {
+            if (item.id != request.id) {
+              return item;
+            }
+            return item.copyWith(
+              status: SalonAccessRequestStatus.rejected,
+              updatedAt: DateTime.now(),
+            );
+          })
+          .toList(growable: false);
+      state = state.copyWith(
+        salonAccessRequests: List.unmodifiable(updatedRequests),
+      );
+      return;
+    }
+
+    await firestore
+        .collection(_salonAccessRequestsCollection)
+        .doc(request.id)
+        .update(<String, dynamic>{
+          'status': 'rejected',
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+  }
+
+  static String? _stringOrNull(Object? value) {
+    if (value == null) {
+      return null;
+    }
+    final text = value.toString().trim();
+    return text.isEmpty ? null : text;
   }
 
   Future<void> upsertService(Service service) async {
@@ -2548,6 +2885,35 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
   }
 
+  Future<void> markClientNotificationAsRead(String notificationId) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      return;
+    }
+    final clientId = _currentUser?.clientId;
+    if (clientId == null || clientId.isEmpty) {
+      return;
+    }
+    final notificationRef = firestore
+        .collection('notifications')
+        .doc(clientId)
+        .collection('items');
+    await notificationRef.doc(notificationId).set({
+      'read': true,
+      'readAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    final updated = state.clientNotifications
+        .map(
+          (notification) =>
+              notification.id == notificationId
+                  ? notification.copyWith(readAt: DateTime.now())
+                  : notification,
+        )
+        .toList(growable: false);
+    state = state.copyWith(clientNotifications: updated);
+  }
+
   Future<void> markQuoteSent(
     String quoteId, {
     required List<MessageChannel> viaChannels,
@@ -2640,6 +3006,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
       for (final service in state.services) service.id: service,
     };
     final packagesById = {for (final pkg in state.packages) pkg.id: pkg};
+    final inventoryById = {
+      for (final item in state.inventoryItems) item.id: item,
+    };
     final saleItems = <SaleItem>[];
     for (final item in quote.items) {
       saleItems.add(
@@ -2649,6 +3018,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
           saleDate: saleDate,
           servicesById: servicesById,
           packagesById: packagesById,
+          inventoryById: inventoryById,
         ),
       );
     }
@@ -2676,6 +3046,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     required DateTime saleDate,
     required Map<String, Service> servicesById,
     required Map<String, ServicePackage> packagesById,
+    required Map<String, InventoryItem> inventoryById,
   }) {
     final quantity = double.parse(item.quantity.toStringAsFixed(2));
     final unitPrice = double.parse(item.unitPrice.toStringAsFixed(2));
@@ -2721,6 +3092,22 @@ class AppDataStore extends StateNotifier<AppDataState> {
       return SaleItem(
         referenceId: serviceId,
         referenceType: SaleReferenceType.service,
+        description: description,
+        quantity: quantity,
+        unitPrice: unitPrice,
+      );
+    }
+
+    final inventoryId = item.inventoryItemId;
+    if (inventoryId != null && inventoryId.isNotEmpty) {
+      final inventoryItem = inventoryById[inventoryId];
+      final description =
+          item.description.isNotEmpty
+              ? item.description
+              : (inventoryItem?.name ?? 'Prodotto');
+      return SaleItem(
+        referenceId: inventoryId,
+        referenceType: SaleReferenceType.product,
         description: description,
         quantity: quantity,
         unitPrice: unitPrice,

@@ -33,6 +33,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   String? _referralSource;
   final _dateOfBirthController = TextEditingController();
   final _salonSearchController = TextEditingController();
+  final _notesController = TextEditingController();
   final DateFormat _dateFormat = DateFormat('dd/MM/yyyy');
   DateTime? _dateOfBirth;
   bool _initializedFromSession = false;
@@ -49,6 +50,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _professionController.dispose();
     _dateOfBirthController.dispose();
     _salonSearchController.dispose();
+    _notesController.dispose();
     super.dispose();
   }
 
@@ -57,6 +59,26 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     super.didChangeDependencies();
     final session = ref.read(sessionControllerProvider);
     _availableRoles = session.availableRoles;
+    if (!_initializedFromSession) {
+      final registrationDraft = ref.read(clientRegistrationDraftProvider);
+      if (registrationDraft != null) {
+        if (_firstNameController.text.isEmpty) {
+          _firstNameController.text = registrationDraft.firstName;
+        }
+        if (_lastNameController.text.isEmpty) {
+          _lastNameController.text = registrationDraft.lastName;
+        }
+        if (_phoneController.text.isEmpty) {
+          _phoneController.text = registrationDraft.phone;
+        }
+        if (registrationDraft.dateOfBirth != null && _dateOfBirth == null) {
+          _dateOfBirth = registrationDraft.dateOfBirth;
+          _dateOfBirthController.text = _dateFormat.format(
+            registrationDraft.dateOfBirth!,
+          );
+        }
+      }
+    }
     if (_initializedFromSession) {
       return;
     }
@@ -126,6 +148,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           (existingClient.profession?.isNotEmpty ?? false)) {
         _professionController.text = existingClient.profession!;
       }
+      if (_notesController.text.isEmpty &&
+          (existingClient.notes?.isNotEmpty ?? false)) {
+        _notesController.text = existingClient.notes!;
+      }
       if ((_referralSource == null || _referralSource!.isEmpty) &&
           (existingClient.referralSource?.isNotEmpty ?? false)) {
         _referralSource = existingClient.referralSource;
@@ -139,10 +165,75 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       _selectedSalon ??= existingClient.salonId;
     }
 
+    final registrationDraft = ref.watch(clientRegistrationDraftProvider);
+    if (!_initializedFromSession && registrationDraft != null) {
+      if (_firstNameController.text.isEmpty) {
+        _firstNameController.text = registrationDraft.firstName;
+      }
+      if (_lastNameController.text.isEmpty) {
+        _lastNameController.text = registrationDraft.lastName;
+      }
+      if (_phoneController.text.isEmpty) {
+        _phoneController.text = registrationDraft.phone;
+      }
+      if (_dateOfBirth == null && registrationDraft.dateOfBirth != null) {
+        _dateOfBirth = registrationDraft.dateOfBirth;
+        _dateOfBirthController.text = _dateFormat.format(
+          registrationDraft.dateOfBirth!,
+        );
+      }
+    }
+
     final selectedSalon =
         _selectedSalon == null
             ? null
             : salons.firstWhereOrNull((salon) => salon.id == _selectedSalon);
+    final registrationSettings =
+        selectedSalon?.clientRegistration ?? const ClientRegistrationSettings();
+    final requiresAddress = registrationSettings.extraFields.contains(
+      ClientRegistrationExtraField.address,
+    );
+    final requiresProfession = registrationSettings.extraFields.contains(
+      ClientRegistrationExtraField.profession,
+    );
+    final requiresReferral = registrationSettings.extraFields.contains(
+      ClientRegistrationExtraField.referralSource,
+    );
+    final requiresNotes = registrationSettings.extraFields.contains(
+      ClientRegistrationExtraField.notes,
+    );
+
+    final baseFirstNameRaw =
+        registrationDraft?.firstName ??
+        existingClient?.firstName ??
+        _firstNameController.text;
+    final baseLastNameRaw =
+        registrationDraft?.lastName ??
+        existingClient?.lastName ??
+        _lastNameController.text;
+    final baseEmail = user?.email ?? registrationDraft?.email ?? '';
+    final existingPhone = existingClient?.phone;
+    final sanitizedExistingPhone =
+        existingPhone == null || existingPhone == '-' ? null : existingPhone;
+    final basePhoneRaw =
+        registrationDraft?.phone ??
+        sanitizedExistingPhone ??
+        _phoneController.text;
+    final basePhone = basePhoneRaw.trim();
+    final baseDateOfBirth =
+        registrationDraft?.dateOfBirth ??
+        existingClient?.dateOfBirth ??
+        _dateOfBirth;
+    if (_phoneController.text.isEmpty && basePhone.isNotEmpty) {
+      _phoneController.text = basePhone;
+    }
+    if (_dateOfBirth == null && baseDateOfBirth != null) {
+      _dateOfBirth = baseDateOfBirth;
+      _dateOfBirthController.text = _dateFormat.format(baseDateOfBirth);
+    }
+
+    final baseFirstName = baseFirstNameRaw.trim();
+    final baseLastName = baseLastNameRaw.trim();
 
     if (selectedSalon != null && _salonSearchController.text.isEmpty) {
       _salonSearchController.text = selectedSalon.name;
@@ -323,8 +414,25 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     ],
                     if (role == UserRole.staff)
                       _buildStaffExtras(theme.textTheme, staffRoles),
-                    if (role == UserRole.client)
-                      _buildClientExtras(theme.textTheme),
+                    if (role == UserRole.client) ...[
+                      _buildBaseInfoCard(
+                        theme.textTheme,
+                        firstName: baseFirstName,
+                        lastName: baseLastName,
+                        email: baseEmail,
+                        phone: basePhone,
+                        dateOfBirth: baseDateOfBirth,
+                      ),
+                      const SizedBox(height: 12),
+                      _buildClientExtras(
+                        theme.textTheme,
+                        hasSalon: _selectedSalon != null,
+                        requiresAddress: requiresAddress,
+                        requiresProfession: requiresProfession,
+                        requiresReferral: requiresReferral,
+                        requiresNotes: requiresNotes,
+                      ),
+                    ],
                     const SizedBox(height: 32),
                     FilledButton(
                       onPressed: _isSaving ? null : _submit,
@@ -440,70 +548,122 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     );
   }
 
-  Widget _buildClientExtras(TextTheme textTheme) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Dettagli cliente', style: textTheme.titleMedium),
-        const SizedBox(height: 12),
-        TextFormField(
-          controller: _firstNameController,
-          decoration: const InputDecoration(
-            labelText: 'Nome',
-            border: OutlineInputBorder(),
+  Widget _buildBaseInfoCard(
+    TextTheme textTheme, {
+    required String firstName,
+    required String lastName,
+    required String email,
+    required String phone,
+    required DateTime? dateOfBirth,
+  }) {
+    final dateLabel =
+        dateOfBirth != null ? _dateFormat.format(dateOfBirth) : '—';
+    final fullName = [
+      firstName.trim(),
+      lastName.trim(),
+    ].where((value) => value.isNotEmpty).join(' ');
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Dati account', style: textTheme.titleMedium),
+            const SizedBox(height: 8),
+            _infoRow(
+              textTheme,
+              'Nome completo',
+              fullName.isEmpty ? '—' : fullName,
+            ),
+            _infoRow(
+              textTheme,
+              'Email',
+              email.trim().isEmpty ? '—' : email.trim(),
+            ),
+            _infoRow(
+              textTheme,
+              'Telefono',
+              phone.trim().isEmpty ? '—' : phone.trim(),
+            ),
+            _infoRow(textTheme, 'Data di nascita', dateLabel),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildClientExtras(
+    TextTheme textTheme, {
+    required bool hasSalon,
+    required bool requiresAddress,
+    required bool requiresProfession,
+    required bool requiresReferral,
+    required bool requiresNotes,
+  }) {
+    if (!hasSalon) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            'Seleziona un salone per completare i dati richiesti.',
+            style: textTheme.bodyMedium,
           ),
         ),
-        const SizedBox(height: 12),
-        TextFormField(
-          controller: _lastNameController,
-          decoration: const InputDecoration(
-            labelText: 'Cognome',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        const SizedBox(height: 12),
-        TextFormField(
-          controller: _phoneController,
-          decoration: const InputDecoration(
-            labelText: 'Telefono',
-            border: OutlineInputBorder(),
-          ),
-          keyboardType: TextInputType.phone,
-        ),
-        const SizedBox(height: 12),
-        TextFormField(
-          controller: _dateOfBirthController,
-          readOnly: true,
-          decoration: const InputDecoration(
-            labelText: 'Data di nascita',
-            suffixIcon: Icon(Icons.calendar_today_rounded),
-            border: OutlineInputBorder(),
-          ),
-          onTap: _pickClientDateOfBirth,
-        ),
-        const SizedBox(height: 12),
+      );
+    }
+
+    final fields = <Widget>[];
+    void addField(Widget field) {
+      if (fields.isNotEmpty) {
+        fields.add(const SizedBox(height: 12));
+      }
+      fields.add(field);
+    }
+
+    if (requiresAddress) {
+      addField(
         TextFormField(
           controller: _addressController,
           decoration: const InputDecoration(
-            labelText: 'Citta di residenza',
+            labelText: 'Citta di residenza *',
             border: OutlineInputBorder(),
           ),
           minLines: 1,
           maxLines: 2,
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return 'Campo obbligatorio';
+            }
+            return null;
+          },
         ),
-        const SizedBox(height: 12),
+      );
+    }
+
+    if (requiresProfession) {
+      addField(
         TextFormField(
           controller: _professionController,
           decoration: const InputDecoration(
-            labelText: 'Professione',
+            labelText: 'Professione *',
             border: OutlineInputBorder(),
           ),
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return 'Campo obbligatorio';
+            }
+            return null;
+          },
         ),
-        const SizedBox(height: 12),
+      );
+    }
+
+    if (requiresReferral) {
+      addField(
         DropdownButtonFormField<String>(
           value: _referralSource,
           decoration: const InputDecoration(
-            labelText: 'Come ci hai conosciuto?',
+            labelText: 'Come ci hai conosciuto? *',
             border: OutlineInputBorder(),
           ),
           hint: const Text('Seleziona un\'opzione'),
@@ -516,8 +676,76 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                   )
                   .toList(),
           onChanged: (value) => setState(() => _referralSource = value?.trim()),
+          validator: (value) {
+            if (_referralSource == null || _referralSource!.trim().isEmpty) {
+              return 'Campo obbligatorio';
+            }
+            return null;
+          },
         ),
-      ],
+      );
+    }
+
+    if (requiresNotes) {
+      addField(
+        TextFormField(
+          controller: _notesController,
+          decoration: const InputDecoration(
+            labelText: 'Note *',
+            border: OutlineInputBorder(),
+          ),
+          minLines: 3,
+          maxLines: 5,
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return 'Campo obbligatorio';
+            }
+            return null;
+          },
+        ),
+      );
+    }
+
+    if (fields.isEmpty) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            'Questo salone non richiede informazioni aggiuntive.',
+            style: textTheme.bodyMedium,
+          ),
+        ),
+      );
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Dati aggiuntivi richiesti', style: textTheme.titleMedium),
+            const SizedBox(height: 12),
+            ...fields,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _infoRow(TextTheme textTheme, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$label: ',
+            style: textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          Expanded(child: Text(value, style: textTheme.bodyMedium)),
+        ],
+      ),
     );
   }
 
@@ -529,45 +757,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       options.add(_referralSource!);
     }
     return options;
-  }
-
-  String _resolveClientNumber({
-    required List<Client> allClients,
-    required String salonId,
-    Client? existingClient,
-  }) {
-    final existingNumber = existingClient?.clientNumber;
-    if (existingNumber != null && existingNumber.isNotEmpty) {
-      return existingNumber;
-    }
-    final clientsForSalon = allClients.where((client) {
-      if (existingClient != null && client.id == existingClient.id) {
-        return false;
-      }
-      return client.salonId == salonId;
-    });
-    return nextSequentialClientNumber(clientsForSalon);
-  }
-
-  Future<void> _pickClientDateOfBirth() async {
-    FocusScope.of(context).unfocus();
-    final now = DateTime.now();
-    final initialDate =
-        _dateOfBirth ?? DateTime(now.year - 25, now.month, now.day);
-    final selected = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: DateTime(1900),
-      lastDate: now,
-      locale: const Locale('it', 'IT'),
-    );
-    if (selected == null) {
-      return;
-    }
-    setState(() {
-      _dateOfBirth = selected;
-      _dateOfBirthController.text = _dateFormat.format(selected);
-    });
   }
 
   bool _canAutoSubmit(UserRole? role, AppUser? user, List<Salon> salons) {
@@ -585,24 +774,43 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     if (!hasSalon) {
       return false;
     }
-    if (_composeName().isEmpty) {
+    if (role == UserRole.staff && _composeName().isEmpty) {
       return false;
     }
     if (role == UserRole.client) {
-      if (_phoneController.text.trim().isEmpty) {
-        return false;
+      final selectedSalon = salons.firstWhereOrNull(
+        (salon) => salon.id == salonId,
+      );
+      final registrationSettings =
+          selectedSalon?.clientRegistration ??
+          const ClientRegistrationSettings();
+      if (registrationSettings.extraFields.contains(
+        ClientRegistrationExtraField.address,
+      )) {
+        if (_addressController.text.trim().isEmpty) {
+          return false;
+        }
       }
-      if (_dateOfBirth == null) {
-        return false;
+      if (registrationSettings.extraFields.contains(
+        ClientRegistrationExtraField.profession,
+      )) {
+        if (_professionController.text.trim().isEmpty) {
+          return false;
+        }
       }
-      if (_addressController.text.trim().isEmpty) {
-        return false;
+      if (registrationSettings.extraFields.contains(
+        ClientRegistrationExtraField.referralSource,
+      )) {
+        if (_referralSource == null || _referralSource!.trim().isEmpty) {
+          return false;
+        }
       }
-      if (_professionController.text.trim().isEmpty) {
-        return false;
-      }
-      if (_referralSource == null || _referralSource!.trim().isEmpty) {
-        return false;
+      if (registrationSettings.extraFields.contains(
+        ClientRegistrationExtraField.notes,
+      )) {
+        if (_notesController.text.trim().isEmpty) {
+          return false;
+        }
       }
     }
     return true;
@@ -627,40 +835,60 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     }
 
     final composedName = _composeName();
-    if (role != UserRole.admin && composedName.isEmpty) {
+    if (role == UserRole.staff && composedName.isEmpty) {
       _showMessage('Inserisci nome e cognome.');
       return;
-    }
-    if (role == UserRole.client) {
-      if (_phoneController.text.trim().isEmpty) {
-        _showMessage('Inserisci il numero di telefono.');
-        return;
-      }
-      if (_dateOfBirth == null) {
-        _showMessage('Seleziona la data di nascita.');
-        return;
-      }
-      if (_addressController.text.trim().isEmpty) {
-        _showMessage('Inserisci la città di residenza.');
-        return;
-      }
-      if (_professionController.text.trim().isEmpty) {
-        _showMessage('Inserisci la professione.');
-        return;
-      }
-      if (_referralSource == null || _referralSource!.trim().isEmpty) {
-        _showMessage('Seleziona come ci hai conosciuto.');
-        return;
-      }
     }
 
     final authRepo = ref.read(authRepositoryProvider);
     final dataStore = ref.read(appDataProvider.notifier);
     final currentData = ref.read(appDataProvider);
     final salonId = _selectedSalon;
+    final registrationDraft = ref.read(clientRegistrationDraftProvider);
+    final selectedSalon = currentData.salons.firstWhereOrNull(
+      (salon) => salon.id == salonId,
+    );
+    final registrationSettings =
+        selectedSalon?.clientRegistration ?? const ClientRegistrationSettings();
+
+    if (role == UserRole.client) {
+      if (registrationSettings.extraFields.contains(
+        ClientRegistrationExtraField.address,
+      )) {
+        if (_addressController.text.trim().isEmpty) {
+          _showMessage('Inserisci la città di residenza.');
+          return;
+        }
+      }
+      if (registrationSettings.extraFields.contains(
+        ClientRegistrationExtraField.profession,
+      )) {
+        if (_professionController.text.trim().isEmpty) {
+          _showMessage('Inserisci la professione.');
+          return;
+        }
+      }
+      if (registrationSettings.extraFields.contains(
+        ClientRegistrationExtraField.referralSource,
+      )) {
+        if (_referralSource == null || _referralSource!.trim().isEmpty) {
+          _showMessage('Seleziona come ci hai conosciuto.');
+          return;
+        }
+      }
+      if (registrationSettings.extraFields.contains(
+        ClientRegistrationExtraField.notes,
+      )) {
+        if (_notesController.text.trim().isEmpty) {
+          _showMessage('Inserisci le note richieste.');
+          return;
+        }
+      }
+    }
 
     String? staffId = user?.staffId;
     String? clientId = user?.clientId;
+    String? clientDisplayName;
 
     try {
       setState(() => _isSaving = true);
@@ -701,28 +929,134 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       var profileUpdated = false;
 
       if (role == UserRole.client && salonId != null) {
-        final resolvedClientId = clientId ?? const Uuid().v4();
-        clientId = resolvedClientId;
         final selectedSalonId = salonId;
-        final parts = composedName.split(' ');
-        final first = parts.first;
-        final last = parts.length > 1 ? parts.sublist(1).join(' ') : '';
-        final existingClient = currentData.clients.firstWhereOrNull(
-          (client) => client.id == resolvedClientId,
-        );
+        final normalizedEmail = user?.email?.trim().toLowerCase();
+        Client? existingClient;
+        if (clientId != null) {
+          existingClient = currentData.clients.firstWhereOrNull(
+            (client) => client.id == clientId,
+          );
+        }
+        if (existingClient == null &&
+            normalizedEmail != null &&
+            normalizedEmail.isNotEmpty) {
+          existingClient = currentData.clients.firstWhereOrNull((client) {
+            final candidate = client.email?.trim();
+            if (candidate == null || candidate.isEmpty) {
+              return false;
+            }
+            return candidate.toLowerCase() == normalizedEmail;
+          });
+        }
+
+        if (existingClient != null &&
+            existingClient.salonId != selectedSalonId) {
+          if (mounted) {
+            setState(() => _isSaving = false);
+            _showMessage(
+              "Esiste gia' un cliente con questa email associato ad un altro salone. Contatta il salone per assistenza.",
+            );
+          }
+          return;
+        }
+
+        final requiresApproval = registrationSettings.requiresApproval;
+        final normalizedFirst =
+            (registrationDraft?.firstName ??
+                    existingClient?.firstName ??
+                    _firstNameController.text)
+                .trim();
+        final normalizedLast =
+            (registrationDraft?.lastName ??
+                    existingClient?.lastName ??
+                    _lastNameController.text)
+                .trim();
+        final displayName = [
+          normalizedFirst,
+          normalizedLast,
+        ].where((value) => value.isNotEmpty).join(' ');
+        clientDisplayName = displayName;
         final now = DateTime.now();
-        final phone = _phoneController.text.trim();
+        final existingPhone = existingClient?.phone;
+        final sanitizedExistingPhone =
+            existingPhone == null || existingPhone == '-'
+                ? null
+                : existingPhone;
+        final rawPhone =
+            (registrationDraft?.phone ??
+                    sanitizedExistingPhone ??
+                    _phoneController.text)
+                .trim();
+        final phoneForClient = rawPhone.isEmpty ? '-' : rawPhone;
         final address = _addressController.text.trim();
         final profession = _professionController.text.trim();
         final referral = (_referralSource ?? '').trim();
-        final clientNumber = _resolveClientNumber(
-          allClients: currentData.clients,
-          salonId: selectedSalonId,
-          existingClient: existingClient,
-        );
-        final dateOfBirth = _dateOfBirth ?? existingClient?.dateOfBirth;
-        final selectedSalon = currentData.salons.firstWhereOrNull(
-          (salon) => salon.id == selectedSalonId,
+        final notes = _notesController.text.trim();
+        final dateOfBirth =
+            registrationDraft?.dateOfBirth ??
+            existingClient?.dateOfBirth ??
+            _dateOfBirth;
+
+        final extraData = <String, dynamic>{};
+        if (address.isNotEmpty) {
+          extraData['address'] = address;
+        }
+        if (profession.isNotEmpty) {
+          extraData['profession'] = profession;
+        }
+        if (referral.isNotEmpty) {
+          extraData['referralSource'] = referral;
+        }
+        if (notes.isNotEmpty) {
+          extraData['notes'] = notes;
+        }
+
+        if (requiresApproval) {
+          final uid = user?.uid;
+          final email =
+              user?.email ?? existingClient?.email ?? registrationDraft?.email;
+          if (uid == null || email == null) {
+            _showMessage(
+              'Impossibile inviare la richiesta. Accedi nuovamente e riprova.',
+            );
+            return;
+          }
+          await dataStore.submitSalonAccessRequest(
+            salonId: selectedSalonId,
+            userId: uid,
+            firstName: normalizedFirst,
+            lastName: normalizedLast,
+            email: email,
+            phone: rawPhone,
+            dateOfBirth: dateOfBirth,
+            extraData: extraData,
+          );
+          await authRepo.completeUserProfile(
+            role: role,
+            salonIds: const [],
+            staffId: staffId,
+            clientId: null,
+            displayName:
+                displayName.isNotEmpty ? displayName : user?.displayName,
+          );
+          profileUpdated = true;
+          ref.read(clientRegistrationDraftProvider.notifier).clear();
+          if (!mounted) {
+            return;
+          }
+          _showMessage(
+            'Richiesta inviata. Riceverai una conferma appena approvata.',
+          );
+          context.go('/');
+          return;
+        }
+
+        final resolvedClientId =
+            existingClient?.id ?? clientId ?? const Uuid().v4();
+        clientId = resolvedClientId;
+
+        existingClient ??= currentData.clients.firstWhereOrNull(
+          (client) => client.id == resolvedClientId,
         );
         final defaultInitialBalance =
             (selectedSalon?.loyaltySettings.enabled ?? false)
@@ -744,10 +1078,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         final client = Client(
           id: resolvedClientId,
           salonId: selectedSalonId,
-          firstName: first,
-          lastName: last,
-          phone: phone.isEmpty ? '-' : phone,
-          clientNumber: clientNumber,
+          firstName: normalizedFirst,
+          lastName: normalizedLast,
+          phone: phoneForClient,
+          clientNumber: existingClient?.clientNumber,
           dateOfBirth: dateOfBirth,
           address: address.isEmpty ? existingClient?.address : address,
           profession:
@@ -755,6 +1089,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           referralSource:
               referral.isEmpty ? existingClient?.referralSource : referral,
           email: user?.email ?? existingClient?.email,
+          notes:
+              notes.isNotEmpty
+                  ? notes
+                  : (existingClient?.notes ??
+                      'Creato automaticamente dall\'onboarding utente'),
           loyaltyInitialPoints: resolvedInitial,
           loyaltyPoints: nextBalance,
           loyaltyUpdatedAt: loyaltyUpdatedAt,
@@ -762,9 +1101,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           loyaltyTotalRedeemed: loyaltyTotalRedeemed,
           marketedConsents:
               existingClient?.marketedConsents ?? const <ClientConsent>[],
-          notes:
-              existingClient?.notes ??
-              'Creato automaticamente dall\'onboarding utente',
           onboardingStatus: ClientOnboardingStatus.onboardingCompleted,
           invitationSentAt: existingClient?.invitationSentAt,
           firstLoginAt: existingClient?.firstLoginAt ?? now,
@@ -775,16 +1111,21 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           salonIds: [selectedSalonId],
           staffId: staffId,
           clientId: resolvedClientId,
-          displayName:
-              composedName.isNotEmpty ? composedName : user?.displayName,
+          displayName: displayName.isNotEmpty ? displayName : user?.displayName,
         );
         profileUpdated = true;
         await dataStore.upsertClient(client);
         ref.read(sessionControllerProvider.notifier).setUser(resolvedClientId);
         ref.read(sessionControllerProvider.notifier).setSalon(selectedSalonId);
+        ref.read(clientRegistrationDraftProvider.notifier).clear();
       }
 
       if (!profileUpdated) {
+        final fallbackDisplayNameCandidate = clientDisplayName ?? '';
+        final fallbackDisplayName =
+            fallbackDisplayNameCandidate.isNotEmpty
+                ? fallbackDisplayNameCandidate
+                : (composedName.isNotEmpty ? composedName : user?.displayName);
         await authRepo.completeUserProfile(
           role: role,
           salonIds:
@@ -793,14 +1134,18 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                   : [if (salonId != null) salonId],
           staffId: staffId,
           clientId: clientId,
-          displayName:
-              composedName.isNotEmpty ? composedName : user?.displayName,
+          displayName: fallbackDisplayName,
         );
         profileUpdated = true;
       }
 
       final firebaseUser = user;
       if (firebaseUser != null) {
+        final fallbackDisplayNameCandidate = clientDisplayName ?? '';
+        final fallbackDisplayName =
+            fallbackDisplayNameCandidate.isNotEmpty
+                ? fallbackDisplayNameCandidate
+                : (composedName.isNotEmpty ? composedName : user?.displayName);
         final updatedUser = AppUser(
           uid: firebaseUser.uid,
           role: role,
@@ -810,8 +1155,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                   : [if (salonId != null) salonId],
           staffId: staffId,
           clientId: clientId,
-          displayName:
-              composedName.isNotEmpty ? composedName : user?.displayName,
+          displayName: fallbackDisplayName,
           email: firebaseUser.email,
           availableRoles: firebaseUser.availableRoles,
         );

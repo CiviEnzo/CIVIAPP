@@ -33,3 +33,4 @@ export {
   handleStripeWebhook,
   finalizeQuotePaymentIntent,
 } from './stripe/routes';
+export { assignClientNumber } from './clients/assignClientNumber';

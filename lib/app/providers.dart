@@ -9,6 +9,7 @@ import 'package:civiapp/data/storage/firebase_storage_service.dart';
 import 'package:civiapp/domain/cart/cart_controller.dart';
 import 'package:civiapp/domain/cart/cart_models.dart';
 import 'package:civiapp/domain/entities/client_photo.dart';
+import 'package:civiapp/domain/entities/client_registration_draft.dart';
 import 'package:civiapp/domain/entities/user_role.dart';
 import 'package:civiapp/services/payments/stripe_payments_service.dart';
 import 'package:civiapp/services/payments/stripe_connect_service.dart';
@@ -169,6 +170,11 @@ final cartControllerProvider = StateNotifierProvider<CartController, CartState>(
   },
 );
 
+final clientRegistrationDraftProvider = StateNotifierProvider<
+  ClientRegistrationDraftController,
+  ClientRegistrationDraft?
+>((ref) => ClientRegistrationDraftController());
+
 class SessionState {
   const SessionState({this.user, this.selectedSalonId, this.selectedEntityId});
 
@@ -231,5 +237,18 @@ class SessionController extends StateNotifier<SessionState> {
       selectedSalonId: state.selectedSalonId,
       selectedEntityId: userId,
     );
+  }
+}
+
+class ClientRegistrationDraftController
+    extends StateNotifier<ClientRegistrationDraft?> {
+  ClientRegistrationDraftController() : super(null);
+
+  void save(ClientRegistrationDraft draft) {
+    state = draft;
+  }
+
+  void clear() {
+    state = null;
   }
 }

@@ -15,6 +15,7 @@ class AppNotification {
     this.sentAt,
     this.type,
     this.offsetMinutes,
+    this.readAt,
   });
 
   final String id;
@@ -30,4 +31,26 @@ class AppNotification {
   final DateTime? sentAt;
   final String? type;
   final int? offsetMinutes;
+  final DateTime? readAt;
+
+  bool get isRead => readAt != null;
+
+  AppNotification copyWith({String? status, DateTime? readAt}) {
+    return AppNotification(
+      id: id,
+      salonId: salonId,
+      clientId: clientId,
+      channel: channel,
+      status: status ?? this.status,
+      createdAt: createdAt,
+      title: title,
+      body: body,
+      payload: payload,
+      scheduledAt: scheduledAt,
+      sentAt: sentAt,
+      type: type,
+      offsetMinutes: offsetMinutes,
+      readAt: readAt ?? this.readAt,
+    );
+  }
 }

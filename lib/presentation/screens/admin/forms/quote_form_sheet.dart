@@ -1,7 +1,11 @@
 import 'package:civiapp/domain/entities/client.dart';
+import 'package:civiapp/domain/entities/inventory_item.dart';
 import 'package:civiapp/domain/entities/package.dart';
 import 'package:civiapp/domain/entities/quote.dart';
+import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
+import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
+import 'package:civiapp/presentation/screens/admin/forms/package_form_sheet.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -11,16 +15,22 @@ class QuoteFormSheet extends StatefulWidget {
   const QuoteFormSheet({
     super.key,
     required this.client,
+    required this.salon,
     required this.existingQuotes,
     required this.services,
     required this.packages,
+    required this.inventoryItems,
+    required this.salons,
     this.initial,
   });
 
   final Client client;
+  final Salon salon;
   final List<Quote> existingQuotes;
   final List<Service> services;
   final List<ServicePackage> packages;
+  final List<InventoryItem> inventoryItems;
+  final List<Salon> salons;
   final Quote? initial;
 
   @override
@@ -30,12 +40,15 @@ class QuoteFormSheet extends StatefulWidget {
 class _QuoteFormSheetState extends State<QuoteFormSheet> {
   final _formKey = GlobalKey<FormState>();
   final _numberFormat = NumberFormat.simpleCurrency(locale: 'it_IT');
+  final _uuid = const Uuid();
+
   late final TextEditingController _titleController;
   late final TextEditingController _notesController;
-  late final List<_QuoteItemFormData> _items;
   late final String _quoteNumber;
   DateTime? _validUntil;
   bool _saving = false;
+
+  final List<_QuoteLineDraft> _lines = [];
 
   @override
   void initState() {
@@ -45,11 +58,14 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
     _notesController = TextEditingController(text: initial?.notes ?? '');
     _validUntil = initial?.validUntil;
     _quoteNumber = initial?.number ?? nextQuoteNumber(widget.existingQuotes);
-    _items = (initial?.items ?? const <QuoteItem>[])
-        .map(_QuoteItemFormData.fromQuoteItem)
-        .toList(growable: true);
-    if (_items.isEmpty) {
-      _items.add(_QuoteItemFormData.empty());
+
+    final items = initial?.items ?? const <QuoteItem>[];
+    if (items.isEmpty) {
+      return;
+    }
+    for (final item in items) {
+      final line = _lineFromQuoteItem(item);
+      _registerInitialLine(line);
     }
   }
 
@@ -57,14 +73,42 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
   void dispose() {
     _titleController.dispose();
     _notesController.dispose();
-    for (final item in _items) {
-      item.dispose();
+    for (final line in _lines) {
+      line.dispose();
     }
     super.dispose();
   }
 
   double _computeTotal() {
-    return _items.fold<double>(0, (sum, item) => sum + item.estimateTotal);
+    return _lines.fold<double>(0, (sum, line) => sum + _lineTotal(line));
+  }
+
+  double _lineTotal(_QuoteLineDraft line) {
+    final quantity = _parseAmount(line.quantityController.text) ?? 0;
+    final unitPrice = _parseAmount(line.unitPriceController.text) ?? 0;
+    final total = quantity * unitPrice;
+    if (total <= 0) {
+      return 0;
+    }
+    return double.parse(total.toStringAsFixed(2));
+  }
+
+  double? _parseAmount(String? value) {
+    if (value == null) {
+      return null;
+    }
+    final sanitized = value.replaceAll(',', '.').trim();
+    if (sanitized.isEmpty) {
+      return null;
+    }
+    return double.tryParse(sanitized);
+  }
+
+  String _formatQuantity(double value) {
+    if (value % 1 == 0) {
+      return value.toStringAsFixed(0);
+    }
+    return value.toStringAsFixed(2);
   }
 
   Future<void> _pickValidUntil() async {
@@ -86,89 +130,345 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
     }
   }
 
-  void _addItem() {
+  void _handleLineChanged() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
+  }
+
+  void _attachLineListeners(_QuoteLineDraft line) {
+    line.quantityController.addListener(_handleLineChanged);
+    line.unitPriceController.addListener(_handleLineChanged);
+  }
+
+  void _registerInitialLine(_QuoteLineDraft line) {
+    _attachLineListeners(line);
+    _lines.add(line);
+  }
+
+  void _addLine(_QuoteLineDraft line) {
+    _attachLineListeners(line);
     setState(() {
-      _items.add(_QuoteItemFormData.empty());
+      _lines.add(line);
     });
   }
 
-  void _removeItem(int index) {
-    if (_items.length == 1) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Il preventivo deve avere almeno una voce.'),
-        ),
-      );
+  void _removeLine(String id) {
+    final index = _lines.indexWhere((line) => line.id == id);
+    if (index == -1) {
       return;
     }
-    final removed = _items.removeAt(index);
+    final removed = _lines.removeAt(index);
     removed.dispose();
     setState(() {});
   }
 
-  Future<void> _submit() async {
-    if (_saving) {
-      return;
-    }
-    FocusScope.of(context).unfocus();
-    final isValid = _formKey.currentState?.validate() ?? false;
-    if (!isValid) {
-      return;
+  _QuoteLineDraft _buildLineDraft({
+    required String id,
+    required QuoteItemReferenceType type,
+    String? referenceId,
+    required String description,
+    double quantity = 1,
+    double unitPrice = 0,
+    String? catalogLabel,
+  }) {
+    return _QuoteLineDraft(
+      id: id,
+      referenceType: type,
+      referenceId: referenceId,
+      catalogLabel: catalogLabel,
+      descriptionController: TextEditingController(text: description),
+      quantityController: TextEditingController(text: _formatQuantity(quantity)),
+      unitPriceController: TextEditingController(
+        text: unitPrice.toStringAsFixed(2),
+      ),
+    );
+  }
+
+  _QuoteLineDraft _lineFromQuoteItem(QuoteItem item) {
+    var type = item.referenceType;
+    final packageId = item.packageId;
+    final serviceId = item.serviceId;
+    final inventoryId = item.inventoryItemId;
+
+    if (type == QuoteItemReferenceType.manual) {
+      if (packageId != null && packageId.isNotEmpty) {
+        type = QuoteItemReferenceType.package;
+      } else if (serviceId != null && serviceId.isNotEmpty) {
+        type = QuoteItemReferenceType.service;
+      } else if (inventoryId != null && inventoryId.isNotEmpty) {
+        type = QuoteItemReferenceType.product;
+      }
     }
 
-    final items =
-        _items
-            .map((item) => item.toQuoteItem())
-            .whereType<QuoteItem>()
-            .toList();
-    if (items.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Aggiungi almeno una voce.')),
+    String? referenceId;
+    String? catalogLabel;
+
+    if (type == QuoteItemReferenceType.package &&
+        packageId != null &&
+        packageId.isNotEmpty) {
+      referenceId = packageId;
+      final pkg = widget.packages.firstWhereOrNull(
+        (element) => element.id == packageId,
+      );
+      final pkgDescription = pkg?.description;
+      if (pkgDescription != null && pkgDescription.isNotEmpty) {
+        catalogLabel = pkgDescription;
+      }
+    } else if (type == QuoteItemReferenceType.service &&
+        serviceId != null &&
+        serviceId.isNotEmpty) {
+      referenceId = serviceId;
+      final service = widget.services.firstWhereOrNull(
+        (element) => element.id == serviceId,
+      );
+      final serviceCategory = service?.category;
+      if (serviceCategory != null && serviceCategory.isNotEmpty) {
+        catalogLabel = serviceCategory;
+      }
+    } else if (type == QuoteItemReferenceType.product &&
+        inventoryId != null &&
+        inventoryId.isNotEmpty) {
+      referenceId = inventoryId;
+      final inventory = widget.inventoryItems.firstWhereOrNull(
+        (element) => element.id == inventoryId,
+      );
+      final inventoryCategory = inventory?.category;
+      if (inventoryCategory != null && inventoryCategory.isNotEmpty) {
+        catalogLabel = inventoryCategory;
+      }
+    } else {
+      type = QuoteItemReferenceType.manual;
+    }
+
+    return _buildLineDraft(
+      id: item.id,
+      type: type,
+      referenceId: referenceId,
+      description: item.description,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      catalogLabel: catalogLabel,
+    );
+  }
+
+  Future<void> _onAddService() async {
+    if (widget.services.isEmpty) {
+      _showSnackBar('Non sono disponibili servizi per questo salone.');
+      return;
+    }
+    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    final selected = await _pickFromCatalog<Service>(
+      title: 'Scegli un servizio',
+      items: widget.services,
+      labelBuilder: (service) => service.name,
+      subtitleBuilder:
+          (service) =>
+              '${service.category} • ${currency.format(service.price)}',
+    );
+    if (selected == null) {
+      return;
+    }
+    final line = _buildLineDraft(
+      id: _uuid.v4(),
+      type: QuoteItemReferenceType.service,
+      referenceId: selected.id,
+      description: selected.name,
+      quantity: 1,
+      unitPrice: selected.price,
+      catalogLabel: selected.category,
+    );
+    _addLine(line);
+  }
+
+  Future<void> _onAddPackage() async {
+    if (widget.packages.isEmpty) {
+      _showSnackBar('Non sono disponibili pacchetti per questo salone.');
+      return;
+    }
+    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    final selected = await _pickFromCatalog<ServicePackage>(
+      title: 'Scegli un pacchetto',
+      items: widget.packages,
+      labelBuilder: (pkg) => pkg.name,
+      subtitleBuilder:
+          (pkg) =>
+              'Listino ${currency.format(pkg.fullPrice)} • Prezzo ${currency.format(pkg.price)}',
+    );
+    if (selected == null) {
+      return;
+    }
+    final description =
+        selected.name.isNotEmpty ? selected.name : 'Pacchetto';
+    final catalogLabel =
+        selected.description != null && selected.description!.isNotEmpty
+            ? selected.description
+            : null;
+    final line = _buildLineDraft(
+      id: _uuid.v4(),
+      type: QuoteItemReferenceType.package,
+      referenceId: selected.id,
+      description: description,
+      quantity: 1,
+      unitPrice: selected.price,
+      catalogLabel: catalogLabel,
+    );
+    _addLine(line);
+  }
+
+  Future<void> _onAddCustomPackage() async {
+    final salons =
+        widget.salons.isNotEmpty ? widget.salons : <Salon>[widget.salon];
+    if (salons.isEmpty || widget.services.isEmpty) {
+      _showSnackBar(
+        'Impossibile creare un pacchetto personalizzato senza saloni e servizi.',
       );
       return;
     }
-
-    setState(() => _saving = true);
-    final initial = widget.initial;
-    final now = DateTime.now();
-    final quote = Quote(
-      id: initial?.id ?? const Uuid().v4(),
-      salonId: widget.client.salonId,
-      clientId: widget.client.id,
-      items: items,
-      number: initial?.number ?? _quoteNumber,
-      title:
-          _titleController.text.trim().isEmpty
-              ? null
-              : _titleController.text.trim(),
-      notes:
-          _notesController.text.trim().isEmpty
-              ? null
-              : _notesController.text.trim(),
-      status: initial?.status ?? QuoteStatus.draft,
-      createdAt: initial?.createdAt ?? now,
-      updatedAt: now,
-      validUntil: _validUntil,
-      sentAt: initial?.sentAt,
-      acceptedAt: initial?.acceptedAt,
-      declinedAt: initial?.declinedAt,
-      ticketId: initial?.ticketId,
-      sentChannels: initial?.sentChannels,
-      pdfStoragePath: initial?.pdfStoragePath,
-      saleId: initial?.saleId,
-      stripePaymentIntentId: initial?.stripePaymentIntentId,
+    final customPackage = await showAppModalSheet<ServicePackage>(
+      context: context,
+      builder:
+          (ctx) => PackageFormSheet(
+            salons: salons,
+            services: widget.services,
+            defaultSalonId: widget.salon.id,
+          ),
     );
+    if (!mounted || customPackage == null) {
+      return;
+    }
+    final description =
+        customPackage.name.isNotEmpty
+            ? customPackage.name
+            : 'Pacchetto personalizzato';
+    final line = _buildLineDraft(
+      id: _uuid.v4(),
+      type: QuoteItemReferenceType.manual,
+      description: description,
+      quantity: 1,
+      unitPrice: customPackage.price,
+      catalogLabel: 'Pacchetto personalizzato',
+    );
+    _addLine(line);
+  }
 
+  Future<void> _onAddProduct() async {
+    if (widget.inventoryItems.isEmpty) {
+      _showSnackBar('Nessun prodotto disponibile per questo salone.');
+      return;
+    }
+    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    final selected = await _pickFromCatalog<InventoryItem>(
+      title: 'Scegli un prodotto',
+      items: widget.inventoryItems,
+      labelBuilder: (item) => item.name,
+      subtitleBuilder:
+          (item) =>
+              '${item.category} • ${currency.format(item.sellingPrice > 0 ? item.sellingPrice : item.cost)}',
+    );
+    if (selected == null) {
+      return;
+    }
+    final price =
+        selected.sellingPrice > 0 ? selected.sellingPrice : selected.cost;
+    final line = _buildLineDraft(
+      id: _uuid.v4(),
+      type: QuoteItemReferenceType.product,
+      referenceId: selected.id,
+      description: selected.name,
+      quantity: 1,
+      unitPrice: price,
+      catalogLabel: selected.category,
+    );
+    _addLine(line);
+  }
+
+  void _onAddManualItem() {
+    final line = _buildLineDraft(
+      id: _uuid.v4(),
+      type: QuoteItemReferenceType.manual,
+      description: 'Voce manuale',
+      quantity: 1,
+      unitPrice: 0,
+    );
+    _addLine(line);
+  }
+
+  Future<T?> _pickFromCatalog<T>({
+    required String title,
+    required List<T> items,
+    required String Function(T) labelBuilder,
+    String Function(T)? subtitleBuilder,
+  }) {
+    return showModalBottomSheet<T>(
+      context: context,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: Text(title, style: theme.textTheme.titleMedium),
+                trailing: IconButton(
+                  tooltip: 'Chiudi',
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.of(ctx).maybePop(),
+                ),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: items.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (ctx, index) {
+                    final item = items[index];
+                    final subtitle =
+                        subtitleBuilder != null ? subtitleBuilder(item) : null;
+                    return ListTile(
+                      title: Text(labelBuilder(item)),
+                      subtitle: subtitle != null ? Text(subtitle) : null,
+                      onTap: () => Navigator.of(ctx).pop(item),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  String _lineTypeLabel(QuoteItemReferenceType type) {
+    switch (type) {
+      case QuoteItemReferenceType.service:
+        return 'Servizio';
+      case QuoteItemReferenceType.package:
+        return 'Pacchetto';
+      case QuoteItemReferenceType.product:
+        return 'Prodotto';
+      case QuoteItemReferenceType.manual:
+        return 'Voce manuale';
+    }
+  }
+
+  void _showSnackBar(String message) {
     if (!mounted) {
       return;
     }
-    Navigator.of(context).pop(quote);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final currency = _numberFormat;
 
     return SafeArea(
       child: Padding(
@@ -215,6 +515,7 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
                     labelText: 'Titolo',
                     hintText: 'Es. Percorso remise en forme',
                   ),
+                  enabled: !_saving,
                 ),
                 const SizedBox(height: 12),
                 ListTile(
@@ -241,6 +542,7 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
                 ),
                 TextFormField(
                   controller: _notesController,
+                  enabled: !_saving,
                   minLines: 2,
                   maxLines: 4,
                   decoration: const InputDecoration(
@@ -251,30 +553,60 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
                 const SizedBox(height: 16),
                 Text('Voci preventivo', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 8),
-                for (var index = 0; index < _items.length; index += 1)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    child: _QuoteItemCard(
-                      data: _items[index],
-                      index: index,
-                      services: widget.services,
-                      packages: widget.packages,
-                      onChanged: () => setState(() {}),
-                      onRemove: _saving ? null : () => _removeItem(index),
-                      currency: _numberFormat,
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.tonalIcon(
+                      onPressed: _saving ? null : _onAddService,
+                      icon: const Icon(Icons.design_services_rounded),
+                      label: const Text('Aggiungi servizio'),
                     ),
-                  ),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    onPressed: _saving ? null : _addItem,
-                    icon: const Icon(Icons.add_rounded),
-                    label: const Text('Aggiungi voce'),
-                  ),
+                    FilledButton.tonalIcon(
+                      onPressed: _saving ? null : _onAddPackage,
+                      icon: const Icon(Icons.card_giftcard_rounded),
+                      label: const Text('Aggiungi pacchetto'),
+                    ),
+                    FilledButton.tonalIcon(
+                      onPressed: _saving ? null : _onAddCustomPackage,
+                      icon: const Icon(Icons.auto_fix_high_rounded),
+                      label: const Text('Pacchetto personalizzato'),
+                    ),
+                    FilledButton.tonalIcon(
+                      onPressed: _saving ? null : _onAddProduct,
+                      icon: const Icon(Icons.inventory_2_rounded),
+                      label: const Text('Aggiungi prodotto'),
+                    ),
+                    FilledButton.tonalIcon(
+                      onPressed: _saving ? null : _onAddManualItem,
+                      icon: const Icon(Icons.add_circle_outline_rounded),
+                      label: const Text('Voce manuale'),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 12),
+                if (_lines.isEmpty)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        'Aggiungi almeno un elemento per salvare il preventivo.',
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ),
+                  )
+                else
+                  Column(
+                    children: [
+                      for (var i = 0; i < _lines.length; i++) ...[
+                        _buildLineCard(_lines[i], i, currency),
+                        const SizedBox(height: 12),
+                      ],
+                    ],
+                  ),
                 const SizedBox(height: 16),
                 Text(
-                  'Totale preventivo: ${_numberFormat.format(_computeTotal())}',
+                  'Totale preventivo: ${currency.format(_computeTotal())}',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
@@ -313,62 +645,15 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
       ),
     );
   }
-}
 
-class _QuoteItemCard extends StatelessWidget {
-  const _QuoteItemCard({
-    required this.data,
-    required this.index,
-    required this.services,
-    required this.packages,
-    required this.onChanged,
-    required this.currency,
-    this.onRemove,
-  });
-
-  final _QuoteItemFormData data;
-  final int index;
-  final List<Service> services;
-  final List<ServicePackage> packages;
-  final VoidCallback onChanged;
-  final VoidCallback? onRemove;
-  final NumberFormat currency;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildLineCard(
+    _QuoteLineDraft line,
+    int index,
+    NumberFormat currency,
+  ) {
     final theme = Theme.of(context);
-    final activeServices = services
-        .where((service) => service.isActive)
-        .toList(growable: false);
-    final availablePackages = packages.toList(growable: false);
-
-    final dropdownItems = <DropdownMenuItem<String?>>[
-      const DropdownMenuItem<String?>(
-        value: null,
-        child: Text('Voce personalizzata'),
-      ),
-      if (activeServices.isNotEmpty)
-        ...activeServices.map(
-          (service) => DropdownMenuItem<String?>(
-            value: 'service|${service.id}',
-            child: Text('Servizio • ${service.name}'),
-          ),
-        ),
-      if (availablePackages.isNotEmpty)
-        ...availablePackages.map(
-          (pkg) => DropdownMenuItem<String?>(
-            value: 'package|${pkg.id}',
-            child: Text('Pacchetto • ${pkg.name}'),
-          ),
-        ),
-    ];
-
-    String? selectedValue;
-    if (data.serviceId != null) {
-      selectedValue = 'service|${data.serviceId}';
-    } else if (data.packageId != null) {
-      selectedValue = 'package|${data.packageId}';
-    }
+    final lineTotal = _lineTotal(line);
+    final typeLabel = _lineTypeLabel(line.referenceType);
 
     return Card(
       child: Padding(
@@ -378,103 +663,62 @@ class _QuoteItemCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Text('Voce ${index + 1}', style: theme.textTheme.titleSmall),
-                const Spacer(),
+                Expanded(
+                  child: Text(
+                    '$typeLabel • Riga ${index + 1}',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
                 IconButton(
                   tooltip: 'Rimuovi voce',
-                  onPressed: onRemove,
+                  onPressed: _saving ? null : () => _removeLine(line.id),
                   icon: const Icon(Icons.delete_outline_rounded),
                 ),
               ],
             ),
-            if (dropdownItems.length > 1) ...[
-              DropdownButtonFormField<String?>(
-                value: selectedValue,
-                decoration: const InputDecoration(
-                  labelText: 'Associa voce esistente',
+            if (line.catalogLabel != null && line.catalogLabel!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  line.catalogLabel!,
+                  style: theme.textTheme.bodySmall,
                 ),
-                items: dropdownItems,
-                onChanged: (value) {
-                  data.serviceId = null;
-                  data.packageId = null;
-                  if (value != null && value.contains('|')) {
-                    final parts = value.split('|');
-                    if (parts.length == 2) {
-                      final type = parts.first;
-                      final id = parts.last;
-                      if (type == 'service') {
-                        data.serviceId = id;
-                        final matched = activeServices.firstWhereOrNull(
-                          (service) => service.id == id,
-                        );
-                        if (matched != null) {
-                          data.descriptionController.text = matched.name;
-                          data.unitPriceController.text = matched.price
-                              .toStringAsFixed(2);
-                        }
-                      } else if (type == 'package') {
-                        data.packageId = id;
-                        final matched = availablePackages.firstWhereOrNull(
-                          (pkg) => pkg.id == id,
-                        );
-                        if (matched != null) {
-                          data.descriptionController.text = matched.name;
-                          data.unitPriceController.text = matched.price
-                              .toStringAsFixed(2);
-                        }
-                      }
-                    }
-                  }
-                  if (value == null) {
-                    data.descriptionController.clear();
-                    data.packageId = null;
-                    data.serviceId = null;
-                  }
-                  onChanged();
-                },
               ),
-              const SizedBox(height: 12),
-            ],
             TextFormField(
-              controller: data.descriptionController,
-              decoration: InputDecoration(
-                labelText: 'Descrizione',
-                hintText: 'Dettaglio della voce ${index + 1}',
-              ),
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return 'Inserisci una descrizione';
-                }
-                return null;
-              },
-              onChanged: (_) => onChanged(),
+              controller: line.descriptionController,
+              enabled: !_saving,
+              decoration: const InputDecoration(labelText: 'Descrizione'),
+              validator:
+                  (value) =>
+                      value == null || value.trim().isEmpty
+                          ? 'Inserisci la descrizione'
+                          : null,
             ),
             const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
                   child: TextFormField(
-                    controller: data.quantityController,
+                    controller: line.quantityController,
+                    enabled: !_saving,
                     decoration: const InputDecoration(labelText: 'Quantità'),
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
                     validator: (value) {
-                      final parsed = double.tryParse(
-                        (value ?? '').replaceAll(',', '.'),
-                      );
+                      final parsed = _parseAmount(value);
                       if (parsed == null || parsed <= 0) {
-                        return 'Valore non valido';
+                        return 'Quantità non valida';
                       }
                       return null;
                     },
-                    onChanged: (_) => onChanged(),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: TextFormField(
-                    controller: data.unitPriceController,
+                    controller: line.unitPriceController,
+                    enabled: !_saving,
                     decoration: const InputDecoration(
                       labelText: 'Prezzo unitario',
                       prefixText: '€ ',
@@ -483,15 +727,12 @@ class _QuoteItemCard extends StatelessWidget {
                       decimal: true,
                     ),
                     validator: (value) {
-                      final parsed = double.tryParse(
-                        (value ?? '').replaceAll(',', '.'),
-                      );
+                      final parsed = _parseAmount(value);
                       if (parsed == null || parsed < 0) {
-                        return 'Valore non valido';
+                        return 'Prezzo non valido';
                       }
                       return null;
                     },
-                    onChanged: (_) => onChanged(),
                   ),
                 ),
               ],
@@ -500,7 +741,7 @@ class _QuoteItemCard extends StatelessWidget {
             Align(
               alignment: Alignment.centerRight,
               child: Text(
-                'Totale voce: ${currency.format(data.estimateTotal)}',
+                'Totale voce: ${currency.format(lineTotal)}',
                 style: theme.textTheme.bodySmall,
               ),
             ),
@@ -509,85 +750,151 @@ class _QuoteItemCard extends StatelessWidget {
       ),
     );
   }
+
+  Future<void> _submit() async {
+    if (_saving) {
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    final isValid = _formKey.currentState?.validate() ?? false;
+    if (!isValid) {
+      return;
+    }
+    if (_lines.isEmpty) {
+      _showSnackBar('Aggiungi almeno una voce al preventivo.');
+      return;
+    }
+
+    final items = <QuoteItem>[];
+    for (final line in _lines) {
+      final description = line.descriptionController.text.trim();
+      if (description.isEmpty) {
+        _showSnackBar('Completa la descrizione di tutte le voci.');
+        return;
+      }
+      final quantityValue = _parseAmount(line.quantityController.text) ?? 0;
+      final unitPriceValue = _parseAmount(line.unitPriceController.text) ?? 0;
+      if (quantityValue <= 0) {
+        _showSnackBar('La quantità deve essere maggiore di zero.');
+        return;
+      }
+      if (unitPriceValue < 0) {
+        _showSnackBar('Il prezzo unitario non può essere negativo.');
+        return;
+      }
+      final normalizedQuantity = double.parse(quantityValue.toStringAsFixed(2));
+      final normalizedPrice = double.parse(unitPriceValue.toStringAsFixed(2));
+
+      var type = line.referenceType;
+      String? serviceId;
+      String? packageId;
+      String? inventoryId;
+
+      switch (type) {
+        case QuoteItemReferenceType.service:
+          if (line.referenceId != null && line.referenceId!.isNotEmpty) {
+            serviceId = line.referenceId;
+          } else {
+            type = QuoteItemReferenceType.manual;
+          }
+          break;
+        case QuoteItemReferenceType.package:
+          if (line.referenceId != null && line.referenceId!.isNotEmpty) {
+            packageId = line.referenceId;
+          } else {
+            type = QuoteItemReferenceType.manual;
+          }
+          break;
+        case QuoteItemReferenceType.product:
+          if (line.referenceId != null && line.referenceId!.isNotEmpty) {
+            inventoryId = line.referenceId;
+          } else {
+            type = QuoteItemReferenceType.manual;
+          }
+          break;
+        case QuoteItemReferenceType.manual:
+          break;
+      }
+
+      items.add(
+        QuoteItem(
+          id: line.id,
+          description: description,
+          quantity: normalizedQuantity,
+          unitPrice: normalizedPrice,
+          referenceType: type,
+          serviceId: serviceId,
+          packageId: packageId,
+          inventoryItemId: inventoryId,
+        ),
+      );
+    }
+
+    if (items.isEmpty) {
+      _showSnackBar('Aggiungi almeno una voce valida.');
+      return;
+    }
+
+    setState(() => _saving = true);
+    final initial = widget.initial;
+    final now = DateTime.now();
+    final quote = Quote(
+      id: initial?.id ?? _uuid.v4(),
+      salonId: widget.client.salonId,
+      clientId: widget.client.id,
+      items: items,
+      number: initial?.number ?? _quoteNumber,
+      title:
+          _titleController.text.trim().isEmpty
+              ? null
+              : _titleController.text.trim(),
+      notes:
+          _notesController.text.trim().isEmpty
+              ? null
+              : _notesController.text.trim(),
+      status: initial?.status ?? QuoteStatus.draft,
+      createdAt: initial?.createdAt ?? now,
+      updatedAt: now,
+      validUntil: _validUntil,
+      sentAt: initial?.sentAt,
+      acceptedAt: initial?.acceptedAt,
+      declinedAt: initial?.declinedAt,
+      ticketId: initial?.ticketId,
+      sentChannels: initial?.sentChannels,
+      pdfStoragePath: initial?.pdfStoragePath,
+      saleId: initial?.saleId,
+      stripePaymentIntentId: initial?.stripePaymentIntentId,
+    );
+
+    if (!mounted) {
+      return;
+    }
+    Navigator.of(context).pop(quote);
+  }
 }
 
-class _QuoteItemFormData {
-  _QuoteItemFormData._({
+class _QuoteLineDraft {
+  _QuoteLineDraft({
     required this.id,
+    required this.referenceType,
+    this.referenceId,
+    this.catalogLabel,
     required this.descriptionController,
     required this.quantityController,
     required this.unitPriceController,
-    this.serviceId,
-    this.packageId,
   });
 
-  factory _QuoteItemFormData.fromQuoteItem(QuoteItem item) {
-    return _QuoteItemFormData._(
-      id: item.id,
-      descriptionController: TextEditingController(text: item.description),
-      quantityController: TextEditingController(
-        text:
-            item.quantity == item.quantity.roundToDouble()
-                ? item.quantity.toInt().toString()
-                : item.quantity.toStringAsFixed(2),
-      ),
-      unitPriceController: TextEditingController(
-        text: item.unitPrice.toStringAsFixed(2),
-      ),
-      serviceId: item.serviceId,
-      packageId: item.packageId,
-    );
-  }
-
-  factory _QuoteItemFormData.empty() {
-    return _QuoteItemFormData._(
-      id: const Uuid().v4(),
-      descriptionController: TextEditingController(),
-      quantityController: TextEditingController(text: '1'),
-      unitPriceController: TextEditingController(),
-    );
-  }
-
   final String id;
+  QuoteItemReferenceType referenceType;
+  String? referenceId;
+  final String? catalogLabel;
   final TextEditingController descriptionController;
   final TextEditingController quantityController;
   final TextEditingController unitPriceController;
-  String? serviceId;
-  String? packageId;
 
   void dispose() {
     descriptionController.dispose();
     quantityController.dispose();
     unitPriceController.dispose();
-  }
-
-  QuoteItem? toQuoteItem() {
-    final description = descriptionController.text.trim();
-    if (description.isEmpty) {
-      return null;
-    }
-    final quantity =
-        double.tryParse(quantityController.text.replaceAll(',', '.')) ?? 0;
-    final unitPrice =
-        double.tryParse(unitPriceController.text.replaceAll(',', '.')) ?? 0;
-    if (quantity <= 0) {
-      return null;
-    }
-    return QuoteItem(
-      id: id,
-      description: description,
-      quantity: double.parse(quantity.toStringAsFixed(2)),
-      unitPrice: double.parse(unitPrice.toStringAsFixed(2)),
-      serviceId: serviceId?.isNotEmpty == true ? serviceId : null,
-      packageId: packageId?.isNotEmpty == true ? packageId : null,
-    );
-  }
-
-  double get estimateTotal {
-    final quantity =
-        double.tryParse(quantityController.text.replaceAll(',', '.')) ?? 0;
-    final unitPrice =
-        double.tryParse(unitPriceController.text.replaceAll(',', '.')) ?? 0;
-    return quantity * unitPrice;
   }
 }

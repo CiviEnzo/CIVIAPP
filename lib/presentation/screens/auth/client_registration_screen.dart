@@ -1,7 +1,9 @@
 import 'package:civiapp/app/providers.dart';
+import 'package:civiapp/domain/entities/client_registration_draft.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 class ClientRegistrationScreen extends ConsumerStatefulWidget {
   const ClientRegistrationScreen({super.key});
@@ -14,15 +16,24 @@ class ClientRegistrationScreen extends ConsumerStatefulWidget {
 class _ClientRegistrationScreenState
     extends ConsumerState<ClientRegistrationScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _firstNameController = TextEditingController();
+  final _lastNameController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _dateOfBirthController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   bool _isPasswordObscured = true;
   bool _isConfirmObscured = true;
   bool _isLoading = false;
+  final DateFormat _dateFormat = DateFormat('dd/MM/yyyy');
 
   @override
   void dispose() {
+    _firstNameController.dispose();
+    _lastNameController.dispose();
+    _phoneController.dispose();
+    _dateOfBirthController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
@@ -58,6 +69,71 @@ class _ClientRegistrationScreenState
                         style: theme.textTheme.bodyMedium,
                       ),
                       const SizedBox(height: 24),
+                      TextFormField(
+                        controller: _firstNameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Nome',
+                          prefixIcon: Icon(Icons.person_outline),
+                        ),
+                        textCapitalization: TextCapitalization.words,
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Inserisci il nome';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _lastNameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Cognome',
+                          prefixIcon: Icon(Icons.person_outline),
+                        ),
+                        textCapitalization: TextCapitalization.words,
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Inserisci il cognome';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _dateOfBirthController,
+                        decoration: const InputDecoration(
+                          labelText: 'Data di nascita',
+                          prefixIcon: Icon(Icons.cake_outlined),
+                          helperText: 'Formato richiesto: gg/mm/aaaa',
+                        ),
+                        keyboardType: TextInputType.datetime,
+                        validator: (value) {
+                          final text = value?.trim() ?? '';
+                          if (text.isEmpty) {
+                            return 'Inserisci la data di nascita';
+                          }
+                          if (_parseDate(text) == null) {
+                            return 'Formato non valido. Usa gg/mm/aaaa';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _phoneController,
+                        decoration: const InputDecoration(
+                          labelText: 'Numero di telefono',
+                          prefixIcon: Icon(Icons.phone_outlined),
+                        ),
+                        keyboardType: TextInputType.phone,
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Inserisci il numero di telefono';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
                       TextFormField(
                         controller: _emailController,
                         decoration: const InputDecoration(
@@ -178,10 +254,26 @@ class _ClientRegistrationScreenState
     setState(() => _isLoading = true);
     final email = _emailController.text.trim();
     final password = _passwordController.text;
+    final firstName = _firstNameController.text.trim();
+    final lastName = _lastNameController.text.trim();
+    final phone = _phoneController.text.trim();
+    final dateOfBirthText = _dateOfBirthController.text.trim();
+    final dateOfBirth = _parseDate(dateOfBirthText);
     try {
       await ref
           .read(authRepositoryProvider)
           .registerClient(email: email, password: password);
+      ref
+          .read(clientRegistrationDraftProvider.notifier)
+          .save(
+            ClientRegistrationDraft(
+              firstName: firstName,
+              lastName: lastName,
+              email: email,
+              phone: phone,
+              dateOfBirth: dateOfBirth,
+            ),
+          );
       if (!mounted) return;
       context.go('/onboarding');
     } on Exception catch (error) {
@@ -211,5 +303,16 @@ class _ClientRegistrationScreenState
       return 'Impossibile completare la registrazione. Controlla la connessione.';
     }
     return 'Registrazione non riuscita: $message';
+  }
+
+  DateTime? _parseDate(String input) {
+    if (input.isEmpty) {
+      return null;
+    }
+    try {
+      return _dateFormat.parseStrict(input);
+    } catch (_) {
+      return null;
+    }
   }
 }

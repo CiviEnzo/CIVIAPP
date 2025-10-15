@@ -30,12 +30,16 @@ class ClientBookingSheet extends ConsumerStatefulWidget {
     this.initialServiceId,
     this.initialAppointment,
     this.lastMinuteSlot,
+    this.onCompleted,
+    this.onDismiss,
   });
 
   final Client client;
   final String? initialServiceId;
   final Appointment? initialAppointment;
   final LastMinuteSlot? lastMinuteSlot;
+  final ValueChanged<Appointment>? onCompleted;
+  final VoidCallback? onDismiss;
 
   static Future<Appointment?> show(
     BuildContext context, {
@@ -112,7 +116,6 @@ enum _BookingStep { category, services, date, availability, summary }
 class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
   static const _slotIntervalMinutes = 15;
   static const String _uncategorizedCategoryId = 'uncategorized';
-  static const ListEquality<String> _listEquality = ListEquality<String>();
   final _uuid = const Uuid();
   final DateFormat _dayLabel = DateFormat('EEE d MMM', 'it_IT');
   final DateFormat _timeLabel = DateFormat('HH:mm', 'it_IT');
@@ -193,6 +196,24 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
   void dispose() {
     _countdownTimer?.cancel();
     super.dispose();
+  }
+
+  void _emitDismiss() {
+    final dismiss = widget.onDismiss;
+    if (dismiss != null) {
+      dismiss();
+    } else {
+      Navigator.of(context).maybePop();
+    }
+  }
+
+  void _emitCompletion(Appointment appointment) {
+    final completed = widget.onCompleted;
+    if (completed != null) {
+      completed(appointment);
+    } else {
+      Navigator.of(context).pop(appointment);
+    }
   }
 
   void _initializeExpressBooking(LastMinuteSlot slot) {
@@ -1535,7 +1556,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             TextButton(
               onPressed: () {
                 if (_isLastMinuteExpress) {
-                  Navigator.of(context).maybePop();
+                  _emitDismiss();
                 } else {
                   _goToStep(_BookingStep.availability);
                 }
@@ -1928,7 +1949,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             lastMinuteSlotId:
                 _isLastMinuteExpress && index == 0 && _expressSlot != null
                     ? _expressSlot!.id
-                    : existing?.lastMinuteSlotId,
+                    : existing!.lastMinuteSlotId,
           ) ??
           Appointment(
             id: _uuid.v4(),
@@ -1976,7 +1997,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             );
       }
       if (!mounted) return;
-      Navigator.of(context).pop(appointmentsToSave.first);
+      _emitCompletion(appointmentsToSave.first);
     } on StateError catch (error) {
       if (!mounted) return;
       _showError(error.message);
@@ -1988,19 +2009,6 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
         setState(() => _isSubmitting = false);
       }
     }
-  }
-
-  bool _selectionEquals(
-    _ServiceBookingSelection a,
-    _ServiceBookingSelection b,
-  ) {
-    return a.categoryId == b.categoryId &&
-        _listEquality.equals(a.serviceIds, b.serviceIds) &&
-        a.staffId == b.staffId &&
-        a.start == b.start &&
-        a.end == b.end &&
-        a.usePackageSession == b.usePackageSession &&
-        a.packageId == b.packageId;
   }
 
   void _applySelectionToForm(_ServiceBookingSelection selection) {
