@@ -1,5 +1,5 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
-import logger from 'firebase-functions/logger';
+import * as logger from 'firebase-functions/logger';
 
 import { db, FieldValue } from '../utils/firestore';
 import { canUseChannel } from '../utils/consent';

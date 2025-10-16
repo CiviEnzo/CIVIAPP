@@ -1,5 +1,5 @@
 import { getAuth } from 'firebase-admin/auth';
-import logger from 'firebase-functions/logger';
+import * as logger from 'firebase-functions/logger';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 
 type NullableString = string | null;

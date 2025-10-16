@@ -1,8 +1,9 @@
+import 'package:civiapp/app/providers.dart';
+import 'package:civiapp/domain/entities/user_role.dart';
+import 'package:civiapp/services/notifications/notification_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
-import 'package:civiapp/app/providers.dart';
 
 class BrandedAppShell extends ConsumerWidget {
   const BrandedAppShell({super.key});
@@ -12,6 +13,27 @@ class BrandedAppShell extends ConsumerWidget {
     ref.watch(appBootstrapProvider);
     final theme = ref.watch(salonThemeProvider);
     final router = ref.watch(appRouterProvider);
+
+    ref.listen<AsyncValue<NotificationTap>>(notificationTapStreamProvider, (
+      previous,
+      next,
+    ) {
+      next.whenData((tap) {
+        final session = ref.read(sessionControllerProvider);
+        if (session.role != UserRole.client) {
+          return;
+        }
+        final payload = Map<String, Object?>.from(tap.payload);
+        final type = payload['type']?.toString();
+        var targetTab = -1;
+        if (type == 'last_minute_slot') {
+          targetTab = 0;
+        }
+        ref.read(clientDashboardIntentProvider.notifier).state =
+            ClientDashboardIntent(tabIndex: targetTab, payload: payload);
+        router.go('/client');
+      });
+    });
 
     return MaterialApp.router(
       title: 'Civi App Gestionale',

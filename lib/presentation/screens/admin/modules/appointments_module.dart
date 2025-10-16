@@ -4,6 +4,7 @@ import 'package:civiapp/domain/availability/appointment_conflicts.dart';
 import 'package:civiapp/domain/availability/equipment_availability.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/client.dart';
+import 'package:civiapp/domain/entities/last_minute_notification.dart';
 import 'package:civiapp/domain/entities/last_minute_slot.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
@@ -15,6 +16,7 @@ import 'package:civiapp/presentation/screens/admin/forms/appointment_form_sheet.
 import 'package:civiapp/presentation/screens/admin/modules/appointments/appointment_calendar_view.dart';
 import 'package:civiapp/presentation/screens/admin/modules/appointments/appointment_anomaly.dart';
 import 'package:collection/collection.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -937,8 +939,16 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         .where((member) => member.salonId == slot.salonId && member.isActive)
         .sortedBy((member) => member.fullName.toLowerCase());
     final rooms = salon?.rooms ?? const <SalonRoom>[];
+    final data = ref.read(appDataProvider);
+    final reminderSettings = data.reminderSettings.firstWhereOrNull(
+      (settings) => settings.salonId == slot.salonId,
+    );
+    final clientsForSalon = data.clients
+        .where((client) => client.salonId == slot.salonId)
+        .sortedBy((client) => client.fullName.toLowerCase())
+        .toList(growable: false);
 
-    final updated = await showModalBottomSheet<LastMinuteSlot>(
+    final result = await showModalBottomSheet<ExpressSlotSheetResult>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -952,23 +962,75 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
           rooms: rooms,
           initialStaffId: slot.operatorId,
           initialSlot: slot,
+          clients: clientsForSalon,
+          reminderSettings: reminderSettings,
         );
       },
     );
-    if (updated == null) {
+    if (result == null) {
       return;
     }
+    final updated = result.slot;
+    final notification = result.notification;
     try {
       await ref.read(appDataProvider.notifier).upsertLastMinuteSlot(updated);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Slot last-minute aggiornato.')),
       );
+      if (notification != null && mounted) {
+        await _dispatchLastMinuteNotification(
+          context: context,
+          slot: updated,
+          notification: notification,
+        );
+      }
     } on StateError catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+
+  Future<void> _dispatchLastMinuteNotification({
+    required BuildContext context,
+    required LastMinuteSlot slot,
+    required LastMinuteNotificationRequest notification,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final result = await ref
+          .read(appDataProvider.notifier)
+          .sendLastMinuteNotification(slot: slot, request: notification);
+      if (!mounted) {
+        return;
+      }
+      final buffer =
+          StringBuffer()
+            ..write('Notifica slot inviata: ')
+            ..write('${result.successCount} ok');
+      if (result.failureCount > 0) {
+        buffer.write(', ${result.failureCount} errori');
+      }
+      if (result.skippedCount > 0) {
+        buffer.write(', ${result.skippedCount} esclusi');
+      }
+      messenger.showSnackBar(SnackBar(content: Text(buffer.toString())));
+    } on FirebaseFunctionsException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      final message =
+          error.message ?? 'Invio notifica non riuscito: ${error.code}';
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(
+        SnackBar(content: Text('Invio notifica non riuscito: $error')),
+      );
     }
   }
 
@@ -997,6 +1059,14 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     final salon = salons.firstWhereOrNull(
       (element) => element.id == resolvedSalonId,
     );
+    final data = ref.read(appDataProvider);
+    final reminderSettings = data.reminderSettings.firstWhereOrNull(
+      (settings) => settings.salonId == resolvedSalonId,
+    );
+    final clientsForSalon = data.clients
+        .where((client) => client.salonId == resolvedSalonId)
+        .sortedBy((client) => client.fullName.toLowerCase())
+        .toList(growable: false);
     final servicesForSalon = services
         .where(
           (service) => service.salonId == resolvedSalonId && service.isActive,
@@ -1007,7 +1077,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         .sortedBy((member) => member.fullName.toLowerCase());
     final rooms = salon?.rooms ?? const <SalonRoom>[];
 
-    final slot = await showModalBottomSheet<LastMinuteSlot>(
+    final result = await showModalBottomSheet<ExpressSlotSheetResult>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -1020,13 +1090,17 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
           staff: staffForSalon,
           rooms: rooms,
           initialStaffId: selection.staffId,
+          clients: clientsForSalon,
+          reminderSettings: reminderSettings,
         );
       },
     );
 
-    if (slot == null) {
+    if (result == null) {
       return;
     }
+    final slot = result.slot;
+    final notification = result.notification;
 
     try {
       await ref.read(appDataProvider.notifier).upsertLastMinuteSlot(slot);
@@ -1052,6 +1126,13 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         ),
       ),
     );
+    if (notification != null && mounted) {
+      await _dispatchLastMinuteNotification(
+        context: context,
+        slot: slot,
+        notification: notification,
+      );
+    }
   }
 
   Future<void> _onReschedule(AppointmentRescheduleRequest request) async {

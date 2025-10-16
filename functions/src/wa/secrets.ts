@@ -1,5 +1,5 @@
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
-import logger from 'firebase-functions/logger';
+import * as logger from 'firebase-functions/logger';
 
 const client = new SecretManagerServiceClient();
 

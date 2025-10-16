@@ -1384,17 +1384,22 @@ class MockData {
   static final reminderSettings = <ReminderSettings>[
     ReminderSettings(
       salonId: 'salon-001',
-      dayBeforeEnabled: true,
-      threeHoursEnabled: true,
-      oneHourEnabled: true,
+      offsets: const [
+        ReminderOffsetConfig(id: 'M1440', minutesBefore: 1440),
+        ReminderOffsetConfig(id: 'M180', minutesBefore: 180),
+        ReminderOffsetConfig(id: 'M30', minutesBefore: 30),
+      ],
       birthdayEnabled: true,
+      lastMinuteNotificationAudience: LastMinuteNotificationAudience.everyone,
     ),
     ReminderSettings(
       salonId: 'salon-002',
-      dayBeforeEnabled: true,
-      threeHoursEnabled: false,
-      oneHourEnabled: true,
+      offsets: const [
+        ReminderOffsetConfig(id: 'M1440', minutesBefore: 1440),
+        ReminderOffsetConfig(id: 'M60', minutesBefore: 60),
+      ],
       birthdayEnabled: true,
+      lastMinuteNotificationAudience: LastMinuteNotificationAudience.none,
     ),
   ];
 

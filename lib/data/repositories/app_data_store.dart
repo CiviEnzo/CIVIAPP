@@ -13,6 +13,7 @@ import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/client_questionnaire.dart';
 import 'package:civiapp/domain/entities/client_photo.dart';
 import 'package:civiapp/domain/entities/inventory_item.dart';
+import 'package:civiapp/domain/entities/last_minute_notification.dart';
 import 'package:civiapp/domain/entities/last_minute_slot.dart';
 import 'package:civiapp/domain/entities/message_template.dart';
 import 'package:civiapp/domain/entities/package.dart';
@@ -447,11 +448,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
       );
 
       addAll(
-        _listenCollectionBySalonIds<ReminderSettings>(
+        _listenReminderSettingsBySalonIds(
           firestore: firestore,
-          collectionPath: 'reminder_settings',
           salonIds: salonIds,
-          fromDoc: reminderSettingsFromDoc,
           onData: (items) => state = state.copyWith(reminderSettings: items),
         ),
       );
@@ -516,7 +515,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
                 .collection('message_outbox')
                 .where('clientId', isEqualTo: clientId)
                 .where('channel', isEqualTo: MessageChannel.push.name)
-                .orderBy('scheduledAt', descending: true),
+                .orderBy('createdAt', descending: true),
             appNotificationFromDoc,
             (items) => state = state.copyWith(clientNotifications: items),
           ),
@@ -729,6 +728,84 @@ class AppDataStore extends StateNotifier<AppDataState> {
       _updateUsers(const <AppUser>[]);
     }
 
+    return subscriptions;
+  }
+
+  List<StreamSubscription> _listenReminderSettingsBySalonIds({
+    required FirebaseFirestore firestore,
+    required List<String> salonIds,
+    required void Function(List<ReminderSettings>) onData,
+  }) {
+    final normalized = salonIds
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+    if (normalized.isEmpty) {
+      onData(List.unmodifiable(<ReminderSettings>[]));
+      return <StreamSubscription>[];
+    }
+
+    final subscriptions = <StreamSubscription>[];
+    final aggregated = <String, ReminderSettings>{};
+
+    void emit() {
+      final items =
+          normalized
+              .map(
+                (salonId) =>
+                    aggregated[salonId] ?? ReminderSettings(salonId: salonId),
+              )
+              .toList(growable: false);
+      onData(List.unmodifiable(items));
+    }
+
+    for (final salonId in normalized) {
+      final docRef = firestore
+          .collection('salons')
+          .doc(salonId)
+          .collection('settings')
+          .doc('reminders');
+
+      final subscription = docRef.snapshots().listen(
+        (snapshot) {
+          if (snapshot.exists) {
+            aggregated[salonId] = reminderSettingsFromDoc(snapshot);
+          } else {
+            aggregated.remove(salonId);
+          }
+          emit();
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          if (error is FirebaseException && error.code == 'permission-denied') {
+            debugPrint(
+              'Firestore permission denied for document ${docRef.path}.',
+            );
+            if (aggregated.remove(salonId) != null) {
+              emit();
+            }
+            return;
+          }
+          FlutterError.reportError(
+            FlutterErrorDetails(
+              exception: error,
+              stack: stackTrace,
+              library: 'AppDataStore',
+              informationCollector:
+                  () => [
+                    DiagnosticsProperty<String>(
+                      'Failed document',
+                      docRef.path,
+                    ),
+                  ],
+            ),
+          );
+        },
+      );
+
+      subscriptions.add(subscription);
+    }
+
+    emit();
     return subscriptions;
   }
 
@@ -2396,6 +2473,62 @@ class AppDataStore extends StateNotifier<AppDataState> {
     _refreshFeatureFilteredCollections();
   }
 
+  Future<LastMinuteNotificationResult> sendLastMinuteNotification({
+    required LastMinuteSlot slot,
+    required LastMinuteNotificationRequest request,
+  }) async {
+    final audience = request.audience;
+    if (audience == LastMinuteNotificationAudience.ownerSelection &&
+        request.clientIds.isEmpty) {
+      throw StateError('Seleziona almeno un destinatario per la notifica.');
+    }
+    final functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
+    final callable = functions.httpsCallable('notifyLastMinuteSlot');
+    final payload = <String, dynamic>{
+      'slotId': slot.id,
+      'salonId': slot.salonId,
+      'audience': _notificationAudienceToApi(audience),
+    };
+    if (request.clientIds.isNotEmpty) {
+      payload['clientIds'] = request.clientIds;
+    }
+    final response = await callable.call(payload);
+    final data = response.data;
+    final map = data is Map ? Map<String, dynamic>.from(data as Map) : const {};
+    final successCount = _parseInt(map['successCount']);
+    final failureCount = _parseInt(map['failureCount']);
+    final skippedCount = _parseInt(map['skippedCount']);
+    return LastMinuteNotificationResult(
+      successCount: successCount,
+      failureCount: failureCount,
+      skippedCount: skippedCount,
+    );
+  }
+
+  String _notificationAudienceToApi(LastMinuteNotificationAudience audience) {
+    switch (audience) {
+      case LastMinuteNotificationAudience.none:
+        return 'none';
+      case LastMinuteNotificationAudience.everyone:
+        return 'everyone';
+      case LastMinuteNotificationAudience.ownerSelection:
+        return 'ownerSelection';
+    }
+  }
+
+  int _parseInt(dynamic value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    if (value is String) {
+      return int.tryParse(value) ?? 0;
+    }
+    return 0;
+  }
+
   Future<void> deleteLastMinuteSlot(String slotId) async {
     final firestore = _firestore;
     if (firestore != null) {
@@ -2885,35 +3018,6 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
   }
 
-  Future<void> markClientNotificationAsRead(String notificationId) async {
-    final firestore = _firestore;
-    if (firestore == null) {
-      return;
-    }
-    final clientId = _currentUser?.clientId;
-    if (clientId == null || clientId.isEmpty) {
-      return;
-    }
-    final notificationRef = firestore
-        .collection('notifications')
-        .doc(clientId)
-        .collection('items');
-    await notificationRef.doc(notificationId).set({
-      'read': true,
-      'readAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-
-    final updated = state.clientNotifications
-        .map(
-          (notification) =>
-              notification.id == notificationId
-                  ? notification.copyWith(readAt: DateTime.now())
-                  : notification,
-        )
-        .toList(growable: false);
-    state = state.copyWith(clientNotifications: updated);
-  }
-
   Future<void> markQuoteSent(
     String quoteId, {
     required List<MessageChannel> viaChannels,
@@ -3321,6 +3425,12 @@ class AppDataStore extends StateNotifier<AppDataState> {
       return;
     }
 
+    await firestore
+        .collection('salons')
+        .doc(updated.salonId)
+        .collection('settings')
+        .doc('reminders')
+        .set(reminderSettingsToMap(updated), SetOptions(merge: true));
     await firestore
         .collection('reminder_settings')
         .doc(updated.salonId)

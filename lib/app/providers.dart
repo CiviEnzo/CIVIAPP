@@ -11,10 +11,13 @@ import 'package:civiapp/domain/cart/cart_models.dart';
 import 'package:civiapp/domain/entities/client_photo.dart';
 import 'package:civiapp/domain/entities/client_registration_draft.dart';
 import 'package:civiapp/domain/entities/user_role.dart';
-import 'package:civiapp/services/payments/stripe_payments_service.dart';
 import 'package:civiapp/services/payments/stripe_connect_service.dart';
+import 'package:civiapp/services/payments/stripe_payments_service.dart';
+import 'package:civiapp/services/notifications/notification_service.dart';
 import 'package:civiapp/services/whatsapp_service.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_in_app_messaging/firebase_in_app_messaging.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
@@ -71,6 +74,14 @@ final firebaseMessagingProvider = Provider<FirebaseMessaging>((ref) {
   return FirebaseMessaging.instance;
 });
 
+final firebaseInAppMessagingProvider = Provider<FirebaseInAppMessaging>((ref) {
+  return FirebaseInAppMessaging.instance;
+});
+
+final firebaseFunctionsProvider = Provider<FirebaseFunctions>((ref) {
+  return FirebaseFunctions.instanceFor(region: 'europe-west1');
+});
+
 final currentSalonIdProvider = Provider<String?>((ref) {
   return ref.watch(sessionControllerProvider).salonId;
 });
@@ -96,6 +107,31 @@ final whatsappConfigProvider = StreamProvider.family<WhatsAppConfig?, String>((
   final service = ref.watch(whatsappServiceProvider);
   return service.watchConfig(salonId);
 });
+
+final notificationServiceProvider = Provider<NotificationService>((ref) {
+  throw UnimplementedError(
+    'NotificationService non inizializzato: override notificationServiceProvider in main.dart',
+  );
+});
+
+final notificationTapStreamProvider = StreamProvider<NotificationTap>((ref) {
+  final service = ref.watch(notificationServiceProvider);
+  return service.onNotificationTap;
+});
+
+class ClientDashboardIntent {
+  const ClientDashboardIntent({
+    required this.tabIndex,
+    Map<String, Object?>? payload,
+  }) : payload = payload ?? const <String, Object?>{};
+
+  final int tabIndex;
+  final Map<String, Object?> payload;
+}
+
+final clientDashboardIntentProvider = StateProvider<ClientDashboardIntent?>(
+  (ref) => null,
+);
 
 final salonBrandingProvider = StreamProvider<BrandingModel>((ref) {
   final salonId = ref.watch(currentSalonIdProvider);

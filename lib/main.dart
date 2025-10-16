@@ -1,7 +1,10 @@
 import 'dart:io';
 
+import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/presentation/branding/widgets/branded_app_shell.dart';
+import 'package:civiapp/services/notifications/notification_service.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_in_app_messaging/firebase_in_app_messaging.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -21,6 +24,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final notificationService = NotificationService();
   try {
     await Firebase.initializeApp();
   } catch (error, stackTrace) {
@@ -37,6 +41,17 @@ Future<void> main() async {
     await Stripe.instance.applySettings();
   }
 
+  if (Platform.isAndroid || Platform.isIOS) {
+    try {
+      final inAppMessaging = FirebaseInAppMessaging.instance;
+      await inAppMessaging.setAutomaticDataCollectionEnabled(true);
+      await inAppMessaging.setMessagesSuppressed(false);
+    } catch (error, stackTrace) {
+      debugPrint('Impossibile inizializzare Firebase In-App Messaging: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
+  }
+
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   await FirebaseMessaging.instance.setAutoInitEnabled(true);
   if (Platform.isIOS) {
@@ -47,6 +62,23 @@ Future<void> main() async {
           sound: true,
         );
   }
+  await notificationService.init();
+  FirebaseMessaging.onMessageOpenedApp.listen(
+    notificationService.handleMessageInteraction,
+  );
+  final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
+  if (initialMessage != null) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      notificationService.handleMessageInteraction(initialMessage);
+    });
+  }
   await initializeDateFormatting('it_IT');
-  runApp(const ProviderScope(child: BrandedAppShell()));
+  runApp(
+    ProviderScope(
+      overrides: [
+        notificationServiceProvider.overrideWithValue(notificationService),
+      ],
+      child: const BrandedAppShell(),
+    ),
+  );
 }

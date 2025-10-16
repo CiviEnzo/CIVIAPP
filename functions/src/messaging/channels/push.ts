@@ -1,5 +1,5 @@
 import { getMessaging } from 'firebase-admin/messaging';
-import logger from 'firebase-functions/logger';
+import * as logger from 'firebase-functions/logger';
 
 import { db, FieldValue } from '../../utils/firestore';
 import { ChannelDispatchResult, OutboxMessage } from '../types';

@@ -15,7 +15,7 @@ La barra inferiore deve includere le seguenti sezioni, in ordine:
 2. **Appuntamenti**  
 3. **Prenota**  
 4. **Carrello**  
-5. **Notifiche**
+5. **Saloni**
 
 Ogni tab deve essere rappresentata da un’icona coerente con il design system del progetto (Material Icons o Cupertino Icons, in base alla piattaforma).
 
@@ -95,14 +95,15 @@ La sezione **Carrello** mostra tutti i servizi e pacchetti selezionati non ancor
 
 ---
 
-## 6️⃣ Notifiche
+## 6️⃣ Saloni
 
-Visualizzazione delle **notifiche attuali** per il cliente:
-- Reminder appuntamenti  
-- Promozioni personalizzate  
-- Comunicazioni dal salone  
-Le notifiche devono essere lette da Firestore (`notifications/{clientId}`) e marcabili come “lette”.
-Le notifiche lette non appaiono nella lista
+La tab **Saloni** mostra la scheda del salone attivo con carte dedicate a descrizione, contatti, posizione, orari e canali social. Tutti i link sono tappabili e aprono le app esterne (telefono, email, mappe, browser) con il contenuto configurato dall'amministratore.
+
+Gestione contenuti lato admin:
+- In `Saloni → Modifica salone` è possibile compilare descrizione, contatti e coordinate.
+- La stessa schermata consente di aggiungere uno o più canali social indicando nome e URL (es. Instagram, Facebook, TikTok).
+- L'indirizzo e le coordinate alimentano il link rapido a Google Maps nella scheda cliente.
+- I social configurati vengono mostrati nella tab cliente con l'icona appropriata e apertura in app/browser.
 
 ---
 

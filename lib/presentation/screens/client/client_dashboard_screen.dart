@@ -26,6 +26,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'client_booking_sheet.dart';
 import 'client_theme.dart';
@@ -38,11 +39,55 @@ class ClientDashboardScreen extends ConsumerStatefulWidget {
       _ClientDashboardScreenState();
 }
 
+enum _ClientBadgeTarget {
+  loyalty,
+  packages,
+  quotes,
+  billing,
+  photos,
+  agenda,
+  notifications,
+}
+
 class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
+  static const int _notificationsIntentIndex = -1;
   StreamSubscription<RemoteMessage>? _foregroundSub;
+  ProviderSubscription<ClientDashboardIntent?>? _intentSubscription;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   int _currentTab = 0;
+  bool _pendingShowNotifications = false;
   final Set<String> _processingQuotePayments = <String>{};
+  final Map<_ClientBadgeTarget, int> _acknowledgedBadgeCounts = {};
+
+  int _badgeDelta(_ClientBadgeTarget target, int currentCount) {
+    final acknowledged = _acknowledgedBadgeCounts[target];
+    if (acknowledged != null && currentCount < acknowledged) {
+      _acknowledgedBadgeCounts[target] = currentCount;
+      return 0;
+    }
+    final baseline = _acknowledgedBadgeCounts[target] ?? 0;
+    final delta = currentCount - baseline;
+    return delta > 0 ? delta : 0;
+  }
+
+  void _acknowledgeBadge(_ClientBadgeTarget target, int currentCount) {
+    _acknowledgedBadgeCounts[target] = currentCount;
+  }
+
+  Widget _wrapWithBadge({
+    required Widget icon,
+    required int badgeCount,
+    required bool showBadge,
+  }) {
+    if (!showBadge || badgeCount <= 0) {
+      return icon;
+    }
+    return Badge.count(
+      count: badgeCount,
+      isLabelVisible: badgeCount > 0,
+      child: icon,
+    );
+  }
 
   int _resolveLoyaltyValue(int? stored, int aggregated) {
     if (stored == null) {
@@ -111,11 +156,36 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
   void initState() {
     super.initState();
     _listenForegroundMessages();
+    _intentSubscription = ref.listenManual<ClientDashboardIntent?>(
+      clientDashboardIntentProvider,
+      (previous, next) {
+        final intent = next;
+        if (intent == null) {
+          return;
+        }
+        if (intent.tabIndex == _notificationsIntentIndex) {
+          if (mounted) {
+            setState(() => _pendingShowNotifications = true);
+          } else {
+            _pendingShowNotifications = true;
+          }
+        } else if (_currentTab != intent.tabIndex) {
+          if (mounted) {
+            setState(() => _currentTab = intent.tabIndex);
+          } else {
+            _currentTab = intent.tabIndex;
+          }
+        }
+        unawaited(_handleDashboardIntent(intent));
+        ref.read(clientDashboardIntentProvider.notifier).state = null;
+      },
+    );
   }
 
   @override
   void dispose() {
     _foregroundSub?.cancel();
+    _intentSubscription?.close();
     super.dispose();
   }
 
@@ -126,18 +196,143 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
       if (!mounted) {
         return;
       }
+      final notificationService = ref.read(notificationServiceProvider);
       final notification = message.notification;
       final title =
           notification?.title ??
           message.data['title'] as String? ??
           'Nuova notifica';
       final body = notification?.body ?? message.data['body'] as String? ?? '';
-      final content = body.isEmpty ? title : '$title\n$body';
-      // ignore: use_build_context_synchronously
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(content), behavior: SnackBarBehavior.floating),
-      );
+      final payload = <String, Object?>{
+        ...message.data.map((key, value) => MapEntry(key, value)),
+        if (message.messageId != null) 'messageId': message.messageId!,
+      };
+      final badgeRaw = message.data['badge'] ?? message.data['unreadCount'];
+      final badgeCount =
+          badgeRaw is int
+              ? badgeRaw
+              : badgeRaw is String
+              ? int.tryParse(badgeRaw)
+              : null;
+      if (badgeCount != null) {
+        unawaited(notificationService.updateBadgeCount(badgeCount));
+      }
+      final int notificationId = DateTime.now().millisecondsSinceEpoch
+          .remainder(1 << 31);
+      notificationService
+          .show(id: notificationId, title: title, body: body, payload: payload)
+          .catchError((error, stackTrace) {
+            FlutterError.reportError(
+              FlutterErrorDetails(
+                exception: error,
+                stack: stackTrace,
+                library: 'ClientDashboardScreen',
+                informationCollector:
+                    () => [
+                      DiagnosticsNode.message(
+                        'Failed to display foreground notification',
+                      ),
+                    ],
+              ),
+            );
+            if (!mounted) {
+              return;
+            }
+            final content = body.isEmpty ? title : '$title\n$body';
+            // ignore: use_build_context_synchronously
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(content),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          });
     });
+  }
+
+  Future<void> _handleDashboardIntent(ClientDashboardIntent intent) async {
+    final type = intent.payload['type']?.toString();
+    if (type != 'last_minute_slot') {
+      return;
+    }
+    final slotIdRaw = intent.payload['slotId'];
+    final slotId = slotIdRaw?.toString();
+    if (slotId == null || slotId.isEmpty) {
+      return;
+    }
+
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    if (!mounted) {
+      return;
+    }
+
+    final data = ref.read(appDataProvider);
+    final session = ref.read(sessionControllerProvider);
+    final clients = data.clients;
+    final client =
+        clients.firstWhereOrNull(
+          (candidate) => candidate.id == session.userId,
+        ) ??
+        (clients.isNotEmpty ? clients.first : null);
+    if (client == null) {
+      return;
+    }
+
+    final salon = data.salons.firstWhereOrNull(
+      (candidate) => candidate.id == client.salonId,
+    );
+    final slot = data.lastMinuteSlots.firstWhereOrNull(
+      (candidate) => candidate.id == slotId,
+    );
+
+    if (slot == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Questo slot last-minute non è più disponibile.'),
+        ),
+      );
+      return;
+    }
+
+    final featureEnabled = salon?.featureFlags.clientLastMinute ?? false;
+    if (!featureEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Le offerte last-minute non sono più disponibili per questo salone.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final now = DateTime.now();
+    if (!slot.isActiveAt(now)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Lo slot last-minute è scaduto o è già stato prenotato.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final services = data.services
+        .where(
+          (service) => service.salonId == client.salonId && service.isActive,
+        )
+        .toList(growable: false);
+
+    unawaited(
+      _bookLastMinuteSlot(
+        client,
+        slot,
+        services,
+        salon: salon,
+        overrideContext: context,
+      ),
+    );
   }
 
   Future<void> _openBookingSheet(
@@ -1254,9 +1449,18 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
               a.sentAt ?? a.scheduledAt ?? a.createdAt,
             ),
           );
-    final unreadNotifications = notifications
-        .where((notification) => !(notification.isRead))
-        .toList(growable: false);
+    final notificationsCount = notifications.length;
+    if (_pendingShowNotifications) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        setState(() => _pendingShowNotifications = false);
+        unawaited(
+          _showNotificationsPage(context, notifications: notifications),
+        );
+      });
+    }
     final clientSales =
         data.sales.where((sale) => sale.clientId == currentClient.id).toList()
           ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
@@ -1267,6 +1471,70 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
       (sum, sale) => sum + sale.outstandingAmount,
     );
     final loyaltyStats = _calculateLoyaltyStats(currentClient, clientSales);
+    final loyaltyTransactionsCount =
+        clientSales
+            .where(
+              (sale) =>
+                  sale.loyalty.resolvedEarnedPoints > 0 ||
+                  sale.loyalty.redeemedPoints > 0,
+            )
+            .length;
+    final clientQuotes = data.quotes
+        .where((quote) => quote.clientId == currentClient.id)
+        .toList(growable: false);
+    final packagesBadgeDelta = _badgeDelta(
+      _ClientBadgeTarget.packages,
+      clientPackages.length,
+    );
+    final pendingQuotesCount =
+        clientQuotes
+            .where(
+              (quote) =>
+                  quote.status == QuoteStatus.sent &&
+                  !quote.isExpired &&
+                  quote.acceptedAt == null &&
+                  quote.declinedAt == null,
+            )
+            .length;
+    final clientPhotos = ref.watch(clientPhotosProvider(currentClient.id));
+    final photosCount = clientPhotos.length;
+    final loyaltyBadgeDelta = _badgeDelta(
+      _ClientBadgeTarget.loyalty,
+      loyaltyTransactionsCount,
+    );
+    final quotesBadgeDelta = _badgeDelta(
+      _ClientBadgeTarget.quotes,
+      pendingQuotesCount,
+    );
+    final billingBadgeDelta = _badgeDelta(
+      _ClientBadgeTarget.billing,
+      outstandingSales.length,
+    );
+    final photosBadgeDelta = _badgeDelta(
+      _ClientBadgeTarget.photos,
+      photosCount,
+    );
+    final agendaBadgeDelta = _badgeDelta(
+      _ClientBadgeTarget.agenda,
+      upcoming.length,
+    );
+    final notificationsBadgeDelta = _badgeDelta(
+      _ClientBadgeTarget.notifications,
+      notificationsCount,
+    );
+    final shouldShowLoyaltyBadge = loyaltyBadgeDelta > 0;
+    final shouldShowPackagesBadge = packagesBadgeDelta > 0;
+    final shouldShowQuotesBadge = quotesBadgeDelta > 0;
+    final shouldShowBillingBadge = billingBadgeDelta > 0;
+    final shouldShowPhotosBadge = photosBadgeDelta > 0;
+    final shouldShowAgendaBadge = agendaBadgeDelta > 0;
+    final shouldShowNotificationsBadge = notificationsBadgeDelta > 0;
+    final hasDrawerBadge =
+        shouldShowLoyaltyBadge ||
+        shouldShowPackagesBadge ||
+        shouldShowQuotesBadge ||
+        shouldShowBillingBadge ||
+        shouldShowPhotosBadge;
 
     final themedData = ClientTheme.resolve(Theme.of(context));
     return Theme(
@@ -1274,7 +1542,6 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
       child: Builder(
         builder: (context) {
           final cartBadgeCount = cartState.items.length;
-          final notificationsCount = unreadNotifications.length;
           final tabViews = <Widget>[
             _buildHomeTab(
               context: context,
@@ -1310,10 +1577,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
               salon: salon,
               cartState: cartState,
             ),
-            _buildNotificationsTab(
-              context: context,
-              notifications: unreadNotifications,
-            ),
+            _buildSalonInfoTab(context: context, salon: salon),
           ];
 
           return Scaffold(
@@ -1322,9 +1586,33 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
               leading: IconButton(
                 tooltip: 'Menu',
                 onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-                icon: const Icon(Icons.menu_rounded),
+                icon:
+                    hasDrawerBadge
+                        ? Badge(
+                          padding: const EdgeInsets.all(4),
+                          child: const Icon(Icons.menu_rounded),
+                        )
+                        : const Icon(Icons.menu_rounded),
               ),
               title: Text('Ciao ${currentClient.firstName}'),
+              actions: [
+                IconButton(
+                  tooltip: 'Notifiche',
+                  onPressed: () {
+                    unawaited(
+                      _showNotificationsPage(
+                        context,
+                        notifications: notifications,
+                      ),
+                    );
+                  },
+                  icon: Badge.count(
+                    count: notificationsBadgeDelta,
+                    isLabelVisible: shouldShowNotificationsBadge,
+                    child: const Icon(Icons.notifications_rounded),
+                  ),
+                ),
+              ],
             ),
             drawer: Drawer(
               backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -1349,7 +1637,15 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                               icon: Icons.loyalty_rounded,
                               label: 'Punti fedeltà',
                               subtitle: 'Saldo: ${loyaltyStats.spendable} pt',
+                              showBadge: shouldShowLoyaltyBadge,
+                              badgeCount: loyaltyBadgeDelta,
                               onTap: () {
+                                setState(() {
+                                  _acknowledgeBadge(
+                                    _ClientBadgeTarget.loyalty,
+                                    loyaltyTransactionsCount,
+                                  );
+                                });
                                 Navigator.of(context).pop();
                                 _showLoyaltySheet(
                                   context,
@@ -1365,7 +1661,15 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                                   activePackages.isEmpty
                                       ? 'Nessun pacchetto attivo'
                                       : '${activePackages.length} attivi',
+                              showBadge: shouldShowPackagesBadge,
+                              badgeCount: packagesBadgeDelta,
                               onTap: () {
+                                setState(() {
+                                  _acknowledgeBadge(
+                                    _ClientBadgeTarget.packages,
+                                    clientPackages.length,
+                                  );
+                                });
                                 Navigator.of(context).pop();
                                 _showPackagesSheet(
                                   context,
@@ -1378,7 +1682,15 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                               icon: Icons.description_rounded,
                               label: 'Preventivi',
                               subtitle: 'Rivedi e accetta le proposte',
+                              showBadge: shouldShowQuotesBadge,
+                              badgeCount: quotesBadgeDelta,
                               onTap: () {
+                                setState(() {
+                                  _acknowledgeBadge(
+                                    _ClientBadgeTarget.quotes,
+                                    pendingQuotesCount,
+                                  );
+                                });
                                 Navigator.of(context).pop();
                                 _showQuotesSheet(context, currentClient);
                               },
@@ -1390,7 +1702,15 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                                   outstandingTotal > 0
                                       ? 'Da saldare: ${NumberFormat.simpleCurrency(locale: 'it_IT').format(outstandingTotal)}'
                                       : 'Pagamenti aggiornati',
+                              showBadge: shouldShowBillingBadge,
+                              badgeCount: billingBadgeDelta,
                               onTap: () {
+                                setState(() {
+                                  _acknowledgeBadge(
+                                    _ClientBadgeTarget.billing,
+                                    outstandingSales.length,
+                                  );
+                                });
                                 Navigator.of(context).pop();
                                 _showBillingSheet(
                                   context,
@@ -1407,24 +1727,20 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                               icon: Icons.photo_library_rounded,
                               label: 'Le mie foto',
                               subtitle: 'Guarda i risultati dei trattamenti',
+                              showBadge: shouldShowPhotosBadge,
+                              badgeCount: photosBadgeDelta,
                               onTap: () {
+                                setState(() {
+                                  _acknowledgeBadge(
+                                    _ClientBadgeTarget.photos,
+                                    photosCount,
+                                  );
+                                });
                                 Navigator.of(context).pop();
                                 _showPhotosSheet(context, currentClient);
                               },
                             ),
-                            _DrawerNavigationCard(
-                              icon: Icons.design_services_rounded,
-                              label: 'Servizi',
-                              subtitle: 'Scopri le proposte del salone',
-                              onTap: () {
-                                Navigator.of(context).pop();
-                                _showServicesSheet(
-                                  context,
-                                  currentClient,
-                                  salonServices,
-                                );
-                              },
-                            ),
+
                             const SizedBox(height: 12),
                             _DrawerNavigationCard(
                               icon: Icons.settings_rounded,
@@ -1452,8 +1768,17 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
             body: IndexedStack(index: _currentTab, children: tabViews),
             bottomNavigationBar: NavigationBar(
               selectedIndex: _currentTab,
-              onDestinationSelected:
-                  (index) => setState(() => _currentTab = index),
+              onDestinationSelected: (index) {
+                setState(() {
+                  _currentTab = index;
+                  if (index == 1) {
+                    _acknowledgeBadge(
+                      _ClientBadgeTarget.agenda,
+                      upcoming.length,
+                    );
+                  }
+                });
+              },
               destinations: [
                 const NavigationDestination(
                   icon: Icon(Icons.home_outlined),
@@ -1461,15 +1786,15 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                   label: 'Home',
                 ),
                 NavigationDestination(
-                  icon: Badge.count(
-                    count: upcoming.length,
-                    isLabelVisible: upcoming.isNotEmpty,
-                    child: const Icon(Icons.event_note_outlined),
+                  icon: _wrapWithBadge(
+                    icon: const Icon(Icons.event_note_outlined),
+                    badgeCount: agendaBadgeDelta,
+                    showBadge: shouldShowAgendaBadge,
                   ),
-                  selectedIcon: Badge.count(
-                    count: upcoming.length,
-                    isLabelVisible: upcoming.isNotEmpty,
-                    child: const Icon(Icons.event_note_rounded),
+                  selectedIcon: _wrapWithBadge(
+                    icon: const Icon(Icons.event_note_rounded),
+                    badgeCount: agendaBadgeDelta,
+                    showBadge: shouldShowAgendaBadge,
                   ),
                   label: 'Agenda',
                 ),
@@ -1491,18 +1816,10 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                   ),
                   label: 'Carrello',
                 ),
-                NavigationDestination(
-                  icon: Badge.count(
-                    count: notificationsCount,
-                    isLabelVisible: notificationsCount > 0,
-                    child: const Icon(Icons.notifications_outlined),
-                  ),
-                  selectedIcon: Badge.count(
-                    count: notificationsCount,
-                    isLabelVisible: notificationsCount > 0,
-                    child: const Icon(Icons.notifications_rounded),
-                  ),
-                  label: 'Notifiche',
+                const NavigationDestination(
+                  icon: Icon(Icons.storefront_outlined),
+                  selectedIcon: Icon(Icons.storefront_rounded),
+                  label: 'Info salone',
                 ),
               ],
             ),
@@ -2077,6 +2394,256 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     );
   }
 
+  Widget _buildSalonInfoTab({
+    required BuildContext context,
+    required Salon? salon,
+  }) {
+    final theme = Theme.of(context);
+    if (salon == null) {
+      return SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              'Nessun salone attivo associato al tuo profilo.',
+              style: theme.textTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final description = salon.description?.trim();
+
+    final locationLines = <String>[];
+    final address = salon.address.trim();
+    if (address.isNotEmpty) {
+      locationLines.add(address);
+    }
+    final cityLineParts = <String>[];
+    final postalCode = salon.postalCode?.trim();
+    if (postalCode != null && postalCode.isNotEmpty) {
+      cityLineParts.add(postalCode);
+    }
+    final city = salon.city.trim();
+    if (city.isNotEmpty) {
+      cityLineParts.add(city);
+    }
+    if (cityLineParts.isNotEmpty) {
+      locationLines.add(cityLineParts.join(' '));
+    }
+    final locationDescription = locationLines.join('\n');
+    final mapsUri = _buildMapsUri(salon, locationDescription);
+
+    final socialEntries =
+        salon.socialLinks.entries
+            .map((entry) => MapEntry(entry.key.trim(), entry.value.trim()))
+            .where((entry) => entry.key.isNotEmpty && entry.value.isNotEmpty)
+            .toList()
+          ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
+
+    final contactTiles = <Widget>[];
+    final phone = salon.phone.trim();
+    if (phone.isNotEmpty) {
+      contactTiles.add(
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.phone_rounded),
+          title: const Text('Telefono'),
+          subtitle: Text(phone),
+          onTap:
+              () => _launchExternalUrl(
+                context,
+                Uri(scheme: 'tel', path: _normalizePhone(phone)),
+              ),
+        ),
+      );
+    }
+    final email = salon.email.trim();
+    if (email.isNotEmpty) {
+      contactTiles.add(
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.mail_outline_rounded),
+          title: const Text('Email'),
+          subtitle: Text(email),
+          onTap:
+              () => _launchExternalUrl(
+                context,
+                Uri(scheme: 'mailto', path: email),
+              ),
+        ),
+      );
+    }
+    final bookingLink = salon.bookingLink?.trim() ?? '';
+    final bookingUri = _tryParseExternalUrl(bookingLink);
+    if (bookingUri != null) {
+      contactTiles.add(
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.event_available_rounded),
+          title: const Text('Prenotazioni online'),
+          subtitle: Text(bookingUri.toString()),
+          trailing: const Icon(Icons.open_in_new_rounded),
+          onTap: () => _launchExternalUrl(context, bookingUri),
+        ),
+      );
+    }
+
+    final cards = <Widget>[];
+
+    if (description != null && description.isNotEmpty) {
+      cards.add(
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Chi siamo', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 12),
+                Text(description, style: theme.textTheme.bodyMedium),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (contactTiles.isNotEmpty) {
+      cards.add(
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Contatti principali', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 12),
+                for (var i = 0; i < contactTiles.length; i++) ...[
+                  if (i > 0) const Divider(height: 16),
+                  contactTiles[i],
+                ],
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (locationDescription.isNotEmpty) {
+      cards.add(
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Dove trovarci', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.location_on_rounded),
+                  title: const Text('Indirizzo'),
+                  subtitle: Text(locationDescription),
+                  trailing:
+                      mapsUri == null
+                          ? null
+                          : const Icon(Icons.open_in_new_rounded),
+                  onTap:
+                      mapsUri == null
+                          ? null
+                          : () => _launchExternalUrl(context, mapsUri),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final scheduleRows = _buildScheduleRows(context, salon);
+    if (scheduleRows.isNotEmpty) {
+      cards.add(
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Orari di apertura', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 12),
+                ...scheduleRows,
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (socialEntries.isNotEmpty) {
+      cards.add(
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Canali social', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 12),
+                for (var i = 0; i < socialEntries.length; i++) ...[
+                  if (i > 0) const Divider(height: 16),
+                  Builder(
+                    builder: (tileContext) {
+                      final entry = socialEntries[i];
+                      final uri = _tryParseExternalUrl(entry.value);
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(_socialIconFor(entry.key)),
+                        title: Text(entry.key),
+                        subtitle: Text(entry.value),
+                        trailing: const Icon(Icons.open_in_new_rounded),
+                        onTap:
+                            uri == null
+                                ? null
+                                : () => _launchExternalUrl(tileContext, uri),
+                      );
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (cards.isEmpty) {
+      return SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              'Non sono ancora disponibili informazioni sul salone. Riprova più tardi.',
+              style: theme.textTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return SafeArea(
+      child: ListView.separated(
+        padding: const EdgeInsets.all(16),
+        itemBuilder: (context, index) => cards[index],
+        separatorBuilder: (_, __) => const SizedBox(height: 16),
+        itemCount: cards.length,
+      ),
+    );
+  }
+
   Future<void> _checkoutCart({
     required BuildContext context,
     required Client client,
@@ -2134,6 +2701,21 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     required List<AppNotification> notifications,
   }) {
     final theme = Theme.of(context);
+    final acknowledged =
+        _acknowledgedBadgeCounts[_ClientBadgeTarget.notifications] ?? 0;
+    if (acknowledged != notifications.length) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _acknowledgeBadge(
+            _ClientBadgeTarget.notifications,
+            notifications.length,
+          );
+        });
+      });
+    }
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -2150,22 +2732,230 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
                     final notification = notifications[index];
-                    return _NotificationCard(
-                      notification: notification,
-                      onMarkAsRead: () async {
-                        await ref
-                            .read(appDataProvider.notifier)
-                            .markClientNotificationAsRead(notification.id);
-                        if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Notifica archiviata.')),
-                        );
-                      },
-                    );
+                    return _NotificationCard(notification: notification);
                   },
                 ),
       ),
     );
+  }
+
+  Future<void> _showNotificationsPage(
+    BuildContext context, {
+    required List<AppNotification> notifications,
+  }) async {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _acknowledgeBadge(_ClientBadgeTarget.notifications, notifications.length);
+    });
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (routeContext) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Notifiche')),
+            body: _buildNotificationsTab(
+              context: routeContext,
+              notifications: notifications,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  List<Widget> _buildScheduleRows(BuildContext context, Salon salon) {
+    if (salon.schedule.isEmpty) {
+      return const <Widget>[];
+    }
+    final theme = Theme.of(context);
+    final localizations = MaterialLocalizations.of(context);
+    final closedStyle = theme.textTheme.bodyMedium?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    final scheduleMap = {
+      for (final entry in salon.schedule) entry.weekday: entry,
+    };
+    final rows = <Widget>[];
+    for (var index = 0; index < 7; index++) {
+      final weekday = DateTime.monday + index;
+      final entry = scheduleMap[weekday];
+      final isOpen = entry?.isOpen ?? false;
+      final range =
+          isOpen
+              ? _formatScheduleRange(
+                localizations,
+                entry?.openMinuteOfDay,
+                entry?.closeMinuteOfDay,
+              )
+              : 'Chiuso';
+      rows.add(
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _weekdayLabel(weekday),
+                  style: isOpen ? theme.textTheme.bodyMedium : closedStyle,
+                ),
+              ),
+              Text(
+                range,
+                style: isOpen ? theme.textTheme.bodyMedium : closedStyle,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return rows;
+  }
+
+  String _weekdayLabel(int weekday) {
+    switch (weekday) {
+      case DateTime.monday:
+        return 'Lunedì';
+      case DateTime.tuesday:
+        return 'Martedì';
+      case DateTime.wednesday:
+        return 'Mercoledì';
+      case DateTime.thursday:
+        return 'Giovedì';
+      case DateTime.friday:
+        return 'Venerdì';
+      case DateTime.saturday:
+        return 'Sabato';
+      case DateTime.sunday:
+        return 'Domenica';
+      default:
+        return 'Giorno';
+    }
+  }
+
+  String _formatScheduleRange(
+    MaterialLocalizations localizations,
+    int? startMinutes,
+    int? endMinutes,
+  ) {
+    final startLabel = _formatTimeLabel(localizations, startMinutes);
+    final endLabel = _formatTimeLabel(localizations, endMinutes);
+    if (startLabel == null || endLabel == null) {
+      return 'Su appuntamento';
+    }
+    return '$startLabel - $endLabel';
+  }
+
+  String? _formatTimeLabel(MaterialLocalizations localizations, int? minutes) {
+    if (minutes == null) {
+      return null;
+    }
+    final time = TimeOfDay(hour: minutes ~/ 60, minute: minutes % 60);
+    return localizations.formatTimeOfDay(time, alwaysUse24HourFormat: true);
+  }
+
+  Uri? _buildMapsUri(Salon salon, String locationDescription) {
+    if (salon.latitude != null && salon.longitude != null) {
+      final query = '${salon.latitude},${salon.longitude}';
+      return Uri.https('www.google.com', '/maps/search/', {
+        'api': '1',
+        'query': query,
+      });
+    }
+    if (locationDescription.isEmpty) {
+      return null;
+    }
+    final query = locationDescription.replaceAll('\n', ' ');
+    return Uri.https('www.google.com', '/maps/search/', {
+      'api': '1',
+      'query': query,
+    });
+  }
+
+  IconData _socialIconFor(String label) {
+    final normalized = label.toLowerCase();
+    if (normalized.contains('instagram')) {
+      return Icons.camera_alt_rounded;
+    }
+    if (normalized.contains('facebook')) {
+      return Icons.facebook;
+    }
+    if (normalized.contains('tiktok')) {
+      return Icons.music_note_rounded;
+    }
+    if (normalized.contains('youtube')) {
+      return Icons.ondemand_video_rounded;
+    }
+    if (normalized.contains('whatsapp')) {
+      return Icons.chat_rounded;
+    }
+    if (normalized.contains('telegram')) {
+      return Icons.send_rounded;
+    }
+    if (normalized.contains('linkedin')) {
+      return Icons.work_outline_rounded;
+    }
+    if (normalized.contains('twitter') ||
+        normalized.contains('x.com') ||
+        normalized == 'x') {
+      return Icons.alternate_email_rounded;
+    }
+    if (normalized.contains('pinterest')) {
+      return Icons.push_pin_rounded;
+    }
+    if (normalized.contains('sito') || normalized.contains('website')) {
+      return Icons.language_rounded;
+    }
+    return Icons.language_rounded;
+  }
+
+  String _normalizePhone(String phone) {
+    return phone.replaceAll(RegExp(r'[^0-9+]+'), '');
+  }
+
+  Uri? _tryParseExternalUrl(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+    Uri? uri = Uri.tryParse(trimmed);
+    if (uri == null) {
+      return null;
+    }
+    if (!uri.hasScheme) {
+      uri = Uri.tryParse('https://$trimmed');
+    }
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+      return null;
+    }
+    final scheme = uri.scheme.toLowerCase();
+    if (scheme != 'http' && scheme != 'https') {
+      return null;
+    }
+    return uri;
+  }
+
+  Future<void> _launchExternalUrl(BuildContext context, Uri uri) async {
+    try {
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Impossibile aprire il link richiesto.'),
+          ),
+        );
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Impossibile aprire il link: $error')),
+      );
+    }
   }
 
   Widget _buildPackagesTabView({
@@ -3156,12 +3946,18 @@ class _PushTokenRegistrarState extends ConsumerState<_PushTokenRegistrar> {
 
       final token = await messaging.getToken();
       if (token != null) {
+        if (kDebugMode) {
+          debugPrint('FCM token (initial): $token');
+        }
         await ref
             .read(appDataProvider.notifier)
             .registerClientPushToken(clientId: widget.clientId, token: token);
       }
 
       _subscription = messaging.onTokenRefresh.listen((freshToken) async {
+        if (kDebugMode) {
+          debugPrint('FCM token refreshed: $freshToken');
+        }
         await ref
             .read(appDataProvider.notifier)
             .registerClientPushToken(
@@ -3193,10 +3989,9 @@ class _PushTokenRegistrarState extends ConsumerState<_PushTokenRegistrar> {
 }
 
 class _NotificationCard extends StatelessWidget {
-  const _NotificationCard({required this.notification, this.onMarkAsRead});
+  const _NotificationCard({required this.notification});
 
   final AppNotification notification;
-  final VoidCallback? onMarkAsRead;
 
   @override
   Widget build(BuildContext context) {
@@ -3239,16 +4034,6 @@ class _NotificationCard extends StatelessWidget {
               'Aggiornata il ${dateFormat.format(referenceDate)}',
               style: theme.textTheme.bodySmall,
             ),
-            if (onMarkAsRead != null) ...[
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton.tonal(
-                  onPressed: onMarkAsRead,
-                  child: const Text('Segna come letta'),
-                ),
-              ),
-            ],
           ],
         ),
       ),
@@ -4370,17 +5155,35 @@ class _DrawerNavigationCard extends StatelessWidget {
     required this.label,
     this.subtitle,
     required this.onTap,
+    this.badgeCount = 0,
+    this.showBadge = false,
   });
 
   final IconData icon;
   final String label;
   final String? subtitle;
   final VoidCallback onTap;
+  final int badgeCount;
+  final bool showBadge;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final primary = theme.colorScheme.primary;
+    Widget leading = CircleAvatar(
+      radius: 22,
+      backgroundColor: primary.withOpacity(0.08),
+      foregroundColor: primary,
+      child: Icon(icon),
+    );
+    if (showBadge && badgeCount > 0) {
+      leading = Badge.count(
+        count: badgeCount,
+        isLabelVisible: true,
+        alignment: AlignmentDirectional.topEnd,
+        child: leading,
+      );
+    }
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       color: theme.cardColor,
@@ -4392,12 +5195,7 @@ class _DrawerNavigationCard extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
           child: Row(
             children: [
-              CircleAvatar(
-                radius: 22,
-                backgroundColor: primary.withOpacity(0.08),
-                foregroundColor: primary,
-                child: Icon(icon),
-              ),
+              leading,
               const SizedBox(width: 16),
               Expanded(
                 child: Column(

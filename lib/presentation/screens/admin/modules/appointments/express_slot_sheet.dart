@@ -1,10 +1,20 @@
+import 'package:civiapp/domain/entities/client.dart';
+import 'package:civiapp/domain/entities/last_minute_notification.dart';
 import 'package:civiapp/domain/entities/last_minute_slot.dart';
+import 'package:civiapp/domain/entities/reminder_settings.dart';
 import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
+
+class ExpressSlotSheetResult {
+  const ExpressSlotSheetResult({required this.slot, this.notification});
+
+  final LastMinuteSlot slot;
+  final LastMinuteNotificationRequest? notification;
+}
 
 class ExpressSlotSheet extends StatefulWidget {
   const ExpressSlotSheet({
@@ -17,6 +27,8 @@ class ExpressSlotSheet extends StatefulWidget {
     required this.rooms,
     this.initialStaffId,
     this.initialSlot,
+    this.clients = const <Client>[],
+    this.reminderSettings,
   });
 
   final String salonId;
@@ -27,6 +39,8 @@ class ExpressSlotSheet extends StatefulWidget {
   final List<SalonRoom> rooms;
   final String? initialStaffId;
   final LastMinuteSlot? initialSlot;
+  final List<Client> clients;
+  final ReminderSettings? reminderSettings;
 
   @override
   State<ExpressSlotSheet> createState() => _ExpressSlotSheetState();
@@ -49,6 +63,10 @@ class _ExpressSlotSheetState extends State<ExpressSlotSheet> {
   String? _selectedStaffId;
   String? _selectedRoomId;
   LastMinuteSlot? _editing;
+  bool _sendNotification = false;
+  LastMinuteNotificationAudience _notificationAudience =
+      LastMinuteNotificationAudience.everyone;
+  final Set<String> _selectedClientIds = <String>{};
 
   @override
   void initState() {
@@ -104,6 +122,27 @@ class _ExpressSlotSheetState extends State<ExpressSlotSheet> {
           _selectedStaffId ??
           matchingStaff?.id ??
           (widget.staff.isNotEmpty ? widget.staff.first.id : null);
+    }
+
+    final settings = widget.reminderSettings;
+    if (widget.initialSlot == null && settings != null) {
+      switch (settings.lastMinuteNotificationAudience) {
+        case LastMinuteNotificationAudience.none:
+          _sendNotification = false;
+          _notificationAudience = LastMinuteNotificationAudience.everyone;
+          break;
+        case LastMinuteNotificationAudience.everyone:
+          _sendNotification = true;
+          _notificationAudience = LastMinuteNotificationAudience.everyone;
+          break;
+        case LastMinuteNotificationAudience.ownerSelection:
+          _sendNotification = true;
+          _notificationAudience = LastMinuteNotificationAudience.ownerSelection;
+          break;
+      }
+    } else {
+      _sendNotification = false;
+      _notificationAudience = LastMinuteNotificationAudience.everyone;
     }
   }
 
@@ -351,6 +390,8 @@ class _ExpressSlotSheetState extends State<ExpressSlotSheet> {
                 ],
               ),
               const SizedBox(height: 24),
+              _buildNotificationSection(context),
+              const SizedBox(height: 24),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
@@ -372,6 +413,126 @@ class _ExpressSlotSheetState extends State<ExpressSlotSheet> {
         ),
       ),
     );
+  }
+
+  Widget _buildNotificationSection(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasClients = widget.clients.isNotEmpty;
+    final selectedClients = widget.clients
+        .where((client) => _selectedClientIds.contains(client.id))
+        .sortedBy((client) => client.fullName.toLowerCase())
+        .toList(growable: false);
+    final hasSelection = selectedClients.isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Invia notifica push ai clienti'),
+          subtitle: const Text(
+            'Avvisa i clienti quando pubblichi o modifichi lo slot last-minute.',
+          ),
+          value: _sendNotification,
+          onChanged: (value) {
+            setState(() {
+              _sendNotification = value;
+            });
+          },
+        ),
+        if (_sendNotification) ...[
+          DropdownButtonFormField<LastMinuteNotificationAudience>(
+            value: _notificationAudience,
+            decoration: const InputDecoration(labelText: 'Destinatari'),
+            items: const [
+              DropdownMenuItem<LastMinuteNotificationAudience>(
+                value: LastMinuteNotificationAudience.everyone,
+                child: Text('Tutti i clienti del salone'),
+              ),
+              DropdownMenuItem<LastMinuteNotificationAudience>(
+                value: LastMinuteNotificationAudience.ownerSelection,
+                child: Text('Scegli manualmente i destinatari'),
+              ),
+            ],
+            onChanged: (value) {
+              if (value == null) {
+                return;
+              }
+              setState(() {
+                _notificationAudience = value;
+              });
+              if (value == LastMinuteNotificationAudience.ownerSelection &&
+                  hasClients &&
+                  _selectedClientIds.isEmpty) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) {
+                    _pickRecipients();
+                  }
+                });
+              }
+            },
+          ),
+          if (_notificationAudience ==
+              LastMinuteNotificationAudience.ownerSelection) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: hasClients ? _pickRecipients : null,
+              icon: const Icon(Icons.people_alt_outlined),
+              label: Text(
+                hasSelection
+                    ? 'Modifica destinatari (${_selectedClientIds.length})'
+                    : 'Scegli destinatari',
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (!hasClients)
+              Text(
+                'Nessun cliente disponibile per questo salone.',
+                style: theme.textTheme.bodySmall,
+              )
+            else if (!hasSelection)
+              Text(
+                'Seleziona almeno un cliente prima di inviare la notifica.',
+                style: theme.textTheme.bodySmall,
+              )
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  for (final client in selectedClients.take(6))
+                    Chip(label: Text(client.fullName)),
+                  if (_selectedClientIds.length > 6)
+                    Chip(label: Text('+${_selectedClientIds.length - 6}')),
+                ],
+              ),
+          ],
+        ],
+      ],
+    );
+  }
+
+  Future<void> _pickRecipients() async {
+    final initialSelection = Set<String>.from(_selectedClientIds);
+    final result = await showModalBottomSheet<Set<String>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return _LastMinuteRecipientPicker(
+          clients: widget.clients,
+          initialSelection: initialSelection,
+        );
+      },
+    );
+    if (!mounted || result == null) {
+      return;
+    }
+    setState(() {
+      _selectedClientIds
+        ..clear()
+        ..addAll(result);
+    });
   }
 
   void _applyServiceDefaults(Service service) {
@@ -429,6 +590,19 @@ class _ExpressSlotSheetState extends State<ExpressSlotSheet> {
     if (!_formKey.currentState!.validate()) {
       return;
     }
+    if (_sendNotification &&
+        _notificationAudience ==
+            LastMinuteNotificationAudience.ownerSelection &&
+        _selectedClientIds.isEmpty) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Seleziona almeno un destinatario per la notifica.'),
+          ),
+        );
+      return;
+    }
     final start = widget.initialSlot?.start ?? widget.initialStart;
     final durationMinutes = int.parse(_durationController.text).clamp(5, 600);
     final duration = Duration(minutes: durationMinutes);
@@ -482,6 +656,185 @@ class _ExpressSlotSheetState extends State<ExpressSlotSheet> {
       bookedClientName: wasBooked ? _editing!.bookedClientName : null,
     );
 
-    Navigator.of(context).pop(slot);
+    LastMinuteNotificationRequest? notification;
+    if (_sendNotification) {
+      final audience = _notificationAudience;
+      final recipients =
+          audience == LastMinuteNotificationAudience.ownerSelection
+              ? _selectedClientIds.toList(growable: false)
+              : const <String>[];
+      notification = LastMinuteNotificationRequest(
+        audience: audience,
+        clientIds: recipients,
+      );
+    }
+
+    Navigator.of(
+      context,
+    ).pop(ExpressSlotSheetResult(slot: slot, notification: notification));
+  }
+}
+
+class _LastMinuteRecipientPicker extends StatefulWidget {
+  const _LastMinuteRecipientPicker({
+    required this.clients,
+    required this.initialSelection,
+  });
+
+  final List<Client> clients;
+  final Set<String> initialSelection;
+
+  @override
+  State<_LastMinuteRecipientPicker> createState() =>
+      _LastMinuteRecipientPickerState();
+}
+
+class _LastMinuteRecipientPickerState
+    extends State<_LastMinuteRecipientPicker> {
+  late final TextEditingController _searchController;
+  late final Set<String> _selection;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController();
+    _searchController.addListener(_onSearchChanged);
+    _selection = Set<String>.from(widget.initialSelection);
+  }
+
+  @override
+  void dispose() {
+    _searchController
+      ..removeListener(_onSearchChanged)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  List<Client> _filteredClients() {
+    final query = _searchController.text.trim().toLowerCase();
+    if (query.isEmpty) {
+      return widget.clients;
+    }
+    final queryNoSpaces = query.replaceAll(RegExp(r'\s+'), '');
+    return widget.clients
+        .where((client) {
+          final fullName = client.fullName.toLowerCase();
+          if (fullName.contains(query)) {
+            return true;
+          }
+          final number = client.clientNumber?.toLowerCase();
+          if (number != null && number.contains(query)) {
+            return true;
+          }
+          if (queryNoSpaces.isEmpty) {
+            return false;
+          }
+          final phone = client.phone.replaceAll(RegExp(r'\s+'), '');
+          return phone.contains(queryNoSpaces);
+        })
+        .toList(growable: false);
+  }
+
+  void _toggle(String clientId, bool shouldSelect) {
+    setState(() {
+      if (shouldSelect) {
+        _selection.add(clientId);
+      } else {
+        _selection.remove(clientId);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final filtered = _filteredClients();
+    final hasClients = widget.clients.isNotEmpty;
+    final bottomPadding = MediaQuery.of(context).viewInsets.bottom;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(24, 16, 24, bottomPadding + 24),
+        child: SizedBox(
+          height: MediaQuery.of(context).size.height * 0.7,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Seleziona destinatari', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _searchController,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search),
+                  hintText: 'Cerca per nome, numero cliente o telefono',
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child:
+                    hasClients
+                        ? ListView.builder(
+                          itemCount: filtered.length,
+                          itemBuilder: (context, index) {
+                            final client = filtered[index];
+                            final selected = _selection.contains(client.id);
+                            return CheckboxListTile(
+                              value: selected,
+                              onChanged: (value) {
+                                _toggle(client.id, value ?? false);
+                              },
+                              title: Text(client.fullName),
+                              subtitle:
+                                  client.clientNumber != null
+                                      ? Text('Cliente #${client.clientNumber}')
+                                      : null,
+                            );
+                          },
+                        )
+                        : Center(
+                          child: Text(
+                            'Non ci sono clienti associati al salone.',
+                            style: theme.textTheme.bodyMedium,
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${_selection.length} selezionati',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed:
+                        _selection.isEmpty
+                            ? null
+                            : () {
+                              setState(() => _selection.clear());
+                            },
+                    child: const Text('Pulisci'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: () {
+                      Navigator.of(context).pop(Set<String>.from(_selection));
+                    },
+                    child: const Text('Conferma'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

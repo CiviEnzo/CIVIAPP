@@ -35,6 +35,17 @@ Salon salonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final featureFlagsRaw = _mapFromDynamic(
     data['featureFlags'] ?? data['features'],
   );
+  final socialLinksRaw = _mapFromDynamic(data['socialLinks']);
+  final socialLinks = <String, String>{};
+  socialLinksRaw.forEach((key, value) {
+    final label = key.toString().trim();
+    final linkRaw = value?.toString() ?? '';
+    final link = linkRaw.trim();
+    if (label.isEmpty || link.isEmpty) {
+      return;
+    }
+    socialLinks[label] = link;
+  });
   final clientRegistrationRaw = _mapFromDynamic(data['clientRegistration']);
   final stripeAccountRaw = _mapFromDynamic(data['stripeAccount']);
   final stripeRequirementsRaw = _mapFromDynamic(
@@ -86,6 +97,7 @@ Salon salonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     bookingLink: data['bookingLink'] as String?,
     latitude: (data['latitude'] as num?)?.toDouble(),
     longitude: (data['longitude'] as num?)?.toDouble(),
+    socialLinks: socialLinks,
     description: data['description'] as String?,
     status: _stringToSalonStatus(data['status'] as String?),
     rooms:
@@ -142,6 +154,7 @@ Map<String, dynamic> salonToMap(Salon salon) {
     'bookingLink': salon.bookingLink,
     'latitude': salon.latitude,
     'longitude': salon.longitude,
+    'socialLinks': salon.socialLinks,
     'description': salon.description,
     'status': salon.status.name,
     'rooms':
@@ -410,9 +423,11 @@ Quote quoteFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
         final packageId = rawItem['packageId'] as String?;
         final inventoryItemId = rawItem['inventoryItemId'] as String?;
         final referenceTypeRaw = rawItem['referenceType'] as String?;
-        QuoteItemReferenceType referenceType =
-            quoteItemReferenceTypeFromString(referenceTypeRaw);
-        if (referenceTypeRaw == null || referenceType == QuoteItemReferenceType.manual) {
+        QuoteItemReferenceType referenceType = quoteItemReferenceTypeFromString(
+          referenceTypeRaw,
+        );
+        if (referenceTypeRaw == null ||
+            referenceType == QuoteItemReferenceType.manual) {
           if (packageId != null && packageId.isNotEmpty) {
             referenceType = QuoteItemReferenceType.package;
           } else if (serviceId != null && serviceId.isNotEmpty) {
@@ -1925,32 +1940,160 @@ Map<String, dynamic> messageTemplateToMap(MessageTemplate template) {
   };
 }
 
+LastMinuteNotificationAudience _lastMinuteAudienceFromString(String? value) {
+  switch (value) {
+    case 'everyone':
+      return LastMinuteNotificationAudience.everyone;
+    case 'ownerSelection':
+      return LastMinuteNotificationAudience.ownerSelection;
+    case 'none':
+    case null:
+    default:
+      return LastMinuteNotificationAudience.none;
+  }
+}
+
+String _lastMinuteAudienceToString(LastMinuteNotificationAudience audience) {
+  switch (audience) {
+    case LastMinuteNotificationAudience.none:
+      return 'none';
+    case LastMinuteNotificationAudience.everyone:
+      return 'everyone';
+    case LastMinuteNotificationAudience.ownerSelection:
+      return 'ownerSelection';
+  }
+}
+
 ReminderSettings reminderSettingsFromDoc(
   DocumentSnapshot<Map<String, dynamic>> doc,
 ) {
   final data = doc.data() ?? <String, dynamic>{};
+  final parentSalonId = doc.reference.parent.parent?.id;
+  final salonIdRaw = data['salonId'] as String?;
+  final resolvedSalonId =
+      (salonIdRaw != null && salonIdRaw.trim().isNotEmpty)
+          ? salonIdRaw
+          : (parentSalonId ?? doc.id);
+
+  List<ReminderOffsetConfig> offsets = const <ReminderOffsetConfig>[];
+  final offsetsRaw = data['offsets'];
+  if (offsetsRaw is Iterable) {
+    offsets =
+        offsetsRaw
+            .map(
+              (entry) {
+                if (entry is! Map<String, dynamic>) {
+                  return null;
+                }
+                final id = entry['id'] as String? ?? '';
+                final minutesBefore =
+                    (entry['minutesBefore'] as num?)?.toInt() ??
+                    (entry['minutes'] as num?)?.toInt() ??
+                    0;
+                final active = entry['active'] as bool? ?? true;
+                final title = entry['title'] as String?;
+                final bodyTemplate = entry['bodyTemplate'] as String?;
+                return ReminderOffsetConfig(
+                  id: id,
+                  minutesBefore: minutesBefore,
+                  active: active,
+                  title: title,
+                  bodyTemplate: bodyTemplate,
+                );
+              },
+            )
+            .whereType<ReminderOffsetConfig>()
+            .toList();
+  }
+
+  if (offsets.isEmpty) {
+    final explicitOffsets = _parseReminderOffsets(
+      data['appointmentOffsetsMinutes'],
+    );
+    if (explicitOffsets.isNotEmpty) {
+      offsets =
+          explicitOffsets
+              .map(
+                (minutes) => ReminderOffsetConfig(
+                  id: 'M$minutes',
+                  minutesBefore: minutes,
+                ),
+              )
+              .toList();
+    } else {
+      final legacyOffsets = <int>[
+        if (data['dayBeforeEnabled'] as bool? ?? true) 1440,
+        if (data['threeHoursEnabled'] as bool? ?? true) 180,
+        if (data['oneHourEnabled'] as bool? ?? true) 60,
+      ];
+      if (legacyOffsets.isNotEmpty) {
+        offsets =
+            legacyOffsets
+                .map(
+                  (minutes) => ReminderOffsetConfig(
+                    id: 'M$minutes',
+                    minutesBefore: minutes,
+                  ),
+                )
+                .toList();
+      }
+    }
+  }
+
+  final audience = _lastMinuteAudienceFromString(
+    data['lastMinuteNotificationAudience'] as String?,
+  );
+
   return ReminderSettings(
-    salonId: data['salonId'] as String? ?? doc.id,
-    dayBeforeEnabled: data['dayBeforeEnabled'] as bool? ?? true,
-    threeHoursEnabled: data['threeHoursEnabled'] as bool? ?? true,
-    oneHourEnabled: data['oneHourEnabled'] as bool? ?? true,
+    salonId: resolvedSalonId,
+    offsets: offsets,
     birthdayEnabled: data['birthdayEnabled'] as bool? ?? true,
+    lastMinuteNotificationAudience: audience,
     updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
     updatedBy: data['updatedBy'] as String?,
   );
 }
 
 Map<String, dynamic> reminderSettingsToMap(ReminderSettings settings) {
+  final offsets =
+      settings.offsets.map((offset) {
+        return {
+          'id': offset.id,
+          'minutesBefore': offset.minutesBefore,
+          'active': offset.active,
+          if (offset.title != null) 'title': offset.title,
+          if (offset.bodyTemplate != null)
+            'bodyTemplate': offset.bodyTemplate,
+        };
+      }).toList();
+
   return {
     'salonId': settings.salonId,
-    'dayBeforeEnabled': settings.dayBeforeEnabled,
-    'threeHoursEnabled': settings.threeHoursEnabled,
-    'oneHourEnabled': settings.oneHourEnabled,
+    'offsets': offsets,
+    'appointmentOffsetsMinutes': settings.activeOffsetsMinutes,
     'birthdayEnabled': settings.birthdayEnabled,
+    'lastMinuteNotificationAudience': _lastMinuteAudienceToString(
+      settings.lastMinuteNotificationAudience,
+    ),
     if (settings.updatedAt != null)
       'updatedAt': Timestamp.fromDate(settings.updatedAt!),
     'updatedBy': settings.updatedBy,
   };
+}
+
+List<int> _parseReminderOffsets(dynamic value) {
+  if (value is Iterable) {
+    final offsets = <int>[];
+    for (final item in value) {
+      if (item is int) {
+        offsets.add(item);
+      } else if (item is num) {
+        offsets.add(item.toInt());
+      }
+    }
+    return offsets;
+  }
+  return const <int>[];
 }
 
 AppNotification appNotificationFromDoc(

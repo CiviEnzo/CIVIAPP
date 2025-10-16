@@ -97,6 +97,7 @@ class Salon {
     this.bookingLink,
     this.latitude,
     this.longitude,
+    this.socialLinks = const <String, String>{},
     this.rooms = const [],
     this.equipment = const [],
     this.closures = const [],
@@ -120,6 +121,7 @@ class Salon {
   final String? bookingLink;
   final double? latitude;
   final double? longitude;
+  final Map<String, String> socialLinks;
   final List<SalonRoom> rooms;
   final List<SalonEquipment> equipment;
   final List<SalonClosure> closures;
@@ -146,6 +148,7 @@ class Salon {
     String? bookingLink,
     double? latitude,
     double? longitude,
+    Map<String, String>? socialLinks,
     List<SalonRoom>? rooms,
     List<SalonEquipment>? equipment,
     List<SalonClosure>? closures,
@@ -169,6 +172,7 @@ class Salon {
       bookingLink: bookingLink ?? this.bookingLink,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
+      socialLinks: socialLinks ?? this.socialLinks,
       rooms: rooms ?? this.rooms,
       equipment: equipment ?? this.equipment,
       closures: closures ?? this.closures,

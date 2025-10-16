@@ -1,4 +1,4 @@
-import logger from 'firebase-functions/logger';
+import * as logger from 'firebase-functions/logger';
 
 import { db } from '../utils/firestore';
 

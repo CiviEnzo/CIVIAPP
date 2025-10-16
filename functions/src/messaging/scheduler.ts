@@ -1,21 +1,20 @@
 import { Timestamp , DocumentData } from 'firebase-admin/firestore';
-import logger from 'firebase-functions/logger';
+import * as logger from 'firebase-functions/logger';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 
 import { db, serverTimestamp } from '../utils/firestore';
 import { DEFAULT_TIMEZONE, now as nowInTimeZone } from '../utils/time';
+import {
+  formatReminderOffsetLabel,
+  parseReminderSettingsDoc,
+  type ReminderSettingsData,
+} from './reminder_settings';
 
 
 const messageOutboxCollection = db.collection('message_outbox');
 const REGION = 'europe-west1';
 
-interface ReminderSettingsDoc {
-  salonId: string;
-  dayBeforeEnabled: boolean;
-  threeHoursEnabled: boolean;
-  oneHourEnabled: boolean;
-  birthdayEnabled: boolean;
-}
+type ReminderSettingsDoc = ReminderSettingsData;
 
 interface ClientPreferences {
   id: string;
@@ -32,11 +31,6 @@ const REMINDER_WINDOW_MINUTES = Number.parseInt(
   process.env.MESSAGING_REMINDER_WINDOW ?? '30',
   10,
 );
-const REMINDER_CONFIG = [
-  { key: 'dayBeforeEnabled' as const, minutes: 1440, label: '1 giorno prima' },
-  { key: 'threeHoursEnabled' as const, minutes: 180, label: '3 ore prima' },
-  { key: 'oneHourEnabled' as const, minutes: 60, label: '1 ora prima' },
-];
 
 const VALID_APPOINTMENT_STATUSES = ['scheduled', 'confirmed'];
 
@@ -57,16 +51,9 @@ async function fetchReminderSettings(): Promise<ReminderSettingsDoc[]> {
   if (snapshot.empty) {
     return [];
   }
-  return snapshot.docs.map((doc) => {
-    const data = doc.data() ?? {};
-    return {
-      salonId: (data.salonId as string) ?? doc.id,
-      dayBeforeEnabled: data.dayBeforeEnabled !== false,
-      threeHoursEnabled: data.threeHoursEnabled !== false,
-      oneHourEnabled: data.oneHourEnabled !== false,
-      birthdayEnabled: data.birthdayEnabled !== false,
-    };
-  });
+  return snapshot.docs.map((doc) =>
+    parseReminderSettingsDoc(doc.id, doc.data()),
+  );
 }
 
 const salonNameCache = new Map<string, string>();
@@ -101,25 +88,12 @@ async function getClientPreferences(clientId: string): Promise<ClientPreferences
   return preferences;
 }
 
-function offsetLabel(minutes: number): string {
-  switch (minutes) {
-    case 1440:
-      return 'tra 1 giorno';
-    case 180:
-      return 'tra 3 ore';
-    case 60:
-      return 'tra 1 ora';
-    default:
-      return 'a breve';
-  }
-}
-
 function buildReminderBody(
   appointmentDate: Date,
   salonName: string,
   minutes: number,
 ): { title: string; body: string } {
-  const whenLabel = offsetLabel(minutes);
+  const whenLabel = formatReminderOffsetLabel(minutes);
   const appointmentLabel = appointmentDateFormatter.format(appointmentDate);
   return {
     title: `Promemoria appuntamento (${whenLabel})`,
@@ -193,12 +167,12 @@ async function processReminderOffsets(settings: ReminderSettingsDoc) {
   const nowZoned = nowInTimeZone(DEFAULT_TIMEZONE);
   const windowMillis = REMINDER_WINDOW_MINUTES * 60_000;
 
-  for (const config of REMINDER_CONFIG) {
-    if (!settings[config.key]) {
-      continue;
-    }
+  if (!settings.appointmentOffsetsMinutes.length) {
+    return;
+  }
 
-    const lookAheadStart = new Date(nowZoned.getTime() + config.minutes * 60_000);
+  for (const minutes of settings.appointmentOffsetsMinutes) {
+    const lookAheadStart = new Date(nowZoned.getTime() + minutes * 60_000);
     const lookAheadEnd = new Date(lookAheadStart.getTime() + windowMillis);
 
     const snapshot = await db
@@ -243,7 +217,7 @@ async function processReminderOffsets(settings: ReminderSettingsDoc) {
         'auto_reminder_push',
         appointmentId,
         appointmentStart,
-        config.minutes,
+        minutes,
         salonName,
       );
     }

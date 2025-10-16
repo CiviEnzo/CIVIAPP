@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { onRequest } from 'firebase-functions/v2/https';
-import logger from 'firebase-functions/logger';
+import * as logger from 'firebase-functions/logger';
 import type { Request, Response } from 'express';
 
 import { FieldValue, db } from '../utils/firestore';

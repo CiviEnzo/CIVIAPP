@@ -27,6 +27,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
   late TextEditingController _bookingLink;
   late TextEditingController _latitude;
   late TextEditingController _longitude;
+  late List<_SocialLinkFormData> _socialLinks;
   late List<_RoomFormData> _rooms;
   late List<_EquipmentFormData> _equipment;
   late List<_ClosureFormData> _closures;
@@ -70,6 +71,20 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
     _longitude = TextEditingController(
       text: longitudeValue == null ? '' : longitudeValue.toStringAsFixed(6),
     );
+    final socialLinksInitial = initial?.socialLinks ?? const <String, String>{};
+    _socialLinks =
+        socialLinksInitial.entries
+            .map(
+              (entry) => _SocialLinkFormData(
+                id: _uuid.v4(),
+                label: entry.key,
+                url: entry.value,
+              ),
+            )
+            .toList();
+    if (_socialLinks.isEmpty) {
+      _socialLinks = [_SocialLinkFormData(id: _uuid.v4())];
+    }
 
     final roomList = initial?.rooms ?? const <SalonRoom>[];
     _rooms =
@@ -164,6 +179,9 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
     _bookingLink.dispose();
     _latitude.dispose();
     _longitude.dispose();
+    for (final social in _socialLinks) {
+      social.dispose();
+    }
     for (final room in _rooms) {
       room.dispose();
     }
@@ -295,6 +313,37 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
               controller: _description,
               decoration: const InputDecoration(labelText: 'Descrizione'),
               maxLines: 3,
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Presenza online e social',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            Column(
+              children:
+                  _socialLinks
+                      .map(
+                        (item) => Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _SocialLinkCard(
+                            data: item,
+                            onRemove:
+                                _socialLinks.length <= 1
+                                    ? null
+                                    : () => _removeSocialLink(item),
+                          ),
+                        ),
+                      )
+                      .toList(),
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: _addSocialLink,
+                icon: const Icon(Icons.alternate_email_rounded),
+                label: const Text('Aggiungi canale social'),
+              ),
             ),
             const SizedBox(height: 24),
             _buildLoyaltyCard(context),
@@ -885,6 +934,29 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
       }
     }
 
+    final socialLinks = <String, String>{};
+    for (final link in _socialLinks) {
+      final label = link.label.text.trim();
+      final url = link.url.text.trim();
+      if (label.isEmpty && url.isEmpty) {
+        continue;
+      }
+      if (label.isEmpty || url.isEmpty) {
+        _showError('Completa nome e link per ogni canale social.');
+        return;
+      }
+      if (socialLinks.containsKey(label)) {
+        _showError('Hai inserito più volte il canale "$label".');
+        return;
+      }
+      final uri = Uri.tryParse(url);
+      if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+        _showError('Inserisci un URL valido per "$label".');
+        return;
+      }
+      socialLinks[label] = url;
+    }
+
     final loyaltySettings = _buildLoyaltySettings();
     if (loyaltySettings == null) {
       return;
@@ -908,6 +980,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
       longitude: longitude,
       description:
           _description.text.trim().isEmpty ? null : _description.text.trim(),
+      socialLinks: socialLinks,
       rooms: parsedRooms,
       equipment: parsedEquipment,
       closures: parsedClosures,
@@ -953,6 +1026,19 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
     setState(() {
       _equipment.add(_EquipmentFormData(id: _uuid.v4()));
     });
+  }
+
+  void _addSocialLink() {
+    setState(() {
+      _socialLinks.add(_SocialLinkFormData(id: _uuid.v4()));
+    });
+  }
+
+  void _removeSocialLink(_SocialLinkFormData link) {
+    setState(() {
+      _socialLinks.remove(link);
+    });
+    link.dispose();
   }
 
   void _removeEquipment(_EquipmentFormData equipment) {
@@ -1122,6 +1208,75 @@ class _ScheduleEntry {
   bool isOpen;
   TimeOfDay open;
   TimeOfDay close;
+}
+
+class _SocialLinkFormData {
+  _SocialLinkFormData({required this.id, String? label, String? url})
+    : label = TextEditingController(text: label ?? ''),
+      url = TextEditingController(text: url ?? '');
+
+  final String id;
+  final TextEditingController label;
+  final TextEditingController url;
+
+  void dispose() {
+    label.dispose();
+    url.dispose();
+  }
+}
+
+class _SocialLinkCard extends StatelessWidget {
+  const _SocialLinkCard({required this.data, this.onRemove});
+
+  final _SocialLinkFormData data;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: data.label,
+                    decoration: const InputDecoration(
+                      labelText: 'Nome canale',
+                      hintText: 'Es. Instagram',
+                    ),
+                    textCapitalization: TextCapitalization.words,
+                  ),
+                ),
+                if (onRemove != null) ...[
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: 'Rimuovi canale',
+                    onPressed: onRemove,
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: data.url,
+              decoration: const InputDecoration(
+                labelText: 'Link',
+                hintText: 'https://',
+              ),
+              keyboardType: TextInputType.url,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _RoomFormData {
