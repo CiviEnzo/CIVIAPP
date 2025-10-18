@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:civiapp/app/router.dart';
 import 'package:civiapp/data/models/app_user.dart';
 import 'package:civiapp/data/repositories/app_data_state.dart';
@@ -15,12 +17,14 @@ import 'package:civiapp/services/payments/stripe_payments_service.dart';
 import 'package:civiapp/services/notifications/notification_service.dart';
 import 'package:civiapp/services/whatsapp_service.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_in_app_messaging/firebase_in_app_messaging.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 final appDataProvider = StateNotifierProvider<AppDataStore, AppDataState>((
   ref,
@@ -34,7 +38,9 @@ final appDataProvider = StateNotifierProvider<AppDataStore, AppDataState>((
     orElse: () => null,
   );
   final user = sessionUser ?? fallbackUser;
-  return AppDataStore(currentUser: user);
+  final storage =
+      Firebase.apps.isNotEmpty ? ref.read(firebaseStorageServiceProvider) : null;
+  return AppDataStore(currentUser: user, storage: storage);
 });
 
 final appBootstrapProvider = FutureProvider<void>((ref) async {
@@ -246,18 +252,76 @@ class SessionController extends StateNotifier<SessionState> {
 }
 
 class ThemeModeController extends StateNotifier<ThemeMode> {
-  ThemeModeController() : super(ThemeMode.system);
+  ThemeModeController() : super(ThemeMode.system) {
+    unawaited(_restoreThemeMode());
+  }
+
+  static const String _prefsKey = 'client_settings_theme_mode';
+
+  SharedPreferences? _preferences;
+
+  Future<SharedPreferences> _ensurePreferences() async {
+    final cached = _preferences;
+    if (cached != null) {
+      return cached;
+    }
+    final resolved = await SharedPreferences.getInstance();
+    _preferences = resolved;
+    return resolved;
+  }
+
+  Future<void> _restoreThemeMode() async {
+    try {
+      final prefs = await _ensurePreferences();
+      final raw = prefs.getString(_prefsKey);
+      if (raw == null || raw.isEmpty) {
+        return;
+      }
+      final restored = _decodeThemeMode(raw) ?? ThemeMode.system;
+      if (restored != state) {
+        state = restored;
+      }
+    } catch (_) {
+      // Preferenze tema opzionali: ignora errori di ripristino.
+    }
+  }
+
+  Future<void> _persistThemeMode(ThemeMode mode) async {
+    try {
+      final prefs = await _ensurePreferences();
+      await prefs.setString(_prefsKey, _encodeThemeMode(mode));
+    } catch (_) {
+      // Preferenze tema opzionali: ignora errori di salvataggio.
+    }
+  }
 
   void setThemeMode(ThemeMode mode) {
+    if (mode == state) {
+      return;
+    }
     state = mode;
+    unawaited(_persistThemeMode(mode));
   }
 
   void toggle() {
-    state = state == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+    setThemeMode(state == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark);
   }
 
   void setDarkEnabled(bool enabled) {
-    state = enabled ? ThemeMode.dark : ThemeMode.light;
+    setThemeMode(enabled ? ThemeMode.dark : ThemeMode.light);
+  }
+
+  String _encodeThemeMode(ThemeMode mode) {
+    return mode.name;
+  }
+
+  ThemeMode? _decodeThemeMode(String raw) {
+    for (final mode in ThemeMode.values) {
+      if (mode.name == raw || mode.toString() == raw) {
+        return mode;
+      }
+    }
+    return null;
   }
 }
 

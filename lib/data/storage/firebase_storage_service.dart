@@ -13,6 +13,26 @@ class QuotePdfUploadData {
   final String downloadUrl;
 }
 
+class PromotionImageUploadData {
+  const PromotionImageUploadData({
+    required this.storagePath,
+    required this.downloadUrl,
+  });
+
+  final String storagePath;
+  final String downloadUrl;
+}
+
+class PromotionSectionImageUploadData {
+  const PromotionSectionImageUploadData({
+    required this.storagePath,
+    required this.downloadUrl,
+  });
+
+  final String storagePath;
+  final String downloadUrl;
+}
+
 class FirebaseStorageService {
   FirebaseStorageService(this._storage);
 
@@ -94,6 +114,82 @@ class FirebaseStorageService {
     await reference.putData(data, metadata);
     final downloadUrl = await reference.getDownloadURL();
     return QuotePdfUploadData(
+      storagePath: storagePath,
+      downloadUrl: downloadUrl,
+    );
+  }
+
+  Future<PromotionImageUploadData> uploadPromotionImage({
+    required String salonId,
+    required String promotionId,
+    required Uint8List data,
+    String? fileName,
+    String? uploaderId,
+  }) async {
+    final extension = _resolveExtension(fileName);
+    final contentType = _contentTypeForExtension(extension);
+    final sanitizedPromotionId = promotionId.replaceAll(
+      RegExp(r'[^a-zA-Z0-9_-]+'),
+      '-',
+    );
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final storagePath =
+        'salon_media/$salonId/promotions/$sanitizedPromotionId/cover-$timestamp.$extension';
+    final reference = _storage.ref(storagePath);
+    final metadata = SettableMetadata(
+      contentType: contentType,
+      cacheControl: 'public,max-age=86400',
+      customMetadata: {
+        'salonId': salonId,
+        'promotionId': promotionId,
+        if (uploaderId != null && uploaderId.isNotEmpty)
+          'uploadedBy': uploaderId,
+      },
+    );
+    await reference.putData(data, metadata);
+    final downloadUrl = await reference.getDownloadURL();
+    return PromotionImageUploadData(
+      storagePath: storagePath,
+      downloadUrl: downloadUrl,
+    );
+  }
+
+  Future<PromotionSectionImageUploadData> uploadPromotionSectionImage({
+    required String salonId,
+    required String promotionId,
+    required String sectionId,
+    required Uint8List data,
+    String? fileName,
+    String? uploaderId,
+  }) async {
+    final extension = _resolveExtension(fileName);
+    final contentType = _contentTypeForExtension(extension);
+    final sanitizedPromotionId = promotionId.replaceAll(
+      RegExp(r'[^a-zA-Z0-9_-]+'),
+      '-',
+    );
+    final sanitizedSectionId = sectionId.replaceAll(
+      RegExp(r'[^a-zA-Z0-9_-]+'),
+      '-',
+    );
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final storagePath =
+        'salon_media/$salonId/promotions/$sanitizedPromotionId/sections/$sanitizedSectionId-$timestamp.$extension';
+    final reference = _storage.ref(storagePath);
+    final metadata = SettableMetadata(
+      contentType: contentType,
+      cacheControl: 'public,max-age=86400',
+      customMetadata: {
+        'salonId': salonId,
+        'promotionId': promotionId,
+        'sectionId': sectionId,
+        if (uploaderId != null && uploaderId.isNotEmpty)
+          'uploadedBy': uploaderId,
+      },
+    );
+    await reference.putData(data, metadata);
+    final downloadUrl = await reference.getDownloadURL();
+    return PromotionSectionImageUploadData(
       storagePath: storagePath,
       downloadUrl: downloadUrl,
     );

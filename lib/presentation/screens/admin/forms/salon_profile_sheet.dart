@@ -131,10 +131,12 @@ class _SalonProfileSheetState extends State<SalonProfileSheet> {
             TextField(
               controller: _googlePlaceId,
               decoration: const InputDecoration(
-                labelText: 'Google Place ID',
-                helperText: 'Utilizzato per recensioni e mappe',
+                labelText: 'Link recensioni',
+                helperText:
+                    'Incolla il link diretto alla pagina recensioni o l\'ID Google Place',
               ),
-              textCapitalization: TextCapitalization.characters,
+              keyboardType: TextInputType.url,
+              textCapitalization: TextCapitalization.none,
             ),
             const SizedBox(height: 12),
             Row(

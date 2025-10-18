@@ -1,0 +1,1681 @@
+diff --git a/lib/presentation/screens/client/client_dashboard_screen.dart b/lib/presentation/screens/client/client_dashboard_screen.dart
+index 1f62a3a1..a99e3d51 100644
+--- a/lib/presentation/screens/client/client_dashboard_screen.dart
++++ b/lib/presentation/screens/client/client_dashboard_screen.dart
+@@ -152,10 +152,9 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
+       }
+       final restored = <_ClientBadgeTarget, int>{};
+       for (final entry in decoded.entries) {
+-        final target =
+-            _ClientBadgeTarget.values.firstWhereOrNull(
+-              (candidate) => candidate.name == entry.key,
+-            );
++        final target = _ClientBadgeTarget.values.firstWhereOrNull(
++          (candidate) => candidate.name == entry.key,
++        );
+         if (target == null) {
+           continue;
+         }
+@@ -183,7 +182,9 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
+       });
+     } catch (error, stackTrace) {
+       if (kDebugMode) {
+-        debugPrint('Impossibile decodificare gli acknowledgement badge: $error');
++        debugPrint(
++          'Impossibile decodificare gli acknowledgement badge: $error',
++        );
+         debugPrintStack(stackTrace: stackTrace);
+       }
+     }
+@@ -225,7 +226,9 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
+       await prefs.setString(key, jsonEncode(payload));
+     } catch (error, stackTrace) {
+       if (kDebugMode) {
+-        debugPrint('Impossibile serializzare gli acknowledgement badge: $error');
++        debugPrint(
++          'Impossibile serializzare gli acknowledgement badge: $error',
++        );
+         debugPrintStack(stackTrace: stackTrace);
+       }
+     }
+@@ -881,95 +884,162 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
+     Promotion promotion, {
+     BuildContext? overrideContext,
+   }) async {
+-    if (!mounted) {
+-      return;
+-    }
++    _trackPromotionView(promotion);
+     final targetContext = overrideContext ?? context;
+-    final discountFormat = NumberFormat('##0.#', 'it_IT');
+-    await showModalBottomSheet<void>(
+-      context: targetContext,
+-      showDragHandle: true,
+-      backgroundColor: Colors.transparent,
+-      builder: (sheetContext) {
+-        final subtitle = promotion.subtitle;
+-        final tagline = promotion.tagline;
+-        final endsAt = promotion.endsAt;
+-        final hasLink = promotion.ctaUrl?.isNotEmpty == true;
+-        return _wrapClientModal(
+-          context: sheetContext,
+-          builder: (modalContext) {
+-            final theme = Theme.of(modalContext);
+-            return Column(
+-              mainAxisSize: MainAxisSize.min,
+-              crossAxisAlignment: CrossAxisAlignment.start,
+-              children: [
+-                Text(promotion.title, style: theme.textTheme.headlineSmall),
+-                if (subtitle != null && subtitle.isNotEmpty) ...[
+-                  const SizedBox(height: 8),
+-                  Text(subtitle, style: theme.textTheme.titleMedium),
+-                ],
+-                if (tagline != null && tagline.isNotEmpty) ...[
+-                  const SizedBox(height: 8),
+-                  Text(tagline, style: theme.textTheme.bodyLarge),
+-                ],
+-                if (promotion.discountPercentage > 0) ...[
+-                  const SizedBox(height: 12),
+-                  Chip(
+-                    avatar: const Icon(Icons.percent_rounded, size: 18),
+-                    label: Text(
+-                      '-${discountFormat.format(promotion.discountPercentage)}%',
+-                    ),
+-                  ),
+-                ],
+-                if (endsAt != null) ...[
+-                  const SizedBox(height: 12),
+-                  Text(
+-                    'Valida fino al ${DateFormat('dd/MM', 'it_IT').format(endsAt)}',
+-                    style: theme.textTheme.bodyMedium,
+-                  ),
+-                ],
+-                const SizedBox(height: 16),
+-                if (hasLink) ...[
+-                  FilledButton.icon(
+-                    onPressed: () {
+-                      Clipboard.setData(ClipboardData(text: promotion.ctaUrl!));
+-                      Navigator.of(sheetContext).pop();
+-                      if (!mounted) {
+-                        return;
+-                      }
+-                      ScaffoldMessenger.of(targetContext).showSnackBar(
+-                        const SnackBar(
+-                          content: Text(
+-                            'Link dell\'offerta copiato negli appunti.',
+-                          ),
+-                        ),
+-                      );
+-                    },
+-                    icon: const Icon(Icons.link_rounded),
+-                    label: const Text('Copia link offerta'),
+-                  ),
+-                  const SizedBox(height: 8),
+-                  Text(
+-                    'Apri il browser e incolla il link per continuare.',
+-                    style: theme.textTheme.bodySmall,
+-                  ),
+-                  const SizedBox(height: 8),
+-                ],
+-                Align(
+-                  alignment: Alignment.centerRight,
+-                  child: TextButton(
+-                    onPressed: () => Navigator.of(sheetContext).pop(),
+-                    child: const Text('Chiudi'),
+-                  ),
++    await Navigator.of(targetContext).push(
++      MaterialPageRoute<void>(
++        builder: (detailContext) {
++          return PromotionDetailPage(
++            promotion: promotion,
++            ctaLabel: _promotionCtaLabel(promotion),
++            ctaIcon: _promotionCtaIcon(promotion),
++            onCtaTap:
++                () => _handlePromotionCta(
++                  promotion,
++                  overrideContext: detailContext,
+                 ),
+-              ],
+-            );
+-          },
+-        );
+-      },
++          );
++        },
++      ),
+     );
+   }
+ 
++  Future<void> _handlePromotionCta(
++    Promotion promotion, {
++    BuildContext? overrideContext,
++  }) async {
++    final targetContext = overrideContext ?? context;
++    final messenger = ScaffoldMessenger.of(targetContext);
++    final cta = promotion.cta;
++    if (cta == null || !cta.enabled) {
++      messenger.showSnackBar(
++        const SnackBar(
++          content: Text('Azione non disponibile per questa promozione.'),
++        ),
++      );
++      return;
++    }
++    final ctaUrl = cta.url;
++    if (ctaUrl == null || ctaUrl.trim().isEmpty) {
++      messenger.showSnackBar(
++        const SnackBar(
++          content: Text('Nessun link disponibile per questa promozione.'),
++        ),
++      );
++      return;
++    }
++    final uri = _parsePromotionCtaUri(ctaUrl);
++    if (uri == null) {
++      messenger.showSnackBar(
++        const SnackBar(content: Text('Link promozione non valido.')),
++      );
++      return;
++    }
++    _trackPromotionCta(promotion);
++    try {
++      final launched = await launchUrl(
++        uri,
++        mode: _launchModeForScheme(uri.scheme),
++      );
++      if (!launched) {
++        _copyPromotionLinkWithFeedback(targetContext, ctaUrl);
++      }
++    } catch (error) {
++      _copyPromotionLinkWithFeedback(targetContext, ctaUrl, error: error);
++    }
++  }
++
++  String _promotionCtaLabel(Promotion promotion) {
++    final cta = promotion.cta;
++    if (cta == null || !cta.enabled) {
++      return 'Contatta il salone';
++    }
++    final label = cta.label;
++    if (label != null && label.trim().isNotEmpty) {
++      return label;
++    }
++    switch (cta.type) {
++      case PromotionCtaType.whatsapp:
++        return 'Scrivici su WhatsApp';
++      case PromotionCtaType.phone:
++        return 'Chiama ora';
++      case PromotionCtaType.booking:
++        return 'Prenota ora';
++      case PromotionCtaType.custom:
++        return 'Contatta il salone';
++      case PromotionCtaType.link:
++      case PromotionCtaType.none:
++        return 'Scopri l\'offerta';
++    }
++  }
++
++  IconData _promotionCtaIcon(Promotion promotion) {
++    final cta = promotion.cta;
++    if (cta == null || !cta.enabled) {
++      return Icons.arrow_forward_rounded;
++    }
++    switch (cta.type) {
++      case PromotionCtaType.phone:
++        return Icons.call;
++      case PromotionCtaType.whatsapp:
++        return Icons.chat_bubble_outline;
++      case PromotionCtaType.booking:
++        return Icons.calendar_today_rounded;
++      case PromotionCtaType.custom:
++        return Icons.open_in_new_rounded;
++      case PromotionCtaType.link:
++      case PromotionCtaType.none:
++        return Icons.arrow_forward_rounded;
++    }
++  }
++
++  Uri? _parsePromotionCtaUri(String url) {
++    final trimmed = url.trim();
++    if (trimmed.isEmpty) {
++      return null;
++    }
++    Uri? uri = Uri.tryParse(trimmed);
++    if (uri == null) {
++      return null;
++    }
++    if (!uri.hasScheme) {
++      uri = Uri.tryParse('https://$trimmed');
++    }
++    return uri;
++  }
++
++  LaunchMode _launchModeForScheme(String scheme) {
++    switch (scheme.toLowerCase()) {
++      case 'http':
++      case 'https':
++        return LaunchMode.externalApplication;
++      default:
++        return LaunchMode.externalApplication;
++    }
++  }
++
++  void _copyPromotionLinkWithFeedback(
++    BuildContext context,
++    String url, {
++    Object? error,
++  }) {
++    Clipboard.setData(ClipboardData(text: url));
++    final messenger = ScaffoldMessenger.of(context);
++    final message =
++        error == null
++            ? 'Link dell\'offerta copiato negli appunti.'
++            : 'Non riesco ad aprire il link, ma l\'ho copiato negli appunti.';
++    messenger.showSnackBar(SnackBar(content: Text(message)));
++  }
++
++  void _trackPromotionView(Promotion promotion) {
++    unawaited(ref.read(appDataProvider.notifier).trackPromotionView(promotion));
++  }
++
++  void _trackPromotionCta(Promotion promotion) {
++    unawaited(ref.read(appDataProvider.notifier).trackPromotionCta(promotion));
++  }
++
+   void _addServiceToCart({
+     required BuildContext context,
+     required Client client,
+@@ -4841,7 +4911,7 @@ class _NotificationCard extends StatelessWidget {
+   }
+ }
+ 
+-class _PromotionsCarousel extends StatelessWidget {
++class _PromotionsCarousel extends StatefulWidget {
+   const _PromotionsCarousel({
+     required this.promotions,
+     required this.onPromotionTap,
+@@ -4850,40 +4920,117 @@ class _PromotionsCarousel extends StatelessWidget {
+   final List<Promotion> promotions;
+   final ValueChanged<Promotion> onPromotionTap;
+ 
++  @override
++  State<_PromotionsCarousel> createState() => _PromotionsCarouselState();
++}
++
++class _PromotionsCarouselState extends State<_PromotionsCarousel> {
++  late final PageController _controller;
++  Timer? _autoPlay;
++  int _currentPage = 0;
++
++  @override
++  void initState() {
++    super.initState();
++    _controller = PageController(viewportFraction: 0.86);
++    _startAutoPlay();
++  }
++
++  @override
++  void didUpdateWidget(covariant _PromotionsCarousel oldWidget) {
++    super.didUpdateWidget(oldWidget);
++    if (oldWidget.promotions.length != widget.promotions.length) {
++      if (_controller.hasClients) {
++        _controller.jumpToPage(0);
++      }
++      _currentPage = 0;
++      _restartAutoPlay();
++    }
++  }
++
++  @override
++  void dispose() {
++    _autoPlay?.cancel();
++    _controller.dispose();
++    super.dispose();
++  }
++
++  void _startAutoPlay() {
++    if (widget.promotions.length <= 1) {
++      return;
++    }
++    _autoPlay?.cancel();
++    _autoPlay = Timer.periodic(const Duration(seconds: 6), (_) {
++      if (!mounted || !_controller.hasClients) {
++        return;
++      }
++      final nextPage = (_currentPage + 1) % widget.promotions.length;
++      _controller.animateToPage(
++        nextPage,
++        duration: const Duration(milliseconds: 450),
++        curve: Curves.easeOutCubic,
++      );
++    });
++  }
++
++  void _restartAutoPlay() {
++    _autoPlay?.cancel();
++    _startAutoPlay();
++  }
++
+   @override
+   Widget build(BuildContext context) {
+-    if (promotions.isEmpty) {
++    if (widget.promotions.isEmpty) {
+       return const SizedBox.shrink();
+     }
+-    final width = MediaQuery.of(context).size.width;
+-    if (promotions.length == 1) {
+-      final promotion = promotions.first;
+-      return SizedBox(
+-        height: 400,
+-        child: _PromotionCard(
+-          promotion: promotion,
+-          onTap: () => onPromotionTap(promotion),
++    return Column(
++      children: [
++        SizedBox(
++          height: 260,
++          child: Listener(
++            onPointerDown: (_) => _autoPlay?.cancel(),
++            onPointerUp: (_) => _restartAutoPlay(),
++            child: PageView.builder(
++              controller: _controller,
++              itemCount: widget.promotions.length,
++              onPageChanged: (index) => setState(() => _currentPage = index),
++              itemBuilder: (context, index) {
++                final promotion = widget.promotions[index];
++                return Padding(
++                  padding: const EdgeInsets.symmetric(
++                    horizontal: 8,
++                    vertical: 12,
++                  ),
++                  child: _PromotionCard(
++                    promotion: promotion,
++                    onTap: () => widget.onPromotionTap(promotion),
++                  ),
++                );
++              },
++            ),
++          ),
+         ),
+-      );
+-    }
+-    return SizedBox(
+-      height: 200,
+-      child: ListView.separated(
+-        scrollDirection: Axis.horizontal,
+-        padding: const EdgeInsets.symmetric(horizontal: 4),
+-        itemBuilder: (context, index) {
+-          final promotion = promotions[index];
+-          return SizedBox(
+-            width: width * 0.78,
+-            child: _PromotionCard(
+-              promotion: promotion,
+-              onTap: () => onPromotionTap(promotion),
++        const SizedBox(height: 12),
++        Row(
++          mainAxisAlignment: MainAxisAlignment.center,
++          children: List<Widget>.generate(
++            widget.promotions.length,
++            (index) => AnimatedContainer(
++              duration: const Duration(milliseconds: 250),
++              margin: const EdgeInsets.symmetric(horizontal: 4),
++              height: 6,
++              width: _currentPage == index ? 18 : 6,
++              decoration: BoxDecoration(
++                color:
++                    _currentPage == index
++                        ? Theme.of(context).colorScheme.primary
++                        : Theme.of(context).colorScheme.outlineVariant,
++                borderRadius: BorderRadius.circular(999),
++              ),
+             ),
+-          );
+-        },
+-        separatorBuilder: (_, __) => const SizedBox(width: 12),
+-        itemCount: promotions.length,
+-      ),
++          ),
++        ),
++      ],
+     );
+   }
+ }
+@@ -4898,96 +5045,450 @@ class _PromotionCard extends StatelessWidget {
+   Widget build(BuildContext context) {
+     final theme = Theme.of(context);
+     final scheme = theme.colorScheme;
+-    final titleStyle = theme.textTheme.titleMedium?.copyWith(
+-      fontWeight: FontWeight.w700,
+-      height: 1.1,
+-      color: scheme.onPrimaryContainer,
+-    );
+-    final endsAt = promotion.endsAt;
+     final subtitle = promotion.subtitle;
++    final tagline = promotion.tagline;
++    final endsAt = promotion.endsAt;
+     final dateLabel =
+-        endsAt == null ? null : DateFormat('dd/MM', 'it_IT').format(endsAt);
++        endsAt == null ? null : DateFormat('dd MMM', 'it_IT').format(endsAt);
+     return InkWell(
+       onTap: onTap,
+-      borderRadius: BorderRadius.circular(20),
++      borderRadius: BorderRadius.circular(24),
+       child: Ink(
+-        decoration: BoxDecoration(
+-          borderRadius: BorderRadius.circular(20),
+-          gradient: LinearGradient(
+-            colors: [
+-              scheme.primaryContainer,
+-              scheme.primaryContainer.withOpacity(0.7),
++        decoration: BoxDecoration(borderRadius: BorderRadius.circular(24)),
++        child: ClipRRect(
++          borderRadius: BorderRadius.circular(24),
++          child: Stack(
++            fit: StackFit.expand,
++            children: [
++              if (promotion.coverImageUrl != null)
++                Hero(
++                  tag: 'promotion-${promotion.id}',
++                  child: Image.network(
++                    promotion.coverImageUrl!,
++                    fit: BoxFit.cover,
++                    loadingBuilder:
++                        (context, child, progress) =>
++                            progress == null
++                                ? child
++                                : Container(color: scheme.surfaceVariant),
++                    errorBuilder:
++                        (_, __, ___) => Container(color: scheme.surfaceVariant),
++                  ),
++                )
++              else
++                Container(
++                  decoration: BoxDecoration(
++                    gradient: LinearGradient(
++                      colors: [scheme.primary, scheme.primaryContainer],
++                      begin: Alignment.topLeft,
++                      end: Alignment.bottomRight,
++                    ),
++                  ),
++                ),
++              DecoratedBox(
++                decoration: BoxDecoration(
++                  gradient: LinearGradient(
++                    colors: [
++                      Colors.black.withOpacity(0.7),
++                      Colors.black.withOpacity(0.2),
++                    ],
++                    begin: Alignment.bottomCenter,
++                    end: Alignment.topCenter,
++                  ),
++                ),
++              ),
++              Padding(
++                padding: const EdgeInsets.all(24),
++                child: Column(
++                  crossAxisAlignment: CrossAxisAlignment.start,
++                  children: [
++                    if (dateLabel != null)
++                      Align(
++                        alignment: Alignment.topRight,
++                        child: Container(
++                          padding: const EdgeInsets.symmetric(
++                            horizontal: 12,
++                            vertical: 6,
++                          ),
++                          decoration: BoxDecoration(
++                            color: Colors.black.withOpacity(0.35),
++                            borderRadius: BorderRadius.circular(999),
++                          ),
++                          child: Text(
++                            dateLabel,
++                            style: theme.textTheme.labelSmall?.copyWith(
++                              color: Colors.white,
++                              letterSpacing: 0.4,
++                            ),
++                          ),
++                        ),
++                      ),
++                    const Spacer(),
++                    Text(
++                      promotion.title,
++                      maxLines: 2,
++                      overflow: TextOverflow.ellipsis,
++                      style: theme.textTheme.headlineSmall?.copyWith(
++                        color: Colors.white,
++                        fontWeight: FontWeight.w800,
++                      ),
++                    ),
++                    if (subtitle != null && subtitle.isNotEmpty) ...[
++                      const SizedBox(height: 6),
++                      Text(
++                        subtitle,
++                        maxLines: 2,
++                        overflow: TextOverflow.ellipsis,
++                        style: theme.textTheme.titleMedium?.copyWith(
++                          color: Colors.white70,
++                        ),
++                      ),
++                    ],
++                    if (tagline != null && tagline.isNotEmpty) ...[
++                      const SizedBox(height: 8),
++                      Text(
++                        tagline,
++                        maxLines: 3,
++                        overflow: TextOverflow.ellipsis,
++                        style: theme.textTheme.bodyMedium?.copyWith(
++                          color: Colors.white70,
++                        ),
++                      ),
++                    ],
++                  ],
++                ),
++              ),
+             ],
+-            begin: Alignment.topLeft,
+-            end: Alignment.bottomRight,
+           ),
+         ),
+-        child: Padding(
+-          padding: const EdgeInsets.all(20),
+-          child: Column(
+-            crossAxisAlignment: CrossAxisAlignment.start,
+-            children: [
+-              if (dateLabel != null)
+-                Align(
+-                  alignment: Alignment.topRight,
+-                  child: Container(
+-                    padding: const EdgeInsets.symmetric(
+-                      horizontal: 12,
+-                      vertical: 6,
+-                    ),
++      ),
++    );
++  }
++}
++
++class PromotionDetailPage extends StatelessWidget {
++  const PromotionDetailPage({
++    required this.promotion,
++    required this.onCtaTap,
++    required this.ctaLabel,
++    required this.ctaIcon,
++    super.key,
++  });
++
++  final Promotion promotion;
++  final VoidCallback onCtaTap;
++  final String ctaLabel;
++  final IconData ctaIcon;
++
++  @override
++  Widget build(BuildContext context) {
++    final theme = Theme.of(context);
++    final scheme = theme.colorScheme;
++    final visibleSections =
++        promotion.sections.where((section) => section.visible).toList();
++    final subtitle = promotion.subtitle;
++    final tagline = promotion.tagline;
++    final startsAt = promotion.startsAt;
++    final endsAt = promotion.endsAt;
++    return Scaffold(
++      body: CustomScrollView(
++        slivers: [
++          SliverAppBar(
++            expandedHeight: 320,
++            pinned: true,
++            flexibleSpace: FlexibleSpaceBar(
++              title: Text(
++                promotion.title,
++                maxLines: 1,
++                overflow: TextOverflow.ellipsis,
++              ),
++              background: Stack(
++                fit: StackFit.expand,
++                children: [
++                  if (promotion.coverImageUrl != null)
++                    Hero(
++                      tag: 'promotion-${promotion.id}',
++                      child: Image.network(
++                        promotion.coverImageUrl!,
++                        fit: BoxFit.cover,
++                        errorBuilder:
++                            (_, __, ___) =>
++                                Container(color: scheme.surfaceVariant),
++                      ),
++                    )
++                  else
++                    Container(color: scheme.primary),
++                  DecoratedBox(
+                     decoration: BoxDecoration(
+-                      color: scheme.onPrimaryContainer.withOpacity(0.08),
+-                      borderRadius: BorderRadius.circular(999),
++                      gradient: LinearGradient(
++                        colors: [
++                          Colors.black.withOpacity(0.65),
++                          Colors.black.withOpacity(0.05),
++                        ],
++                        begin: Alignment.bottomCenter,
++                        end: Alignment.topCenter,
++                      ),
+                     ),
+-                    child: Text(
+-                      'Fino al $dateLabel',
+-                      style: theme.textTheme.labelSmall?.copyWith(
+-                        color: scheme.onPrimaryContainer,
++                  ),
++                ],
++              ),
++            ),
++          ),
++          SliverToBoxAdapter(
++            child: Padding(
++              padding: const EdgeInsets.fromLTRB(24, 24, 24, 100),
++              child: Column(
++                crossAxisAlignment: CrossAxisAlignment.start,
++                children: [
++                  if (subtitle != null && subtitle.isNotEmpty) ...[
++                    Text(
++                      subtitle,
++                      style: theme.textTheme.titleLarge?.copyWith(
++                        fontWeight: FontWeight.w600,
+                       ),
+                     ),
++                    const SizedBox(height: 12),
++                  ],
++                  if (tagline != null && tagline.isNotEmpty) ...[
++                    Text(
++                      tagline,
++                      style: theme.textTheme.bodyLarge?.copyWith(height: 1.4),
++                    ),
++                    const SizedBox(height: 12),
++                  ],
++                  if (startsAt != null || endsAt != null) ...[
++                    Wrap(
++                      spacing: 8,
++                      runSpacing: 8,
++                      children: [
++                        if (startsAt != null)
++                          Chip(
++                            avatar: const Icon(
++                              Icons.play_arrow_rounded,
++                              size: 18,
++                            ),
++                            label: Text(
++                              'Dal ${DateFormat('dd MMM', 'it_IT').format(startsAt)}',
++                            ),
++                          ),
++                        if (endsAt != null)
++                          Chip(
++                            avatar: const Icon(
++                              Icons.event_available_rounded,
++                              size: 18,
++                            ),
++                            label: Text(
++                              'Fino al ${DateFormat('dd MMM', 'it_IT').format(endsAt)}',
++                            ),
++                          ),
++                      ],
++                    ),
++                    const SizedBox(height: 16),
++                  ],
++                  if (promotion.discountPercentage > 0) ...[
++                    Chip(
++                      avatar: const Icon(Icons.percent_rounded, size: 18),
++                      label: Text(
++                        '-${promotion.discountPercentage.toStringAsFixed(0)}%',
++                      ),
++                    ),
++                    const SizedBox(height: 16),
++                  ],
++                  ...visibleSections.map(
++                    (section) => Padding(
++                      padding: const EdgeInsets.only(bottom: 20),
++                      child: _PromotionSectionContent(section: section),
++                    ),
+                   ),
+-                ),
+-              Text(
+-                promotion.title,
+-                maxLines: 2,
+-                overflow: TextOverflow.ellipsis,
+-                style: titleStyle,
++                ],
+               ),
+-              if (subtitle != null && subtitle.isNotEmpty) ...[
+-                const SizedBox(height: 6),
+-                Text(
+-                  subtitle,
+-                  maxLines: 2,
+-                  overflow: TextOverflow.ellipsis,
+-                  style: theme.textTheme.bodyLarge?.copyWith(
+-                    color: scheme.onPrimaryContainer,
++            ),
++          ),
++        ],
++      ),
++      bottomNavigationBar:
++          promotion.cta != null && promotion.cta!.enabled
++              ? SafeArea(
++                child: Padding(
++                  padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
++                  child: FilledButton.icon(
++                    onPressed: onCtaTap,
++                    icon: Icon(ctaIcon),
++                    label: Text(ctaLabel),
++                    style: FilledButton.styleFrom(
++                      minimumSize: const Size.fromHeight(56),
++                    ),
+                   ),
+                 ),
+-              ],
+-              if (promotion.tagline != null &&
+-                  promotion.tagline!.isNotEmpty) ...[
+-                const SizedBox(height: 12),
+-                Text(
+-                  promotion.tagline!,
+-                  maxLines: 3,
+-                  overflow: TextOverflow.ellipsis,
+-                  style: theme.textTheme.bodyMedium?.copyWith(
+-                    color: scheme.onPrimaryContainer.withOpacity(0.9),
+-                  ),
++              )
++              : null,
++    );
++  }
++}
++
++class _PromotionSectionContent extends StatelessWidget {
++  const _PromotionSectionContent({required this.section});
++
++  final PromotionSection section;
++
++  @override
++  Widget build(BuildContext context) {
++    final theme = Theme.of(context);
++    final scheme = theme.colorScheme;
++    switch (section.type) {
++      case PromotionSectionType.text:
++        return _buildTextSection(theme, scheme, section);
++      case PromotionSectionType.image:
++        return _buildImageSection(theme, scheme, section);
++    }
++  }
++}
++
++Widget _buildTextSection(
++  ThemeData theme,
++  ColorScheme scheme,
++  PromotionSection section,
++) {
++  final hasTitle = section.title?.isNotEmpty == true;
++  final body = section.text?.trim() ?? '';
++  switch (section.layout) {
++    case PromotionSectionLayout.full:
++      return Column(
++        crossAxisAlignment: CrossAxisAlignment.start,
++        children: [
++          if (hasTitle) ...[
++            Text(
++              section.title!,
++              style: theme.textTheme.titleMedium?.copyWith(
++                fontWeight: FontWeight.w700,
++              ),
++            ),
++            const SizedBox(height: 6),
++          ],
++          Text(body, style: theme.textTheme.bodyLarge?.copyWith(height: 1.5)),
++        ],
++      );
++    case PromotionSectionLayout.split:
++      return Container(
++        decoration: BoxDecoration(
++          color: scheme.primaryContainer.withOpacity(0.18),
++          borderRadius: BorderRadius.circular(18),
++          border: Border.all(color: scheme.primary.withOpacity(0.25)),
++        ),
++        padding: const EdgeInsets.all(18),
++        child: Column(
++          crossAxisAlignment: CrossAxisAlignment.start,
++          children: [
++            if (hasTitle) ...[
++              Text(
++                section.title!,
++                style: theme.textTheme.titleMedium?.copyWith(
++                  fontWeight: FontWeight.w800,
++                  color: scheme.onPrimaryContainer,
+                 ),
+-              ],
+-              const Spacer(),
+-              FilledButton.tonalIcon(
+-                onPressed: onTap,
+-                icon: const Icon(Icons.arrow_forward_rounded),
+-                label: const Text('Scopri l\'offerta'),
+               ),
++              const SizedBox(height: 8),
+             ],
++            Text(
++              body,
++              style: theme.textTheme.bodyLarge?.copyWith(
++                height: 1.5,
++                color: scheme.onPrimaryContainer,
++              ),
++            ),
++          ],
++        ),
++      );
++    case PromotionSectionLayout.quote:
++      return Container(
++        decoration: BoxDecoration(
++          color: scheme.secondaryContainer.withOpacity(0.25),
++          borderRadius: BorderRadius.circular(18),
++        ),
++        padding: const EdgeInsets.all(18),
++        child: Row(
++          crossAxisAlignment: CrossAxisAlignment.start,
++          children: [
++            Icon(Icons.format_quote_rounded, color: scheme.secondary, size: 32),
++            const SizedBox(width: 12),
++            Expanded(
++              child: Column(
++                crossAxisAlignment: CrossAxisAlignment.start,
++                children: [
++                  if (hasTitle) ...[
++                    Text(
++                      section.title!,
++                      style: theme.textTheme.titleSmall?.copyWith(
++                        fontWeight: FontWeight.w700,
++                        color: scheme.secondary,
++                        letterSpacing: 0.3,
++                      ),
++                    ),
++                    const SizedBox(height: 6),
++                  ],
++                  Text(
++                    body,
++                    style: theme.textTheme.bodyLarge?.copyWith(
++                      fontStyle: FontStyle.italic,
++                      height: 1.5,
++                    ),
++                  ),
++                ],
++              ),
++            ),
++          ],
++        ),
++      );
++  }
++}
++
++Widget _buildImageSection(
++  ThemeData theme,
++  ColorScheme scheme,
++  PromotionSection section,
++) {
++  if (section.imageUrl == null || section.imageUrl!.isEmpty) {
++    return const SizedBox.shrink();
++  }
++  final hasTitle = section.title?.isNotEmpty == true;
++  return Column(
++    crossAxisAlignment: CrossAxisAlignment.start,
++    children: [
++      if (hasTitle) ...[
++        Text(
++          section.title!,
++          style: theme.textTheme.titleMedium?.copyWith(
++            fontWeight: FontWeight.w700,
+           ),
+         ),
++        const SizedBox(height: 8),
++      ],
++      ClipRRect(
++        borderRadius: BorderRadius.circular(20),
++        child: Image.network(
++          section.imageUrl!,
++          fit: BoxFit.cover,
++          errorBuilder:
++              (_, __, ___) => Container(
++                height: 200,
++                decoration: BoxDecoration(
++                  color: scheme.surfaceVariant,
++                  borderRadius: BorderRadius.circular(20),
++                ),
++              ),
++        ),
+       ),
+-    );
+-  }
++      if (section.caption != null && section.caption!.isNotEmpty) ...[
++        const SizedBox(height: 6),
++        Text(
++          section.caption!,
++          style: theme.textTheme.bodySmall?.copyWith(
++            color: scheme.onSurfaceVariant,
++          ),
++        ),
++      ],
++    ],
++  );
+ }
+ 
+ class _ProcessingPaymentDialog extends StatelessWidget {
+--- /dev/null	2025-10-18 23:16:49
++++ lib/presentation/screens/client/client_settings_screen.dart	2025-10-18 19:24:10
+@@ -0,0 +1,717 @@
++import 'dart:async';
++import 'dart:convert';
++
++import 'package:civiapp/app/providers.dart';
++import 'package:civiapp/domain/entities/client.dart';
++import 'package:civiapp/presentation/screens/client/client_theme.dart';
++import 'package:collection/collection.dart';
++import 'package:flutter/material.dart';
++import 'package:flutter_riverpod/flutter_riverpod.dart';
++import 'package:shared_preferences/shared_preferences.dart';
++
++class ClientSettingsScreen extends ConsumerStatefulWidget {
++  const ClientSettingsScreen({super.key});
++
++  @override
++  ConsumerState<ClientSettingsScreen> createState() =>
++      _ClientSettingsScreenState();
++}
++
++class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
++  static const String _notificationPrefsKeyPrefix =
++      'client_settings_notifications';
++
++  final _formKey = GlobalKey<FormState>();
++  late final TextEditingController _firstNameController;
++  late final TextEditingController _lastNameController;
++  late final TextEditingController _phoneController;
++
++  Client? _lastSyncedClient;
++  bool _hasUserEditedProfile = false;
++  bool _isSavingProfile = false;
++  bool _isSendingReset = false;
++  bool _reminderNotificationsEnabled = true;
++  bool _promotionsNotificationsEnabled = true;
++  bool _lastMinuteNotificationsEnabled = true;
++  String? _notificationPrefsUserId;
++  bool _notificationPrefsLoaded = false;
++  SharedPreferences? _notificationPreferences;
++
++  @override
++  void initState() {
++    super.initState();
++    _firstNameController =
++        TextEditingController()..addListener(_onProfileFieldChanged);
++    _lastNameController =
++        TextEditingController()..addListener(_onProfileFieldChanged);
++    _phoneController =
++        TextEditingController()..addListener(_onProfileFieldChanged);
++  }
++
++  @override
++  void dispose() {
++    _firstNameController.dispose();
++    _lastNameController.dispose();
++    _phoneController.dispose();
++    super.dispose();
++  }
++
++  void _onProfileFieldChanged() {
++    if (!_hasUserEditedProfile && mounted) {
++      setState(() {
++        _hasUserEditedProfile = true;
++      });
++    }
++  }
++
++  Future<SharedPreferences> _ensureNotificationPrefs() async {
++    final cached = _notificationPreferences;
++    if (cached != null) {
++      return cached;
++    }
++    final resolved = await SharedPreferences.getInstance();
++    _notificationPreferences = resolved;
++    return resolved;
++  }
++
++  String _notificationPrefsKey(String userId) {
++    return '$_notificationPrefsKeyPrefix::$userId';
++  }
++
++  void _requestNotificationPrefs(String? userId) {
++    if (userId == null || userId.isEmpty) {
++      final needsReset =
++          _notificationPrefsUserId != null ||
++          !_notificationPrefsLoaded ||
++          !_reminderNotificationsEnabled ||
++          !_promotionsNotificationsEnabled ||
++          !_lastMinuteNotificationsEnabled;
++      if (!needsReset) {
++        return;
++      }
++      WidgetsBinding.instance.addPostFrameCallback((_) {
++        if (!mounted) {
++          return;
++        }
++        setState(() {
++          _notificationPrefsUserId = null;
++          _notificationPrefsLoaded = true;
++          _reminderNotificationsEnabled = true;
++          _promotionsNotificationsEnabled = true;
++          _lastMinuteNotificationsEnabled = true;
++        });
++      });
++      return;
++    }
++
++    if (_notificationPrefsUserId == userId && _notificationPrefsLoaded) {
++      return;
++    }
++
++    _notificationPrefsUserId = userId;
++    _notificationPrefsLoaded = false;
++    Future.microtask(() => _restoreNotificationPrefs(userId));
++  }
++
++  Future<void> _restoreNotificationPrefs(String userId) async {
++    SharedPreferences prefs;
++    try {
++      prefs = await _ensureNotificationPrefs();
++    } catch (_) {
++      if (!mounted || _notificationPrefsUserId != userId) {
++        return;
++      }
++      setState(() {
++        _notificationPrefsLoaded = true;
++        _reminderNotificationsEnabled = true;
++        _promotionsNotificationsEnabled = true;
++        _lastMinuteNotificationsEnabled = true;
++      });
++      return;
++    }
++
++    final raw = prefs.getString(_notificationPrefsKey(userId));
++    if (!mounted || _notificationPrefsUserId != userId) {
++      return;
++    }
++
++    if (raw == null || raw.isEmpty) {
++      setState(() {
++        _notificationPrefsLoaded = true;
++        _reminderNotificationsEnabled = true;
++        _promotionsNotificationsEnabled = true;
++        _lastMinuteNotificationsEnabled = true;
++      });
++      return;
++    }
++
++    try {
++      final decoded = jsonDecode(raw);
++      bool _resolve(dynamic value, bool fallback) {
++        if (value is bool) {
++          return value;
++        }
++        if (value is num) {
++          return value != 0;
++        }
++        if (value is String) {
++          final lower = value.toLowerCase().trim();
++          if (lower == 'true' || lower == '1') {
++            return true;
++          }
++          if (lower == 'false' || lower == '0') {
++            return false;
++          }
++        }
++        return fallback;
++      }
++
++      if (decoded is Map<String, dynamic>) {
++        setState(() {
++          _notificationPrefsLoaded = true;
++          _reminderNotificationsEnabled = _resolve(decoded['reminder'], true);
++          _promotionsNotificationsEnabled = _resolve(
++            decoded['promotions'],
++            true,
++          );
++          _lastMinuteNotificationsEnabled = _resolve(
++            decoded['lastMinute'],
++            true,
++          );
++        });
++        return;
++      }
++    } catch (_) {
++      // Fall through to reset below.
++    }
++
++    setState(() {
++      _notificationPrefsLoaded = true;
++      _reminderNotificationsEnabled = true;
++      _promotionsNotificationsEnabled = true;
++      _lastMinuteNotificationsEnabled = true;
++    });
++  }
++
++  Future<void> _persistNotificationPrefs() async {
++    final userId = _notificationPrefsUserId;
++    if (userId == null || userId.isEmpty) {
++      return;
++    }
++
++    try {
++      final prefs = await _ensureNotificationPrefs();
++      final payload = jsonEncode({
++        'reminder': _reminderNotificationsEnabled,
++        'promotions': _promotionsNotificationsEnabled,
++        'lastMinute': _lastMinuteNotificationsEnabled,
++      });
++      await prefs.setString(_notificationPrefsKey(userId), payload);
++    } catch (_) {
++      // Ignored: preferenze opzionali.
++    }
++  }
++
++  void _updateNotificationPrefs({
++    bool? reminder,
++    bool? promotions,
++    bool? lastMinute,
++  }) {
++    setState(() {
++      if (reminder != null) {
++        _reminderNotificationsEnabled = reminder;
++      }
++      if (promotions != null) {
++        _promotionsNotificationsEnabled = promotions;
++      }
++      if (lastMinute != null) {
++        _lastMinuteNotificationsEnabled = lastMinute;
++      }
++      _notificationPrefsLoaded = true;
++    });
++    unawaited(_persistNotificationPrefs());
++  }
++
++  void _syncControllersFromClient(Client? client) {
++    if (client == null) {
++      return;
++    }
++
++    final isDifferentClient = _lastSyncedClient?.id != client.id;
++    if (!isDifferentClient && _hasUserEditedProfile) {
++      return;
++    }
++
++    final alreadySynced =
++        !isDifferentClient &&
++        _firstNameController.text == client.firstName &&
++        _lastNameController.text == client.lastName &&
++        _phoneController.text == client.phone;
++    if (alreadySynced) {
++      _lastSyncedClient = client;
++      return;
++    }
++
++    _firstNameController.value = TextEditingValue(
++      text: client.firstName,
++      selection: TextSelection.collapsed(offset: client.firstName.length),
++    );
++    _lastNameController.value = TextEditingValue(
++      text: client.lastName,
++      selection: TextSelection.collapsed(offset: client.lastName.length),
++    );
++    _phoneController.value = TextEditingValue(
++      text: client.phone,
++      selection: TextSelection.collapsed(offset: client.phone.length),
++    );
++    _lastSyncedClient = client;
++    _hasUserEditedProfile = false;
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    final themeMode = ref.watch(themeModeProvider);
++    final themeController = ref.read(themeModeProvider.notifier);
++    final isDarkMode = themeMode == ThemeMode.dark;
++
++    final session = ref.watch(sessionControllerProvider);
++    final clients = ref.watch(appDataProvider.select((state) => state.clients));
++    final currentClient = clients.firstWhereOrNull(
++      (client) => client.id == session.userId,
++    );
++    _syncControllersFromClient(currentClient);
++    _requestNotificationPrefs(session.userId);
++
++    final themedData = ClientTheme.resolve(Theme.of(context));
++
++    return Theme(
++      data: themedData,
++      child: Builder(
++        builder: (themedContext) {
++          final theme = Theme.of(themedContext);
++          final email = currentClient?.email ?? session.user?.email;
++
++          return Scaffold(
++            appBar: AppBar(
++              title: const Text('Impostazioni'),
++              centerTitle: true,
++            ),
++            body:
++                currentClient == null
++                    ? _MissingProfileState(theme: theme)
++                    : ListView(
++                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
++                      children: [
++                        Text(
++                          'Personalizza la tua esperienza',
++                          style: theme.textTheme.titleLarge,
++                        ),
++                        const SizedBox(height: 20),
++                        Card(
++                          child: SwitchListTile.adaptive(
++                            contentPadding: const EdgeInsets.symmetric(
++                              horizontal: 20,
++                              vertical: 4,
++                            ),
++                            secondary: _SettingsIconAvatar(
++                              icon:
++                                  isDarkMode
++                                      ? Icons.dark_mode_rounded
++                                      : Icons.light_mode_rounded,
++                              color: theme.colorScheme.primary,
++                            ),
++                            title: Text(
++                              'Tema scuro',
++                              style: theme.textTheme.titleMedium,
++                            ),
++                            subtitle: const Text(
++                              'Attiva il tema scuro dell\'app clienti',
++                            ),
++                            value: isDarkMode,
++                            onChanged: themeController.setDarkEnabled,
++                          ),
++                        ),
++                        const SizedBox(height: 16),
++                        Card(
++                          child: Column(
++                            mainAxisSize: MainAxisSize.min,
++                            children: [
++                              Padding(
++                                padding: const EdgeInsets.fromLTRB(
++                                  20,
++                                  24,
++                                  20,
++                                  8,
++                                ),
++                                child: Align(
++                                  alignment: Alignment.centerLeft,
++                                  child: Text(
++                                    'Notifiche',
++                                    style: theme.textTheme.titleMedium
++                                        ?.copyWith(fontWeight: FontWeight.w600),
++                                  ),
++                                ),
++                              ),
++                              SwitchListTile.adaptive(
++                                contentPadding: const EdgeInsets.symmetric(
++                                  horizontal: 20,
++                                  vertical: 6,
++                                ),
++                                secondary: _SettingsIconAvatar(
++                                  icon: Icons.alarm_rounded,
++                                  color: theme.colorScheme.primary,
++                                ),
++                                title: const Text('Reminder appuntamenti'),
++                                subtitle: const Text(
++                                  'Ricevi aggiornamenti prima dei tuoi appuntamenti',
++                                ),
++                                value: _reminderNotificationsEnabled,
++                                onChanged:
++                                    (value) => _updateNotificationPrefs(
++                                      reminder: value,
++                                    ),
++                              ),
++                              const Divider(height: 1),
++                              SwitchListTile.adaptive(
++                                contentPadding: const EdgeInsets.symmetric(
++                                  horizontal: 20,
++                                  vertical: 6,
++                                ),
++                                secondary: _SettingsIconAvatar(
++                                  icon: Icons.local_offer_rounded,
++                                  color: theme.colorScheme.primary,
++                                ),
++                                title: const Text('Promozioni'),
++                                subtitle: const Text(
++                                  'Scopri in anticipo offerte e novità',
++                                ),
++                                value: _promotionsNotificationsEnabled,
++                                onChanged:
++                                    (value) => _updateNotificationPrefs(
++                                      promotions: value,
++                                    ),
++                              ),
++                              const Divider(height: 1),
++                              SwitchListTile.adaptive(
++                                contentPadding: const EdgeInsets.symmetric(
++                                  horizontal: 20,
++                                  vertical: 6,
++                                ),
++                                secondary: _SettingsIconAvatar(
++                                  icon: Icons.flash_on_rounded,
++                                  color: theme.colorScheme.primary,
++                                ),
++                                title: const Text('Last minute'),
++                                subtitle: const Text(
++                                  'Ricevi occasioni last minute disponibili',
++                                ),
++                                value: _lastMinuteNotificationsEnabled,
++                                onChanged:
++                                    (value) => _updateNotificationPrefs(
++                                      lastMinute: value,
++                                    ),
++                              ),
++                            ],
++                          ),
++                        ),
++                        const SizedBox(height: 16),
++                        Card(
++                          child: Padding(
++                            padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
++                            child: Form(
++                              key: _formKey,
++                              child: Column(
++                                crossAxisAlignment: CrossAxisAlignment.start,
++                                children: [
++                                  Text(
++                                    'Le tue informazioni',
++                                    style: theme.textTheme.titleMedium
++                                        ?.copyWith(fontWeight: FontWeight.w600),
++                                  ),
++                                  const SizedBox(height: 16),
++                                  TextFormField(
++                                    controller: _firstNameController,
++                                    textCapitalization:
++                                        TextCapitalization.words,
++                                    decoration: const InputDecoration(
++                                      labelText: 'Nome',
++                                    ),
++                                    validator: (value) {
++                                      if (value == null ||
++                                          value.trim().isEmpty) {
++                                        return 'Inserisci il tuo nome';
++                                      }
++                                      return null;
++                                    },
++                                  ),
++                                  const SizedBox(height: 16),
++                                  TextFormField(
++                                    controller: _lastNameController,
++                                    textCapitalization:
++                                        TextCapitalization.words,
++                                    decoration: const InputDecoration(
++                                      labelText: 'Cognome',
++                                    ),
++                                    validator: (value) {
++                                      if (value == null ||
++                                          value.trim().isEmpty) {
++                                        return 'Inserisci il tuo cognome';
++                                      }
++                                      return null;
++                                    },
++                                  ),
++                                  const SizedBox(height: 16),
++                                  TextFormField(
++                                    controller: _phoneController,
++                                    decoration: const InputDecoration(
++                                      labelText: 'Numero di telefono',
++                                    ),
++                                    keyboardType: TextInputType.phone,
++                                    validator: (value) {
++                                      final trimmed = value?.trim() ?? '';
++                                      if (trimmed.isEmpty) {
++                                        return 'Inserisci il tuo numero di telefono';
++                                      }
++                                      if (trimmed.length < 6) {
++                                        return 'Numero di telefono non valido';
++                                      }
++                                      return null;
++                                    },
++                                  ),
++                                  const SizedBox(height: 24),
++                                  FilledButton.icon(
++                                    icon:
++                                        _isSavingProfile
++                                            ? SizedBox(
++                                              width: 18,
++                                              height: 18,
++                                              child: CircularProgressIndicator(
++                                                strokeWidth: 2,
++                                                valueColor:
++                                                    AlwaysStoppedAnimation<
++                                                      Color
++                                                    >(
++                                                      theme
++                                                          .colorScheme
++                                                          .onPrimary,
++                                                    ),
++                                              ),
++                                            )
++                                            : const Icon(Icons.save_rounded),
++                                    label: Text(
++                                      _isSavingProfile
++                                          ? 'Salvataggio...'
++                                          : 'Salva modifiche',
++                                    ),
++                                    onPressed:
++                                        _isSavingProfile ||
++                                                currentClient == null
++                                            ? null
++                                            : _hasUserEditedProfile
++                                            ? () => _saveProfile(
++                                              themedContext,
++                                              currentClient,
++                                            )
++                                            : null,
++                                    style: FilledButton.styleFrom(
++                                      minimumSize: const Size.fromHeight(48),
++                                    ),
++                                  ),
++                                ],
++                              ),
++                            ),
++                          ),
++                        ),
++                        const SizedBox(height: 16),
++                        Card(
++                          child: ListTile(
++                            contentPadding: const EdgeInsets.symmetric(
++                              horizontal: 20,
++                              vertical: 12,
++                            ),
++                            leading: _SettingsIconAvatar(
++                              icon: Icons.lock_reset_rounded,
++                              color: theme.colorScheme.primary,
++                            ),
++                            title: const Text('Reimposta password'),
++                            subtitle: Text(
++                              email != null
++                                  ? 'Invia un link a $email'
++                                  : 'Aggiungi un indirizzo email per reimpostare la password',
++                            ),
++                            trailing:
++                                _isSendingReset
++                                    ? const SizedBox(
++                                      height: 20,
++                                      width: 20,
++                                      child: CircularProgressIndicator(
++                                        strokeWidth: 2,
++                                      ),
++                                    )
++                                    : const Icon(Icons.chevron_right_rounded),
++                            onTap:
++                                email == null
++                                    ? null
++                                    : () => _sendPasswordReset(
++                                      themedContext,
++                                      email,
++                                    ),
++                          ),
++                        ),
++                        const SizedBox(height: 16),
++                        Card(
++                          child: ListTile(
++                            contentPadding: const EdgeInsets.symmetric(
++                              horizontal: 20,
++                              vertical: 12,
++                            ),
++                            leading: _SettingsIconAvatar(
++                              icon: Icons.logout_rounded,
++                              color: theme.colorScheme.error,
++                              backgroundOpacity: 0.18,
++                            ),
++                            title: const Text('Esci'),
++                            subtitle: const Text(
++                              'Disconnettiti dal tuo account',
++                            ),
++                            onTap: () async {
++                              await ref.read(authRepositoryProvider).signOut();
++                              if (!mounted) {
++                                return;
++                              }
++                              Navigator.of(themedContext).pop();
++                            },
++                          ),
++                        ),
++                      ],
++                    ),
++          );
++        },
++      ),
++    );
++  }
++
++  Future<void> _saveProfile(BuildContext context, Client client) async {
++    if (!_formKey.currentState!.validate()) {
++      return;
++    }
++
++    FocusScope.of(context).unfocus();
++
++    final firstName = _firstNameController.text.trim();
++    final lastName = _lastNameController.text.trim();
++    final phone = _phoneController.text.trim();
++
++    setState(() {
++      _isSavingProfile = true;
++    });
++
++    final updatedClient = client.copyWith(
++      firstName: firstName,
++      lastName: lastName,
++      phone: phone,
++    );
++
++    try {
++      await ref.read(appDataProvider.notifier).upsertClient(updatedClient);
++      if (!mounted) {
++        return;
++      }
++      setState(() {
++        _isSavingProfile = false;
++        _hasUserEditedProfile = false;
++        _lastSyncedClient = updatedClient;
++      });
++      ScaffoldMessenger.of(context).showSnackBar(
++        const SnackBar(content: Text('Informazioni aggiornate con successo')),
++      );
++    } catch (error) {
++      if (!mounted) {
++        return;
++      }
++      setState(() {
++        _isSavingProfile = false;
++      });
++      ScaffoldMessenger.of(context).showSnackBar(
++        SnackBar(
++          content: Text('Impossibile aggiornare i dati: ${error.toString()}'),
++        ),
++      );
++    }
++  }
++
++  Future<void> _sendPasswordReset(BuildContext context, String email) async {
++    setState(() {
++      _isSendingReset = true;
++    });
++
++    try {
++      await ref
++          .read(authRepositoryProvider)
++          .sendPasswordResetEmail(email.trim());
++      if (!mounted) {
++        return;
++      }
++      ScaffoldMessenger.of(context).showSnackBar(
++        SnackBar(content: Text('Ti abbiamo inviato un link a $email')),
++      );
++    } catch (error) {
++      if (!mounted) {
++        return;
++      }
++      ScaffoldMessenger.of(context).showSnackBar(
++        SnackBar(
++          content: Text('Invio email non riuscito: ${error.toString()}'),
++        ),
++      );
++    } finally {
++      if (mounted) {
++        setState(() {
++          _isSendingReset = false;
++        });
++      }
++    }
++  }
++}
++
++class _MissingProfileState extends StatelessWidget {
++  const _MissingProfileState({required this.theme});
++
++  final ThemeData theme;
++
++  @override
++  Widget build(BuildContext context) {
++    return Center(
++      child: Padding(
++        padding: const EdgeInsets.all(24),
++        child: Text(
++          'Non riusciamo a caricare le tue informazioni in questo momento. Riprova più tardi.',
++          textAlign: TextAlign.center,
++          style: theme.textTheme.bodyLarge,
++        ),
++      ),
++    );
++  }
++}
++
++class _SettingsIconAvatar extends StatelessWidget {
++  const _SettingsIconAvatar({
++    required this.icon,
++    required this.color,
++    this.backgroundOpacity = 0.14,
++  });
++
++  final IconData icon;
++  final Color color;
++  final double backgroundOpacity;
++
++  @override
++  Widget build(BuildContext context) {
++    return CircleAvatar(
++      radius: 22,
++      backgroundColor: color.withOpacity(backgroundOpacity),
++      foregroundColor: color,
++      child: Icon(icon),
++    );
++  }
++}

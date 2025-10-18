@@ -267,11 +267,12 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
             TextFormField(
               controller: _googlePlaceId,
               decoration: const InputDecoration(
-                labelText: 'Google Place ID',
+                labelText: 'Link recensioni',
                 helperText:
-                    'Utilizzato per aprire direttamente la pagina delle recensioni',
+                    'Incolla il link diretto alla pagina recensioni o l\'ID Google Place',
               ),
-              textCapitalization: TextCapitalization.characters,
+              keyboardType: TextInputType.url,
+              textCapitalization: TextCapitalization.none,
             ),
             const SizedBox(height: 12),
             Row(

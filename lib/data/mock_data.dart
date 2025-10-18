@@ -171,6 +171,11 @@ class MockData {
       discountPercentage: 25,
       imageUrl: 'https://example.com/assets/promotions/spring-glow.jpg',
       ctaUrl: 'https://civibeauty.it/milano/offerte',
+      cta: const PromotionCta(
+        type: PromotionCtaType.link,
+        label: 'Scopri l\'offerta',
+        url: 'https://civibeauty.it/milano/offerte',
+      ),
       startsAt: DateTime(_now.year, _now.month, _now.day - 3),
       endsAt: DateTime(_now.year, _now.month, _now.day + 7),
       priority: 10,
@@ -183,6 +188,11 @@ class MockData {
       discountPercentage: 20,
       imageUrl: 'https://example.com/assets/promotions/wallet-boost.jpg',
       ctaUrl: 'https://civibeauty.it/roma/wallet',
+      cta: const PromotionCta(
+        type: PromotionCtaType.link,
+        label: 'Scopri l\'offerta',
+        url: 'https://civibeauty.it/roma/wallet',
+      ),
       startsAt: DateTime(_now.year, _now.month, _now.day - 1),
       endsAt: DateTime(_now.year, _now.month, _now.day + 14),
       priority: 5,

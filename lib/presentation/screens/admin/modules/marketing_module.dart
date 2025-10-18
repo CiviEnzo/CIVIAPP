@@ -5,11 +5,11 @@ import 'package:civiapp/domain/entities/promotion.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
+import 'package:civiapp/presentation/screens/admin/promotions/promotion_editor_dialog.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:uuid/uuid.dart';
 
 class MarketingModule extends ConsumerStatefulWidget {
   const MarketingModule({super.key, this.salonId});
@@ -127,11 +127,14 @@ class _MarketingModuleState extends ConsumerState<MarketingModule> {
           _PromotionsSection(
             promotions: promotions,
             salonId: salonId,
-            onCreate: () => _openPromotionForm(context, salonId: salonId),
+            onCreate:
+                () =>
+                    _openPromotionForm(context, salonId: salonId, salon: salon),
             onEdit:
                 (promotion) => _openPromotionForm(
                   context,
                   salonId: salonId,
+                  salon: salon,
                   existing: promotion,
                 ),
             onToggleActive: (promotion, isActive) async {
@@ -168,13 +171,18 @@ class _MarketingModuleState extends ConsumerState<MarketingModule> {
   Future<void> _openPromotionForm(
     BuildContext context, {
     required String salonId,
+    Salon? salon,
     Promotion? existing,
   }) async {
     final result = await showDialog<Promotion>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
-        return _PromotionDialog(salonId: salonId, initialPromotion: existing);
+        return PromotionEditorDialog(
+          salonId: salonId,
+          salon: salon,
+          initialPromotion: existing,
+        );
       },
     );
     if (result == null) {
@@ -463,290 +471,6 @@ class _LastMinuteSection extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _PromotionDialog extends StatefulWidget {
-  const _PromotionDialog({required this.salonId, this.initialPromotion});
-
-  final String salonId;
-  final Promotion? initialPromotion;
-
-  @override
-  State<_PromotionDialog> createState() => _PromotionDialogState();
-}
-
-class _PromotionDialogState extends State<_PromotionDialog> {
-  final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _titleController;
-  late final TextEditingController _subtitleController;
-  late final TextEditingController _taglineController;
-  late final TextEditingController _imageController;
-  late final TextEditingController _ctaController;
-  late final TextEditingController _discountController;
-  late final TextEditingController _priorityController;
-  late DateTime? _startsAt;
-  late DateTime? _endsAt;
-  bool _isActive = true;
-
-  @override
-  void initState() {
-    super.initState();
-    final initial = widget.initialPromotion;
-    _titleController = TextEditingController(text: initial?.title ?? '');
-    _subtitleController = TextEditingController(text: initial?.subtitle ?? '');
-    _taglineController = TextEditingController(text: initial?.tagline ?? '');
-    _imageController = TextEditingController(text: initial?.imageUrl ?? '');
-    _ctaController = TextEditingController(text: initial?.ctaUrl ?? '');
-    _discountController = TextEditingController(
-      text: initial?.discountPercentage.toString() ?? '0',
-    );
-    _priorityController = TextEditingController(
-      text: initial?.priority.toString() ?? '0',
-    );
-    _startsAt = initial?.startsAt;
-    _endsAt = initial?.endsAt;
-    _isActive = initial?.isActive ?? true;
-  }
-
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _subtitleController.dispose();
-    _taglineController.dispose();
-    _imageController.dispose();
-    _ctaController.dispose();
-    _discountController.dispose();
-    _priorityController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(
-        widget.initialPromotion == null
-            ? 'Nuova promozione'
-            : 'Modifica promozione',
-      ),
-      content: SingleChildScrollView(
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: _titleController,
-                decoration: const InputDecoration(labelText: 'Titolo *'),
-                validator:
-                    (value) =>
-                        value == null || value.trim().isEmpty
-                            ? 'Inserisci un titolo'
-                            : null,
-              ),
-              TextFormField(
-                controller: _subtitleController,
-                decoration: const InputDecoration(labelText: 'Sottotitolo'),
-              ),
-              TextFormField(
-                controller: _taglineController,
-                decoration: const InputDecoration(
-                  labelText: 'Tagline / messaggio',
-                ),
-              ),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _discountController,
-                      decoration: const InputDecoration(labelText: 'Sconto %'),
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return null;
-                        }
-                        final parsed = double.tryParse(
-                          value.replaceAll(',', '.'),
-                        );
-                        if (parsed == null || parsed < 0 || parsed > 100) {
-                          return 'Inserisci un valore tra 0 e 100';
-                        }
-                        return null;
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _priorityController,
-                      decoration: const InputDecoration(labelText: 'Priorità'),
-                      keyboardType: TextInputType.number,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: _DatePickerField(
-                      label: 'Inizio',
-                      value: _startsAt,
-                      onChanged: (value) => setState(() => _startsAt = value),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: _DatePickerField(
-                      label: 'Fine',
-                      value: _endsAt,
-                      onChanged: (value) => setState(() => _endsAt = value),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _imageController,
-                decoration: const InputDecoration(
-                  labelText: 'URL immagine promo',
-                ),
-              ),
-              TextFormField(
-                controller: _ctaController,
-                decoration: const InputDecoration(
-                  labelText: 'URL call-to-action',
-                ),
-              ),
-              SwitchListTile(
-                title: const Text('Promozione attiva'),
-                value: _isActive,
-                onChanged: (value) => setState(() => _isActive = value),
-              ),
-            ],
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Annulla'),
-        ),
-        FilledButton(
-          onPressed: _submit,
-          child: Text(widget.initialPromotion == null ? 'Crea' : 'Salva'),
-        ),
-      ],
-    );
-  }
-
-  void _submit() {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-    final discount =
-        double.tryParse(_discountController.text.replaceAll(',', '.')) ?? 0.0;
-    final priority = int.tryParse(_priorityController.text) ?? 0;
-    final promotion = (widget.initialPromotion ??
-            Promotion(
-              id: const Uuid().v4(),
-              salonId: widget.salonId,
-              title: _titleController.text.trim(),
-              discountPercentage: discount,
-              priority: priority,
-            ))
-        .copyWith(
-          salonId: widget.salonId,
-          title: _titleController.text.trim(),
-          subtitle:
-              _subtitleController.text.trim().isEmpty
-                  ? null
-                  : _subtitleController.text.trim(),
-          tagline:
-              _taglineController.text.trim().isEmpty
-                  ? null
-                  : _taglineController.text.trim(),
-          imageUrl:
-              _imageController.text.trim().isEmpty
-                  ? null
-                  : _imageController.text.trim(),
-          ctaUrl:
-              _ctaController.text.trim().isEmpty
-                  ? null
-                  : _ctaController.text.trim(),
-          discountPercentage: discount,
-          priority: priority,
-          startsAt: _startsAt,
-          endsAt: _endsAt,
-          isActive: _isActive,
-        );
-    Navigator.of(context).pop(promotion);
-  }
-}
-
-class _DatePickerField extends StatelessWidget {
-  const _DatePickerField({
-    required this.label,
-    required this.value,
-    required this.onChanged,
-  });
-
-  final String label;
-  final DateTime? value;
-  final ValueChanged<DateTime?> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final display =
-        value == null
-            ? 'Non impostata'
-            : DateFormat('dd/MM/yyyy HH:mm', 'it_IT').format(value!);
-    return OutlinedButton.icon(
-      onPressed: () async {
-        final now = DateTime.now();
-        final initialDate = value ?? now;
-        final date = await showDatePicker(
-          context: context,
-          initialDate: initialDate,
-          firstDate: DateTime(now.year - 1),
-          lastDate: DateTime(now.year + 2),
-        );
-        if (date == null) {
-          onChanged(null);
-          return;
-        }
-        final time = await showTimePicker(
-          context: context,
-          initialTime: TimeOfDay.fromDateTime(initialDate),
-        );
-        if (time == null) {
-          onChanged(DateTime(date.year, date.month, date.day));
-          return;
-        }
-        final result = DateTime(
-          date.year,
-          date.month,
-          date.day,
-          time.hour,
-          time.minute,
-        );
-        onChanged(result);
-      },
-      icon: const Icon(Icons.calendar_today_rounded),
-      label: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: Theme.of(context).textTheme.labelMedium),
-            Text(display),
-          ],
-        ),
-      ),
-      style: OutlinedButton.styleFrom(alignment: Alignment.centerLeft),
     );
   }
 }

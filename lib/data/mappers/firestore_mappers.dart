@@ -345,30 +345,84 @@ Promotion promotionFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
       ) ??
       0;
   final priority = (data['priority'] as num?)?.toInt() ?? 0;
+  PromotionCta? cta;
+  final ctaRaw = data['cta'];
+  if (ctaRaw is Map<String, dynamic>) {
+    cta = PromotionCta.fromMap(Map<String, dynamic>.from(ctaRaw));
+  }
+  final ctaUrl =
+      (data['ctaUrl'] as String?) ??
+      (cta != null && cta.url != null ? cta.url : null);
+  final sectionsRaw = data['sections'] as List<dynamic>? ?? const <dynamic>[];
+  final sections =
+      sectionsRaw
+          .map((item) => _mapFromDynamic(item))
+          .where((sectionMap) => sectionMap.isNotEmpty)
+          .map(PromotionSection.fromMap)
+          .toList()
+        ..sort((a, b) => a.order.compareTo(b.order));
+  final analyticsRaw = _mapFromDynamic(data['analytics']);
+  PromotionAnalytics? analytics;
+  if (analyticsRaw.isNotEmpty) {
+    analytics = PromotionAnalytics.fromMap(analyticsRaw);
+  }
+  final status =
+      data.containsKey('status')
+          ? promotionStatusFromName(data['status'] as String?)
+          : (data['isActive'] == true
+              ? PromotionStatus.published
+              : PromotionStatus.draft);
+  final bool? isActiveValue =
+      data.containsKey('isActive') || data.containsKey('active')
+          ? _coerceToBool(data['isActive'] ?? data['active'])
+          : null;
+  final bool isActive = isActiveValue ?? (status == PromotionStatus.published);
   return Promotion(
     id: doc.id,
     salonId: data['salonId'] as String? ?? '',
     title: data['title'] as String? ?? '',
     subtitle: data['subtitle'] as String?,
     tagline: data['tagline'] as String?,
-    imageUrl: data['imageUrl'] as String?,
-    ctaUrl: data['ctaUrl'] as String?,
+    coverImageUrl:
+        (data['coverImageUrl'] as String?) ?? (data['imageUrl'] as String?),
+    coverImagePath:
+        (data['coverImagePath'] as String?) ??
+        (data['imageStoragePath'] as String?),
+    ctaUrl: ctaUrl,
+    cta: cta,
+    sections: List.unmodifiable(sections),
     startsAt: startsAt,
     endsAt: endsAt,
     discountPercentage: discount,
     priority: priority,
-    isActive: _coerceToBool(data['isActive'] ?? data['active']),
+    status: status,
+    isActive: isActive,
+    createdAt: _coerceToDateTime(data['createdAt']),
+    updatedAt: _coerceToDateTime(data['updatedAt']),
+    createdBy: data['createdBy'] as String?,
+    updatedBy: data['updatedBy'] as String?,
+    analytics: analytics,
   );
 }
 
 Map<String, dynamic> promotionToMap(Promotion promotion) {
-  return <String, dynamic>{
+  final sections =
+      promotion.sections.isNotEmpty
+          ? promotion.sections.map((section) => section.toMap()).toList()
+          : null;
+  final analyticsMap = promotion.analytics?.toMap();
+  final map = <String, dynamic>{
     'salonId': promotion.salonId,
     'title': promotion.title,
     'subtitle': promotion.subtitle,
     'tagline': promotion.tagline,
-    'imageUrl': promotion.imageUrl,
-    'ctaUrl': promotion.ctaUrl,
+    'coverImageUrl': promotion.coverImageUrl,
+    'coverImagePath': promotion.coverImagePath,
+    'imageUrl': promotion.coverImageUrl,
+    'imageStoragePath': promotion.coverImagePath,
+    'ctaUrl': promotion.ctaUrl ?? promotion.cta?.url,
+    if (promotion.cta != null) 'cta': promotion.cta!.toMap(),
+    if (sections != null) 'sections': sections,
     'startsAt':
         promotion.startsAt != null
             ? Timestamp.fromDate(promotion.startsAt!)
@@ -377,8 +431,32 @@ Map<String, dynamic> promotionToMap(Promotion promotion) {
         promotion.endsAt != null ? Timestamp.fromDate(promotion.endsAt!) : null,
     'discountPercentage': promotion.discountPercentage,
     'priority': promotion.priority,
+    'status': promotion.status.name,
     'isActive': promotion.isActive,
-  }..removeWhere((_, value) => value == null);
+    'createdAt':
+        promotion.createdAt != null
+            ? Timestamp.fromDate(promotion.createdAt!)
+            : null,
+    'updatedAt':
+        promotion.updatedAt != null
+            ? Timestamp.fromDate(promotion.updatedAt!)
+            : FieldValue.serverTimestamp(),
+    'createdBy': promotion.createdBy,
+    'updatedBy': promotion.updatedBy,
+    if (analyticsMap != null) 'analytics': analyticsMap,
+  }..removeWhere((_, value) {
+    if (value == null) {
+      return true;
+    }
+    if (value is List && value.isEmpty) {
+      return true;
+    }
+    if (value is Map && value.isEmpty) {
+      return true;
+    }
+    return false;
+  });
+  return map;
 }
 
 LastMinuteSlot lastMinuteSlotFromDoc(

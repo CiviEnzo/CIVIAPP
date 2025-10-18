@@ -763,7 +763,7 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
           title: 'Stato operativo',
           icon: Icons.settings_input_component_rounded,
           onEdit: onEditOperations,
-          editLabel: 'Modifica impostazioni',
+          editLabel: 'Gestisci operatività',
           children: [
             _DataRowTile(
               leadingIcon: _statusIcon(salon.status),

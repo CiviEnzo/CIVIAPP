@@ -32,6 +32,7 @@ import 'package:civiapp/domain/entities/reminder_settings.dart';
 import 'package:civiapp/domain/entities/salon_access_request.dart';
 import 'package:civiapp/domain/entities/salon_setup_progress.dart';
 import 'package:civiapp/domain/entities/user_role.dart';
+import 'package:civiapp/data/storage/firebase_storage_service.dart';
 import 'package:collection/collection.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -42,55 +43,59 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 class AppDataStore extends StateNotifier<AppDataState> {
-  AppDataStore({FirebaseFirestore? firestore, AppUser? currentUser})
-    : _firestore =
-          Firebase.apps.isNotEmpty
-              ? (firestore ?? FirebaseFirestore.instance)
-              : null,
-      _currentUser = currentUser,
-      _hasAuthenticatedUser = currentUser != null,
-      super(
-        Firebase.apps.isNotEmpty
-            ? AppDataState.initial()
-            : AppDataState(
-              salons: List.unmodifiable(MockData.salons),
-              staff: List.unmodifiable(MockData.staffMembers),
-              staffRoles: List.unmodifiable(MockData.staffRoles),
-              clients: List.unmodifiable(MockData.clients),
-              serviceCategories: List.unmodifiable(MockData.serviceCategories),
-              services: List.unmodifiable(MockData.services),
-              packages: List.unmodifiable(MockData.packages),
-              appointments: List.unmodifiable(MockData.appointments),
-              publicAppointments: List.unmodifiable(
-                MockData.publicAppointments,
-              ),
-              quotes: List.unmodifiable(MockData.quotes),
-              paymentTickets: List.unmodifiable(MockData.paymentTickets),
-              inventoryItems: List.unmodifiable(MockData.inventoryItems),
-              sales: List.unmodifiable(MockData.sales),
-              cashFlowEntries: List.unmodifiable(MockData.cashFlowEntries),
-              messageTemplates: List.unmodifiable(MockData.messageTemplates),
-              reminderSettings: List.unmodifiable(MockData.reminderSettings),
-              clientNotifications: const [],
-              shifts: List.unmodifiable(MockData.shifts),
-              staffAbsences: List.unmodifiable(MockData.staffAbsences),
-              publicStaffAbsences: List.unmodifiable(
-                MockData.publicStaffAbsences,
-              ),
-              users: const [],
-              clientPhotos: List.unmodifiable(MockData.clientPhotos),
-              clientQuestionnaireTemplates: List.unmodifiable(
-                MockData.clientQuestionnaireTemplates,
-              ),
-              clientQuestionnaires: List.unmodifiable(
-                MockData.clientQuestionnaires,
-              ),
-              promotions: List.unmodifiable(MockData.promotions),
-              lastMinuteSlots: List.unmodifiable(MockData.lastMinuteSlots),
-              salonAccessRequests: const [],
-              setupProgress: const [],
-            ),
-      ) {
+  AppDataStore({
+    FirebaseFirestore? firestore,
+    AppUser? currentUser,
+    FirebaseStorageService? storage,
+  }) : _firestore =
+           Firebase.apps.isNotEmpty
+               ? (firestore ?? FirebaseFirestore.instance)
+               : null,
+       _storage = Firebase.apps.isNotEmpty ? storage : null,
+       _currentUser = currentUser,
+       _hasAuthenticatedUser = currentUser != null,
+       super(
+         Firebase.apps.isNotEmpty
+             ? AppDataState.initial()
+             : AppDataState(
+               salons: List.unmodifiable(MockData.salons),
+               staff: List.unmodifiable(MockData.staffMembers),
+               staffRoles: List.unmodifiable(MockData.staffRoles),
+               clients: List.unmodifiable(MockData.clients),
+               serviceCategories: List.unmodifiable(MockData.serviceCategories),
+               services: List.unmodifiable(MockData.services),
+               packages: List.unmodifiable(MockData.packages),
+               appointments: List.unmodifiable(MockData.appointments),
+               publicAppointments: List.unmodifiable(
+                 MockData.publicAppointments,
+               ),
+               quotes: List.unmodifiable(MockData.quotes),
+               paymentTickets: List.unmodifiable(MockData.paymentTickets),
+               inventoryItems: List.unmodifiable(MockData.inventoryItems),
+               sales: List.unmodifiable(MockData.sales),
+               cashFlowEntries: List.unmodifiable(MockData.cashFlowEntries),
+               messageTemplates: List.unmodifiable(MockData.messageTemplates),
+               reminderSettings: List.unmodifiable(MockData.reminderSettings),
+               clientNotifications: const [],
+               shifts: List.unmodifiable(MockData.shifts),
+               staffAbsences: List.unmodifiable(MockData.staffAbsences),
+               publicStaffAbsences: List.unmodifiable(
+                 MockData.publicStaffAbsences,
+               ),
+               users: const [],
+               clientPhotos: List.unmodifiable(MockData.clientPhotos),
+               clientQuestionnaireTemplates: List.unmodifiable(
+                 MockData.clientQuestionnaireTemplates,
+               ),
+               clientQuestionnaires: List.unmodifiable(
+                 MockData.clientQuestionnaires,
+               ),
+               promotions: List.unmodifiable(MockData.promotions),
+               lastMinuteSlots: List.unmodifiable(MockData.lastMinuteSlots),
+               salonAccessRequests: const [],
+               setupProgress: const [],
+             ),
+       ) {
     final firestore = _firestore;
     if (firestore != null && currentUser != null) {
       _subscriptions = _initializeSubscriptions(currentUser);
@@ -109,6 +114,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
   final FirebaseFirestore? _firestore;
   final AppUser? _currentUser;
   final bool _hasAuthenticatedUser;
+  final FirebaseStorageService? _storage;
   FirebaseAuth? _adminAuth;
   Future<FirebaseAuth?>? _adminAuthFuture;
   late final List<StreamSubscription> _subscriptions;
@@ -2564,6 +2570,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
 
   Future<void> upsertPromotion(Promotion promotion) async {
     final firestore = _firestore;
+    final previous = state.promotions.firstWhereOrNull(
+      (item) => item.id == promotion.id,
+    );
     final payload = promotionToMap(promotion);
     if (firestore != null) {
       await firestore
@@ -2576,10 +2585,54 @@ class AppDataStore extends StateNotifier<AppDataState> {
     ], (item) => item.id);
     _upsertLocal(promotions: <Promotion>[promotion]);
     _refreshFeatureFilteredCollections();
+    final previousImagePath = previous?.coverImagePath;
+    if (_storage != null &&
+        previousImagePath != null &&
+        previousImagePath.isNotEmpty &&
+        previousImagePath != promotion.coverImagePath) {
+      unawaited(_deletePromotionImageSafely(previousImagePath));
+    }
+    if (_storage != null) {
+      final previousSectionPaths =
+          previous?.sections
+              .where((section) => section.imagePath != null)
+              .map((section) => section.imagePath!)
+              .toSet() ??
+          const <String>{};
+      final currentSectionPaths =
+          promotion.sections
+              .where((section) => section.imagePath != null)
+              .map((section) => section.imagePath!)
+              .toSet();
+      final removedPaths = previousSectionPaths.difference(currentSectionPaths);
+      for (final path in removedPaths) {
+        if (path.isEmpty) continue;
+        unawaited(_deletePromotionImageSafely(path));
+      }
+    }
+  }
+
+  Future<void> trackPromotionView(Promotion promotion) {
+    return _trackPromotionAnalytics(
+      promotion,
+      incrementView: true,
+      incrementCta: false,
+    );
+  }
+
+  Future<void> trackPromotionCta(Promotion promotion) {
+    return _trackPromotionAnalytics(
+      promotion,
+      incrementView: false,
+      incrementCta: true,
+    );
   }
 
   Future<void> deletePromotion(String promotionId) async {
     final firestore = _firestore;
+    final promotion =
+        state.promotions.firstWhereOrNull((item) => item.id == promotionId) ??
+        _cachedPromotions.firstWhereOrNull((item) => item.id == promotionId);
     if (firestore != null) {
       await firestore.collection('promotions').doc(promotionId).delete();
     }
@@ -2587,6 +2640,58 @@ class AppDataStore extends StateNotifier<AppDataState> {
     _cachedPromotions =
         _cachedPromotions.where((item) => item.id != promotionId).toList();
     _refreshFeatureFilteredCollections();
+    final imagePath = promotion?.coverImagePath;
+    if (_storage != null && imagePath != null && imagePath.isNotEmpty) {
+      unawaited(_deletePromotionImageSafely(imagePath));
+    }
+    if (_storage != null) {
+      final sectionPaths =
+          promotion?.sections
+              .where((section) => section.imagePath != null)
+              .map((section) => section.imagePath!)
+              .toList() ??
+          const <String>[];
+      for (final path in sectionPaths) {
+        if (path.isEmpty) continue;
+        unawaited(_deletePromotionImageSafely(path));
+      }
+    }
+  }
+
+  Future<void> _trackPromotionAnalytics(
+    Promotion promotion, {
+    required bool incrementView,
+    required bool incrementCta,
+  }) async {
+    final firestore = _firestore;
+    if (firestore != null && (incrementView || incrementCta)) {
+      final Map<String, Object> payload = <String, Object>{
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      if (incrementView) {
+        payload['analytics.viewCount'] = FieldValue.increment(1);
+      }
+      if (incrementCta) {
+        payload['analytics.ctaClickCount'] = FieldValue.increment(1);
+      }
+      await firestore
+          .collection('promotions')
+          .doc(promotion.id)
+          .set(payload, SetOptions(merge: true));
+    }
+    if (!incrementView && !incrementCta) {
+      return;
+    }
+    final currentAnalytics = promotion.analytics ?? const PromotionAnalytics();
+    final updatedAnalytics = currentAnalytics.copyWith(
+      viewCount: currentAnalytics.viewCount + (incrementView ? 1 : 0),
+      ctaClickCount: currentAnalytics.ctaClickCount + (incrementCta ? 1 : 0),
+    );
+    final updatedPromotion = promotion.copyWith(analytics: updatedAnalytics);
+    _cachedPromotions = _merge(_cachedPromotions, <Promotion>[
+      updatedPromotion,
+    ], (item) => item.id);
+    _upsertLocal(promotions: <Promotion>[updatedPromotion]);
   }
 
   Future<void> upsertLastMinuteSlot(LastMinuteSlot slot) async {
@@ -4533,6 +4638,23 @@ class AppDataStore extends StateNotifier<AppDataState> {
         ),
       ),
     );
+  }
+
+  Future<void> _deletePromotionImageSafely(String storagePath) async {
+    final storage = _storage;
+    if (storage == null) {
+      return;
+    }
+    try {
+      await storage.deleteFile(storagePath);
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint(
+          'Impossibile eliminare immagine promozione $storagePath: $error',
+        );
+        debugPrintStack(stackTrace: stackTrace);
+      }
+    }
   }
 
   void _deletePromotionLocal(String promotionId) {

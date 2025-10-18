@@ -34,6 +34,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'client_booking_sheet.dart';
+import 'client_settings_screen.dart';
 import 'client_theme.dart';
 
 const _instagramLogoAsset = 'assets/social_logo/instagram.PNG';
@@ -152,10 +153,9 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       }
       final restored = <_ClientBadgeTarget, int>{};
       for (final entry in decoded.entries) {
-        final target =
-            _ClientBadgeTarget.values.firstWhereOrNull(
-              (candidate) => candidate.name == entry.key,
-            );
+        final target = _ClientBadgeTarget.values.firstWhereOrNull(
+          (candidate) => candidate.name == entry.key,
+        );
         if (target == null) {
           continue;
         }
@@ -183,7 +183,9 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       });
     } catch (error, stackTrace) {
       if (kDebugMode) {
-        debugPrint('Impossibile decodificare gli acknowledgement badge: $error');
+        debugPrint(
+          'Impossibile decodificare gli acknowledgement badge: $error',
+        );
         debugPrintStack(stackTrace: stackTrace);
       }
     }
@@ -225,7 +227,9 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       await prefs.setString(key, jsonEncode(payload));
     } catch (error, stackTrace) {
       if (kDebugMode) {
-        debugPrint('Impossibile serializzare gli acknowledgement badge: $error');
+        debugPrint(
+          'Impossibile serializzare gli acknowledgement badge: $error',
+        );
         debugPrintStack(stackTrace: stackTrace);
       }
     }
@@ -246,13 +250,6 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
   void _acknowledgeBadge(_ClientBadgeTarget target, int currentCount) {
     _acknowledgedBadgeCounts[target] = currentCount;
     unawaited(_persistAcknowledgedBadges());
-  }
-
-  void _onDrawerElasticTick() {
-    if (!mounted) {
-      return;
-    }
-    setState(() {});
   }
 
   double _clampStretch(double value) {
@@ -361,17 +358,29 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     required Client client,
     required Salon? salon,
   }) {
-    final stretch = _clampStretch(_drawerHeaderController.value);
-    return Padding(
-      padding: EdgeInsets.fromLTRB(20, 24 + stretch, 20, 0),
+    return AnimatedBuilder(
+      animation: _drawerHeaderController,
+      builder: (context, child) {
+        final stretch = _clampStretch(_drawerHeaderController.value);
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 24 + stretch, 20, 0),
+          child: child,
+        );
+      },
       child: _ClientDrawerHeader(client: client, salon: salon),
     );
   }
 
   Widget _buildDrawerFooterSection({required BuildContext context}) {
-    final stretch = _clampStretch(_drawerFooterController.value);
-    return Padding(
-      padding: EdgeInsets.fromLTRB(20, 12, 20, 24 + stretch),
+    return AnimatedBuilder(
+      animation: _drawerFooterController,
+      builder: (context, child) {
+        final stretch = _clampStretch(_drawerFooterController.value);
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 12, 20, 24 + stretch),
+          child: child,
+        );
+      },
       child: _DrawerNavigationCard(
         icon: Icons.logout_rounded,
         label: 'Esci',
@@ -498,10 +507,8 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
   @override
   void initState() {
     super.initState();
-    _drawerHeaderController = AnimationController.unbounded(vsync: this)
-      ..addListener(_onDrawerElasticTick);
-    _drawerFooterController = AnimationController.unbounded(vsync: this)
-      ..addListener(_onDrawerElasticTick);
+    _drawerHeaderController = AnimationController.unbounded(vsync: this);
+    _drawerFooterController = AnimationController.unbounded(vsync: this);
     _listenForegroundMessages();
     _intentSubscription = ref.listenManual<ClientDashboardIntent?>(
       clientDashboardIntentProvider,
@@ -881,93 +888,160 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     Promotion promotion, {
     BuildContext? overrideContext,
   }) async {
-    if (!mounted) {
+    _trackPromotionView(promotion);
+    final targetContext = overrideContext ?? context;
+    await Navigator.of(targetContext).push(
+      MaterialPageRoute<void>(
+        builder: (detailContext) {
+          return PromotionDetailPage(
+            promotion: promotion,
+            ctaLabel: _promotionCtaLabel(promotion),
+            ctaIcon: _promotionCtaIcon(promotion),
+            onCtaTap:
+                () => _handlePromotionCta(
+                  promotion,
+                  overrideContext: detailContext,
+                ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _handlePromotionCta(
+    Promotion promotion, {
+    BuildContext? overrideContext,
+  }) async {
+    final targetContext = overrideContext ?? context;
+    final messenger = ScaffoldMessenger.of(targetContext);
+    final cta = promotion.cta;
+    if (cta == null || !cta.enabled) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Azione non disponibile per questa promozione.'),
+        ),
+      );
       return;
     }
-    final targetContext = overrideContext ?? context;
-    final discountFormat = NumberFormat('##0.#', 'it_IT');
-    await showModalBottomSheet<void>(
-      context: targetContext,
-      showDragHandle: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
-        final subtitle = promotion.subtitle;
-        final tagline = promotion.tagline;
-        final endsAt = promotion.endsAt;
-        final hasLink = promotion.ctaUrl?.isNotEmpty == true;
-        return _wrapClientModal(
-          context: sheetContext,
-          builder: (modalContext) {
-            final theme = Theme.of(modalContext);
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(promotion.title, style: theme.textTheme.headlineSmall),
-                if (subtitle != null && subtitle.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text(subtitle, style: theme.textTheme.titleMedium),
-                ],
-                if (tagline != null && tagline.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text(tagline, style: theme.textTheme.bodyLarge),
-                ],
-                if (promotion.discountPercentage > 0) ...[
-                  const SizedBox(height: 12),
-                  Chip(
-                    avatar: const Icon(Icons.percent_rounded, size: 18),
-                    label: Text(
-                      '-${discountFormat.format(promotion.discountPercentage)}%',
-                    ),
-                  ),
-                ],
-                if (endsAt != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    'Valida fino al ${DateFormat('dd/MM', 'it_IT').format(endsAt)}',
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                ],
-                const SizedBox(height: 16),
-                if (hasLink) ...[
-                  FilledButton.icon(
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: promotion.ctaUrl!));
-                      Navigator.of(sheetContext).pop();
-                      if (!mounted) {
-                        return;
-                      }
-                      ScaffoldMessenger.of(targetContext).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Link dell\'offerta copiato negli appunti.',
-                          ),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.link_rounded),
-                    label: const Text('Copia link offerta'),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Apri il browser e incolla il link per continuare.',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 8),
-                ],
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: () => Navigator.of(sheetContext).pop(),
-                    child: const Text('Chiudi'),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
+    final ctaUrl = cta.url;
+    if (ctaUrl == null || ctaUrl.trim().isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Nessun link disponibile per questa promozione.'),
+        ),
+      );
+      return;
+    }
+    final uri = _parsePromotionCtaUri(ctaUrl);
+    if (uri == null) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Link promozione non valido.')),
+      );
+      return;
+    }
+    _trackPromotionCta(promotion);
+    try {
+      final launched = await launchUrl(
+        uri,
+        mode: _launchModeForScheme(uri.scheme),
+      );
+      if (!launched) {
+        _copyPromotionLinkWithFeedback(targetContext, ctaUrl);
+      }
+    } catch (error) {
+      _copyPromotionLinkWithFeedback(targetContext, ctaUrl, error: error);
+    }
+  }
+
+  String _promotionCtaLabel(Promotion promotion) {
+    final cta = promotion.cta;
+    if (cta == null || !cta.enabled) {
+      return 'Contatta il salone';
+    }
+    final label = cta.label;
+    if (label != null && label.trim().isNotEmpty) {
+      return label;
+    }
+    switch (cta.type) {
+      case PromotionCtaType.whatsapp:
+        return 'Scrivici su WhatsApp';
+      case PromotionCtaType.phone:
+        return 'Chiama ora';
+      case PromotionCtaType.booking:
+        return 'Prenota ora';
+      case PromotionCtaType.custom:
+        return 'Contatta il salone';
+      case PromotionCtaType.link:
+      case PromotionCtaType.none:
+        return 'Scopri l\'offerta';
+    }
+  }
+
+  IconData _promotionCtaIcon(Promotion promotion) {
+    final cta = promotion.cta;
+    if (cta == null || !cta.enabled) {
+      return Icons.arrow_forward_rounded;
+    }
+    switch (cta.type) {
+      case PromotionCtaType.phone:
+        return Icons.call;
+      case PromotionCtaType.whatsapp:
+        return Icons.chat_bubble_outline;
+      case PromotionCtaType.booking:
+        return Icons.calendar_today_rounded;
+      case PromotionCtaType.custom:
+        return Icons.open_in_new_rounded;
+      case PromotionCtaType.link:
+      case PromotionCtaType.none:
+        return Icons.arrow_forward_rounded;
+    }
+  }
+
+  Uri? _parsePromotionCtaUri(String url) {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+    Uri? uri = Uri.tryParse(trimmed);
+    if (uri == null) {
+      return null;
+    }
+    if (!uri.hasScheme) {
+      uri = Uri.tryParse('https://$trimmed');
+    }
+    return uri;
+  }
+
+  LaunchMode _launchModeForScheme(String scheme) {
+    switch (scheme.toLowerCase()) {
+      case 'http':
+      case 'https':
+        return LaunchMode.externalApplication;
+      default:
+        return LaunchMode.externalApplication;
+    }
+  }
+
+  void _copyPromotionLinkWithFeedback(
+    BuildContext context,
+    String url, {
+    Object? error,
+  }) {
+    Clipboard.setData(ClipboardData(text: url));
+    final messenger = ScaffoldMessenger.of(context);
+    final message =
+        error == null
+            ? 'Link dell\'offerta copiato negli appunti.'
+            : 'Non riesco ad aprire il link, ma l\'ho copiato negli appunti.';
+    messenger.showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _trackPromotionView(Promotion promotion) {
+    unawaited(ref.read(appDataProvider.notifier).trackPromotionView(promotion));
+  }
+
+  void _trackPromotionCta(Promotion promotion) {
+    unawaited(ref.read(appDataProvider.notifier).trackPromotionCta(promotion));
   }
 
   void _addServiceToCart({
@@ -1694,6 +1768,17 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
                 actions: [
                   const ThemeModeAction(),
                   IconButton(
+                    tooltip: 'Impostazioni',
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const ClientSettingsScreen(),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.settings_rounded),
+                  ),
+                  IconButton(
                     tooltip: 'Esci',
                     onPressed: () async {
                       await ref.read(authRepositoryProvider).signOut();
@@ -1842,7 +1927,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
             )
             .length;
     final clientQuotes = data.quotes
-        .where((quote) => quote.clientId == currentClient.id)
+        .where(
+          (quote) =>
+              quote.clientId == currentClient.id &&
+              quote.status != QuoteStatus.draft,
+        )
         .toList(growable: false);
     final packagesBadgeDelta = _badgeDelta(
       _ClientBadgeTarget.packages,
@@ -1967,7 +2056,6 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
               ),
               title: Text('Ciao ${currentClient.firstName}'),
               actions: [
-                const ThemeModeAction(),
                 IconButton(
                   tooltip: 'Notifiche',
                   onPressed: () {
@@ -2033,6 +2121,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
                                       context,
                                       client: currentClient,
                                       sales: clientSales,
+                                      salon: salon,
                                     );
                                   },
                                 ),
@@ -2126,8 +2215,16 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
                                 _DrawerNavigationCard(
                                   icon: Icons.settings_rounded,
                                   label: 'Impostazioni',
-                                  subtitle: 'Presto disponibili',
-                                  onTap: () => Navigator.of(context).pop(),
+                                  subtitle: 'Gestisci profilo e preferenze',
+                                  onTap: () {
+                                    Navigator.of(context).pop();
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder:
+                                            (_) => const ClientSettingsScreen(),
+                                      ),
+                                    );
+                                  },
                                 ),
                               ],
                             ),
@@ -2135,7 +2232,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
                         ),
                       ),
                     ),
-                    _buildDrawerFooterSection(context: context),
+                    //_buildDrawerFooterSection(context: context),
                   ],
                 ),
               ),
@@ -2246,18 +2343,6 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
             ),
           );
         },
-      ),
-    );
-  }
-
-  Widget _buildPhotosTab({
-    required BuildContext context,
-    required Client client,
-  }) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: ClientPhotosGallery(clientId: client.id),
       ),
     );
   }
@@ -2986,150 +3071,144 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       contactTiles.insert(0, whatsappTile);
     }
 
+    Widget? contactsCard;
     if (contactTiles.isNotEmpty) {
-      cards.add(
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _SalonSectionHeader(
-                  icon: Icons.call_rounded,
-                  title: 'Contatti principali',
-                  color: scheme.primary,
-                ),
-                const SizedBox(height: 12),
-                for (var i = 0; i < contactTiles.length; i++) ...[
-                  if (i > 0)
-                    Divider(
-                      height: 16,
-                      color: scheme.primary.withOpacity(0.08),
-                    ),
-                  contactTiles[i],
-                ],
+      contactsCard = Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SalonSectionHeader(
+                icon: Icons.call_rounded,
+                title: 'Contatti principali',
+                color: scheme.primary,
+              ),
+              const SizedBox(height: 12),
+              for (var i = 0; i < contactTiles.length; i++) ...[
+                if (i > 0)
+                  Divider(height: 16, color: scheme.primary.withOpacity(0.08)),
+                contactTiles[i],
               ],
-            ),
+            ],
           ),
         ),
       );
     }
 
+    Widget? locationCard;
     if (locationDescription.isNotEmpty) {
-      cards.add(
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _SalonSectionHeader(
-                  icon: Icons.map_rounded,
-                  title: 'Dove trovarci',
-                  color: scheme.primary,
+      locationCard = Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SalonSectionHeader(
+                icon: Icons.map_rounded,
+                title: 'Dove trovarci',
+                color: scheme.primary,
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: _SalonInfoCircleIcon(
+                  scheme.primary,
+                  Icons.location_on_rounded,
+                  assetPath: _mapsLogoAsset,
                 ),
+                title: const Text('Indirizzo'),
+                subtitle: Text(locationDescription),
+                trailing:
+                    mapsUri == null
+                        ? null
+                        : Icon(
+                          Icons.open_in_new_rounded,
+                          color: scheme.primary,
+                        ),
+                onTap:
+                    mapsUri == null
+                        ? null
+                        : () => _launchExternalUrl(context, mapsUri),
+              ),
+              if (mapsUri != null) ...[
                 const SizedBox(height: 12),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: _SalonInfoCircleIcon(
-                    scheme.primary,
-                    Icons.location_on_rounded,
-                    assetPath: _mapsLogoAsset,
-                  ),
-                  title: const Text('Indirizzo'),
-                  subtitle: Text(locationDescription),
-                  trailing:
-                      mapsUri == null
-                          ? null
-                          : Icon(
-                            Icons.open_in_new_rounded,
-                            color: scheme.primary,
-                          ),
-                  onTap:
-                      mapsUri == null
-                          ? null
-                          : () => _launchExternalUrl(context, mapsUri),
-                ),
-                if (mapsUri != null) ...[
-                  const SizedBox(height: 12),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: InkWell(
-                      onTap: () => _launchExternalUrl(context, mapsUri),
-                      child: Container(
-                        height: 160,
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              scheme.primary.withOpacity(0.85),
-                              scheme.primaryContainer.withOpacity(0.85),
-                            ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                        ),
-                        child: Stack(
-                          children: [
-                            Align(
-                              alignment: Alignment.center,
-                              child: Icon(
-                                Icons.map_rounded,
-                                color: scheme.onPrimary,
-                                size: 64,
-                              ),
-                            ),
-                            Positioned(
-                              left: 16,
-                              bottom: 16,
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Icons.open_in_new_rounded,
-                                    color: scheme.onPrimary,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Apri in Google Maps',
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: scheme.onPrimary,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: InkWell(
+                    onTap: () => _launchExternalUrl(context, mapsUri),
+                    child: Container(
+                      height: 160,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            scheme.primary.withOpacity(0.85),
+                            scheme.primaryContainer.withOpacity(0.85),
                           ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
+                      ),
+                      child: Stack(
+                        children: [
+                          Align(
+                            alignment: Alignment.center,
+                            child: Icon(
+                              Icons.map_rounded,
+                              color: scheme.onPrimary,
+                              size: 64,
+                            ),
+                          ),
+                          Positioned(
+                            left: 16,
+                            bottom: 16,
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.open_in_new_rounded,
+                                  color: scheme.onPrimary,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Apri in Google Maps',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: scheme.onPrimary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                ],
+                ),
               ],
-            ),
+            ],
           ),
         ),
       );
     }
 
     final scheduleRows = _buildScheduleRows(context, salon);
+    Widget? scheduleCard;
     if (scheduleRows.isNotEmpty) {
-      cards.add(
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _SalonSectionHeader(
-                  icon: Icons.access_time_rounded,
-                  title: 'Orari di apertura',
-                  color: scheme.primary,
-                ),
-                const SizedBox(height: 12),
-                ...scheduleRows,
-              ],
-            ),
+      scheduleCard = Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SalonSectionHeader(
+                icon: Icons.access_time_rounded,
+                title: 'Orari di apertura',
+                color: scheme.primary,
+              ),
+              const SizedBox(height: 12),
+              ...scheduleRows,
+            ],
           ),
         ),
       );
@@ -3152,6 +3231,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       );
     }
 
+    Widget? socialCard;
     if (socialIconButtons.isNotEmpty) {
       final rowChildren = <Widget>[];
       for (var index = 0; index < socialIconButtons.length; index++) {
@@ -3160,45 +3240,55 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
           rowChildren.add(const SizedBox(width: 12));
         }
       }
-      cards.add(
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _SalonSectionHeader(
-                  icon: Icons.public_rounded,
-                  title: 'Canali social',
-                  color: scheme.primary,
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: rowChildren,
-                ),
-              ],
-            ),
+      socialCard = Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SalonSectionHeader(
+                icon: Icons.public_rounded,
+                title: 'Canali social',
+                color: scheme.primary,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: rowChildren,
+              ),
+            ],
           ),
         ),
       );
     }
 
     final reviewUri = _buildGoogleReviewUri(salon);
-    cards.add(
-      Card(
-        color: scheme.primaryContainer,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: _SalonReviewCard(
-            salonName: salon.name,
-            primaryColor: scheme.primary,
-            onPrimaryColor: scheme.onPrimaryContainer,
-            onOpenReviews: () => _launchExternalUrl(context, reviewUri),
-          ),
+    final reviewCard = Card(
+      color: scheme.primaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: _SalonReviewCard(
+          salonName: salon.name,
+          primaryColor: scheme.primary,
+          onPrimaryColor: scheme.onPrimaryContainer,
+          onOpenReviews: () => _launchExternalUrl(context, reviewUri),
         ),
       ),
     );
+
+    final orderedSalonCards = <Widget?>[
+      contactsCard,
+      socialCard,
+      scheduleCard,
+      reviewCard,
+      locationCard,
+    ];
+
+    for (final card in orderedSalonCards) {
+      if (card != null) {
+        cards.add(card);
+      }
+    }
 
     if (cards.isEmpty) {
       return SafeArea(
@@ -3641,128 +3731,6 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     );
   }
 
-  Widget _buildLoyaltyTab({
-    required BuildContext context,
-    required Client client,
-    required List<Sale> sales,
-  }) {
-    final theme = Theme.of(context);
-    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
-    final loyaltySales =
-        sales
-            .where(
-              (sale) =>
-                  sale.loyalty.resolvedEarnedPoints > 0 ||
-                  sale.loyalty.redeemedPoints > 0,
-            )
-            .toList()
-          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    final loyaltyStats = _calculateLoyaltyStats(client, sales);
-
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Saldo utilizzabile', style: _sectionTitleStyle(context)),
-                const SizedBox(height: 10),
-                Text(
-                  '${loyaltyStats.spendable} pt',
-                  style: theme.textTheme.displaySmall,
-                ),
-                const SizedBox(height: 16),
-                Text.rich(
-                  TextSpan(
-                    text: 'Punti iniziali: ',
-                    style: theme.textTheme.bodyMedium,
-                    children: [
-                      TextSpan(
-                        text: '${loyaltyStats.initialPoints} pt',
-                        style: theme.textTheme.titleMedium,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text.rich(
-                  TextSpan(
-                    text: 'Punti accumulati: ',
-                    style: theme.textTheme.bodyMedium,
-                    children: [
-                      TextSpan(
-                        text: '${loyaltyStats.totalEarned} pt',
-                        style: theme.textTheme.titleMedium,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text.rich(
-                  TextSpan(
-                    text: 'Punti utilizzati: ',
-                    style: theme.textTheme.bodyMedium,
-                    children: [
-                      TextSpan(
-                        text: '${loyaltyStats.totalRedeemed} pt',
-                        style: (theme.textTheme.titleMedium ??
-                                const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w600,
-                                ))
-                            .copyWith(
-                              color:
-                                  loyaltyStats.totalRedeemed > 0
-                                      ? theme.colorScheme.error
-                                      : null,
-                            ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 24),
-        Text('Movimenti recenti', style: _sectionTitleStyle(context)),
-        const SizedBox(height: 10),
-        if (loyaltySales.isEmpty)
-          const Card(
-            child: ListTile(title: Text('Non ci sono movimenti registrati.')),
-          )
-        else
-          ...loyaltySales.map((sale) {
-            final date = DateFormat('dd/MM/yyyy HH:mm').format(sale.createdAt);
-            final summary = sale.loyalty;
-            final net = summary.netPoints;
-            final icon =
-                net >= 0
-                    ? Icons.trending_up_rounded
-                    : Icons.trending_down_rounded;
-            final color =
-                net >= 0 ? theme.colorScheme.primary : theme.colorScheme.error;
-            return Card(
-              child: ListTile(
-                leading: Icon(icon, color: color),
-                title: Text('Vendita del $date'),
-                subtitle: Text(
-                  'Assegnati: ${summary.resolvedEarnedPoints} • Usati: ${summary.redeemedPoints}\nValore sconto: ${currency.format(summary.redeemedValue)}',
-                ),
-                trailing: Text(
-                  net >= 0 ? '+$net pt' : '$net pt',
-                  style: theme.textTheme.titleMedium?.copyWith(color: color),
-                ),
-              ),
-            );
-          }),
-      ],
-    );
-  }
-
   Widget _buildBillingTab({
     required BuildContext context,
     required Client client,
@@ -3941,105 +3909,113 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
-        final bottomPadding = MediaQuery.of(sheetContext).viewInsets.bottom;
+        final bottomInset = MediaQuery.of(sheetContext).viewInsets.bottom;
         return _wrapClientModal(
           context: sheetContext,
-          padding: EdgeInsets.fromLTRB(24, 24, 24, 24 + bottomPadding),
+          padding: EdgeInsets.fromLTRB(24, 24, 24, 24 + bottomInset),
           builder: (modalContext) {
-            final theme = Theme.of(modalContext);
             final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
             final dateFormat = DateFormat('dd/MM/yyyy');
             final dateTimeFormat = DateFormat('dd/MM/yyyy HH:mm');
-            return FractionallySizedBox(
-              heightFactor: 0.9,
-              child: Consumer(
+            return _ClientSheetScaffold(
+              icon: Icons.description_rounded,
+              title: 'Preventivi',
+              subtitle: 'Rivedi e gestisci le proposte inviate dal salone',
+              body: Consumer(
                 builder: (consumerContext, sheetRef, _) {
+                  final theme = Theme.of(consumerContext);
                   final data = sheetRef.watch(appDataProvider);
                   final salonsById = <String, Salon>{
                     for (final salon in data.salons) salon.id: salon,
                   };
                   final quotes =
                       data.quotes
-                          .where((quote) => quote.clientId == client.id)
+                          .where(
+                            (quote) =>
+                                quote.clientId == client.id &&
+                                quote.status != QuoteStatus.draft,
+                          )
                           .toList()
                         ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              'I tuoi preventivi',
-                              style: _sectionTitleStyle(modalContext),
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Chiudi',
-                            onPressed: () => Navigator.of(sheetContext).pop(),
-                            icon: const Icon(Icons.close_rounded),
-                          ),
-                        ],
+                  final children = <Widget>[
+                    const SizedBox(height: 16),
+                    Text(
+                      'I tuoi preventivi',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
                       ),
-                      const SizedBox(height: 12),
-                      if (quotes.isEmpty)
-                        Expanded(
-                          child: Center(
-                            child: Text(
-                              'Non sono disponibili preventivi al momento.',
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.bodyLarge,
-                            ),
-                          ),
-                        )
-                      else
-                        Expanded(
-                          child: ListView.separated(
-                            physics: const BouncingScrollPhysics(),
-                            itemCount: quotes.length,
-                            separatorBuilder:
-                                (_, __) => const SizedBox(height: 12),
-                            itemBuilder: (ctx, index) {
-                              final quote = quotes[index];
-                              final salonForQuote = salonsById[quote.salonId];
-                              final isProcessing = _processingQuotePayments
-                                  .contains(quote.id);
-                              final canAcceptOnline =
-                                  salonForQuote != null &&
-                                  salonForQuote.canAcceptOnlinePayments &&
-                                  quote.status == QuoteStatus.sent &&
-                                  !quote.isExpired &&
-                                  quote.acceptedAt == null &&
-                                  quote.declinedAt == null &&
-                                  quote.total > 0;
-                              final VoidCallback? onAccept =
-                                  canAcceptOnline
-                                      ? () {
-                                        unawaited(
-                                          _acceptQuoteWithStripe(
-                                            context: sheetContext,
-                                            client: client,
-                                            quote: quote,
-                                            salon: salonForQuote,
-                                          ),
-                                        );
-                                      }
-                                      : null;
-                              return _buildClientQuoteCard(
-                                theme: theme,
-                                currency: currency,
-                                dateFormat: dateFormat,
-                                dateTimeFormat: dateTimeFormat,
-                                quote: quote,
-                                salon: salonForQuote,
-                                isProcessing: isProcessing,
-                                onAcceptAndPay: onAccept,
-                              );
-                            },
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Gestisci e accetta le proposte economiche inviate dal tuo salone.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ];
+
+                  if (quotes.isEmpty) {
+                    children.addAll(const [
+                      _ClientEmptyStateCard(
+                        icon: Icons.description_outlined,
+                        title: 'Ancora nessun preventivo',
+                        message:
+                            'Quando il salone ti invierà una proposta, la troverai qui.',
+                      ),
+                      SizedBox(height: 8),
+                    ]);
+                  } else {
+                    for (final quote in quotes) {
+                      final salonForQuote = salonsById[quote.salonId];
+                      final isProcessing = _processingQuotePayments.contains(
+                        quote.id,
+                      );
+                      final canAcceptOnline =
+                          salonForQuote != null &&
+                          salonForQuote.canAcceptOnlinePayments &&
+                          quote.status == QuoteStatus.sent &&
+                          !quote.isExpired &&
+                          quote.acceptedAt == null &&
+                          quote.declinedAt == null &&
+                          quote.total > 0;
+                      final VoidCallback? onAccept =
+                          canAcceptOnline
+                              ? () {
+                                unawaited(
+                                  _acceptQuoteWithStripe(
+                                    context: sheetContext,
+                                    client: client,
+                                    quote: quote,
+                                    salon: salonForQuote,
+                                  ),
+                                );
+                              }
+                              : null;
+                      children.add(
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _buildClientQuoteCard(
+                            theme: theme,
+                            currency: currency,
+                            dateFormat: dateFormat,
+                            dateTimeFormat: dateTimeFormat,
+                            quote: quote,
+                            salon: salonForQuote,
+                            isProcessing: isProcessing,
+                            onAcceptAndPay: onAccept,
                           ),
                         ),
-                    ],
+                      );
+                    }
+                    children.add(const SizedBox(height: 4));
+                  }
+
+                  return ListView(
+                    padding: EdgeInsets.zero,
+                    physics: const BouncingScrollPhysics(),
+                    children: children,
                   );
                 },
               ),
@@ -4073,21 +4049,102 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     final canShowPaymentAction =
         onAcceptAndPay != null && !isAccepted && !isDeclined && !isExpired;
     final salonSupportsStripe = salon?.canAcceptOnlinePayments ?? false;
+    final scheme = theme.colorScheme;
+    final tintedSurface = Color.alphaBlend(
+      scheme.primary.withOpacity(0.04),
+      scheme.surface,
+    );
+    final iconBackground = Color.alphaBlend(
+      scheme.primary.withOpacity(0.12),
+      scheme.surfaceVariant.withOpacity(0.6),
+    );
+    final itemsBackground = Color.alphaBlend(
+      scheme.primary.withOpacity(0.06),
+      scheme.surfaceVariant.withOpacity(0.7),
+    );
+    final quoteTitle =
+        quote.title?.isNotEmpty == true
+            ? quote.title!
+            : 'Preventivo ${_quoteLabel(quote)}';
+    final salonName = salon?.name ?? 'Salone non disponibile';
+
+    final metaChips = <Widget>[];
+    final quoteNumber = quote.number;
+    if (quoteNumber != null && quoteNumber.isNotEmpty) {
+      metaChips.add(
+        _quoteMetaChip(
+          theme,
+          icon: Icons.confirmation_number_rounded,
+          label: 'N° $quoteNumber',
+        ),
+      );
+    }
+    if (sentAt != null) {
+      metaChips.add(
+        _quoteMetaChip(
+          theme,
+          icon: Icons.send_rounded,
+          label: 'Inviato il ${dateTimeFormat.format(sentAt)}',
+        ),
+      );
+    }
+    if (validUntil != null) {
+      metaChips.add(
+        _quoteMetaChip(
+          theme,
+          icon: Icons.schedule_rounded,
+          label: 'Valido fino al ${dateFormat.format(validUntil)}',
+        ),
+      );
+    }
 
     return Card(
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      color: tintedSurface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: scheme.outlineVariant.withOpacity(0.4)),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: iconBackground,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.receipt_long_rounded,
+                    color: scheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 16),
                 Expanded(
-                  child: Text(
-                    quote.title?.isNotEmpty == true
-                        ? quote.title!
-                        : 'Preventivo ${_quoteLabel(quote)}',
-                    style: theme.textTheme.titleMedium,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        quoteTitle,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        salonName,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 Container(
@@ -4109,78 +4166,112 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
                 ),
               ],
             ),
-            if (quote.number != null && quote.number!.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  'Numero preventivo: ${quote.number}',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ),
-            const SizedBox(height: 12),
-            Text(
-              'Creato il ${dateTimeFormat.format(quote.createdAt)}',
-              style: theme.textTheme.bodyMedium,
-            ),
-            if (sentAt != null)
-              Text(
-                'Inviato il ${dateTimeFormat.format(sentAt)}',
-                style: theme.textTheme.bodyMedium,
-              ),
-            if (validUntil != null)
-              Text(
-                'Validità fino al ${dateFormat.format(validUntil)}',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: quote.isExpired ? theme.colorScheme.error : null,
-                ),
-              ),
-            if (quote.notes?.isNotEmpty == true) ...[
-              const SizedBox(height: 12),
-              Text(quote.notes!, style: theme.textTheme.bodyMedium),
+            if (metaChips.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Wrap(spacing: 8, runSpacing: 8, children: metaChips),
             ],
-            const SizedBox(height: 12),
-            ...quote.items.map((item) {
-              final quantityLabel =
-                  item.quantity == item.quantity.roundToDouble()
-                      ? item.quantity.toInt().toString()
-                      : item.quantity.toStringAsFixed(2);
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Text(
-                  '$quantityLabel × ${item.description} — '
-                  '${currency.format(item.total)}',
-                  style: theme.textTheme.bodyMedium,
+            if (quote.items.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
                 ),
-              );
-            }),
-            const SizedBox(height: 12),
-            Text(
-              'Totale preventivo: ${currency.format(quote.total)}',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
+                decoration: BoxDecoration(
+                  color: itemsBackground,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  children: [
+                    for (var i = 0; i < quote.items.length; i++) ...[
+                      _buildQuoteItemRow(
+                        theme: theme,
+                        currency: currency,
+                        item: quote.items[i],
+                      ),
+                      if (i < quote.items.length - 1)
+                        Divider(
+                          height: 16,
+                          thickness: 1,
+                          color: scheme.outlineVariant.withOpacity(0.2),
+                        ),
+                    ],
+                  ],
+                ),
               ),
+            ],
+            if (quote.notes?.isNotEmpty == true) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Color.alphaBlend(
+                    scheme.primary.withOpacity(0.06),
+                    tintedSurface,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: scheme.outlineVariant.withOpacity(0.2),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.notes_rounded, color: scheme.primary, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        quote.notes!,
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Text(
+                  'Totale preventivo',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  currency.format(quote.total),
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
             ),
             if (isExpired) ...[
-              const SizedBox(height: 12),
-              Text(
-                'Questo preventivo è scaduto. Contatta il salone per ricevere una nuova offerta.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.error,
-                ),
+              _quoteAlertBanner(
+                theme: theme,
+                color: theme.colorScheme.error,
+                icon: Icons.warning_rounded,
+                message:
+                    'Questo preventivo è scaduto. Contatta il salone per ricevere una nuova offerta.',
               ),
             ],
             if (isAccepted && acceptedAt != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                'Accettato il ${dateTimeFormat.format(acceptedAt)}. In salone troverai un ticket aperto per completare il pagamento.',
-                style: theme.textTheme.bodySmall,
+              _quoteAlertBanner(
+                theme: theme,
+                color: scheme.primary,
+                icon: Icons.check_circle_rounded,
+                message:
+                    'Accettato il ${dateTimeFormat.format(acceptedAt)}. In salone troverai un ticket aperto per completare il pagamento.',
               ),
             ],
             if (isDeclined && declinedAt != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                'Rifiutato il ${dateTimeFormat.format(declinedAt)}. Puoi sempre richiedere un nuovo preventivo al salone.',
-                style: theme.textTheme.bodySmall,
+              _quoteAlertBanner(
+                theme: theme,
+                color: theme.colorScheme.error,
+                icon: Icons.cancel_rounded,
+                message:
+                    'Rifiutato il ${dateTimeFormat.format(declinedAt)}. Puoi sempre richiedere un nuovo preventivo al salone.',
               ),
             ],
             if (canShowPaymentAction) ...[
@@ -4207,6 +4298,121 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
                 ),
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _quoteMetaChip(
+    ThemeData theme, {
+    required IconData icon,
+    required String label,
+  }) {
+    final scheme = theme.colorScheme;
+    final background = Color.alphaBlend(
+      scheme.primary.withOpacity(0.08),
+      scheme.surface,
+    );
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: scheme.outlineVariant.withOpacity(0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: scheme.primary),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuoteItemRow({
+    required ThemeData theme,
+    required NumberFormat currency,
+    required QuoteItem item,
+  }) {
+    final scheme = theme.colorScheme;
+    final quantityLabel =
+        item.quantity == item.quantity.roundToDouble()
+            ? item.quantity.toInt().toString()
+            : item.quantity.toStringAsFixed(2);
+    final unitPriceLabel = currency.format(item.unitPrice);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                item.description,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '$quantityLabel × $unitPriceLabel',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          currency.format(item.total),
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _quoteAlertBanner({
+    required ThemeData theme,
+    required Color color,
+    required IconData icon,
+    required String message,
+  }) {
+    final background = Color.alphaBlend(
+      color.withOpacity(0.12),
+      theme.colorScheme.surface,
+    );
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: color, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: theme.textTheme.bodySmall?.copyWith(color: color),
+              ),
+            ),
           ],
         ),
       ),
@@ -4342,9 +4548,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
           context: sheetContext,
           padding: EdgeInsets.fromLTRB(24, 24, 24, 24 + bottomInset),
           builder: (modalContext) {
-            return FractionallySizedBox(
-              heightFactor: 0.9,
-              child: _buildBillingTab(
+            return _ClientSheetScaffold(
+              icon: Icons.receipt_long_rounded,
+              title: 'Fatturazione',
+              subtitle: 'Controlla pagamenti, saldi aperti e ricevute',
+              body: _buildBillingTab(
                 context: modalContext,
                 client: client,
                 sales: sales,
@@ -4363,7 +4571,19 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     BuildContext context, {
     required Client client,
     required List<Sale> sales,
+    required Salon? salon,
   }) {
+    final loyaltyMovements =
+        sales
+            .where(
+              (sale) =>
+                  sale.loyalty.resolvedEarnedPoints > 0 ||
+                  sale.loyalty.redeemedPoints > 0,
+            )
+            .toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final loyaltyStats = _calculateLoyaltyStats(client, sales);
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -4374,12 +4594,14 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
           context: sheetContext,
           padding: EdgeInsets.fromLTRB(24, 24, 24, 24 + bottomInset),
           builder: (modalContext) {
-            return FractionallySizedBox(
-              heightFactor: 0.9,
-              child: _buildLoyaltyTab(
-                context: modalContext,
-                client: client,
-                sales: sales,
+            return _ClientSheetScaffold(
+              icon: Icons.loyalty_rounded,
+              title: 'Punti fedeltà',
+              subtitle: 'Saldo aggiornato e movimenti recenti',
+              body: _ClientLoyaltySheetBody(
+                stats: loyaltyStats,
+                movements: loyaltyMovements,
+                salon: salon,
               ),
             );
           },
@@ -4403,9 +4625,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
           context: sheetContext,
           padding: EdgeInsets.fromLTRB(24, 24, 24, 24 + bottomInset),
           builder: (modalContext) {
-            return FractionallySizedBox(
-              heightFactor: 0.9,
-              child: _buildPackagesTabView(
+            return _ClientSheetScaffold(
+              icon: Icons.card_giftcard_rounded,
+              title: 'Pacchetti',
+              subtitle: 'Gestisci pacchetti attivi e completati',
+              body: _buildPackagesTabView(
                 context: modalContext,
                 activePackages: activePackages,
                 pastPackages: pastPackages,
@@ -4428,9 +4652,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
           context: sheetContext,
           padding: EdgeInsets.fromLTRB(24, 24, 24, 24 + bottomInset),
           builder: (modalContext) {
-            return FractionallySizedBox(
-              heightFactor: 0.9,
-              child: _buildPhotosTab(context: modalContext, client: client),
+            return _ClientSheetScaffold(
+              icon: Icons.photo_library_rounded,
+              title: 'Le mie foto',
+              subtitle: 'Rivivi i trattamenti condivisi dal tuo salone',
+              body: _ClientPhotosSheetBody(clientId: client.id),
             );
           },
         );
@@ -4470,8 +4696,480 @@ Widget _wrapClientModal({
   );
 }
 
-class ClientPhotosGallery extends ConsumerWidget {
-  const ClientPhotosGallery({super.key, required this.clientId});
+class _ClientSheetScaffold extends StatelessWidget {
+  const _ClientSheetScaffold({
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    required this.body,
+  });
+
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final Widget body;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return FractionallySizedBox(
+      heightFactor: 0.9,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                radius: 24,
+                backgroundColor: scheme.primary.withOpacity(0.12),
+                child: Icon(icon, color: scheme.primary),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: theme.textTheme.headlineSmall),
+                    if (subtitle != null && subtitle!.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle!,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Chiudi',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Expanded(child: body),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClientEmptyStateCard extends StatelessWidget {
+  const _ClientEmptyStateCard({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircleAvatar(
+              radius: 28,
+              backgroundColor: scheme.primary.withOpacity(0.12),
+              child: Icon(icon, size: 28, color: scheme.primary),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ClientLoyaltySheetBody extends StatelessWidget {
+  const _ClientLoyaltySheetBody({
+    required this.stats,
+    required this.movements,
+    required this.salon,
+  });
+
+  final _LoyaltyStats stats;
+  final List<Sale> movements;
+  final Salon? salon;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    final movementDateFormat = DateFormat('dd/MM/yyyy HH:mm', 'it_IT');
+    final isDark = theme.brightness == Brightness.dark;
+
+    final loyaltySettings = salon?.loyaltySettings;
+    final expirationRules = loyaltySettings?.expiration;
+    final redemptionRules = loyaltySettings?.redemption;
+    final currentYear = DateTime.now().year;
+    final expirationLabel =
+        expirationRules == null
+            ? 'Non disponibile'
+            : '${expirationRules.resetDay.toString().padLeft(2, '0')}/${expirationRules.resetMonth.toString().padLeft(2, '0')}/${(currentYear % 100).toString().padLeft(2, '0')}';
+    final expirationTimezone = expirationRules?.timezone;
+    final pointValueLabel =
+        redemptionRules == null
+            ? 'Non disponibile'
+            : currency.format(redemptionRules.pointValueEuro);
+
+    final metaTileBackground =
+        isDark
+            ? theme.colorScheme.onPrimary.withOpacity(0.08)
+            : theme.colorScheme.primary.withOpacity(0.08);
+    final metaTileBorderColor =
+        isDark
+            ? theme.colorScheme.onPrimary.withOpacity(0.18)
+            : theme.colorScheme.primary.withOpacity(0.2);
+    final metaLabelColor =
+        isDark
+            ? theme.colorScheme.onPrimary.withOpacity(0.85)
+            : theme.colorScheme.primary.withOpacity(0.85);
+    final metaValueColor =
+        isDark ? theme.colorScheme.onPrimary : theme.colorScheme.primary;
+    final metaCaptionColor =
+        isDark
+            ? theme.colorScheme.onPrimary.withOpacity(0.7)
+            : theme.colorScheme.primary.withOpacity(0.7);
+    final metaLabelStyle = theme.textTheme.labelLarge?.copyWith(
+      color: metaLabelColor,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.2,
+    );
+    final metaValueStyle = theme.textTheme.titleMedium?.copyWith(
+      color: metaValueColor,
+      fontWeight: FontWeight.w700,
+    );
+    final metaCaptionStyle = theme.textTheme.bodySmall?.copyWith(
+      color: metaCaptionColor,
+    );
+
+    final movementWidgets = <Widget>[
+      Text(
+        'Movimenti recenti',
+        style: theme.textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      const SizedBox(height: 10),
+    ];
+
+    if (movements.isEmpty) {
+      movementWidgets.add(
+        const _ClientEmptyStateCard(
+          icon: Icons.history_toggle_off_rounded,
+          title: 'Nessun movimento registrato',
+          message:
+              'Appena accumulerai o utilizzerai punti, troverai qui tutti i dettagli.',
+        ),
+      );
+    } else {
+      for (final sale in movements) {
+        final summary = sale.loyalty;
+        final net = summary.netPoints;
+        final assignedPoints = summary.resolvedEarnedPoints;
+        final usedPoints = summary.redeemedPoints;
+        final hasAssigned = assignedPoints > 0;
+        final hasUsed = usedPoints > 0;
+        final icon =
+            net >= 0 ? Icons.trending_up_rounded : Icons.trending_down_rounded;
+        final color =
+            net >= 0 ? theme.colorScheme.primary : theme.colorScheme.error;
+
+        movementWidgets.add(
+          Card(
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: color.withOpacity(0.12),
+                foregroundColor: color,
+                child: Icon(icon),
+              ),
+              title: Text(
+                'Vendita del ${movementDateFormat.format(sale.createdAt)}',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              subtitle: Text(
+                'Valore sconto: ${currency.format(summary.redeemedValue)}',
+              ),
+              trailing: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (hasAssigned) ...[
+                    Text('Assegnati', style: theme.textTheme.bodySmall),
+                    Text(
+                      '+$assignedPoints pt',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                  if (hasAssigned && hasUsed) const SizedBox(height: 4),
+                  if (hasUsed) ...[
+                    Text('Usati', style: theme.textTheme.bodySmall),
+                    Text(
+                      '-$usedPoints pt',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: theme.colorScheme.error,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                  if (!hasAssigned && !hasUsed)
+                    Text(
+                      net >= 0 ? '+$net pt' : '$net pt',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: color,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+        movementWidgets.add(const SizedBox(height: 12));
+      }
+      movementWidgets.removeLast();
+    }
+
+    return ListView(
+      physics: const BouncingScrollPhysics(),
+      padding: EdgeInsets.zero,
+      children: [
+        Card(
+          elevation: 6,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  theme.colorScheme.primary.withOpacity(isDark ? 0.28 : 0.12),
+                  theme.colorScheme.primaryContainer.withOpacity(
+                    isDark ? 0.45 : 0.18,
+                  ),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.emoji_events_rounded,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Saldo utilizzabile',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 18,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: theme.colorScheme.primary.withOpacity(0.35),
+                        blurRadius: 18,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Saldo disponibile',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onPrimary.withOpacity(0.9),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '${stats.spendable} pt',
+                        style: (theme.textTheme.headlineMedium ??
+                                const TextStyle(
+                                  fontSize: 32,
+                                  fontWeight: FontWeight.w700,
+                                ))
+                            .copyWith(
+                              color: theme.colorScheme.onPrimary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: Card(
+                color: metaTileBackground,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: BorderSide(color: metaTileBorderColor),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 18,
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.event_available,
+                        color:
+                            isDark
+                                ? theme.colorScheme.onPrimary
+                                : theme.colorScheme.primary,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Scadenza punti', style: metaLabelStyle),
+                            if (expirationTimezone != null &&
+                                expirationTimezone.isNotEmpty)
+                              Text(
+                                'Fuso orario: $expirationTimezone',
+                                style: metaCaptionStyle,
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        expirationLabel,
+                        style: metaValueStyle,
+                        textAlign: TextAlign.right,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Card(
+                color: metaTileBackground,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: BorderSide(color: metaTileBorderColor),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 18,
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.currency_exchange,
+                        color:
+                            isDark
+                                ? theme.colorScheme.onPrimary
+                                : theme.colorScheme.primary,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Valore punto', style: metaLabelStyle),
+                            if (redemptionRules != null)
+                              Text(
+                                'Per ogni punto nel saldo',
+                                style: metaCaptionStyle,
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        pointValueLabel,
+                        style: metaValueStyle,
+                        textAlign: TextAlign.right,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        ...movementWidgets,
+      ],
+    );
+  }
+}
+
+class _ClientPhotosSheetBody extends ConsumerWidget {
+  const _ClientPhotosSheetBody({required this.clientId});
 
   final String clientId;
 
@@ -4482,55 +5180,37 @@ class ClientPhotosGallery extends ConsumerWidget {
     final sortedPhotos =
         photos.toList()..sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
 
+    final children = <Widget>[
+      Text(
+        'Accedi agli scatti dedicati ai tuoi trattamenti condivisi dallo staff.',
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+      const SizedBox(height: 16),
+    ];
+
     if (sortedPhotos.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.photo_library_outlined,
-              size: 72,
-              color: theme.disabledColor,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Ancora nessuna foto disponibile',
-              style: theme.textTheme.titleMedium,
-            ),
-            const SizedBox(height: 4),
-            Text(
+      children.add(
+        const _ClientEmptyStateCard(
+          icon: Icons.photo_library_outlined,
+          title: 'Ancora nessuna foto disponibile',
+          message:
               'Lo staff potrà condividere qui gli scatti dedicati ai tuoi trattamenti.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.disabledColor,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
         ),
       );
+    } else {
+      for (final photo in sortedPhotos) {
+        children.add(_ClientPhotoCard(photo: photo));
+        children.add(const SizedBox(height: 12));
+      }
+      children.removeLast();
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Le mie foto', style: theme.textTheme.headlineSmall),
-        const SizedBox(height: 8),
-        Text(
-          'Rivivi l\'evoluzione dei tuoi trattamenti con la gallery condivisa dal salone.',
-          style: theme.textTheme.bodyMedium,
-        ),
-        const SizedBox(height: 16),
-        Expanded(
-          child: ListView.separated(
-            itemCount: sortedPhotos.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final photo = sortedPhotos[index];
-              return _ClientPhotoCard(photo: photo);
-            },
-          ),
-        ),
-      ],
+    return ListView(
+      physics: const BouncingScrollPhysics(),
+      padding: EdgeInsets.zero,
+      children: children,
     );
   }
 }
@@ -4548,36 +5228,38 @@ class _ClientPhotoCard extends StatelessWidget {
         (photo.fileName != null && photo.fileName!.trim().isNotEmpty)
             ? photo.fileName!.trim()
             : 'Foto condivisa';
-    return ListTile(
-      onTap: () => _openPreview(context, photo),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      title: Text(
-        fileLabel,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.titleSmall?.copyWith(
-          fontWeight: FontWeight.w600,
+    return Card(
+      child: ListTile(
+        onTap: () => _openPreview(context, photo),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        title: Text(
+          fileLabel,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
         ),
-      ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            dateFormat.format(photo.uploadedAt.toLocal()),
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              dateFormat.format(photo.uploadedAt.toLocal()),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            'Tocca per visualizzare',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.primary,
-              fontWeight: FontWeight.w600,
+            const SizedBox(height: 2),
+            Text(
+              'Tocca per visualizzare',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.primary,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -4841,7 +5523,7 @@ class _NotificationCard extends StatelessWidget {
   }
 }
 
-class _PromotionsCarousel extends StatelessWidget {
+class _PromotionsCarousel extends StatefulWidget {
   const _PromotionsCarousel({
     required this.promotions,
     required this.onPromotionTap,
@@ -4851,39 +5533,116 @@ class _PromotionsCarousel extends StatelessWidget {
   final ValueChanged<Promotion> onPromotionTap;
 
   @override
+  State<_PromotionsCarousel> createState() => _PromotionsCarouselState();
+}
+
+class _PromotionsCarouselState extends State<_PromotionsCarousel> {
+  late final PageController _controller;
+  Timer? _autoPlay;
+  int _currentPage = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = PageController(viewportFraction: 0.86);
+    _startAutoPlay();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PromotionsCarousel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.promotions.length != widget.promotions.length) {
+      if (_controller.hasClients) {
+        _controller.jumpToPage(0);
+      }
+      _currentPage = 0;
+      _restartAutoPlay();
+    }
+  }
+
+  @override
+  void dispose() {
+    _autoPlay?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _startAutoPlay() {
+    if (widget.promotions.length <= 1) {
+      return;
+    }
+    _autoPlay?.cancel();
+    _autoPlay = Timer.periodic(const Duration(seconds: 6), (_) {
+      if (!mounted || !_controller.hasClients) {
+        return;
+      }
+      final nextPage = (_currentPage + 1) % widget.promotions.length;
+      _controller.animateToPage(
+        nextPage,
+        duration: const Duration(milliseconds: 450),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
+  void _restartAutoPlay() {
+    _autoPlay?.cancel();
+    _startAutoPlay();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (promotions.isEmpty) {
+    if (widget.promotions.isEmpty) {
       return const SizedBox.shrink();
     }
-    final width = MediaQuery.of(context).size.width;
-    if (promotions.length == 1) {
-      final promotion = promotions.first;
-      return SizedBox(
-        height: 400,
-        child: _PromotionCard(
-          promotion: promotion,
-          onTap: () => onPromotionTap(promotion),
-        ),
-      );
-    }
-    return SizedBox(
-      height: 200,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        itemBuilder: (context, index) {
-          final promotion = promotions[index];
-          return SizedBox(
-            width: width * 0.78,
-            child: _PromotionCard(
-              promotion: promotion,
-              onTap: () => onPromotionTap(promotion),
+    return Column(
+      children: [
+        SizedBox(
+          height: 260,
+          child: Listener(
+            onPointerDown: (_) => _autoPlay?.cancel(),
+            onPointerUp: (_) => _restartAutoPlay(),
+            child: PageView.builder(
+              controller: _controller,
+              itemCount: widget.promotions.length,
+              onPageChanged: (index) => setState(() => _currentPage = index),
+              itemBuilder: (context, index) {
+                final promotion = widget.promotions[index];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 12,
+                  ),
+                  child: _PromotionCard(
+                    promotion: promotion,
+                    onTap: () => widget.onPromotionTap(promotion),
+                  ),
+                );
+              },
             ),
-          );
-        },
-        separatorBuilder: (_, __) => const SizedBox(width: 12),
-        itemCount: promotions.length,
-      ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List<Widget>.generate(
+            widget.promotions.length,
+            (index) => AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              height: 6,
+              width: _currentPage == index ? 18 : 6,
+              decoration: BoxDecoration(
+                color:
+                    _currentPage == index
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.outlineVariant,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -4898,89 +5657,118 @@ class _PromotionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final titleStyle = theme.textTheme.titleMedium?.copyWith(
-      fontWeight: FontWeight.w700,
-      height: 1.1,
-      color: scheme.onPrimaryContainer,
-    );
-    final endsAt = promotion.endsAt;
     final subtitle = promotion.subtitle;
+    final tagline = promotion.tagline;
+    final endsAt = promotion.endsAt;
     final dateLabel =
-        endsAt == null ? null : DateFormat('dd/MM', 'it_IT').format(endsAt);
+        endsAt == null ? null : DateFormat('dd MMM', 'it_IT').format(endsAt);
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(24),
       child: Ink(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          gradient: LinearGradient(
-            colors: [
-              scheme.primaryContainer,
-              scheme.primaryContainer.withOpacity(0.7),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(24)),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: Stack(
+            fit: StackFit.expand,
             children: [
-              if (dateLabel != null)
-                Align(
-                  alignment: Alignment.topRight,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
+              if (promotion.coverImageUrl != null)
+                Hero(
+                  tag: 'promotion-${promotion.id}',
+                  child: Image.network(
+                    promotion.coverImageUrl!,
+                    fit: BoxFit.cover,
+                    loadingBuilder:
+                        (context, child, progress) =>
+                            progress == null
+                                ? child
+                                : Container(color: scheme.surfaceVariant),
+                    errorBuilder:
+                        (_, __, ___) => Container(color: scheme.surfaceVariant),
+                  ),
+                )
+              else
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [scheme.primary, scheme.primaryContainer],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
-                    decoration: BoxDecoration(
-                      color: scheme.onPrimaryContainer.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      'Fino al $dateLabel',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: scheme.onPrimaryContainer,
+                  ),
+                ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.black.withOpacity(0.7),
+                      Colors.black.withOpacity(0.2),
+                    ],
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (dateLabel != null)
+                      Align(
+                        alignment: Alignment.topRight,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.35),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            dateLabel,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: Colors.white,
+                              letterSpacing: 0.4,
+                            ),
+                          ),
+                        ),
+                      ),
+                    const Spacer(),
+                    Text(
+                      promotion.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
-                  ),
+                    if (subtitle != null && subtitle.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        subtitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: Colors.white70,
+                        ),
+                      ),
+                    ],
+                    if (tagline != null && tagline.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        tagline,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: Colors.white70,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-              Text(
-                promotion.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: titleStyle,
-              ),
-              if (subtitle != null && subtitle.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Text(
-                  subtitle,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    color: scheme.onPrimaryContainer,
-                  ),
-                ),
-              ],
-              if (promotion.tagline != null &&
-                  promotion.tagline!.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Text(
-                  promotion.tagline!,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: scheme.onPrimaryContainer.withOpacity(0.9),
-                  ),
-                ),
-              ],
-              const Spacer(),
-              FilledButton.tonalIcon(
-                onPressed: onTap,
-                icon: const Icon(Icons.arrow_forward_rounded),
-                label: const Text('Scopri l\'offerta'),
               ),
             ],
           ),
@@ -4988,6 +5776,331 @@ class _PromotionCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class PromotionDetailPage extends StatelessWidget {
+  const PromotionDetailPage({
+    required this.promotion,
+    required this.onCtaTap,
+    required this.ctaLabel,
+    required this.ctaIcon,
+    super.key,
+  });
+
+  final Promotion promotion;
+  final VoidCallback onCtaTap;
+  final String ctaLabel;
+  final IconData ctaIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final visibleSections =
+        promotion.sections.where((section) => section.visible).toList();
+    final subtitle = promotion.subtitle;
+    final tagline = promotion.tagline;
+    final startsAt = promotion.startsAt;
+    final endsAt = promotion.endsAt;
+    return Scaffold(
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 320,
+            pinned: true,
+            flexibleSpace: FlexibleSpaceBar(
+              title: Text(
+                promotion.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              background: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (promotion.coverImageUrl != null)
+                    Hero(
+                      tag: 'promotion-${promotion.id}',
+                      child: Image.network(
+                        promotion.coverImageUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder:
+                            (_, __, ___) =>
+                                Container(color: scheme.surfaceVariant),
+                      ),
+                    )
+                  else
+                    Container(color: scheme.primary),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.black.withOpacity(0.65),
+                          Colors.black.withOpacity(0.05),
+                        ],
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 100),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (subtitle != null && subtitle.isNotEmpty) ...[
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (tagline != null && tagline.isNotEmpty) ...[
+                    Text(
+                      tagline,
+                      style: theme.textTheme.bodyLarge?.copyWith(height: 1.4),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (startsAt != null || endsAt != null) ...[
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        if (startsAt != null)
+                          Chip(
+                            avatar: const Icon(
+                              Icons.play_arrow_rounded,
+                              size: 18,
+                            ),
+                            label: Text(
+                              'Dal ${DateFormat('dd MMM', 'it_IT').format(startsAt)}',
+                            ),
+                          ),
+                        if (endsAt != null)
+                          Chip(
+                            avatar: const Icon(
+                              Icons.event_available_rounded,
+                              size: 18,
+                            ),
+                            label: Text(
+                              'Fino al ${DateFormat('dd MMM', 'it_IT').format(endsAt)}',
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  if (promotion.discountPercentage > 0) ...[
+                    Chip(
+                      avatar: const Icon(Icons.percent_rounded, size: 18),
+                      label: Text(
+                        '-${promotion.discountPercentage.toStringAsFixed(0)}%',
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  ...visibleSections.map(
+                    (section) => Padding(
+                      padding: const EdgeInsets.only(bottom: 20),
+                      child: _PromotionSectionContent(section: section),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+      bottomNavigationBar:
+          promotion.cta != null && promotion.cta!.enabled
+              ? SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+                  child: FilledButton.icon(
+                    onPressed: onCtaTap,
+                    icon: Icon(ctaIcon),
+                    label: Text(ctaLabel),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(56),
+                    ),
+                  ),
+                ),
+              )
+              : null,
+    );
+  }
+}
+
+class _PromotionSectionContent extends StatelessWidget {
+  const _PromotionSectionContent({required this.section});
+
+  final PromotionSection section;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    switch (section.type) {
+      case PromotionSectionType.text:
+        return _buildTextSection(theme, scheme, section);
+      case PromotionSectionType.image:
+        return _buildImageSection(theme, scheme, section);
+    }
+  }
+}
+
+Widget _buildTextSection(
+  ThemeData theme,
+  ColorScheme scheme,
+  PromotionSection section,
+) {
+  final hasTitle = section.title?.isNotEmpty == true;
+  final body = section.text?.trim() ?? '';
+  switch (section.layout) {
+    case PromotionSectionLayout.full:
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (hasTitle) ...[
+            Text(
+              section.title!,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+          ],
+          Text(body, style: theme.textTheme.bodyLarge?.copyWith(height: 1.5)),
+        ],
+      );
+    case PromotionSectionLayout.split:
+      return Container(
+        decoration: BoxDecoration(
+          color: scheme.primaryContainer.withOpacity(0.18),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: scheme.primary.withOpacity(0.25)),
+        ),
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (hasTitle) ...[
+              Text(
+                section.title!,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: scheme.onPrimaryContainer,
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+            Text(
+              body,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                height: 1.5,
+                color: scheme.onPrimaryContainer,
+              ),
+            ),
+          ],
+        ),
+      );
+    case PromotionSectionLayout.quote:
+      return Container(
+        decoration: BoxDecoration(
+          color: scheme.secondaryContainer.withOpacity(0.25),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        padding: const EdgeInsets.all(18),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.format_quote_rounded, color: scheme.secondary, size: 32),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (hasTitle) ...[
+                    Text(
+                      section.title!,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: scheme.secondary,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                  ],
+                  Text(
+                    body,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontStyle: FontStyle.italic,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+  }
+}
+
+Widget _buildImageSection(
+  ThemeData theme,
+  ColorScheme scheme,
+  PromotionSection section,
+) {
+  if (section.imageUrl == null || section.imageUrl!.isEmpty) {
+    return const SizedBox.shrink();
+  }
+  final hasTitle = section.title?.isNotEmpty == true;
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      if (hasTitle) ...[
+        Text(
+          section.title!,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 8),
+      ],
+      ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Image.network(
+          section.imageUrl!,
+          fit: BoxFit.cover,
+          errorBuilder:
+              (_, __, ___) => Container(
+                height: 200,
+                decoration: BoxDecoration(
+                  color: scheme.surfaceVariant,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+        ),
+      ),
+      if (section.caption != null && section.caption!.isNotEmpty) ...[
+        const SizedBox(height: 6),
+        Text(
+          section.caption!,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    ],
+  );
 }
 
 class _ProcessingPaymentDialog extends StatelessWidget {
@@ -6380,7 +7493,7 @@ class _SalonSocialIconButton extends StatelessWidget {
   }
 }
 
-class _SalonReviewCard extends StatefulWidget {
+class _SalonReviewCard extends StatelessWidget {
   const _SalonReviewCard({
     required this.salonName,
     required this.primaryColor,
@@ -6394,35 +7507,10 @@ class _SalonReviewCard extends StatefulWidget {
   final VoidCallback onOpenReviews;
 
   @override
-  State<_SalonReviewCard> createState() => _SalonReviewCardState();
-}
-
-class _SalonReviewCardState extends State<_SalonReviewCard> {
-  late final TextEditingController _controller;
-  int _rating = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _setRating(int value) {
-    setState(() => _rating = value);
-  }
-
-  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final textColor = widget.onPrimaryColor;
-    final accent = widget.primaryColor;
-    final hintColor = textColor.withOpacity(0.7);
+    final textColor = onPrimaryColor;
+    final accent = primaryColor;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -6432,78 +7520,29 @@ class _SalonReviewCardState extends State<_SalonReviewCard> {
           title: 'Lascia una recensione',
           color: accent,
           textColor: textColor,
-          subtitle: 'Condividi la tua esperienza su Google',
+          subtitle: 'Condividi la tua esperienza con il salone',
         ),
         const SizedBox(height: 12),
         Text(
-          'Valuta ${widget.salonName}',
+          'Ci farebbe piacere sapere com\'è andata la tua esperienza con ${salonName.trim()}!',
           style: theme.textTheme.bodyMedium?.copyWith(color: textColor),
         ),
         const SizedBox(height: 12),
-        Wrap(
-          spacing: 4,
-          children: List.generate(5, (index) {
-            final starValue = index + 1;
-            final isFilled = _rating >= starValue;
-            return IconButton(
-              tooltip: '$starValue stelle',
-              onPressed: () => _setRating(starValue),
-              icon: Icon(
-                isFilled ? Icons.star_rounded : Icons.star_outline_rounded,
-              ),
-              color: accent,
-              iconSize: 28,
-            );
-          }),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _controller,
-          minLines: 2,
-          maxLines: 4,
-          style: theme.textTheme.bodyMedium?.copyWith(color: textColor),
-          decoration: InputDecoration(
-            hintText: 'Scrivi un commento opzionale...',
-            hintStyle: theme.textTheme.bodyMedium?.copyWith(color: hintColor),
-            filled: true,
-            fillColor: widget.onPrimaryColor.withOpacity(0.08),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: accent.withOpacity(0.3)),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: accent.withOpacity(0.2)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: accent),
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Align(
-          alignment: Alignment.centerRight,
-          child: FilledButton.icon(
-            icon: const Icon(Icons.open_in_new_rounded),
-            label: const Text('Apri Google Reviews'),
+        Center(
+          child: FilledButton(
+            onPressed: onOpenReviews,
             style: FilledButton.styleFrom(
               backgroundColor: accent,
               foregroundColor: Colors.white,
             ),
-            onPressed: () {
-              if (_rating == 0) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Seleziona un numero di stelle prima di procedere.',
-                    ),
-                  ),
-                );
-                return;
-              }
-              widget.onOpenReviews();
-            },
+            child: const Text('Clicca qui'),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Si aprirà il link fornito dall\'amministratore.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: textColor.withOpacity(0.7),
           ),
         ),
       ],
@@ -6561,15 +7600,6 @@ class _ClientDrawerHeader extends StatelessWidget {
               style: theme.textTheme.titleMedium?.copyWith(
                 color: onPrimary,
                 fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-          if (salonAddress.isNotEmpty || salonCity.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              '$salonAddress${salonAddress.isNotEmpty && salonCity.isNotEmpty ? ', ' : ''}$salonCity',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: onPrimary.withOpacity(0.75),
               ),
             ),
           ],
