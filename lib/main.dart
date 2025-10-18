@@ -1,7 +1,7 @@
 import 'dart:io';
 
+import 'package:civiapp/app/app.dart';
 import 'package:civiapp/app/providers.dart';
-import 'package:civiapp/presentation/branding/widgets/branded_app_shell.dart';
 import 'package:civiapp/services/notifications/notification_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_in_app_messaging/firebase_in_app_messaging.dart';
@@ -78,7 +78,7 @@ Future<void> main() async {
       overrides: [
         notificationServiceProvider.overrideWithValue(notificationService),
       ],
-      child: const BrandedAppShell(),
+      child: const CiviApp(),
     ),
   );
 }

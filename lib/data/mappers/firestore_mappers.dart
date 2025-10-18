@@ -14,6 +14,7 @@ import 'package:civiapp/domain/entities/quote.dart';
 import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/domain/entities/salon.dart';
+import 'package:civiapp/domain/entities/salon_setup_progress.dart';
 import 'package:civiapp/domain/entities/salon_access_request.dart';
 import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/service_category.dart';
@@ -35,7 +36,18 @@ Salon salonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final featureFlagsRaw = _mapFromDynamic(
     data['featureFlags'] ?? data['features'],
   );
+  final dashboardSectionsRaw = _mapFromDynamic(data['dashboardSections']);
   final socialLinksRaw = _mapFromDynamic(data['socialLinks']);
+  final setupChecklistRaw = _mapFromDynamic(data['setupChecklist']);
+  final allowedChecklistKeys = SetupChecklistKeys.defaults.toSet();
+  final setupChecklist = <String, SetupChecklistStatus>{};
+  setupChecklistRaw.forEach((key, value) {
+    final status = setupChecklistStatusFromName(value?.toString());
+    final normalizedKey = key.toString();
+    if (status != null && allowedChecklistKeys.contains(normalizedKey)) {
+      setupChecklist[key.toString()] = status;
+    }
+  });
   final socialLinks = <String, String>{};
   socialLinksRaw.forEach((key, value) {
     final label = key.toString().trim();
@@ -95,6 +107,7 @@ Salon salonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     email: data['email'] as String? ?? '',
     postalCode: data['postalCode'] as String?,
     bookingLink: data['bookingLink'] as String?,
+    googlePlaceId: data['googlePlaceId'] as String?,
     latitude: (data['latitude'] as num?)?.toDouble(),
     longitude: (data['longitude'] as num?)?.toDouble(),
     socialLinks: socialLinks,
@@ -137,9 +150,13 @@ Salon salonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
             .toList(),
     loyaltySettings: _mapToLoyaltySettings(loyaltyRaw),
     featureFlags: SalonFeatureFlags.fromMap(featureFlagsRaw),
+    dashboardSections: SalonDashboardSections.fromMap(dashboardSectionsRaw),
     clientRegistration: _mapToClientRegistrationSettings(clientRegistrationRaw),
     stripeAccountId: data['stripeAccountId'] as String?,
     stripeAccount: stripeAccount,
+    setupChecklist: Map<String, SetupChecklistStatus>.unmodifiable(
+      setupChecklist,
+    ),
   );
 }
 
@@ -152,6 +169,7 @@ Map<String, dynamic> salonToMap(Salon salon) {
     'email': salon.email,
     'postalCode': salon.postalCode,
     'bookingLink': salon.bookingLink,
+    'googlePlaceId': salon.googlePlaceId,
     'latitude': salon.latitude,
     'longitude': salon.longitude,
     'socialLinks': salon.socialLinks,
@@ -203,12 +221,17 @@ Map<String, dynamic> salonToMap(Salon salon) {
               },
             )
             .toList(),
+    'setupChecklist': salon.setupChecklist.map(
+      (key, value) => MapEntry(key, setupChecklistStatusToName(value)),
+    ),
   };
 
   final loyaltyMap = _loyaltySettingsToMap(salon.loyaltySettings);
   if (loyaltyMap != null) {
     map['loyaltySettings'] = loyaltyMap;
   }
+
+  map['dashboardSections'] = salon.dashboardSections.toMap();
 
   map['featureFlags'] = salon.featureFlags.toMap();
   map['clientRegistration'] = _clientRegistrationToMap(
@@ -233,6 +256,83 @@ Map<String, dynamic> salonToMap(Salon salon) {
   };
 
   return map;
+}
+
+AdminSetupProgress adminSetupProgressFromDoc(
+  DocumentSnapshot<Map<String, dynamic>> doc,
+) {
+  final data = doc.data() ?? <String, dynamic>{};
+  final itemsRaw = data['items'] as List<dynamic>? ?? const [];
+  final items = <SetupChecklistItem>[];
+  final allowedKeys = SetupChecklistKeys.defaults.toSet();
+  for (final entry in itemsRaw) {
+    if (entry is! Map<String, dynamic>) {
+      continue;
+    }
+    final key = entry['key'] as String? ?? '';
+    if (key.isEmpty || !allowedKeys.contains(key)) {
+      continue;
+    }
+    final status =
+        setupChecklistStatusFromName(entry['status']?.toString()) ??
+        SetupChecklistStatus.notStarted;
+    final metadata = _mapFromDynamic(entry['metadata']);
+    final updatedAt = _coerceToDateTime(entry['updatedAt']);
+    final updatedBy = entry['updatedBy'] as String?;
+    items.add(
+      SetupChecklistItem(
+        key: key,
+        status: status,
+        metadata: Map<String, dynamic>.unmodifiable(metadata),
+        updatedAt: updatedAt,
+        updatedBy: updatedBy,
+      ),
+    );
+  }
+
+  return AdminSetupProgress(
+    id: doc.id,
+    salonId: data['salonId'] as String? ?? '',
+    tenantId: data['tenantId'] as String?,
+    createdBy: data['createdBy'] as String?,
+    createdAt: _coerceToDateTime(data['createdAt']),
+    updatedAt: _coerceToDateTime(data['updatedAt']),
+    updatedBy: data['updatedBy'] as String?,
+    pendingReminder:
+        data.containsKey('pendingReminder')
+            ? _coerceToBool(data['pendingReminder'])
+            : true,
+    requiredCompleted: _coerceToBool(data['requiredCompleted']),
+    items: List.unmodifiable(items),
+  );
+}
+
+Map<String, dynamic> adminSetupProgressToMap(AdminSetupProgress progress) {
+  return <String, dynamic>{
+    'salonId': progress.salonId,
+    if (progress.tenantId != null) 'tenantId': progress.tenantId,
+    if (progress.createdBy != null) 'createdBy': progress.createdBy,
+    if (progress.updatedBy != null) 'updatedBy': progress.updatedBy,
+    if (progress.createdAt != null)
+      'createdAt': Timestamp.fromDate(progress.createdAt!),
+    if (progress.updatedAt != null)
+      'updatedAt': Timestamp.fromDate(progress.updatedAt!),
+    'pendingReminder': progress.pendingReminder,
+    'requiredCompleted': progress.requiredCompleted,
+    'items':
+        progress.items
+            .map(
+              (item) => <String, dynamic>{
+                'key': item.key,
+                'status': setupChecklistStatusToName(item.status),
+                if (item.metadata.isNotEmpty) 'metadata': item.metadata,
+                if (item.updatedBy != null) 'updatedBy': item.updatedBy,
+                if (item.updatedAt != null)
+                  'updatedAt': Timestamp.fromDate(item.updatedAt!),
+              },
+            )
+            .toList(),
+  };
 }
 
 Promotion promotionFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -1286,6 +1386,7 @@ Appointment appointmentFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     packageId: data['packageId'] as String?,
     roomId: data['roomId'] as String?,
     lastMinuteSlotId: data['lastMinuteSlotId'] as String?,
+    createdAt: _timestampToDate(data['createdAt']),
   );
 }
 
@@ -1303,6 +1404,28 @@ Map<String, dynamic> appointmentToMap(Appointment appointment) {
     'packageId': appointment.packageId,
     'roomId': appointment.roomId,
     'lastMinuteSlotId': appointment.lastMinuteSlotId,
+    'createdAt':
+        appointment.createdAt != null
+            ? Timestamp.fromDate(appointment.createdAt!)
+            : FieldValue.serverTimestamp(),
+  };
+}
+
+Map<String, dynamic> publicAppointmentToMap(Appointment appointment) {
+  return {
+    'salonId': appointment.salonId,
+    'staffId': appointment.staffId,
+    'serviceId': appointment.serviceId,
+    'serviceIds': appointment.serviceIds,
+    'start': Timestamp.fromDate(appointment.start),
+    'end': Timestamp.fromDate(appointment.end),
+    'status': appointment.status.name,
+    'roomId': appointment.roomId,
+    'lastMinuteSlotId': appointment.lastMinuteSlotId,
+    'createdAt':
+        appointment.createdAt != null
+            ? Timestamp.fromDate(appointment.createdAt!)
+            : FieldValue.serverTimestamp(),
   };
 }
 
@@ -1980,28 +2103,26 @@ ReminderSettings reminderSettingsFromDoc(
   if (offsetsRaw is Iterable) {
     offsets =
         offsetsRaw
-            .map(
-              (entry) {
-                if (entry is! Map<String, dynamic>) {
-                  return null;
-                }
-                final id = entry['id'] as String? ?? '';
-                final minutesBefore =
-                    (entry['minutesBefore'] as num?)?.toInt() ??
-                    (entry['minutes'] as num?)?.toInt() ??
-                    0;
-                final active = entry['active'] as bool? ?? true;
-                final title = entry['title'] as String?;
-                final bodyTemplate = entry['bodyTemplate'] as String?;
-                return ReminderOffsetConfig(
-                  id: id,
-                  minutesBefore: minutesBefore,
-                  active: active,
-                  title: title,
-                  bodyTemplate: bodyTemplate,
-                );
-              },
-            )
+            .map((entry) {
+              if (entry is! Map<String, dynamic>) {
+                return null;
+              }
+              final id = entry['id'] as String? ?? '';
+              final minutesBefore =
+                  (entry['minutesBefore'] as num?)?.toInt() ??
+                  (entry['minutes'] as num?)?.toInt() ??
+                  0;
+              final active = entry['active'] as bool? ?? true;
+              final title = entry['title'] as String?;
+              final bodyTemplate = entry['bodyTemplate'] as String?;
+              return ReminderOffsetConfig(
+                id: id,
+                minutesBefore: minutesBefore,
+                active: active,
+                title: title,
+                bodyTemplate: bodyTemplate,
+              );
+            })
             .whereType<ReminderOffsetConfig>()
             .toList();
   }
@@ -2062,8 +2183,7 @@ Map<String, dynamic> reminderSettingsToMap(ReminderSettings settings) {
           'minutesBefore': offset.minutesBefore,
           'active': offset.active,
           if (offset.title != null) 'title': offset.title,
-          if (offset.bodyTemplate != null)
-            'bodyTemplate': offset.bodyTemplate,
+          if (offset.bodyTemplate != null) 'bodyTemplate': offset.bodyTemplate,
         };
       }).toList();
 

@@ -5,6 +5,11 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    match /salon_setup_progress/{salonId} {
+      allow read: if isSignedIn() && canReadSalonDocument(salonId);
+      allow create, update, delete: if isSignedIn() && canManageSalonDocument(salonId);
+    }
+
     function currentUserDoc() {
       return isSignedIn()
           ? get(/databases/$(database)/documents/users/$(request.auth.uid))

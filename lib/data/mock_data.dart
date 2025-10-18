@@ -1129,6 +1129,13 @@ class MockData {
     ),
   ];
 
+  static List<Appointment> get publicAppointments => appointments
+      .map(
+        (appointment) =>
+            appointment.copyWith(clientId: '', notes: null, packageId: null),
+      )
+      .toList(growable: false);
+
   static final quotes = <Quote>[
     Quote(
       id: 'quote-001',

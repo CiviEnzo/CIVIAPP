@@ -1,4 +1,5 @@
 import 'loyalty_settings.dart';
+import 'salon_setup_progress.dart';
 
 const Object _sentinel = Object();
 
@@ -95,6 +96,7 @@ class Salon {
     required this.email,
     this.postalCode,
     this.bookingLink,
+    this.googlePlaceId,
     this.latitude,
     this.longitude,
     this.socialLinks = const <String, String>{},
@@ -106,9 +108,11 @@ class Salon {
     this.status = SalonStatus.active,
     this.loyaltySettings = const LoyaltySettings(),
     this.featureFlags = const SalonFeatureFlags(),
+    this.dashboardSections = const SalonDashboardSections(),
     this.clientRegistration = const ClientRegistrationSettings(),
     this.stripeAccountId,
     this.stripeAccount = const StripeAccountSnapshot(),
+    this.setupChecklist = const <String, SetupChecklistStatus>{},
   });
 
   final String id;
@@ -119,6 +123,7 @@ class Salon {
   final String email;
   final String? postalCode;
   final String? bookingLink;
+  final String? googlePlaceId;
   final double? latitude;
   final double? longitude;
   final Map<String, String> socialLinks;
@@ -130,9 +135,11 @@ class Salon {
   final SalonStatus status;
   final LoyaltySettings loyaltySettings;
   final SalonFeatureFlags featureFlags;
+  final SalonDashboardSections dashboardSections;
   final ClientRegistrationSettings clientRegistration;
   final String? stripeAccountId;
   final StripeAccountSnapshot stripeAccount;
+  final Map<String, SetupChecklistStatus> setupChecklist;
 
   bool get canAcceptOnlinePayments =>
       stripeAccountId != null && stripeAccount.isReadyForPayments;
@@ -146,6 +153,7 @@ class Salon {
     String? email,
     String? postalCode,
     String? bookingLink,
+    String? googlePlaceId,
     double? latitude,
     double? longitude,
     Map<String, String>? socialLinks,
@@ -157,9 +165,11 @@ class Salon {
     SalonStatus? status,
     LoyaltySettings? loyaltySettings,
     SalonFeatureFlags? featureFlags,
+    SalonDashboardSections? dashboardSections,
     ClientRegistrationSettings? clientRegistration,
     Object? stripeAccountId = _sentinel,
     StripeAccountSnapshot? stripeAccount,
+    Map<String, SetupChecklistStatus>? setupChecklist,
   }) {
     return Salon(
       id: id ?? this.id,
@@ -170,6 +180,8 @@ class Salon {
       email: email ?? this.email,
       postalCode: postalCode ?? this.postalCode,
       bookingLink: bookingLink ?? this.bookingLink,
+      googlePlaceId: googlePlaceId ?? this.googlePlaceId,
+
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       socialLinks: socialLinks ?? this.socialLinks,
@@ -181,12 +193,14 @@ class Salon {
       status: status ?? this.status,
       loyaltySettings: loyaltySettings ?? this.loyaltySettings,
       featureFlags: featureFlags ?? this.featureFlags,
+      dashboardSections: dashboardSections ?? this.dashboardSections,
       clientRegistration: clientRegistration ?? this.clientRegistration,
       stripeAccountId:
           identical(stripeAccountId, _sentinel)
               ? this.stripeAccountId
               : stripeAccountId as String?,
       stripeAccount: stripeAccount ?? this.stripeAccount,
+      setupChecklist: setupChecklist ?? this.setupChecklist,
     );
   }
 }
@@ -267,6 +281,86 @@ bool _readFlag(Object? value) {
     return normalized == 'true' || normalized == '1' || normalized == 'yes';
   }
   return false;
+}
+
+class SalonDashboardSections {
+  const SalonDashboardSections({
+    this.showKpis = true,
+    this.showOperational = true,
+    this.showEquipment = true,
+    this.showRooms = true,
+    this.showLoyalty = true,
+    this.showSocial = true,
+  });
+
+  final bool showKpis;
+  final bool showOperational;
+  final bool showEquipment;
+  final bool showRooms;
+  final bool showLoyalty;
+  final bool showSocial;
+
+  SalonDashboardSections copyWith({
+    bool? showKpis,
+    bool? showOperational,
+    bool? showEquipment,
+    bool? showRooms,
+    bool? showLoyalty,
+    bool? showSocial,
+  }) {
+    return SalonDashboardSections(
+      showKpis: showKpis ?? this.showKpis,
+      showOperational: showOperational ?? this.showOperational,
+      showEquipment: showEquipment ?? this.showEquipment,
+      showRooms: showRooms ?? this.showRooms,
+      showLoyalty: showLoyalty ?? this.showLoyalty,
+      showSocial: showSocial ?? this.showSocial,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'showKpis': showKpis,
+      'showOperational': showOperational,
+      'showEquipment': showEquipment,
+      'showRooms': showRooms,
+      'showLoyalty': showLoyalty,
+      'showSocial': showSocial,
+    };
+  }
+
+  factory SalonDashboardSections.fromMap(Map<String, dynamic>? data) {
+    if (data == null) {
+      return const SalonDashboardSections();
+    }
+    const defaultPrefs = SalonDashboardSections();
+    return SalonDashboardSections(
+      showKpis:
+          data.containsKey('showKpis')
+              ? _readFlag(data['showKpis'])
+              : defaultPrefs.showKpis,
+      showOperational:
+          data.containsKey('showOperational')
+              ? _readFlag(data['showOperational'])
+              : defaultPrefs.showOperational,
+      showEquipment:
+          data.containsKey('showEquipment')
+              ? _readFlag(data['showEquipment'])
+              : defaultPrefs.showEquipment,
+      showRooms:
+          data.containsKey('showRooms')
+              ? _readFlag(data['showRooms'])
+              : defaultPrefs.showRooms,
+      showLoyalty:
+          data.containsKey('showLoyalty')
+              ? _readFlag(data['showLoyalty'])
+              : defaultPrefs.showLoyalty,
+      showSocial:
+          data.containsKey('showSocial')
+              ? _readFlag(data['showSocial'])
+              : defaultPrefs.showSocial,
+    );
+  }
 }
 
 class SalonRoom {

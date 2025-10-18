@@ -13,6 +13,7 @@ class Appointment {
     this.packageId,
     this.roomId,
     this.lastMinuteSlotId,
+    this.createdAt,
   }) : serviceIds = _resolveServiceIds(
          serviceId: serviceId,
          serviceIds: serviceIds,
@@ -30,6 +31,7 @@ class Appointment {
   final String? packageId;
   final String? roomId;
   final String? lastMinuteSlotId;
+  final DateTime? createdAt;
   String get serviceId => serviceIds.isNotEmpty ? serviceIds.first : '';
 }
 
@@ -62,6 +64,7 @@ extension AppointmentX on Appointment {
     String? packageId,
     String? roomId,
     String? lastMinuteSlotId,
+    DateTime? createdAt,
   }) {
     final updatedServiceIds =
         serviceIds ??
@@ -81,6 +84,7 @@ extension AppointmentX on Appointment {
       packageId: packageId ?? this.packageId,
       roomId: roomId ?? this.roomId,
       lastMinuteSlotId: lastMinuteSlotId ?? this.lastMinuteSlotId,
+      createdAt: createdAt ?? this.createdAt,
     );
   }
 }

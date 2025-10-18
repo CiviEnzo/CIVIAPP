@@ -22,6 +22,7 @@ import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/domain/entities/staff_role.dart';
 import 'package:civiapp/domain/entities/reminder_settings.dart';
 import 'package:civiapp/domain/entities/salon_access_request.dart';
+import 'package:civiapp/domain/entities/salon_setup_progress.dart';
 
 class AppDataState {
   const AppDataState({
@@ -33,6 +34,7 @@ class AppDataState {
     required this.services,
     required this.packages,
     required this.appointments,
+    required this.publicAppointments,
     required this.quotes,
     required this.paymentTickets,
     required this.inventoryItems,
@@ -51,6 +53,7 @@ class AppDataState {
     required this.promotions,
     required this.lastMinuteSlots,
     required this.salonAccessRequests,
+    required this.setupProgress,
   });
 
   factory AppDataState.initial() {
@@ -63,6 +66,7 @@ class AppDataState {
       services: [],
       packages: [],
       appointments: [],
+      publicAppointments: [],
       quotes: [],
       paymentTickets: [],
       inventoryItems: [],
@@ -81,6 +85,7 @@ class AppDataState {
       promotions: [],
       lastMinuteSlots: [],
       salonAccessRequests: [],
+      setupProgress: [],
     );
   }
 
@@ -92,6 +97,7 @@ class AppDataState {
   final List<Service> services;
   final List<ServicePackage> packages;
   final List<Appointment> appointments;
+  final List<Appointment> publicAppointments;
   final List<Quote> quotes;
   final List<PaymentTicket> paymentTickets;
   final List<InventoryItem> inventoryItems;
@@ -110,6 +116,7 @@ class AppDataState {
   final List<Promotion> promotions;
   final List<LastMinuteSlot> lastMinuteSlots;
   final List<SalonAccessRequest> salonAccessRequests;
+  final List<AdminSetupProgress> setupProgress;
 
   AppDataState copyWith({
     List<Salon>? salons,
@@ -120,6 +127,7 @@ class AppDataState {
     List<Service>? services,
     List<ServicePackage>? packages,
     List<Appointment>? appointments,
+    List<Appointment>? publicAppointments,
     List<Quote>? quotes,
     List<PaymentTicket>? paymentTickets,
     List<InventoryItem>? inventoryItems,
@@ -138,6 +146,7 @@ class AppDataState {
     List<Promotion>? promotions,
     List<LastMinuteSlot>? lastMinuteSlots,
     List<SalonAccessRequest>? salonAccessRequests,
+    List<AdminSetupProgress>? setupProgress,
   }) {
     return AppDataState(
       salons: salons ?? this.salons,
@@ -148,6 +157,7 @@ class AppDataState {
       services: services ?? this.services,
       packages: packages ?? this.packages,
       appointments: appointments ?? this.appointments,
+      publicAppointments: publicAppointments ?? this.publicAppointments,
       quotes: quotes ?? this.quotes,
       paymentTickets: paymentTickets ?? this.paymentTickets,
       inventoryItems: inventoryItems ?? this.inventoryItems,
@@ -167,6 +177,7 @@ class AppDataState {
       promotions: promotions ?? this.promotions,
       lastMinuteSlots: lastMinuteSlots ?? this.lastMinuteSlots,
       salonAccessRequests: salonAccessRequests ?? this.salonAccessRequests,
+      setupProgress: setupProgress ?? this.setupProgress,
     );
   }
 }

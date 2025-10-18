@@ -25,6 +25,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
   late TextEditingController _description;
   late TextEditingController _postalCode;
   late TextEditingController _bookingLink;
+  late TextEditingController _googlePlaceId;
   late TextEditingController _latitude;
   late TextEditingController _longitude;
   late List<_SocialLinkFormData> _socialLinks;
@@ -45,7 +46,6 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
   late LoyaltyRoundingMode _loyaltyRounding;
   late ClientRegistrationAccessMode _registrationAccessMode;
   late Set<ClientRegistrationExtraField> _registrationExtraFields;
-
   static const int _minutesInDay = 24 * 60;
   static const int _defaultOpeningMinutes = 9 * 60;
   static const int _defaultClosingMinutes = 19 * 60;
@@ -62,6 +62,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
     _description = TextEditingController(text: initial?.description ?? '');
     _postalCode = TextEditingController(text: initial?.postalCode ?? '');
     _bookingLink = TextEditingController(text: initial?.bookingLink ?? '');
+    _googlePlaceId = TextEditingController(text: initial?.googlePlaceId ?? '');
 
     final latitudeValue = initial?.latitude;
     final longitudeValue = initial?.longitude;
@@ -177,6 +178,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
     _description.dispose();
     _postalCode.dispose();
     _bookingLink.dispose();
+    _googlePlaceId.dispose();
     _latitude.dispose();
     _longitude.dispose();
     for (final social in _socialLinks) {
@@ -260,6 +262,16 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
                 labelText: 'Link prenotazione esterna',
               ),
               keyboardType: TextInputType.url,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _googlePlaceId,
+              decoration: const InputDecoration(
+                labelText: 'Google Place ID',
+                helperText:
+                    'Utilizzato per aprire direttamente la pagina delle recensioni',
+              ),
+              textCapitalization: TextCapitalization.characters,
             ),
             const SizedBox(height: 12),
             Row(
@@ -964,6 +976,8 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
 
     final salonName = _name.text.trim();
     final salonId = widget.initial?.id ?? _generateSalonId(salonName);
+    final dashboardSections =
+        widget.initial?.dashboardSections ?? const SalonDashboardSections();
 
     final salon = Salon(
       id: salonId,
@@ -976,6 +990,10 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
           _postalCode.text.trim().isEmpty ? null : _postalCode.text.trim(),
       bookingLink:
           _bookingLink.text.trim().isEmpty ? null : _bookingLink.text.trim(),
+      googlePlaceId:
+          _googlePlaceId.text.trim().isEmpty
+              ? null
+              : _googlePlaceId.text.trim(),
       latitude: latitude,
       longitude: longitude,
       description:
@@ -987,6 +1005,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
       schedule: schedule,
       status: _status,
       loyaltySettings: loyaltySettings,
+      dashboardSections: dashboardSections,
       clientRegistration: ClientRegistrationSettings(
         accessMode: _registrationAccessMode,
         extraFields: _registrationExtraFields.toList(growable: false),

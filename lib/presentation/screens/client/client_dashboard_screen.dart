@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:civiapp/app/providers.dart';
@@ -15,6 +16,7 @@ import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/sale.dart';
+import 'package:civiapp/presentation/common/theme_mode_action.dart';
 import 'package:civiapp/presentation/shared/client_package_purchase.dart';
 import 'package:civiapp/services/payments/stripe_payments_service.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -23,13 +25,22 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'client_booking_sheet.dart';
 import 'client_theme.dart';
+
+const _instagramLogoAsset = 'assets/social_logo/instagram.PNG';
+const _tiktokLogoAsset = 'assets/social_logo/tiktok.PNG';
+const _facebookLogoAsset = 'assets/social_logo/facebook.PNG';
+const _whatsappLogoAsset = 'assets/social_logo/whatsapp.PNG';
+const _mapsLogoAsset = 'assets/social_logo/maps.PNG';
 
 class ClientDashboardScreen extends ConsumerStatefulWidget {
   const ClientDashboardScreen({super.key});
@@ -49,20 +60,182 @@ enum _ClientBadgeTarget {
   notifications,
 }
 
-class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
+class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
+    with TickerProviderStateMixin {
+  static const String _badgePreferencesKeyPrefix =
+      'client_dashboard_acknowledged_badges';
   static const int _notificationsIntentIndex = -1;
+  static const double _drawerStretchLimit = 72;
+  static const SpringDescription _drawerSpring = SpringDescription(
+    mass: 1,
+    stiffness: 270,
+    damping: 22,
+  );
+  late final AnimationController _drawerHeaderController;
+  late final AnimationController _drawerFooterController;
   StreamSubscription<RemoteMessage>? _foregroundSub;
   ProviderSubscription<ClientDashboardIntent?>? _intentSubscription;
+  ProviderSubscription<SessionState>? _sessionSubscription;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   int _currentTab = 0;
+  int _bookingSheetSeed = 0;
   bool _pendingShowNotifications = false;
   final Set<String> _processingQuotePayments = <String>{};
   final Map<_ClientBadgeTarget, int> _acknowledgedBadgeCounts = {};
+  SharedPreferences? _badgePreferences;
+  String? _badgePreferencesUserId;
+
+  Future<SharedPreferences> _ensureBadgePreferences() async {
+    final cached = _badgePreferences;
+    if (cached != null) {
+      return cached;
+    }
+    final resolved = await SharedPreferences.getInstance();
+    _badgePreferences = resolved;
+    return resolved;
+  }
+
+  String _badgePrefsKeyFor(String userId) {
+    return '$_badgePreferencesKeyPrefix::$userId';
+  }
+
+  Future<void> _restoreAcknowledgedBadges({String? userId}) async {
+    _badgePreferencesUserId = userId;
+    if (userId == null || userId.isEmpty) {
+      if (!mounted) {
+        _acknowledgedBadgeCounts.clear();
+        return;
+      }
+      if (_acknowledgedBadgeCounts.isEmpty) {
+        return;
+      }
+      setState(() {
+        _acknowledgedBadgeCounts.clear();
+      });
+      return;
+    }
+
+    SharedPreferences prefs;
+    try {
+      prefs = await _ensureBadgePreferences();
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('Impossibile recuperare SharedPreferences: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+      return;
+    }
+
+    if (_badgePreferencesUserId != userId) {
+      return;
+    }
+
+    final raw = prefs.getString(_badgePrefsKeyFor(userId));
+    if (!mounted || _badgePreferencesUserId != userId) {
+      return;
+    }
+
+    if (raw == null || raw.isEmpty) {
+      if (_acknowledgedBadgeCounts.isEmpty) {
+        return;
+      }
+      setState(() {
+        _acknowledgedBadgeCounts.clear();
+      });
+      return;
+    }
+
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) {
+        return;
+      }
+      final restored = <_ClientBadgeTarget, int>{};
+      for (final entry in decoded.entries) {
+        final target =
+            _ClientBadgeTarget.values.firstWhereOrNull(
+              (candidate) => candidate.name == entry.key,
+            );
+        if (target == null) {
+          continue;
+        }
+        final value = entry.value;
+        final resolved =
+            value is int
+                ? value
+                : value is num
+                ? value.toInt()
+                : value is String
+                ? int.tryParse(value)
+                : null;
+        if (resolved == null || resolved < 0) {
+          continue;
+        }
+        restored[target] = resolved;
+      }
+      if (!mounted || _badgePreferencesUserId != userId) {
+        return;
+      }
+      setState(() {
+        _acknowledgedBadgeCounts
+          ..clear()
+          ..addAll(restored);
+      });
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('Impossibile decodificare gli acknowledgement badge: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+    }
+  }
+
+  Future<void> _persistAcknowledgedBadges() async {
+    final session = ref.read(sessionControllerProvider);
+    final userId = session.userId;
+    if (userId == null || userId.isEmpty) {
+      return;
+    }
+
+    SharedPreferences prefs;
+    try {
+      prefs = await _ensureBadgePreferences();
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('Impossibile salvare gli acknowledgement badge: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+      return;
+    }
+
+    final payload = <String, int>{};
+    _acknowledgedBadgeCounts.forEach((target, value) {
+      if (value < 0) {
+        return;
+      }
+      payload[target.name] = value;
+    });
+
+    final key = _badgePrefsKeyFor(userId);
+    if (payload.isEmpty) {
+      await prefs.remove(key);
+      return;
+    }
+
+    try {
+      await prefs.setString(key, jsonEncode(payload));
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('Impossibile serializzare gli acknowledgement badge: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+    }
+  }
 
   int _badgeDelta(_ClientBadgeTarget target, int currentCount) {
     final acknowledged = _acknowledgedBadgeCounts[target];
     if (acknowledged != null && currentCount < acknowledged) {
       _acknowledgedBadgeCounts[target] = currentCount;
+      unawaited(_persistAcknowledgedBadges());
       return 0;
     }
     final baseline = _acknowledgedBadgeCounts[target] ?? 0;
@@ -72,9 +245,102 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
 
   void _acknowledgeBadge(_ClientBadgeTarget target, int currentCount) {
     _acknowledgedBadgeCounts[target] = currentCount;
+    unawaited(_persistAcknowledgedBadges());
+  }
+
+  void _onDrawerElasticTick() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
+  }
+
+  double _clampStretch(double value) {
+    if (value <= 0) {
+      return 0;
+    }
+    if (value >= _drawerStretchLimit) {
+      return _drawerStretchLimit;
+    }
+    return value;
+  }
+
+  void _startDrawerHeaderRebound() {
+    final current = _clampStretch(_drawerHeaderController.value);
+    if (current == 0 || _drawerHeaderController.isAnimating) {
+      if (_drawerHeaderController.value != current) {
+        _drawerHeaderController.value = current;
+      }
+      return;
+    }
+    _drawerHeaderController.value = current;
+    _drawerHeaderController.animateWith(
+      SpringSimulation(_drawerSpring, current, 0, 0),
+    );
+  }
+
+  void _startDrawerFooterRebound() {
+    final current = _clampStretch(_drawerFooterController.value);
+    if (current == 0 || _drawerFooterController.isAnimating) {
+      if (_drawerFooterController.value != current) {
+        _drawerFooterController.value = current;
+      }
+      return;
+    }
+    _drawerFooterController.value = current;
+    _drawerFooterController.animateWith(
+      SpringSimulation(_drawerSpring, current, 0, 0),
+    );
+  }
+
+  bool _onDrawerScrollNotification(ScrollNotification notification) {
+    final metrics = notification.metrics;
+    if (notification is ScrollUpdateNotification) {
+      if (metrics.pixels < metrics.minScrollExtent) {
+        final overscroll = _clampStretch(
+          metrics.minScrollExtent - metrics.pixels,
+        );
+        if (_drawerHeaderController.isAnimating) {
+          _drawerHeaderController.stop();
+        }
+        if (_drawerHeaderController.value != overscroll) {
+          _drawerHeaderController.value = overscroll;
+        }
+        if (_drawerFooterController.value != 0) {
+          if (_drawerFooterController.isAnimating) {
+            _drawerFooterController.stop();
+          }
+          _drawerFooterController.value = 0;
+        }
+      } else if (metrics.pixels > metrics.maxScrollExtent) {
+        final overscroll = _clampStretch(
+          metrics.pixels - metrics.maxScrollExtent,
+        );
+        if (_drawerFooterController.isAnimating) {
+          _drawerFooterController.stop();
+        }
+        if (_drawerFooterController.value != overscroll) {
+          _drawerFooterController.value = overscroll;
+        }
+        if (_drawerHeaderController.value != 0) {
+          if (_drawerHeaderController.isAnimating) {
+            _drawerHeaderController.stop();
+          }
+          _drawerHeaderController.value = 0;
+        }
+      }
+    } else if (notification is ScrollEndNotification ||
+        (notification is UserScrollNotification &&
+            notification.direction == ScrollDirection.idle)) {
+      _startDrawerHeaderRebound();
+      _startDrawerFooterRebound();
+    }
+    return false;
   }
 
   Widget _wrapWithBadge({
+    Color? backgroundColor,
+    Color? textColor,
     required Widget icon,
     required int badgeCount,
     required bool showBadge,
@@ -85,7 +351,64 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     return Badge.count(
       count: badgeCount,
       isLabelVisible: badgeCount > 0,
+      backgroundColor: backgroundColor,
+      textColor: textColor,
       child: icon,
+    );
+  }
+
+  Widget _buildDrawerHeaderSection({
+    required Client client,
+    required Salon? salon,
+  }) {
+    final stretch = _clampStretch(_drawerHeaderController.value);
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 24 + stretch, 20, 0),
+      child: _ClientDrawerHeader(client: client, salon: salon),
+    );
+  }
+
+  Widget _buildDrawerFooterSection({required BuildContext context}) {
+    final stretch = _clampStretch(_drawerFooterController.value);
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 12, 20, 24 + stretch),
+      child: _DrawerNavigationCard(
+        icon: Icons.logout_rounded,
+        label: 'Esci',
+        onTap: () async {
+          Navigator.of(context).pop();
+          await ref.read(authRepositoryProvider).signOut();
+        },
+      ),
+    );
+  }
+
+  Widget _navigationIcon(
+    BuildContext context, {
+    required IconData icon,
+    bool selected = false,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    if (!selected) {
+      return Icon(icon, size: 24, color: scheme.onSurfaceVariant);
+    }
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: scheme.primary,
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x33000000),
+            blurRadius: 16,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Icon(icon, size: 24, color: scheme.onPrimary),
+      ),
     );
   }
 
@@ -152,9 +475,33 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     return '#$shortId';
   }
 
+  String _staffInitials(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty || trimmed == 'Operatore da definire') {
+      return '?';
+    }
+    final parts =
+        trimmed.split(RegExp(r'\s+')).where((part) => part.isNotEmpty).toList();
+    if (parts.isEmpty) {
+      return '?';
+    }
+    final initials = parts.take(2).map((part) => part[0].toUpperCase()).join();
+    return initials.isEmpty ? '?' : initials;
+  }
+
+  TextStyle? _sectionTitleStyle(BuildContext context) {
+    return Theme.of(
+      context,
+    ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700, height: 1.1);
+  }
+
   @override
   void initState() {
     super.initState();
+    _drawerHeaderController = AnimationController.unbounded(vsync: this)
+      ..addListener(_onDrawerElasticTick);
+    _drawerFooterController = AnimationController.unbounded(vsync: this)
+      ..addListener(_onDrawerElasticTick);
     _listenForegroundMessages();
     _intentSubscription = ref.listenManual<ClientDashboardIntent?>(
       clientDashboardIntentProvider,
@@ -180,12 +527,26 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
         ref.read(clientDashboardIntentProvider.notifier).state = null;
       },
     );
+    final session = ref.read(sessionControllerProvider);
+    unawaited(_restoreAcknowledgedBadges(userId: session.userId));
+    _sessionSubscription = ref.listenManual<SessionState>(
+      sessionControllerProvider,
+      (SessionState? previous, SessionState next) {
+        if (previous?.userId == next.userId) {
+          return;
+        }
+        unawaited(_restoreAcknowledgedBadges(userId: next.userId));
+      },
+    );
   }
 
   @override
   void dispose() {
     _foregroundSub?.cancel();
     _intentSubscription?.close();
+    _sessionSubscription?.close();
+    _drawerHeaderController.dispose();
+    _drawerFooterController.dispose();
     super.dispose();
   }
 
@@ -796,9 +1157,9 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
               children: [
                 Text(
                   'Riepilogo last-minute',
-                  style: theme.textTheme.titleLarge,
+                  style: _sectionTitleStyle(context),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 infoSection('Servizio', service?.name ?? slot.serviceName),
                 const Divider(height: 24),
                 infoSection('Data', dateLabel),
@@ -1331,6 +1692,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
               appBar: AppBar(
                 title: const Text('Area clienti'),
                 actions: [
+                  const ThemeModeAction(),
                   IconButton(
                     tooltip: 'Esci',
                     onPressed: () async {
@@ -1570,6 +1932,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
               context: context,
               client: currentClient,
               salon: salon,
+              seed: _bookingSheetSeed,
             ),
             _buildCartTab(
               context: context,
@@ -1579,6 +1942,14 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
             ),
             _buildSalonInfoTab(context: context, salon: salon),
           ];
+
+          final colorScheme = Theme.of(context).colorScheme;
+          final navigationBadgeOpacity =
+              colorScheme.brightness == Brightness.dark ? 0.7 : 0.9;
+          final navigationBadgeBackground = colorScheme.primary.withAlpha(
+            (navigationBadgeOpacity.clamp(0.0, 1.0) * 255).round(),
+          );
+          final navigationBadgeTextColor = colorScheme.onPrimary;
 
           return Scaffold(
             key: _scaffoldKey,
@@ -1596,6 +1967,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
               ),
               title: Text('Ciao ${currentClient.firstName}'),
               actions: [
+                const ThemeModeAction(),
                 IconButton(
                   tooltip: 'Notifiche',
                   onPressed: () {
@@ -1622,146 +1994,149 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                 ),
               ),
               child: SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _ClientDrawerHeader(client: currentClient, salon: salon),
-                      const SizedBox(height: 24),
-                      Expanded(
-                        child: ListView(
-                          padding: EdgeInsets.zero,
-                          children: [
-                            _DrawerNavigationCard(
-                              icon: Icons.loyalty_rounded,
-                              label: 'Punti fedeltà',
-                              subtitle: 'Saldo: ${loyaltyStats.spendable} pt',
-                              showBadge: shouldShowLoyaltyBadge,
-                              badgeCount: loyaltyBadgeDelta,
-                              onTap: () {
-                                setState(() {
-                                  _acknowledgeBadge(
-                                    _ClientBadgeTarget.loyalty,
-                                    loyaltyTransactionsCount,
-                                  );
-                                });
-                                Navigator.of(context).pop();
-                                _showLoyaltySheet(
-                                  context,
-                                  client: currentClient,
-                                  sales: clientSales,
-                                );
-                              },
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildDrawerHeaderSection(
+                      client: currentClient,
+                      salon: salon,
+                    ),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: StretchingOverscrollIndicator(
+                          axisDirection: AxisDirection.down,
+                          child: NotificationListener<ScrollNotification>(
+                            onNotification: _onDrawerScrollNotification,
+                            child: ListView(
+                              physics: const BouncingScrollPhysics(
+                                parent: AlwaysScrollableScrollPhysics(),
+                              ),
+                              padding: const EdgeInsets.only(top: 24),
+                              children: [
+                                _DrawerNavigationCard(
+                                  icon: Icons.loyalty_rounded,
+                                  label: 'Punti fedeltà',
+                                  subtitle:
+                                      'Saldo: ${loyaltyStats.spendable} pt',
+                                  showBadge: shouldShowLoyaltyBadge,
+                                  badgeCount: loyaltyBadgeDelta,
+                                  onTap: () {
+                                    setState(() {
+                                      _acknowledgeBadge(
+                                        _ClientBadgeTarget.loyalty,
+                                        loyaltyTransactionsCount,
+                                      );
+                                    });
+                                    Navigator.of(context).pop();
+                                    _showLoyaltySheet(
+                                      context,
+                                      client: currentClient,
+                                      sales: clientSales,
+                                    );
+                                  },
+                                ),
+                                _DrawerNavigationCard(
+                                  icon: Icons.card_giftcard_rounded,
+                                  label: 'Pacchetti',
+                                  subtitle:
+                                      activePackages.isEmpty
+                                          ? 'Nessun pacchetto attivo'
+                                          : '${activePackages.length} attivi',
+                                  showBadge: shouldShowPackagesBadge,
+                                  badgeCount: packagesBadgeDelta,
+                                  onTap: () {
+                                    setState(() {
+                                      _acknowledgeBadge(
+                                        _ClientBadgeTarget.packages,
+                                        clientPackages.length,
+                                      );
+                                    });
+                                    Navigator.of(context).pop();
+                                    _showPackagesSheet(
+                                      context,
+                                      activePackages: activePackages,
+                                      pastPackages: pastPackages,
+                                    );
+                                  },
+                                ),
+                                _DrawerNavigationCard(
+                                  icon: Icons.description_rounded,
+                                  label: 'Preventivi',
+                                  subtitle: 'Rivedi e accetta le proposte',
+                                  showBadge: shouldShowQuotesBadge,
+                                  badgeCount: quotesBadgeDelta,
+                                  onTap: () {
+                                    setState(() {
+                                      _acknowledgeBadge(
+                                        _ClientBadgeTarget.quotes,
+                                        pendingQuotesCount,
+                                      );
+                                    });
+                                    Navigator.of(context).pop();
+                                    _showQuotesSheet(context, currentClient);
+                                  },
+                                ),
+                                _DrawerNavigationCard(
+                                  icon: Icons.receipt_long_rounded,
+                                  label: 'Fatturazione',
+                                  subtitle:
+                                      outstandingTotal > 0
+                                          ? 'Da saldare: ${NumberFormat.simpleCurrency(locale: 'it_IT').format(outstandingTotal)}'
+                                          : 'Pagamenti aggiornati',
+                                  showBadge: shouldShowBillingBadge,
+                                  badgeCount: billingBadgeDelta,
+                                  onTap: () {
+                                    setState(() {
+                                      _acknowledgeBadge(
+                                        _ClientBadgeTarget.billing,
+                                        outstandingSales.length,
+                                      );
+                                    });
+                                    Navigator.of(context).pop();
+                                    _showBillingSheet(
+                                      context,
+                                      client: currentClient,
+                                      sales: clientSales,
+                                      outstandingSales: outstandingSales,
+                                      activePackages: activePackages,
+                                      pastPackages: pastPackages,
+                                    );
+                                  },
+                                ),
+                                _DrawerNavigationCard(
+                                  icon: Icons.photo_library_rounded,
+                                  label: 'Le mie foto',
+                                  subtitle:
+                                      'Guarda i risultati dei trattamenti',
+                                  showBadge: shouldShowPhotosBadge,
+                                  badgeCount: photosBadgeDelta,
+                                  onTap: () {
+                                    setState(() {
+                                      _acknowledgeBadge(
+                                        _ClientBadgeTarget.photos,
+                                        photosCount,
+                                      );
+                                    });
+                                    Navigator.of(context).pop();
+                                    _showPhotosSheet(context, currentClient);
+                                  },
+                                ),
+                                const SizedBox(height: 12),
+                                _DrawerNavigationCard(
+                                  icon: Icons.settings_rounded,
+                                  label: 'Impostazioni',
+                                  subtitle: 'Presto disponibili',
+                                  onTap: () => Navigator.of(context).pop(),
+                                ),
+                              ],
                             ),
-                            _DrawerNavigationCard(
-                              icon: Icons.card_giftcard_rounded,
-                              label: 'Pacchetti',
-                              subtitle:
-                                  activePackages.isEmpty
-                                      ? 'Nessun pacchetto attivo'
-                                      : '${activePackages.length} attivi',
-                              showBadge: shouldShowPackagesBadge,
-                              badgeCount: packagesBadgeDelta,
-                              onTap: () {
-                                setState(() {
-                                  _acknowledgeBadge(
-                                    _ClientBadgeTarget.packages,
-                                    clientPackages.length,
-                                  );
-                                });
-                                Navigator.of(context).pop();
-                                _showPackagesSheet(
-                                  context,
-                                  activePackages: activePackages,
-                                  pastPackages: pastPackages,
-                                );
-                              },
-                            ),
-                            _DrawerNavigationCard(
-                              icon: Icons.description_rounded,
-                              label: 'Preventivi',
-                              subtitle: 'Rivedi e accetta le proposte',
-                              showBadge: shouldShowQuotesBadge,
-                              badgeCount: quotesBadgeDelta,
-                              onTap: () {
-                                setState(() {
-                                  _acknowledgeBadge(
-                                    _ClientBadgeTarget.quotes,
-                                    pendingQuotesCount,
-                                  );
-                                });
-                                Navigator.of(context).pop();
-                                _showQuotesSheet(context, currentClient);
-                              },
-                            ),
-                            _DrawerNavigationCard(
-                              icon: Icons.receipt_long_rounded,
-                              label: 'Fatturazione',
-                              subtitle:
-                                  outstandingTotal > 0
-                                      ? 'Da saldare: ${NumberFormat.simpleCurrency(locale: 'it_IT').format(outstandingTotal)}'
-                                      : 'Pagamenti aggiornati',
-                              showBadge: shouldShowBillingBadge,
-                              badgeCount: billingBadgeDelta,
-                              onTap: () {
-                                setState(() {
-                                  _acknowledgeBadge(
-                                    _ClientBadgeTarget.billing,
-                                    outstandingSales.length,
-                                  );
-                                });
-                                Navigator.of(context).pop();
-                                _showBillingSheet(
-                                  context,
-                                  client: currentClient,
-                                  sales: clientSales,
-                                  outstandingSales: outstandingSales,
-                                  outstandingTotal: outstandingTotal,
-                                  activePackages: activePackages,
-                                  pastPackages: pastPackages,
-                                );
-                              },
-                            ),
-                            _DrawerNavigationCard(
-                              icon: Icons.photo_library_rounded,
-                              label: 'Le mie foto',
-                              subtitle: 'Guarda i risultati dei trattamenti',
-                              showBadge: shouldShowPhotosBadge,
-                              badgeCount: photosBadgeDelta,
-                              onTap: () {
-                                setState(() {
-                                  _acknowledgeBadge(
-                                    _ClientBadgeTarget.photos,
-                                    photosCount,
-                                  );
-                                });
-                                Navigator.of(context).pop();
-                                _showPhotosSheet(context, currentClient);
-                              },
-                            ),
-
-                            const SizedBox(height: 12),
-                            _DrawerNavigationCard(
-                              icon: Icons.settings_rounded,
-                              label: 'Impostazioni',
-                              subtitle: 'Presto disponibili',
-                              onTap: () => Navigator.of(context).pop(),
-                            ),
-                          ],
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 16),
-                      _DrawerNavigationCard(
-                        icon: Icons.logout_rounded,
-                        label: 'Esci',
-                        onTap: () async {
-                          Navigator.of(context).pop();
-                          await ref.read(authRepositoryProvider).signOut();
-                        },
-                      ),
-                    ],
-                  ),
+                    ),
+                    _buildDrawerFooterSection(context: context),
+                  ],
                 ),
               ),
             ),
@@ -1769,6 +2144,12 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
             bottomNavigationBar: NavigationBar(
               selectedIndex: _currentTab,
               onDestinationSelected: (index) {
+                if (_currentTab == index && index == 2) {
+                  setState(() {
+                    _bookingSheetSeed++;
+                  });
+                  return;
+                }
                 setState(() {
                   _currentTab = index;
                   if (index == 1) {
@@ -1780,46 +2161,86 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                 });
               },
               destinations: [
-                const NavigationDestination(
-                  icon: Icon(Icons.home_outlined),
-                  selectedIcon: Icon(Icons.home_rounded),
+                NavigationDestination(
+                  icon: _navigationIcon(context, icon: Icons.home_outlined),
+                  selectedIcon: _navigationIcon(
+                    context,
+                    icon: Icons.home,
+                    selected: true,
+                  ),
                   label: 'Home',
                 ),
                 NavigationDestination(
                   icon: _wrapWithBadge(
-                    icon: const Icon(Icons.event_note_outlined),
+                    backgroundColor: navigationBadgeBackground,
+                    textColor: navigationBadgeTextColor,
+                    icon: _navigationIcon(
+                      context,
+                      icon: Icons.event_note_outlined,
+                    ),
                     badgeCount: agendaBadgeDelta,
                     showBadge: shouldShowAgendaBadge,
                   ),
                   selectedIcon: _wrapWithBadge(
-                    icon: const Icon(Icons.event_note_rounded),
+                    backgroundColor: navigationBadgeBackground,
+                    textColor: navigationBadgeTextColor,
+                    icon: _navigationIcon(
+                      context,
+                      icon: Icons.event_note,
+                      selected: true,
+                    ),
                     badgeCount: agendaBadgeDelta,
                     showBadge: shouldShowAgendaBadge,
                   ),
                   label: 'Agenda',
                 ),
-                const NavigationDestination(
-                  icon: Icon(Icons.calendar_month_outlined),
-                  selectedIcon: Icon(Icons.calendar_month_rounded),
+                NavigationDestination(
+                  icon: _navigationIcon(
+                    context,
+                    icon: Icons.calendar_month_outlined,
+                  ),
+                  selectedIcon: _navigationIcon(
+                    context,
+                    icon: Icons.calendar_month,
+                    selected: true,
+                  ),
                   label: 'Prenota',
                 ),
                 NavigationDestination(
                   icon: Badge.count(
                     count: cartBadgeCount,
                     isLabelVisible: cartBadgeCount > 0,
-                    child: const Icon(Icons.shopping_bag_outlined),
+                    backgroundColor: navigationBadgeBackground,
+                    textColor: navigationBadgeTextColor,
+                    child: _navigationIcon(
+                      context,
+                      icon: Icons.shopping_bag_outlined,
+                    ),
                   ),
                   selectedIcon: Badge.count(
                     count: cartBadgeCount,
                     isLabelVisible: cartBadgeCount > 0,
-                    child: const Icon(Icons.shopping_bag_rounded),
+                    backgroundColor: navigationBadgeBackground,
+                    textColor: navigationBadgeTextColor,
+                    child: _navigationIcon(
+                      context,
+                      icon: Icons.shopping_bag,
+                      selected: true,
+                    ),
                   ),
                   label: 'Carrello',
                 ),
-                const NavigationDestination(
-                  icon: Icon(Icons.storefront_outlined),
-                  selectedIcon: Icon(Icons.storefront_rounded),
-                  label: 'Info salone',
+                NavigationDestination(
+                  icon: _navigationIcon(
+                    context,
+                    icon: Icons.storefront_outlined,
+                  ),
+                  selectedIcon: _navigationIcon(
+                    context,
+                    icon: Icons.storefront,
+                    selected: true,
+                  ),
+                  label: 'Info',
                 ),
               ],
             ),
@@ -1860,6 +2281,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
   }) {
     final theme = Theme.of(context);
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    final sectionTitleStyle = _sectionTitleStyle(context);
     final nextAppointment = upcoming.isEmpty ? null : upcoming.first;
     final showPromotions = featureFlags.clientPromotions;
     final showLastMinute = featureFlags.clientLastMinute;
@@ -1899,86 +2321,113 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                 .join(' + ');
     final nextAppointmentStaffLabel =
         nextAppointmentStaff?.fullName ?? 'Operatore da definire';
+    final nextAppointmentStaffInitials = _staffInitials(
+      nextAppointmentStaffLabel,
+    );
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         _PushTokenRegistrar(clientId: client.id),
+        Text('Prossimo appuntamento', style: sectionTitleStyle),
+        const SizedBox(height: 6),
         Card(
+          color: theme.colorScheme.primaryContainer,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Appuntamento imminente',
-                  style: theme.textTheme.titleLarge,
-                ),
-                const SizedBox(height: 12),
                 if (nextAppointment != null) ...[
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.event_available_rounded),
-                      const SizedBox(width: 8),
                       Expanded(
-                        child: Text(
-                          nextAppointmentLabel ?? '',
-                          style: theme.textTheme.titleMedium,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  Icons.event_available_rounded,
+                                  color: theme.colorScheme.onPrimaryContainer,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    nextAppointmentLabel ?? '',
+                                    style: theme.textTheme.titleMedium
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                          color:
+                                              theme
+                                                  .colorScheme
+                                                  .onPrimaryContainer,
+                                        ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              nextAppointmentServiceLabel,
+                              style: theme.textTheme.bodyLarge?.copyWith(
+                                color: theme.colorScheme.onPrimaryContainer,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Tooltip(
+                        message: nextAppointmentStaffLabel,
+                        triggerMode: TooltipTriggerMode.tap,
+                        child: Semantics(
+                          label: 'Operatore: $nextAppointmentStaffLabel',
+                          child: CircleAvatar(
+                            radius: 16,
+                            backgroundColor: theme.colorScheme.primary
+                                .withOpacity(0.12),
+                            child: Text(
+                              nextAppointmentStaffInitials,
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                color: theme.colorScheme.primary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    nextAppointmentServiceLabel,
-                    style: theme.textTheme.bodyLarge,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Operatore: $nextAppointmentStaffLabel',
-                    style: theme.textTheme.bodyMedium,
-                  ),
                 ] else ...[
                   Text(
                     'Nessun appuntamento in programma',
-                    style: theme.textTheme.bodyLarge,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: theme.colorScheme.onPrimaryContainer,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   FilledButton.icon(
-                    onPressed: null,
+                    onPressed: () => setState(() => _currentTab = 2),
                     icon: const Icon(Icons.calendar_month_outlined),
                     label: const Text('Prenota ora'),
                   ),
                 ],
-                const SizedBox(height: 16),
-                Divider(color: theme.colorScheme.outlineVariant),
+
                 const SizedBox(height: 12),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      Icons.store_mall_directory_outlined,
-                      color: theme.colorScheme.primary,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        salon == null
-                            ? 'Salone non configurato'
-                            : '${salon.name}\n${salon.address}, ${salon.city}',
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                    ),
-                  ],
-                ),
               ],
             ),
           ),
         ),
         const SizedBox(height: 16),
         if (showLastMinute) ...[
-          Text('Last Minute', style: theme.textTheme.titleLarge),
-          const SizedBox(height: 8),
+          Text('Last Minute', style: sectionTitleStyle),
+          const SizedBox(height: 6),
           if (lastMinuteSlots.isEmpty)
             const Card(
               child: ListTile(
@@ -2024,8 +2473,8 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
         ],
 
         if (showPromotions) ...[
-          Text('Promozioni in corso', style: theme.textTheme.titleLarge),
-          const SizedBox(height: 8),
+          Text('Promozioni in corso', style: sectionTitleStyle),
+          const SizedBox(height: 6),
           if (promotions.isEmpty)
             const Card(
               child: ListTile(title: Text('Nessuna promozione attiva')),
@@ -2043,8 +2492,8 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
         ],
 
         if (packagesCatalog.isNotEmpty) ...[
-          Text('Pacchetti disponibili', style: theme.textTheme.titleLarge),
-          const SizedBox(height: 8),
+          Text('Pacchetti disponibili', style: sectionTitleStyle),
+          const SizedBox(height: 6),
           _PackagesCarousel(
             packages: packagesCatalog,
             onAddToCart:
@@ -2057,33 +2506,6 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
           ),
           const SizedBox(height: 16),
         ],
-
-        Text('Servizi consigliati', style: theme.textTheme.titleLarge),
-        const SizedBox(height: 8),
-        if (services.isEmpty)
-          const Card(
-            child: ListTile(
-              title: Text('Nessun servizio configurato per questo salone'),
-            ),
-          )
-        else
-          _ServicesCarousel(
-            services: services,
-            onBook:
-                (service) => _openBookingSheet(
-                  client,
-                  preselectedService: service,
-                  overrideContext: context,
-                ),
-            onAddToCart:
-                (service) => _addServiceToCart(
-                  context: context,
-                  client: client,
-                  salon: salon,
-                  service: service,
-                ),
-          ),
-        const SizedBox(height: 16),
       ],
     );
   }
@@ -2163,9 +2585,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     required BuildContext context,
     required Client client,
     required Salon? salon,
+    required int seed,
   }) {
     return SafeArea(
       child: ClientBookingSheet(
+        key: ValueKey(seed),
         client: client,
         onCompleted: (appointment) {
           if (!mounted) {
@@ -2179,7 +2603,6 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
               ),
             ),
           );
-          setState(() => _currentTab = 1);
         },
         onDismiss: () {
           if (!mounted) {
@@ -2224,8 +2647,8 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Il tuo carrello', style: theme.textTheme.titleLarge),
-            const SizedBox(height: 12),
+            Text('Il tuo carrello', style: _sectionTitleStyle(context)),
+            const SizedBox(height: 10),
             if (cartState.isProcessing) const LinearProgressIndicator(),
             const SizedBox(height: 12),
             Expanded(
@@ -2248,16 +2671,15 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                           final canIncrement =
                               item.type != CartItemType.lastMinute;
                           return Card(
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
                             child: Padding(
-                              padding: const EdgeInsets.all(16),
+                              padding: const EdgeInsets.all(12),
                               child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Icon(_cartItemIcon(item.type)),
+                                  Icon(
+                                    _cartItemIcon(item.type),
+                                    color: theme.colorScheme.primary,
+                                  ),
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: Column(
@@ -2291,6 +2713,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                                             const Spacer(),
                                             IconButton(
                                               tooltip: 'Diminuisci quantità',
+                                              color: theme.colorScheme.primary,
                                               onPressed:
                                                   cartState.isProcessing ||
                                                           item.quantity <= 1
@@ -2315,6 +2738,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                                             ),
                                             IconButton(
                                               tooltip: 'Aumenta quantità',
+                                              color: theme.colorScheme.primary,
                                               onPressed:
                                                   cartState.isProcessing ||
                                                           !canIncrement
@@ -2328,6 +2752,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                                             ),
                                             IconButton(
                                               tooltip: 'Rimuovi',
+                                              color: theme.colorScheme.primary,
                                               onPressed:
                                                   cartState.isProcessing
                                                       ? null
@@ -2350,35 +2775,30 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                       ),
             ),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                Text('Totale', style: theme.textTheme.titleMedium),
-                const Spacer(),
-                Text(
-                  currency.format(cartState.totalAmount),
-                  style: theme.textTheme.headlineSmall,
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: canCheckout ? handleCheckout : null,
-              icon: const Icon(Icons.lock_outline_rounded),
-              label: Text(
-                cartState.isProcessing
-                    ? 'Elaborazione...'
-                    : 'Procedi al pagamento',
+            if (items.isNotEmpty) ...[
+              Row(
+                children: [
+                  Text('Totale', style: theme.textTheme.titleMedium),
+                  const Spacer(),
+                  Text(
+                    currency.format(cartState.totalAmount),
+                    style: theme.textTheme.headlineSmall,
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed:
-                  cartState.isProcessing || items.isEmpty
-                      ? null
-                      : cartNotifier.clear,
-              icon: const Icon(Icons.delete_sweep_rounded),
-              label: const Text('Svuota carrello'),
-            ),
+              const SizedBox(height: 12),
+              Align(
+                child: FilledButton.icon(
+                  onPressed: canCheckout ? handleCheckout : null,
+                  icon: const Icon(Icons.lock_outline_rounded),
+                  label: Text(
+                    cartState.isProcessing
+                        ? 'Elaborazione...'
+                        : 'Procedi al pagamento',
+                  ),
+                ),
+              ),
+            ],
             if (salon?.stripeAccountId == null) ...[
               const SizedBox(height: 12),
               Text(
@@ -2399,6 +2819,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     required Salon? salon,
   }) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     if (salon == null) {
       return SafeArea(
         child: Center(
@@ -2438,10 +2859,23 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
 
     final socialEntries =
         salon.socialLinks.entries
-            .map((entry) => MapEntry(entry.key.trim(), entry.value.trim()))
+            .map(
+              (entry) => MapEntry(
+                _normalizeSocialLabel(entry.key),
+                entry.value.trim(),
+              ),
+            )
             .where((entry) => entry.key.isNotEmpty && entry.value.isNotEmpty)
             .toList()
           ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
+
+    MapEntry<String, String>? whatsappEntry;
+    final whatsappIndex = socialEntries.indexWhere(
+      (entry) => entry.key.toLowerCase().contains('whatsapp'),
+    );
+    if (whatsappIndex != -1) {
+      whatsappEntry = socialEntries.removeAt(whatsappIndex);
+    }
 
     final contactTiles = <Widget>[];
     final phone = salon.phone.trim();
@@ -2449,7 +2883,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
       contactTiles.add(
         ListTile(
           contentPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.phone_rounded),
+          leading: _SalonInfoCircleIcon(scheme.primary, Icons.phone_rounded),
           title: const Text('Telefono'),
           subtitle: Text(phone),
           onTap:
@@ -2465,7 +2899,10 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
       contactTiles.add(
         ListTile(
           contentPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.mail_outline_rounded),
+          leading: _SalonInfoCircleIcon(
+            scheme.primary,
+            Icons.mail_outline_rounded,
+          ),
           title: const Text('Email'),
           subtitle: Text(email),
           onTap:
@@ -2476,16 +2913,47 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
         ),
       );
     }
+
+    Uri? whatsappUri;
+    String? whatsappSubtitle;
+    if (whatsappEntry != null) {
+      whatsappUri = _tryParseExternalUrl(whatsappEntry.value);
+      whatsappSubtitle = whatsappEntry.value;
+    }
+    if (whatsappUri == null && phone.isNotEmpty) {
+      whatsappUri = _buildWhatsAppUri(phone, salon.name);
+      whatsappSubtitle = phone;
+    }
+    Widget? whatsappTile;
+    if (whatsappUri != null) {
+      final uri = whatsappUri;
+      whatsappTile = ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: _SalonInfoCircleIcon(
+          scheme.primary,
+          Icons.chat_rounded,
+          assetPath: _whatsappLogoAsset,
+        ),
+        title: const Text('WhatsApp'),
+        subtitle: Text(whatsappSubtitle ?? ''),
+        trailing: Icon(Icons.open_in_new_rounded, color: scheme.primary),
+        onTap: () => _launchExternalUrl(context, uri),
+      );
+    }
+
     final bookingLink = salon.bookingLink?.trim() ?? '';
     final bookingUri = _tryParseExternalUrl(bookingLink);
     if (bookingUri != null) {
       contactTiles.add(
         ListTile(
           contentPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.event_available_rounded),
+          leading: _SalonInfoCircleIcon(
+            scheme.primary,
+            Icons.event_available_rounded,
+          ),
           title: const Text('Prenotazioni online'),
           subtitle: Text(bookingUri.toString()),
-          trailing: const Icon(Icons.open_in_new_rounded),
+          trailing: Icon(Icons.open_in_new_rounded, color: scheme.primary),
           onTap: () => _launchExternalUrl(context, bookingUri),
         ),
       );
@@ -2501,7 +2969,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Chi siamo', style: theme.textTheme.titleMedium),
+                _SalonSectionHeader(
+                  icon: Icons.info_rounded,
+                  title: 'Chi siamo',
+                  color: scheme.primary,
+                ),
                 const SizedBox(height: 12),
                 Text(description, style: theme.textTheme.bodyMedium),
               ],
@@ -2509,6 +2981,9 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
           ),
         ),
       );
+    }
+    if (whatsappTile != null) {
+      contactTiles.insert(0, whatsappTile);
     }
 
     if (contactTiles.isNotEmpty) {
@@ -2519,10 +2994,18 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Contatti principali', style: theme.textTheme.titleMedium),
+                _SalonSectionHeader(
+                  icon: Icons.call_rounded,
+                  title: 'Contatti principali',
+                  color: scheme.primary,
+                ),
                 const SizedBox(height: 12),
                 for (var i = 0; i < contactTiles.length; i++) ...[
-                  if (i > 0) const Divider(height: 16),
+                  if (i > 0)
+                    Divider(
+                      height: 16,
+                      color: scheme.primary.withOpacity(0.08),
+                    ),
                   contactTiles[i],
                 ],
               ],
@@ -2540,22 +3023,88 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Dove trovarci', style: theme.textTheme.titleMedium),
+                _SalonSectionHeader(
+                  icon: Icons.map_rounded,
+                  title: 'Dove trovarci',
+                  color: scheme.primary,
+                ),
                 const SizedBox(height: 12),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.location_on_rounded),
+                  leading: _SalonInfoCircleIcon(
+                    scheme.primary,
+                    Icons.location_on_rounded,
+                    assetPath: _mapsLogoAsset,
+                  ),
                   title: const Text('Indirizzo'),
                   subtitle: Text(locationDescription),
                   trailing:
                       mapsUri == null
                           ? null
-                          : const Icon(Icons.open_in_new_rounded),
+                          : Icon(
+                            Icons.open_in_new_rounded,
+                            color: scheme.primary,
+                          ),
                   onTap:
                       mapsUri == null
                           ? null
                           : () => _launchExternalUrl(context, mapsUri),
                 ),
+                if (mapsUri != null) ...[
+                  const SizedBox(height: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: InkWell(
+                      onTap: () => _launchExternalUrl(context, mapsUri),
+                      child: Container(
+                        height: 160,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              scheme.primary.withOpacity(0.85),
+                              scheme.primaryContainer.withOpacity(0.85),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                        ),
+                        child: Stack(
+                          children: [
+                            Align(
+                              alignment: Alignment.center,
+                              child: Icon(
+                                Icons.map_rounded,
+                                color: scheme.onPrimary,
+                                size: 64,
+                              ),
+                            ),
+                            Positioned(
+                              left: 16,
+                              bottom: 16,
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.open_in_new_rounded,
+                                    color: scheme.onPrimary,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Apri in Google Maps',
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: scheme.onPrimary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -2572,7 +3121,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Orari di apertura', style: theme.textTheme.titleMedium),
+                _SalonSectionHeader(
+                  icon: Icons.access_time_rounded,
+                  title: 'Orari di apertura',
+                  color: scheme.primary,
+                ),
                 const SizedBox(height: 12),
                 ...scheduleRows,
               ],
@@ -2582,7 +3135,31 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
       );
     }
 
-    if (socialEntries.isNotEmpty) {
+    final socialIconButtons = <Widget>[];
+    for (final entry in socialEntries) {
+      final uri = _tryParseExternalUrl(entry.value);
+      if (uri == null) {
+        continue;
+      }
+      socialIconButtons.add(
+        _SalonSocialIconButton(
+          color: scheme.primary,
+          label: _displaySocialLabel(entry.key),
+          icon: _socialIconFor(entry.key),
+          assetPath: _socialAssetFor(entry.key),
+          onTap: () => _launchExternalUrl(context, uri),
+        ),
+      );
+    }
+
+    if (socialIconButtons.isNotEmpty) {
+      final rowChildren = <Widget>[];
+      for (var index = 0; index < socialIconButtons.length; index++) {
+        rowChildren.add(socialIconButtons[index]);
+        if (index < socialIconButtons.length - 1) {
+          rowChildren.add(const SizedBox(width: 12));
+        }
+      }
       cards.add(
         Card(
           child: Padding(
@@ -2590,34 +3167,38 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Canali social', style: theme.textTheme.titleMedium),
+                _SalonSectionHeader(
+                  icon: Icons.public_rounded,
+                  title: 'Canali social',
+                  color: scheme.primary,
+                ),
                 const SizedBox(height: 12),
-                for (var i = 0; i < socialEntries.length; i++) ...[
-                  if (i > 0) const Divider(height: 16),
-                  Builder(
-                    builder: (tileContext) {
-                      final entry = socialEntries[i];
-                      final uri = _tryParseExternalUrl(entry.value);
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(_socialIconFor(entry.key)),
-                        title: Text(entry.key),
-                        subtitle: Text(entry.value),
-                        trailing: const Icon(Icons.open_in_new_rounded),
-                        onTap:
-                            uri == null
-                                ? null
-                                : () => _launchExternalUrl(tileContext, uri),
-                      );
-                    },
-                  ),
-                ],
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: rowChildren,
+                ),
               ],
             ),
           ),
         ),
       );
     }
+
+    final reviewUri = _buildGoogleReviewUri(salon);
+    cards.add(
+      Card(
+        color: scheme.primaryContainer,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: _SalonReviewCard(
+            salonName: salon.name,
+            primaryColor: scheme.primary,
+            onPrimaryColor: scheme.onPrimaryContainer,
+            onOpenReviews: () => _launchExternalUrl(context, reviewUri),
+          ),
+        ),
+      ),
+    );
 
     if (cards.isEmpty) {
       return SafeArea(
@@ -2753,7 +3334,10 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
       MaterialPageRoute<void>(
         builder: (routeContext) {
           return Scaffold(
-            appBar: AppBar(title: const Text('Notifiche')),
+            appBar: AppBar(
+              title: const Text('Notifiche'),
+              actions: const [ThemeModeAction()],
+            ),
             body: _buildNotificationsTab(
               context: routeContext,
               notifications: notifications,
@@ -2872,9 +3456,77 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     });
   }
 
+  Uri? _buildWhatsAppUri(String phone, String salonName) {
+    final normalized = _normalizePhone(phone);
+    if (normalized.isEmpty) {
+      return null;
+    }
+    final digits =
+        normalized.startsWith('+') ? normalized.substring(1) : normalized;
+    if (digits.isEmpty) {
+      return null;
+    }
+    final message = Uri.encodeComponent(
+      'Ciao ${salonName.trim()}, vorrei prenotare un appuntamento.',
+    );
+    return Uri.parse('https://wa.me/$digits?text=$message');
+  }
+
+  Uri _buildGoogleReviewUri(Salon salon) {
+    final raw = salon.googlePlaceId?.trim();
+    if (raw != null && raw.isNotEmpty) {
+      if (raw.startsWith('http://') || raw.startsWith('https://')) {
+        return Uri.parse(raw);
+      }
+      return Uri.https('search.google.com', '/local/writereview', {
+        'placeid': raw,
+      });
+    }
+
+    final queryBuffer = StringBuffer(salon.name.trim());
+    final city = salon.city.trim();
+    if (city.isNotEmpty) {
+      queryBuffer
+        ..write(' ')
+        ..write(city);
+    }
+    final query = 'Recensioni ${queryBuffer.toString()}';
+    return Uri.https('www.google.com', '/search', {'q': query});
+  }
+
+  String _normalizeSocialLabel(String rawLabel) {
+    final trimmed = rawLabel.trim();
+    if (trimmed.isEmpty) {
+      return '';
+    }
+    final normalized = trimmed.toLowerCase();
+    if (normalized.contains('twitter') ||
+        normalized.contains('x.com') ||
+        normalized == 'x') {
+      return 'Instagram';
+    }
+    if (normalized == 'instagram') {
+      return 'Instagram';
+    }
+    if (normalized == 'facebook') {
+      return 'Facebook';
+    }
+    if (normalized == 'tiktok') {
+      return 'TikTok';
+    }
+    if (normalized == 'whatsapp') {
+      return 'WhatsApp';
+    }
+    return trimmed;
+  }
+
+  String _displaySocialLabel(String label) {
+    return _normalizeSocialLabel(label);
+  }
+
   IconData _socialIconFor(String label) {
     final normalized = label.toLowerCase();
-    if (normalized.contains('instagram')) {
+    if (normalized.contains('instagram') || normalized.contains('twitter')) {
       return Icons.camera_alt_rounded;
     }
     if (normalized.contains('facebook')) {
@@ -2895,11 +3547,6 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     if (normalized.contains('linkedin')) {
       return Icons.work_outline_rounded;
     }
-    if (normalized.contains('twitter') ||
-        normalized.contains('x.com') ||
-        normalized == 'x') {
-      return Icons.alternate_email_rounded;
-    }
     if (normalized.contains('pinterest')) {
       return Icons.push_pin_rounded;
     }
@@ -2907,6 +3554,26 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
       return Icons.language_rounded;
     }
     return Icons.language_rounded;
+  }
+
+  String? _socialAssetFor(String label) {
+    final normalized = label.toLowerCase();
+    if (normalized.contains('instagram') || normalized.contains('twitter')) {
+      return _instagramLogoAsset;
+    }
+    if (normalized.contains('facebook')) {
+      return _facebookLogoAsset;
+    }
+    if (normalized.contains('tiktok')) {
+      return _tiktokLogoAsset;
+    }
+    if (normalized.contains('whatsapp')) {
+      return _whatsappLogoAsset;
+    }
+    if (normalized.contains('map')) {
+      return _mapsLogoAsset;
+    }
+    return null;
   }
 
   String _normalizePhone(String phone) {
@@ -3001,8 +3668,8 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Saldo utilizzabile', style: theme.textTheme.titleLarge),
-                const SizedBox(height: 12),
+                Text('Saldo utilizzabile', style: _sectionTitleStyle(context)),
+                const SizedBox(height: 10),
                 Text(
                   '${loyaltyStats.spendable} pt',
                   style: theme.textTheme.displaySmall,
@@ -3061,8 +3728,8 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
           ),
         ),
         const SizedBox(height: 24),
-        Text('Movimenti recenti', style: theme.textTheme.titleLarge),
-        const SizedBox(height: 12),
+        Text('Movimenti recenti', style: _sectionTitleStyle(context)),
+        const SizedBox(height: 10),
         if (loyaltySales.isEmpty)
           const Card(
             child: ListTile(title: Text('Non ci sono movimenti registrati.')),
@@ -3101,54 +3768,118 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     required Client client,
     required List<Sale> sales,
     required List<Sale> outstandingSales,
-    required double outstandingTotal,
     required List<ClientPackagePurchase> activePackages,
     required List<ClientPackagePurchase> pastPackages,
   }) {
     final theme = Theme.of(context);
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
-    final totalPaid = sales.fold<double>(
-      0,
-      (sum, sale) => sum + sale.paidAmount,
+    final isDark = theme.brightness == Brightness.dark;
+    final outstandingAccent = theme.colorScheme.error;
+    final outstandingBackground = outstandingAccent.withOpacity(
+      isDark ? 0.24 : 0.1,
     );
+    final outstandingBorder = outstandingAccent.withOpacity(isDark ? 0.3 : 0.2);
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Riepilogo fatture', style: theme.textTheme.titleLarge),
-                const SizedBox(height: 12),
-                Text('Incassato: ${currency.format(totalPaid)}'),
-                Text('Da saldare: ${currency.format(outstandingTotal)}'),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Text('Vendite recenti', style: theme.textTheme.titleLarge),
+        if (outstandingSales.isNotEmpty) ...[
+          Text('Pagamenti da completare', style: _sectionTitleStyle(context)),
+          const SizedBox(height: 8),
+          ...outstandingSales.map((sale) {
+            final date = DateFormat('dd/MM/yyyy HH:mm').format(sale.createdAt);
+            final purchaseSummary = _summarizeSaleItems(sale);
+            final pointsUsed = sale.loyalty.redeemedPoints;
+            return Card(
+              color: outstandingBackground,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: outstandingBorder),
+              ),
+              child: ListTile(
+                leading: Icon(
+                  Icons.warning_amber_rounded,
+                  color: outstandingAccent,
+                ),
+                title: Text(
+                  'Acquisto del $date',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: outstandingAccent,
+                  ),
+                ),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      purchaseSummary,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: outstandingAccent,
+                      ),
+                    ),
+                    if (pointsUsed > 0)
+                      Text(
+                        'Punti usati: $pointsUsed',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: outstandingAccent.withOpacity(0.9),
+                        ),
+                      ),
+                  ],
+                ),
+                trailing: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      currency.format(sale.outstandingAmount),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: outstandingAccent,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      'da saldare',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: outstandingAccent.withOpacity(0.9),
+                      ),
+                    ),
+                  ],
+                ),
+                isThreeLine: pointsUsed > 0,
+              ),
+            );
+          }),
+          const SizedBox(height: 16),
+        ],
+        Text('Acquisti recenti', style: _sectionTitleStyle(context)),
         const SizedBox(height: 8),
         if (sales.isEmpty)
           const Card(
-            child: ListTile(title: Text('Non risultano vendite registrate')),
+            child: ListTile(title: Text('Non risultano acquisti registrati')),
           )
         else
           ...sales.map((sale) {
             final date = DateFormat('dd/MM/yyyy HH:mm').format(sale.createdAt);
-            final subtitle =
-                sale.loyalty.redeemedPoints > 0
-                    ? 'Totale: ${currency.format(sale.total)} • Punti usati: ${sale.loyalty.redeemedPoints}'
-                    : 'Totale: ${currency.format(sale.total)}';
+            final purchaseSummary = _summarizeSaleItems(sale);
+            final pointsUsed = sale.loyalty.redeemedPoints;
             final outstanding = sale.outstandingAmount;
             return Card(
               child: ListTile(
                 leading: const Icon(Icons.receipt_long_rounded),
-                title: Text('Vendita del $date'),
-                subtitle: Text(subtitle),
+                title: Text('Acquisto del $date'),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(purchaseSummary),
+                    if (pointsUsed > 0)
+                      Text(
+                        'Punti usati: $pointsUsed',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                  ],
+                ),
                 trailing:
                     outstanding > 0
                         ? Text(
@@ -3162,28 +3893,46 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                           currency.format(sale.total),
                           style: theme.textTheme.titleMedium,
                         ),
+                isThreeLine: pointsUsed > 0,
               ),
             );
           }),
-        if (outstandingSales.isNotEmpty) ...[
-          const SizedBox(height: 16),
-          Text('Pagamenti da completare', style: theme.textTheme.titleLarge),
-          const SizedBox(height: 8),
-          ...outstandingSales.map((sale) {
-            final date = DateFormat('dd/MM/yyyy HH:mm').format(sale.createdAt);
-            return Card(
-              child: ListTile(
-                leading: const Icon(Icons.warning_amber_rounded),
-                title: Text('Vendita del $date'),
-                subtitle: Text(
-                  'Residuo ${currency.format(sale.outstandingAmount)}',
-                ),
-              ),
-            );
-          }),
-        ],
       ],
     );
+  }
+
+  String _summarizeSaleItems(Sale sale) {
+    final quantityFormat = NumberFormat.decimalPattern('it_IT');
+    final descriptions =
+        sale.items
+            .map((item) {
+              final description = item.description.trim();
+              if (description.isEmpty) {
+                return null;
+              }
+              final quantity = item.quantity;
+              final isSingle = (quantity - 1).abs() < 0.0001;
+              if (isSingle) {
+                return description;
+              }
+              final isInteger = (quantity - quantity.round()).abs() < 0.0001;
+              final quantityLabel =
+                  isInteger
+                      ? quantity.round().toString()
+                      : quantityFormat.format(quantity);
+              return '$quantityLabel × $description';
+            })
+            .whereType<String>()
+            .toList();
+    if (descriptions.isEmpty) {
+      return 'Dettagli acquisto non disponibili';
+    }
+    if (descriptions.length <= 3) {
+      return descriptions.join(', ');
+    }
+    final remaining = descriptions.length - 3;
+    final othersLabel = remaining == 1 ? 'e un altro' : 'e altri $remaining';
+    return '${descriptions.take(3).join(', ')} $othersLabel';
   }
 
   void _showQuotesSheet(BuildContext context, Client client) {
@@ -3223,7 +3972,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                           Expanded(
                             child: Text(
                               'I tuoi preventivi',
-                              style: theme.textTheme.titleLarge,
+                              style: _sectionTitleStyle(modalContext),
                             ),
                           ),
                           IconButton(
@@ -3233,7 +3982,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                       if (quotes.isEmpty)
                         Expanded(
                           child: Center(
@@ -3523,8 +4272,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Servizi del salone', style: theme.textTheme.titleLarge),
-                const SizedBox(height: 16),
+                Text(
+                  'Servizi del salone',
+                  style: _sectionTitleStyle(modalContext),
+                ),
+                const SizedBox(height: 12),
                 ConstrainedBox(
                   constraints: BoxConstraints(maxHeight: maxHeight),
                   child: ListView.separated(
@@ -3577,7 +4329,6 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
     required Client client,
     required List<Sale> sales,
     required List<Sale> outstandingSales,
-    required double outstandingTotal,
     required List<ClientPackagePurchase> activePackages,
     required List<ClientPackagePurchase> pastPackages,
   }) {
@@ -3598,7 +4349,6 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen> {
                 client: client,
                 sales: sales,
                 outstandingSales: outstandingSales,
-                outstandingTotal: outstandingTotal,
                 activePackages: activePackages,
                 pastPackages: pastPackages,
               ),
@@ -4014,7 +4764,7 @@ class _NotificationCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Expanded(
                   child: Text(title, style: theme.textTheme.titleMedium),
@@ -4148,6 +4898,11 @@ class _PromotionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final titleStyle = theme.textTheme.titleMedium?.copyWith(
+      fontWeight: FontWeight.w700,
+      height: 1.1,
+      color: scheme.onPrimaryContainer,
+    );
     final endsAt = promotion.endsAt;
     final subtitle = promotion.subtitle;
     final dateLabel =
@@ -4196,13 +4951,10 @@ class _PromotionCard extends StatelessWidget {
                 promotion.title,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: scheme.onPrimaryContainer,
-                ),
+                style: titleStyle,
               ),
               if (subtitle != null && subtitle.isNotEmpty) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Text(
                   subtitle,
                   maxLines: 2,
@@ -4270,7 +5022,7 @@ class _ProcessingPaymentDialog extends StatelessWidget {
   }
 }
 
-class _LastMinuteSlotCard extends StatelessWidget {
+class _LastMinuteSlotCard extends StatefulWidget {
   const _LastMinuteSlotCard({
     required this.slot,
     required this.currency,
@@ -4284,12 +5036,51 @@ class _LastMinuteSlotCard extends StatelessWidget {
   final VoidCallback onBook;
 
   @override
+  State<_LastMinuteSlotCard> createState() => _LastMinuteSlotCardState();
+}
+
+class _LastMinuteSlotCardState extends State<_LastMinuteSlotCard>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+    _pulseAnimation = Tween<double>(begin: 1, end: 1.06).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final dateFormat = DateFormat('EEEE d MMMM • HH:mm', 'it_IT');
-    final savings = slot.basePrice - slot.priceNow;
-    final appointmentDateTime = dateFormat.format(slot.start);
+    final titleStyle = theme.textTheme.titleMedium?.copyWith(
+      fontWeight: FontWeight.w700,
+      height: 1.1,
+    );
+    final dateLabelFormat = DateFormat('EEE d MMM', 'it_IT');
+    final timeLabelFormat = DateFormat('HH:mm', 'it_IT');
+    final savings = widget.slot.basePrice - widget.slot.priceNow;
+    final appointmentDateLabel = _capitalizeWords(
+      dateLabelFormat.format(widget.slot.start),
+    );
+    final appointmentTimeLabel = timeLabelFormat.format(widget.slot.start);
+    final operatorName = widget.slot.operatorName ?? 'Operatore da assegnare';
+    final operatorInitials = _initials(operatorName);
+    final discount = widget.slot.discountPercentage;
+    final hasDiscount = discount != null && discount > 0;
     return TweenAnimationBuilder<double>(
       duration: const Duration(milliseconds: 450),
       curve: Curves.easeOutBack,
@@ -4312,34 +5103,75 @@ class _LastMinuteSlotCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          slot.serviceName,
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
+                        Text(widget.slot.serviceName, style: titleStyle),
+                        const SizedBox(height: 6),
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: scheme.primary.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.event_available_rounded,
-                              size: 18,
-                              color: scheme.primary,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
                             ),
-                            const SizedBox(width: 6),
-                            Flexible(
-                              child: Text(
-                                appointmentDateTime,
-                                style: theme.textTheme.bodyMedium,
-                              ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.event_available_rounded,
+                                  size: 18,
+                                  color: scheme.primary,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          appointmentDateLabel,
+                                          style: theme.textTheme.titleMedium
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w800,
+                                                color: scheme.primary,
+                                              ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: scheme.primary,
+                                          borderRadius: BorderRadius.circular(
+                                            999,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          appointmentTimeLabel,
+                                          style: theme.textTheme.labelLarge
+                                              ?.copyWith(
+                                                color: scheme.onPrimary,
+                                                fontWeight: FontWeight.w700,
+                                                letterSpacing: 0.2,
+                                              ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
                       ],
                     ),
                   ),
-                  if (slot.discountPercentage > 0) ...[
+                  if (hasDiscount) ...[
                     const SizedBox(width: 12),
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -4351,7 +5183,7 @@ class _LastMinuteSlotCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
-                        '-${slot.discountPercentage.toStringAsFixed(0)}%',
+                        '-${discount!.toStringAsFixed(0)}%',
                         style: theme.textTheme.labelMedium?.copyWith(
                           color: scheme.onSecondaryContainer,
                           fontWeight: FontWeight.bold,
@@ -4363,27 +5195,42 @@ class _LastMinuteSlotCard extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Icon(Icons.timer_outlined, size: 16, color: scheme.primary),
-                  const SizedBox(width: 4),
+                  Icon(Icons.schedule_rounded, size: 20, color: scheme.primary),
+                  const SizedBox(width: 8),
                   Text(
-                    'Scade tra $countdownText',
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: scheme.primary,
+                    '${widget.slot.duration.inMinutes} min',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                  Tooltip(
+                    message: operatorName,
+                    triggerMode: TooltipTriggerMode.tap,
+                    child: Semantics(
+                      label: 'Operatore: $operatorName',
+                      child: CircleAvatar(
+                        radius: 16,
+                        backgroundColor: scheme.primary.withOpacity(0.12),
+                        child: Text(
+                          operatorInitials,
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: scheme.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              Text(
-                '${slot.duration.inMinutes} min • '
-                '${slot.operatorName ?? 'Operatore da assegnare'}',
-                style: theme.textTheme.bodyMedium,
-              ),
-              if (slot.roomName != null && slot.roomName!.isNotEmpty) ...[
+              if (widget.slot.roomName != null &&
+                  widget.slot.roomName!.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(
-                  'Cabina: ${slot.roomName}',
+                  'Cabina: ${widget.slot.roomName}',
                   style: theme.textTheme.bodySmall,
                 ),
               ],
@@ -4392,14 +5239,14 @@ class _LastMinuteSlotCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    currency.format(slot.priceNow),
+                    widget.currency.format(widget.slot.priceNow),
                     style: theme.textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    currency.format(slot.basePrice),
+                    widget.currency.format(widget.slot.basePrice),
                     style: theme.textTheme.bodyMedium?.copyWith(
                       decoration: TextDecoration.lineThrough,
                       color: theme.textTheme.bodyMedium?.color?.withOpacity(
@@ -4410,7 +5257,7 @@ class _LastMinuteSlotCard extends StatelessWidget {
                   const Spacer(),
                   if (savings > 0)
                     Text(
-                      'Risparmi ${currency.format(savings)}',
+                      'Risparmi ${widget.currency.format(savings)}',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: scheme.secondary,
                         fontWeight: FontWeight.w600,
@@ -4418,17 +5265,46 @@ class _LastMinuteSlotCard extends StatelessWidget {
                     ),
                 ],
               ),
-              if (slot.loyaltyPoints > 0) ...[
+              if (widget.slot.loyaltyPoints > 0) ...[
                 const SizedBox(height: 4),
                 Text(
-                  'Guadagni ${slot.loyaltyPoints} punti',
+                  'Guadagni ${widget.slot.loyaltyPoints} punti',
                   style: theme.textTheme.bodySmall,
                 ),
               ],
               const SizedBox(height: 16),
-              FilledButton(
-                onPressed: onBook,
-                child: const Text('Prenota subito'),
+              ScaleTransition(
+                scale: _pulseAnimation,
+                child: FilledButton(
+                  onPressed: widget.onBook,
+                  child: Row(
+                    children: [
+                      const Icon(Icons.hourglass_top_rounded),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Row(
+                          children: [
+                            const Text('Prenota subito'),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Scade tra ${widget.countdownText}',
+                                maxLines: 1,
+                                softWrap: false,
+                                overflow: TextOverflow.visible,
+                                textAlign: TextAlign.right,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: theme.colorScheme.onPrimary
+                                      .withOpacity(0.9),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
@@ -4436,6 +5312,34 @@ class _LastMinuteSlotCard extends StatelessWidget {
       ),
     );
   }
+
+  String _initials(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty || trimmed == 'Operatore da assegnare') {
+      return '?';
+    }
+    final parts =
+        trimmed.split(RegExp(r'\s+')).where((part) => part.isNotEmpty).toList();
+    if (parts.isEmpty) {
+      return '?';
+    }
+    final initials = parts.take(2).map((part) => part[0].toUpperCase()).join();
+    return initials.isEmpty ? '?' : initials;
+  }
+}
+
+String _capitalizeWords(String value) {
+  return value
+      .split(' ')
+      .map((part) {
+        if (part.isEmpty) {
+          return part;
+        }
+        final first = part.substring(0, 1).toUpperCase();
+        final rest = part.length > 1 ? part.substring(1) : '';
+        return '$first$rest';
+      })
+      .join(' ');
 }
 
 class _LoyaltyStats {
@@ -4483,10 +5387,10 @@ class _AppointmentsList extends StatelessWidget {
     }
 
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       itemCount: appointments.length,
       physics: const BouncingScrollPhysics(),
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
         final appointment = appointments[index];
         return _AppointmentCard(
@@ -4536,72 +5440,110 @@ class _AppointmentCard extends ConsumerWidget {
       'dd/MM/yyyy HH:mm',
       'it_IT',
     ).format(appointment.start);
+    final canDelete = _canShowDeleteAction(appointment);
+    final showDeleteAction = onDelete != null && canDelete;
+    final showCancelAction = onCancel != null && !canDelete;
     final actionsAvailable =
-        onReschedule != null || onCancel != null || onDelete != null;
-    final statusChip = _statusChip(context, appointment.status);
+        onReschedule != null || showCancelAction || showDeleteAction;
+    final statusIndicator = _statusIndicator(context, appointment.status);
     final theme = Theme.of(context);
+    final metadataStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    final iconColor = metadataStyle?.color ?? theme.colorScheme.onSurface;
+    final staffName = staff?.fullName ?? 'Operatore da definire';
+    final staffInitials = _staffInitials(staffName);
+    final staffTooltip = staffName;
+    const buttonPadding = EdgeInsets.symmetric(horizontal: 12, vertical: 6);
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
+                statusIndicator,
+                const SizedBox(width: 12),
                 Expanded(
-                  child: Text(serviceLabel, style: theme.textTheme.titleMedium),
-                ),
-                statusChip,
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.event_rounded, size: 20),
-                const SizedBox(width: 8),
-                Text(date, style: theme.textTheme.bodyMedium),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                const Icon(Icons.person_outline_rounded, size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    staff?.fullName ?? 'Operatore da definire',
-                    style: theme.textTheme.bodyMedium,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(serviceLabel, style: theme.textTheme.titleMedium),
+                      const SizedBox(height: 4),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.event_rounded,
+                                  size: 18,
+                                  color: iconColor,
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(date, style: metadataStyle),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Tooltip(
+                            message: staffTooltip,
+                            triggerMode: TooltipTriggerMode.tap,
+                            child: Semantics(
+                              label: 'Operatore: $staffTooltip',
+                              child: CircleAvatar(
+                                radius: 14,
+                                backgroundColor: theme.colorScheme.primary
+                                    .withOpacity(0.12),
+                                child: Text(
+                                  staffInitials,
+                                  style: theme.textTheme.labelLarge?.copyWith(
+                                    color: theme.colorScheme.primary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
             if (actionsAvailable) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Wrap(
-                spacing: 12,
+                spacing: 8,
                 runSpacing: 8,
                 children: [
                   if (onReschedule != null)
-                    OutlinedButton.icon(
+                    TextButton.icon(
+                      style: TextButton.styleFrom(padding: buttonPadding),
                       onPressed: onReschedule,
-                      icon: const Icon(Icons.edit_calendar_rounded),
-                      label: const Text('Modifica'),
+                      icon: const Icon(Icons.event_repeat_rounded, size: 18),
+                      label: const Text('Ripianifica'),
                     ),
-                  if (onCancel != null)
-                    OutlinedButton.icon(
+                  if (showCancelAction)
+                    TextButton.icon(
+                      style: TextButton.styleFrom(padding: buttonPadding),
                       onPressed: onCancel,
-                      icon: const Icon(Icons.event_busy_rounded),
+                      icon: const Icon(Icons.event_busy_rounded, size: 18),
                       label: const Text('Annulla'),
                     ),
-                  if (onDelete != null)
-                    TextButton.icon(
+                  if (showDeleteAction)
+                    IconButton(
+                      tooltip: 'Elimina appuntamento',
+                      color: theme.colorScheme.error,
                       onPressed: onDelete,
                       icon: const Icon(Icons.delete_outline_rounded),
-                      label: const Text('Elimina'),
-                      style: TextButton.styleFrom(
-                        foregroundColor: theme.colorScheme.error,
-                      ),
                     ),
                 ],
               ),
@@ -4612,36 +5554,107 @@ class _AppointmentCard extends ConsumerWidget {
     );
   }
 
-  Widget _statusChip(BuildContext context, AppointmentStatus status) {
+  bool _canShowDeleteAction(Appointment appointment) {
+    final start = appointment.start;
+    final now = DateTime.now();
+    if (!start.isAfter(now)) {
+      return false;
+    }
+    return start.difference(now) <= const Duration(hours: 12);
+  }
+
+  String _staffInitials(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty || trimmed == 'Operatore da definire') {
+      return '?';
+    }
+    final parts =
+        trimmed.split(RegExp(r'\s+')).where((part) => part.isNotEmpty).toList();
+    if (parts.isEmpty) {
+      return '?';
+    }
+    final initials = parts.take(2).map((part) => part[0].toUpperCase()).join();
+    return initials.isEmpty ? '?' : initials;
+  }
+
+  Widget _statusIndicator(BuildContext context, AppointmentStatus status) {
+    final visuals = _statusVisuals(context, status);
+    return Tooltip(
+      message: visuals.label,
+      triggerMode: TooltipTriggerMode.tap,
+      child: Semantics(
+        label: 'Stato appuntamento: ${visuals.label}',
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: visuals.background,
+            shape: BoxShape.circle,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Icon(visuals.icon, color: visuals.foreground, size: 20),
+          ),
+        ),
+      ),
+    );
+  }
+
+  _AppointmentStatusVisual _statusVisuals(
+    BuildContext context,
+    AppointmentStatus status,
+  ) {
     final scheme = Theme.of(context).colorScheme;
     switch (status) {
       case AppointmentStatus.scheduled:
-        return Chip(
-          label: const Text('Programmato'),
-          backgroundColor: scheme.primaryContainer,
+        return _AppointmentStatusVisual(
+          label: 'Programmato',
+          icon: Icons.schedule_rounded,
+          foreground: scheme.primary,
+          background: scheme.primary.withOpacity(0.12),
         );
       case AppointmentStatus.confirmed:
-        return Chip(
-          label: const Text('Confermato'),
-          backgroundColor: scheme.secondaryContainer,
+        return _AppointmentStatusVisual(
+          label: 'Confermato',
+          icon: Icons.verified_rounded,
+          foreground: scheme.secondary,
+          background: scheme.secondary.withOpacity(0.12),
         );
       case AppointmentStatus.completed:
-        return Chip(
-          label: const Text('Completato'),
-          backgroundColor: scheme.tertiaryContainer,
+        return _AppointmentStatusVisual(
+          label: 'Completato',
+          icon: Icons.task_alt_rounded,
+          foreground: scheme.tertiary,
+          background: scheme.tertiary.withOpacity(0.12),
         );
       case AppointmentStatus.cancelled:
-        return Chip(
-          label: const Text('Annullato'),
-          backgroundColor: scheme.errorContainer,
+        return _AppointmentStatusVisual(
+          label: 'Annullato',
+          icon: Icons.cancel_rounded,
+          foreground: scheme.error,
+          background: scheme.error.withOpacity(0.12),
         );
       case AppointmentStatus.noShow:
-        return Chip(
-          label: const Text('No show'),
-          backgroundColor: scheme.error.withValues(alpha: 0.1),
+        return _AppointmentStatusVisual(
+          label: 'No show',
+          icon: Icons.error_outline_rounded,
+          foreground: scheme.error,
+          background: scheme.error.withOpacity(0.16),
         );
     }
   }
+}
+
+class _AppointmentStatusVisual {
+  const _AppointmentStatusVisual({
+    required this.label,
+    required this.icon,
+    required this.foreground,
+    required this.background,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color foreground;
+  final Color background;
 }
 
 class _ServicesCarousel extends StatelessWidget {
@@ -4761,7 +5774,15 @@ class _PackagesCarousel extends StatelessWidget {
                     children: [
                       Text(
                         pkg.name,
-                        style: Theme.of(context).textTheme.titleMedium,
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              height: 1.1,
+                            ) ??
+                            const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
                       ),
                       const SizedBox(height: 6),
                       Text(
@@ -4857,19 +5878,16 @@ class _ClientPackageGroup extends StatelessWidget {
     final theme = Theme.of(context);
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
     final dateFormat = DateFormat('dd/MM/yyyy');
-    final highlightColor =
-        isActiveGroup ? theme.colorScheme.primary.withOpacity(0.08) : null;
-    final borderColor =
-        isActiveGroup
-            ? theme.colorScheme.primary.withOpacity(0.25)
-            : theme.colorScheme.outlineVariant;
-    final headingStyle =
-        isActiveGroup
-            ? theme.textTheme.titleMedium?.copyWith(
-              color: theme.colorScheme.primary,
-              fontWeight: FontWeight.w600,
-            )
-            : theme.textTheme.titleMedium;
+    final headingStyle = theme.textTheme.titleMedium?.copyWith(
+      color:
+          isActiveGroup
+              ? theme.colorScheme.primary
+              : theme.colorScheme.onSurface,
+      fontWeight: isActiveGroup ? FontWeight.w600 : FontWeight.w500,
+    );
+    final emptyCardColor = theme.colorScheme.surfaceVariant;
+    final emptyTextColor = theme.colorScheme.onSurfaceVariant;
+    final emptyBorderColor = theme.colorScheme.outlineVariant;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -4878,10 +5896,10 @@ class _ClientPackageGroup extends StatelessWidget {
         const SizedBox(height: 12),
         if (packages.isEmpty)
           Card(
-            color: highlightColor,
+            color: emptyCardColor,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(20),
-              side: BorderSide(color: borderColor),
+              side: BorderSide(color: emptyBorderColor),
             ),
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -4890,142 +5908,20 @@ class _ClientPackageGroup extends StatelessWidget {
                     ? 'Nessun pacchetto attivo al momento.'
                     : 'Non risultano pacchetti passati.',
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color:
-                      isActiveGroup
-                          ? theme.colorScheme.onPrimary.withOpacity(0.75)
-                          : null,
+                  color: emptyTextColor,
                 ),
               ),
             ),
           )
         else
-          ...packages.map((purchase) {
-            final expiry = purchase.expirationDate;
-            final servicesLabel = purchase.serviceNames.join(', ');
-            final statusChip = _packageStatusChip(context, purchase.status);
-            return Card(
-              color: highlightColor,
-              margin: const EdgeInsets.only(bottom: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-                side: BorderSide(color: borderColor),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            purchase.package?.name ?? purchase.item.description,
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            statusChip,
-                            const SizedBox(height: 8),
-                            Text(
-                              currency.format(purchase.totalAmount),
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Text(
-                              purchase.paymentStatus.label,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurface.withOpacity(
-                                  0.7,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 8,
-                      children: [
-                        _ClientInfoChip(
-                          icon: Icons.event_repeat_rounded,
-                          label: _sessionLabel(purchase),
-                        ),
-                        _ClientInfoChip(
-                          icon: Icons.calendar_today_rounded,
-                          label:
-                              'Acquisto: ${dateFormat.format(purchase.sale.createdAt)}',
-                        ),
-                        _ClientInfoChip(
-                          icon: Icons.timer_outlined,
-                          label:
-                              expiry == null
-                                  ? 'Senza scadenza'
-                                  : 'Scadenza: ${dateFormat.format(expiry)}',
-                        ),
-                        if (purchase.depositAmount > 0)
-                          _ClientInfoChip(
-                            icon: Icons.savings_rounded,
-                            label:
-                                'Acconto: ${currency.format(purchase.depositAmount)}',
-                          ),
-                        if (purchase.outstandingAmount > 0)
-                          _ClientInfoChip(
-                            icon: Icons.pending_actions_rounded,
-                            label:
-                                'Da saldare: ${currency.format(purchase.outstandingAmount)}',
-                          ),
-                      ],
-                    ),
-                    if (servicesLabel.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        'Servizi inclusi: $servicesLabel',
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                    ],
-                    if (purchase.deposits.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        'Acconti registrati',
-                        style: theme.textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 4),
-                      Column(
-                        children:
-                            purchase.deposits.map((deposit) {
-                              final subtitleBuffer = StringBuffer(
-                                '${DateFormat('dd/MM/yyyy HH:mm').format(deposit.date)} • ${_paymentMethodLabel(deposit.paymentMethod)}',
-                              );
-                              if (deposit.note != null &&
-                                  deposit.note!.isNotEmpty) {
-                                subtitleBuffer
-                                  ..write('\n')
-                                  ..write(deposit.note);
-                              }
-                              return ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                dense: true,
-                                leading: const Icon(Icons.receipt_long_rounded),
-                                title: Text(currency.format(deposit.amount)),
-                                subtitle: Text(subtitleBuffer.toString()),
-                              );
-                            }).toList(),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            );
-          }),
+          ...packages.map(
+            (purchase) => _ClientPackageCard(
+              purchase: purchase,
+              isActiveGroup: isActiveGroup,
+              currency: currency,
+              dateFormat: dateFormat,
+            ),
+          ),
       ],
     );
   }
@@ -5061,23 +5957,557 @@ class _ClientPackageGroup extends StatelessWidget {
     PackagePurchaseStatus status,
   ) {
     final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    TextStyle? labelStyle(Color color) {
+      return textTheme.labelSmall?.copyWith(
+        color: color,
+        fontWeight: FontWeight.w600,
+      );
+    }
+
     switch (status) {
       case PackagePurchaseStatus.active:
         return Chip(
           label: Text(status.label),
+          labelStyle: labelStyle(scheme.onPrimaryContainer),
           backgroundColor: scheme.primaryContainer,
+          side: BorderSide(color: scheme.primary.withOpacity(0.25)),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          visualDensity: VisualDensity.compact,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
         );
       case PackagePurchaseStatus.completed:
         return Chip(
           label: Text(status.label),
+          labelStyle: labelStyle(scheme.onSecondaryContainer),
           backgroundColor: scheme.secondaryContainer,
+          side: BorderSide(color: scheme.secondary.withOpacity(0.2)),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          visualDensity: VisualDensity.compact,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
         );
       case PackagePurchaseStatus.cancelled:
         return Chip(
           label: Text(status.label),
+          labelStyle: labelStyle(scheme.onErrorContainer),
           backgroundColor: scheme.errorContainer,
+          side: BorderSide(color: scheme.error.withOpacity(0.2)),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          visualDensity: VisualDensity.compact,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
         );
     }
+  }
+}
+
+class _ClientPackageCard extends StatefulWidget {
+  const _ClientPackageCard({
+    required this.purchase,
+    required this.isActiveGroup,
+    required this.currency,
+    required this.dateFormat,
+  });
+
+  final ClientPackagePurchase purchase;
+  final bool isActiveGroup;
+  final NumberFormat currency;
+  final DateFormat dateFormat;
+
+  @override
+  State<_ClientPackageCard> createState() => _ClientPackageCardState();
+}
+
+class _ClientPackageCardState extends State<_ClientPackageCard> {
+  bool _expanded = false;
+
+  void _toggle() {
+    setState(() => _expanded = !_expanded);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final purchase = widget.purchase;
+    final currency = widget.currency;
+
+    final cardColor =
+        widget.isActiveGroup
+            ? theme.cardTheme.color ?? scheme.surface
+            : theme.colorScheme.surface;
+    final borderColor =
+        widget.isActiveGroup
+            ? scheme.outlineVariant
+            : scheme.primary.withOpacity(0.35);
+    final textColor = scheme.onSurface;
+    final mutedColor = textColor.withOpacity(0.72);
+    final neutralChipBackground =
+        widget.isActiveGroup
+            ? scheme.surfaceVariant
+            : scheme.primary.withOpacity(0.12);
+    final neutralChipForeground =
+        widget.isActiveGroup ? scheme.onSurfaceVariant : scheme.primary;
+
+    final statusChip = _ClientPackageGroup._packageStatusChip(
+      context,
+      purchase.status,
+    );
+    final expiry = purchase.expirationDate;
+    final expiryLabel =
+        expiry == null
+            ? 'Senza scadenza'
+            : 'Scadenza: ${widget.dateFormat.format(expiry)}';
+    final sessionsLabel = _ClientPackageGroup._sessionLabel(purchase);
+    final outstanding = purchase.outstandingAmount;
+    final isPaid = outstanding <= 0;
+    final paymentLabel =
+        isPaid ? 'Saldato' : 'Da saldare ${currency.format(outstanding)}';
+    final paymentIcon =
+        isPaid ? Icons.verified_rounded : Icons.pending_actions_rounded;
+    final paymentForeground = isPaid ? scheme.primary : scheme.error;
+    final paymentBackground =
+        isPaid
+            ? scheme.primary.withOpacity(0.15)
+            : scheme.error.withOpacity(0.15);
+    final servicesLabel = purchase.serviceNames.join(', ');
+    final purchaseDateLabel =
+        'Acquisto: ${widget.dateFormat.format(purchase.sale.createdAt)}';
+    final depositFormat = DateFormat('dd/MM/yyyy HH:mm');
+
+    return Card(
+      color: cardColor,
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: borderColor),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: _toggle,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          purchase.displayName,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: textColor,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          expiryLabel,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: mutedColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      statusChip,
+                      const SizedBox(height: 8),
+                      Icon(
+                        _expanded
+                            ? Icons.expand_less_rounded
+                            : Icons.expand_more_rounded,
+                        color: mutedColor,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _PackageSummaryChip(
+                    icon: Icons.event_repeat_rounded,
+                    label: sessionsLabel,
+                    backgroundColor: neutralChipBackground,
+                    foregroundColor: neutralChipForeground,
+                  ),
+                  _PackageSummaryChip(
+                    icon: paymentIcon,
+                    label: paymentLabel,
+                    backgroundColor: paymentBackground,
+                    foregroundColor: paymentForeground,
+                  ),
+                ],
+              ),
+              AnimatedCrossFade(
+                firstChild: const SizedBox.shrink(),
+                secondChild: Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Divider(color: borderColor.withOpacity(0.6)),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _PackageSummaryChip(
+                            icon: Icons.calendar_month_rounded,
+                            label: purchaseDateLabel,
+                            backgroundColor: neutralChipBackground,
+                            foregroundColor: neutralChipForeground,
+                          ),
+                          _PackageSummaryChip(
+                            icon: Icons.payments_rounded,
+                            label:
+                                'Totale: ${currency.format(purchase.totalAmount)}',
+                            backgroundColor: neutralChipBackground,
+                            foregroundColor: neutralChipForeground,
+                          ),
+                        ],
+                      ),
+                      if (servicesLabel.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          'Servizi inclusi',
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: textColor,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          servicesLabel,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: mutedColor,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                crossFadeState:
+                    _expanded
+                        ? CrossFadeState.showSecond
+                        : CrossFadeState.showFirst,
+                duration: const Duration(milliseconds: 200),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PackageSummaryChip extends StatelessWidget {
+  const _PackageSummaryChip({
+    required this.icon,
+    required this.label,
+    required this.backgroundColor,
+    required this.foregroundColor,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color backgroundColor;
+  final Color foregroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Chip(
+      avatar: Icon(icon, size: 18, color: foregroundColor),
+      label: Text(label),
+      labelStyle: theme.textTheme.bodySmall?.copyWith(
+        color: foregroundColor,
+        fontWeight: FontWeight.w600,
+      ),
+      backgroundColor: backgroundColor,
+      side: BorderSide(color: foregroundColor.withOpacity(0.2)),
+      shape: const StadiumBorder(),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+  }
+}
+
+Widget _SalonInfoCircleIcon(Color color, IconData icon, {String? assetPath}) {
+  const circleRadius = 20.0;
+  const circleIconSize = 24.0;
+  const assetIconSize = 40.0;
+  if (assetPath != null) {
+    return SizedBox(
+      width: assetIconSize,
+      height: assetIconSize,
+      child: Image.asset(assetPath, fit: BoxFit.contain),
+    );
+  }
+  return CircleAvatar(
+    radius: circleRadius,
+    backgroundColor: color.withOpacity(0.12),
+    child: Icon(icon, color: color, size: circleIconSize),
+  );
+}
+
+class _SocialPlaceholder {
+  const _SocialPlaceholder({
+    required this.label,
+    required this.matchKey,
+    this.icon,
+    this.assetPath,
+  }) : assert(icon != null || assetPath != null);
+
+  final String label;
+  final String matchKey;
+  final IconData? icon;
+  final String? assetPath;
+}
+
+class _SalonSectionHeader extends StatelessWidget {
+  const _SalonSectionHeader({
+    required this.icon,
+    required this.title,
+    required this.color,
+    this.textColor,
+    this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final Color color;
+  final Color? textColor;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final effectiveTextColor =
+        textColor ??
+        theme.textTheme.titleMedium?.color ??
+        theme.colorScheme.onSurface;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        _SalonInfoCircleIcon(color, icon),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: effectiveTextColor,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (subtitle != null && subtitle!.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  subtitle!,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: effectiveTextColor.withOpacity(0.72),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SalonSocialIconButton extends StatelessWidget {
+  const _SalonSocialIconButton({
+    required this.color,
+    required this.label,
+    required this.icon,
+    this.assetPath,
+    required this.onTap,
+  });
+
+  final Color color;
+  final String label;
+  final IconData icon;
+  final String? assetPath;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget iconWidget =
+        assetPath != null
+            ? Image.asset(
+              assetPath!,
+              width: 60,
+              height: 60,
+              fit: BoxFit.contain,
+            )
+            : Icon(icon, color: color, size: 36);
+
+    return Tooltip(
+      message: label,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Ink(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: iconWidget,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SalonReviewCard extends StatefulWidget {
+  const _SalonReviewCard({
+    required this.salonName,
+    required this.primaryColor,
+    required this.onPrimaryColor,
+    required this.onOpenReviews,
+  });
+
+  final String salonName;
+  final Color primaryColor;
+  final Color onPrimaryColor;
+  final VoidCallback onOpenReviews;
+
+  @override
+  State<_SalonReviewCard> createState() => _SalonReviewCardState();
+}
+
+class _SalonReviewCardState extends State<_SalonReviewCard> {
+  late final TextEditingController _controller;
+  int _rating = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _setRating(int value) {
+    setState(() => _rating = value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final textColor = widget.onPrimaryColor;
+    final accent = widget.primaryColor;
+    final hintColor = textColor.withOpacity(0.7);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SalonSectionHeader(
+          icon: Icons.star_rate_rounded,
+          title: 'Lascia una recensione',
+          color: accent,
+          textColor: textColor,
+          subtitle: 'Condividi la tua esperienza su Google',
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Valuta ${widget.salonName}',
+          style: theme.textTheme.bodyMedium?.copyWith(color: textColor),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 4,
+          children: List.generate(5, (index) {
+            final starValue = index + 1;
+            final isFilled = _rating >= starValue;
+            return IconButton(
+              tooltip: '$starValue stelle',
+              onPressed: () => _setRating(starValue),
+              icon: Icon(
+                isFilled ? Icons.star_rounded : Icons.star_outline_rounded,
+              ),
+              color: accent,
+              iconSize: 28,
+            );
+          }),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _controller,
+          minLines: 2,
+          maxLines: 4,
+          style: theme.textTheme.bodyMedium?.copyWith(color: textColor),
+          decoration: InputDecoration(
+            hintText: 'Scrivi un commento opzionale...',
+            hintStyle: theme.textTheme.bodyMedium?.copyWith(color: hintColor),
+            filled: true,
+            fillColor: widget.onPrimaryColor.withOpacity(0.08),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: accent.withOpacity(0.3)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: accent.withOpacity(0.2)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: accent),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Align(
+          alignment: Alignment.centerRight,
+          child: FilledButton.icon(
+            icon: const Icon(Icons.open_in_new_rounded),
+            label: const Text('Apri Google Reviews'),
+            style: FilledButton.styleFrom(
+              backgroundColor: accent,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              if (_rating == 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Seleziona un numero di stelle prima di procedere.',
+                    ),
+                  ),
+                );
+                return;
+              }
+              widget.onOpenReviews();
+            },
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -5229,17 +6659,5 @@ class _DrawerNavigationCard extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class _ClientInfoChip extends StatelessWidget {
-  const _ClientInfoChip({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Chip(avatar: Icon(icon, size: 18), label: Text(label));
   }
 }

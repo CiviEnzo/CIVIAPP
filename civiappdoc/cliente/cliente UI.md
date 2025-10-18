@@ -19,6 +19,8 @@ La barra inferiore deve includere le seguenti sezioni, in ordine:
 
 Ogni tab deve essere rappresentata da un’icona coerente con il design system del progetto (Material Icons o Cupertino Icons, in base alla piattaforma).
 
+**Icone piu' evidenti:** utilizzare la variante filled delle icone con colore attivo pieno e badge tonale (accent brand) per lo stato selezionato; applicare anche un leggero effetto di elevazione (ombra morbida 4dp) per staccarle dalla barra. In stato inattivo, mantenere comunque un contrasto medio (40-60% opacity) per evitare l'effetto piatto.
+
 ---
 
 ## 2️⃣ Home
@@ -98,6 +100,8 @@ La sezione **Carrello** mostra tutti i servizi e pacchetti selezionati non ancor
 ## 6️⃣ Saloni
 
 La tab **Saloni** mostra la scheda del salone attivo con carte dedicate a descrizione, contatti, posizione, orari e canali social. Tutti i link sono tappabili e aprono le app esterne (telefono, email, mappe, browser) con il contenuto configurato dall'amministratore.
+
+- **Info salone:** nelle righe social mostrare solo l'icona tappabile; se manca l'URL corrispondente la riga non deve comparire.
 
 Gestione contenuti lato admin:
 - In `Saloni → Modifica salone` è possibile compilare descrizione, contatti e coordinate.

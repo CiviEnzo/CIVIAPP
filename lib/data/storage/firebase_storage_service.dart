@@ -18,21 +18,6 @@ class FirebaseStorageService {
 
   final FirebaseStorage _storage;
 
-  Future<String> uploadSalonLogo({
-    required String salonId,
-    required Uint8List data,
-    String? fileName,
-  }) async {
-    final extension = _resolveExtension(fileName);
-    final reference = _storage.ref().child('branding/$salonId/logo.$extension');
-    final metadata = SettableMetadata(
-      contentType: _contentTypeForExtension(extension),
-      cacheControl: 'public,max-age=604800',
-    );
-    await reference.putData(data, metadata);
-    return reference.getDownloadURL();
-  }
-
   Future<ClientPhotoUploadData> uploadClientPhoto({
     required String salonId,
     required String clientId,

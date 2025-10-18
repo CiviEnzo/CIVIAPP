@@ -1,5 +1,6 @@
 import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/domain/entities/salon.dart';
+import 'package:civiapp/presentation/common/theme_mode_action.dart';
 import 'package:civiapp/presentation/screens/admin/modules/appointments_module.dart';
 import 'package:civiapp/presentation/screens/admin/modules/clients_module.dart';
 import 'package:civiapp/presentation/screens/admin/modules/inventory_module.dart';
@@ -189,6 +190,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                     selectedSalonId: selectedSalonId,
                   ),
                 ),
+              const ThemeModeAction(),
               IconButton(
                 tooltip: 'Esci',
                 onPressed: () async {

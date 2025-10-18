@@ -5,6 +5,7 @@ import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/domain/entities/shift.dart';
+import 'package:civiapp/presentation/common/theme_mode_action.dart';
 import 'package:civiapp/presentation/shared/client_package_purchase.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
@@ -439,6 +440,7 @@ class _StaffDashboardScreenState extends ConsumerState<StaffDashboardScreen> {
                   ),
                 ),
               ),
+            const ThemeModeAction(),
             IconButton(
               tooltip: 'Esci',
               onPressed: () async {

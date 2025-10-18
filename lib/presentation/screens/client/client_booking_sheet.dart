@@ -113,6 +113,24 @@ class _ServiceBookingSelection {
 
 enum _BookingStep { category, services, date, availability, summary }
 
+class _StepNavigationConfig {
+  const _StepNavigationConfig({
+    required this.backLabel,
+    required this.nextLabel,
+    this.onBack,
+    this.onNext,
+    this.isNextLoading = false,
+    this.showBackButton = true,
+  });
+
+  final String backLabel;
+  final String nextLabel;
+  final VoidCallback? onBack;
+  final VoidCallback? onNext;
+  final bool isNextLoading;
+  final bool showBackButton;
+}
+
 class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
   static const _slotIntervalMinutes = 15;
   static const String _uncategorizedCategoryId = 'uncategorized';
@@ -123,19 +141,21 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
   String? _selectedCategoryId;
   DateTime? _selectedDay;
   bool _isSubmitting = false;
-  bool _packageSelectionManuallyChanged = false;
   String? _selectedServiceId;
   String? _selectedStaffId;
   String? _staffFilterId;
   DateTime? _selectedSlotStart;
   bool _usePackageSession = false;
   String? _selectedPackageId;
+  final Set<int> _manualPackageOverrides = <int>{};
   List<_ServiceBookingSelection> _selections = <_ServiceBookingSelection>[];
   int _activeSelectionIndex = 0;
   Map<String, Service> _servicesById = const {};
   Timer? _countdownTimer;
   Duration _remainingCountdown = Duration.zero;
   LastMinuteSlot? _expressSlot;
+  bool _showSuccess = false;
+  Appointment? _completedAppointment;
 
   bool get _isLastMinuteExpress => _expressSlot != null;
   bool get _isCountdownExpired =>
@@ -204,15 +224,6 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       dismiss();
     } else {
       Navigator.of(context).maybePop();
-    }
-  }
-
-  void _emitCompletion(Appointment appointment) {
-    final completed = widget.onCompleted;
-    if (completed != null) {
-      completed(appointment);
-    } else {
-      Navigator.of(context).pop(appointment);
     }
   }
 
@@ -452,108 +463,6 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       salonId: widget.client.salonId,
     );
 
-    final List<ClientPackagePurchase> packagesForService;
-    if (selectedServices.length == 1) {
-      final serviceId = selectedServices.first.id;
-      packagesForService = _dedupePurchasesByReferenceId(
-        packagePurchases
-            .where(
-              (purchase) =>
-                  purchase.isActive &&
-                  purchase.supportsService(serviceId) &&
-                  purchase.effectiveRemainingSessions > 0,
-            )
-            .toList()
-          ..sort((a, b) {
-            final aExpiration = a.expirationDate ?? DateTime(9999, 1, 1);
-            final bExpiration = b.expirationDate ?? DateTime(9999, 1, 1);
-            final expirationCompare = aExpiration.compareTo(bExpiration);
-            if (expirationCompare != 0) {
-              return expirationCompare;
-            }
-            return a.sale.createdAt.compareTo(b.sale.createdAt);
-          }),
-      );
-    } else {
-      packagesForService = const <ClientPackagePurchase>[];
-      if (_usePackageSession && !_packageSelectionManuallyChanged) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          setState(() {
-            _usePackageSession = false;
-            _selectedPackageId = null;
-            _packageSelectionManuallyChanged = false;
-          });
-        });
-      }
-    }
-
-    ClientPackagePurchase? selectedPackage;
-    String? packageSubtitle;
-
-    if (packagesForService.isNotEmpty) {
-      if (!_usePackageSession && !_packageSelectionManuallyChanged) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          setState(() {
-            _usePackageSession = true;
-            _selectedPackageId = packagesForService.first.item.referenceId;
-          });
-        });
-      }
-
-      if (_usePackageSession) {
-        final availableIds =
-            packagesForService
-                .map((purchase) => purchase.item.referenceId)
-                .toSet();
-        if (!availableIds.contains(_selectedPackageId)) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            setState(() {
-              if (packagesForService.isEmpty) {
-                _usePackageSession = false;
-                _selectedPackageId = null;
-                _packageSelectionManuallyChanged = false;
-              } else {
-                _selectedPackageId = packagesForService.first.item.referenceId;
-              }
-            });
-          });
-        }
-      }
-
-      for (final purchase in packagesForService) {
-        if (purchase.item.referenceId == _selectedPackageId) {
-          selectedPackage = purchase;
-          break;
-        }
-      }
-      selectedPackage ??= packagesForService.first;
-
-      if (_usePackageSession) {
-        packageSubtitle =
-            '${selectedPackage.displayName} • ${selectedPackage.effectiveRemainingSessions} sessioni disponibili';
-      } else {
-        if (packagesForService.length == 1) {
-          final preview = packagesForService.first;
-          packageSubtitle =
-              '${preview.displayName} • ${preview.effectiveRemainingSessions} sessioni disponibili';
-        } else {
-          packageSubtitle =
-              '${packagesForService.length} pacchetti disponibili per questo servizio';
-        }
-      }
-    } else if (_usePackageSession && !_packageSelectionManuallyChanged) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        setState(() {
-          _usePackageSession = false;
-          _selectedPackageId = null;
-        });
-      });
-    }
-
     final selectedDayKey =
         _selectedDay != null ? _dayFrom(_selectedDay!) : null;
 
@@ -572,10 +481,13 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             : combinedAvailability;
 
     final suggestions =
-        selectedDayKey != null
+        availabilityForSuggestions.isNotEmpty
             ? _nextAvailableSuggestions(
               availability: availabilityForSuggestions,
-              selectedDay: selectedDayKey,
+              selectedDay:
+                  selectedDayKey != null
+                      ? selectedDayKey
+                      : _dayFrom(DateTime.now()),
             )
             : const <_DaySuggestion>[];
     final hasAnyAvailability = availabilityForSuggestions.isNotEmpty;
@@ -587,7 +499,13 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
         member.id: member,
     };
 
-    final showSelectionNavigator = _selections.isNotEmpty;
+    final showSelectionNavigator = !_showSuccess && _selections.isNotEmpty;
+    final hasCategorySelected = _selectedCategoryId != null;
+    final hasServicesSelected = activeSelection?.hasServices ?? false;
+    final hasDateSelected = hasServicesSelected && _selectedDay != null;
+    final hasSlotSelected =
+        _selectedSlotStart != null && _selectedStaffId != null;
+    final canSubmit = _canSubmit;
 
     final themedData = ClientTheme.resolve(Theme.of(context));
 
@@ -596,8 +514,9 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       child: Builder(
         builder: (themeContext) {
           final theme = Theme.of(themeContext);
-          final bottomPadding =
-              16.0 + MediaQuery.of(themeContext).viewInsets.bottom;
+          final mediaQuery = MediaQuery.of(themeContext);
+          final viewInsets = mediaQuery.viewInsets.bottom;
+          const fabReservedSpace = 96.0;
 
           final stepContent = _buildStepContent(
             theme: theme,
@@ -614,108 +533,78 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             selectedDayClosures: selectedDayClosures,
             suggestions: suggestions,
             hasAnyAvailability: hasAnyAvailability,
-            packagesForService: packagesForService,
-            selectedPackage: selectedPackage,
-            packageSubtitle: packageSubtitle,
+            packagePurchases: packagePurchases,
+          );
+
+          final navConfig = _resolveNavigationConfig(
+            hasCategorySelected: hasCategorySelected,
+            hasServicesSelected: hasServicesSelected,
+            hasDateSelected: hasDateSelected,
+            hasSlotSelected: hasSlotSelected,
+            canSubmit: canSubmit,
+            isExpress: _isLastMinuteExpress,
+            isExpired: _isCountdownExpired,
+            isSubmitting: _isSubmitting,
           );
 
           return SafeArea(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(24, 24, 24, bottomPadding),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Prenota un appuntamento',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(
+                      24,
+                      24,
+                      24,
+                      24 + viewInsets + fabReservedSpace,
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _showSuccess
+                              ? 'Prenotazione completata'
+                              : 'Prenota un appuntamento',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          _headlineForCurrentStep(),
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: theme.colorScheme.onSurface.withOpacity(0.7),
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        if (showSelectionNavigator) ...[
+                          _buildSelectionNavigator(
+                            theme: theme,
+                            serviceById: serviceById,
+                          ),
+                          const SizedBox(height: 24),
+                        ],
+                        stepContent,
+                        SizedBox(height: fabReservedSpace),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Scegli il tuo trattamento',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withOpacity(0.7),
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  _buildProgressHeader(theme),
-                  if (showSelectionNavigator) ...[
-                    const SizedBox(height: 24),
-                    Text(
-                      'Servizi in prenotazione',
-                      style: theme.textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    _buildSelectionNavigator(
-                      theme: theme,
-                      serviceById: serviceById,
-                    ),
-                  ],
-                  const SizedBox(height: 24),
-                  stepContent,
-                ],
-              ),
+                ),
+                Positioned(
+                  left: 24,
+                  right: 24,
+                  bottom: 16 + viewInsets,
+                  child: _buildFloatingButtons(theme, navConfig),
+                ),
+              ],
             ),
           );
         },
       ),
     );
-  }
-
-  Widget _buildProgressHeader(ThemeData theme) {
-    const labels = <String>[
-      'Categoria',
-      'Servizi',
-      'Giorno',
-      'Orario',
-      'Riepilogo',
-    ];
-    final items = <Widget>[];
-    for (var index = 0; index < labels.length; index++) {
-      final step = _BookingStep.values[index];
-      final isActive = _currentStep == step;
-      final isCompleted = _currentStep.index > step.index;
-      final baseColor = theme.colorScheme.primary;
-      final backgroundColor =
-          isActive
-              ? baseColor
-              : isCompleted
-              ? baseColor.withOpacity(0.2)
-              : theme.colorScheme.surfaceVariant;
-      final foregroundColor =
-          isActive
-              ? theme.colorScheme.onPrimary
-              : theme.colorScheme.onSurfaceVariant;
-      items.add(
-        Expanded(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircleAvatar(
-                radius: 14,
-                backgroundColor: backgroundColor,
-                foregroundColor: foregroundColor,
-                child: Text('${index + 1}'),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                labels[index],
-                textAlign: TextAlign.center,
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color:
-                      isActive ? baseColor : theme.textTheme.labelMedium?.color,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-    return Row(children: items);
   }
 
   Widget _buildSelectionNavigator({
@@ -744,6 +633,372 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     return Wrap(spacing: 8, runSpacing: 8, children: chips);
   }
 
+  Widget _buildFloatingButtons(ThemeData theme, _StepNavigationConfig config) {
+    final showNextSpinner = config.isNextLoading;
+    final hasNextAction = config.onNext != null;
+    final isNextInteractive = hasNextAction && !showNextSpinner;
+    final nextBackground =
+        showNextSpinner || isNextInteractive
+            ? theme.colorScheme.primary
+            : theme.colorScheme.primary.withOpacity(0.35);
+    final nextForeground =
+        showNextSpinner || isNextInteractive
+            ? theme.colorScheme.onPrimary
+            : theme.colorScheme.onPrimary.withOpacity(0.7);
+
+    final Widget nextIcon =
+        showNextSpinner
+            ? SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(nextForeground),
+              ),
+            )
+            : const Icon(Icons.arrow_forward_rounded);
+
+    final nextFab = FloatingActionButton.extended(
+      heroTag: 'booking_next_fab',
+      elevation: 2,
+      backgroundColor: nextBackground,
+      foregroundColor: nextForeground,
+      onPressed: isNextInteractive ? config.onNext : null,
+      icon: nextIcon,
+      label: Text(config.nextLabel),
+    );
+
+    if (!config.showBackButton) {
+      return SizedBox(width: double.infinity, child: nextFab);
+    }
+
+    final backEnabled = config.onBack != null;
+    final isDark = theme.brightness == Brightness.dark;
+    final Color enabledBackBackground = isDark ? Colors.white : Colors.black87;
+    final Color enabledBackForeground = isDark ? Colors.black : Colors.white;
+    final Color disabledBackBackground = enabledBackBackground.withOpacity(0.4);
+    final Color disabledBackForeground = enabledBackForeground.withOpacity(0.4);
+    final backBackground =
+        backEnabled ? enabledBackBackground : disabledBackBackground;
+    final backForeground =
+        backEnabled ? enabledBackForeground : disabledBackForeground;
+
+    final backFab = FloatingActionButton.extended(
+      heroTag: 'booking_back_fab',
+      elevation: 0,
+      backgroundColor: backBackground,
+      foregroundColor: backForeground,
+      onPressed: config.onBack,
+      icon: const Icon(Icons.arrow_back_rounded),
+      label: Text(config.backLabel),
+    );
+
+    return Row(
+      children: [
+        Expanded(child: backFab),
+        const SizedBox(width: 16),
+        Expanded(child: nextFab),
+      ],
+    );
+  }
+
+  void _startAnotherBooking() {
+    _countdownTimer?.cancel();
+    setState(() {
+      _showSuccess = false;
+      _completedAppointment = null;
+      _expressSlot = null;
+      _countdownTimer = null;
+      _remainingCountdown = Duration.zero;
+      _selectedCategoryId = null;
+      _selectedServiceId = null;
+      _selectedStaffId = null;
+      _staffFilterId = null;
+      _selectedSlotStart = null;
+      _selectedDay = null;
+      _usePackageSession = false;
+      _selectedPackageId = null;
+      _manualPackageOverrides.clear();
+      final newSelection = _ServiceBookingSelection();
+      _selections = <_ServiceBookingSelection>[newSelection];
+      _activeSelectionIndex = 0;
+      _applySelectionToForm(newSelection);
+      _currentStep = _BookingStep.category;
+    });
+  }
+
+  Widget _buildOperatorChoiceChip({
+    required ThemeData theme,
+    required String? staffId,
+    required String label,
+    required String? initials,
+  }) {
+    final isSelected =
+        staffId == null
+            ? _staffFilterId == null || _staffFilterId!.isEmpty
+            : _staffFilterId == staffId;
+
+    final avatar =
+        staffId == null
+            ? Icon(
+              Icons.people_alt_rounded,
+              size: 18,
+              color: theme.colorScheme.primary,
+            )
+            : CircleAvatar(
+              radius: 14,
+              backgroundColor: theme.colorScheme.primary.withOpacity(0.12),
+              foregroundColor: theme.colorScheme.primary,
+              child: Text(
+                initials ?? '—',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            );
+
+    return ChoiceChip(
+      avatar: avatar,
+      label: Text(label, overflow: TextOverflow.ellipsis),
+      selected: isSelected,
+      showCheckmark: false,
+      onSelected: (selected) {
+        setState(() {
+          if (!selected) {
+            _staffFilterId = null;
+            _selectedStaffId = null;
+            _selectedSlotStart = null;
+            return;
+          }
+          _staffFilterId = staffId;
+          if (staffId == null) {
+            _selectedStaffId = null;
+          } else if (staffId != _selectedStaffId) {
+            _selectedStaffId = null;
+          }
+          _selectedSlotStart = null;
+        });
+      },
+    );
+  }
+
+  Widget _buildNoSlotsNotice(ThemeData theme) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primary.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline_rounded, color: theme.colorScheme.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Nessun orario disponibile in questa data. Seleziona un altro giorno dalla barra sopra.',
+              style: theme.textTheme.bodyMedium,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSuggestedDaysRow({
+    required ThemeData theme,
+    required List<_DaySuggestion> suggestions,
+  }) {
+    if (suggestions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final selectedDay = _selectedDay;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Prossimi giorni disponibili',
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (var index = 0; index < suggestions.length; index++)
+                Padding(
+                  padding: EdgeInsets.only(
+                    right: index == suggestions.length - 1 ? 0 : 8,
+                  ),
+                  child: _buildSuggestedDayChip(
+                    theme: theme,
+                    suggestion: suggestions[index],
+                    isSelected:
+                        selectedDay != null &&
+                        _isSameDay(selectedDay, suggestions[index].day),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSuggestedDayChip({
+    required ThemeData theme,
+    required _DaySuggestion suggestion,
+    required bool isSelected,
+  }) {
+    final dayLabel = _capitalize(_dayLabel.format(suggestion.day));
+    return ChoiceChip(
+      label: Text(dayLabel),
+      selected: isSelected,
+      onSelected: (selected) {
+        if (!selected) {
+          return;
+        }
+        _onDateSelected(suggestion.day);
+      },
+    );
+  }
+
+  String _staffInitials(String fullName) {
+    final trimmed = fullName.trim();
+    if (trimmed.isEmpty) {
+      return '?';
+    }
+    final parts = trimmed
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty);
+    final initials = parts.take(2).map((part) => part[0].toUpperCase()).join();
+    return initials.isEmpty ? '?' : initials;
+  }
+
+  _StepNavigationConfig _resolveNavigationConfig({
+    required bool hasCategorySelected,
+    required bool hasServicesSelected,
+    required bool hasDateSelected,
+    required bool hasSlotSelected,
+    required bool canSubmit,
+    required bool isExpress,
+    required bool isExpired,
+    required bool isSubmitting,
+  }) {
+    if (_showSuccess) {
+      return _StepNavigationConfig(
+        nextLabel: 'Prenota un altro appuntamento',
+        onNext: _startAnotherBooking,
+        backLabel: '',
+        showBackButton: false,
+      );
+    }
+    switch (_currentStep) {
+      case _BookingStep.category:
+        return _StepNavigationConfig(
+          backLabel: 'Indietro',
+          nextLabel: 'Continua',
+          onBack: null,
+          onNext:
+              hasCategorySelected
+                  ? () => _goToStep(_BookingStep.services)
+                  : null,
+          showBackButton: false,
+        );
+      case _BookingStep.services:
+        return _StepNavigationConfig(
+          backLabel: 'Indietro',
+          nextLabel: 'Continua',
+          onBack: () => _goToStep(_BookingStep.category),
+          onNext:
+              hasServicesSelected ? () => _goToStep(_BookingStep.date) : null,
+        );
+      case _BookingStep.date:
+        return _StepNavigationConfig(
+          backLabel: 'Indietro',
+          nextLabel: 'Continua',
+          onBack: () => _goToStep(_BookingStep.services),
+          onNext:
+              hasDateSelected
+                  ? () => _goToStep(_BookingStep.availability)
+                  : null,
+        );
+      case _BookingStep.availability:
+        return _StepNavigationConfig(
+          backLabel: 'Indietro',
+          nextLabel: 'Vai al riepilogo',
+          onBack: () => _goToStep(_BookingStep.date),
+          onNext:
+              hasSlotSelected ? () => _goToStep(_BookingStep.summary) : null,
+        );
+      case _BookingStep.summary:
+        final nextLabel = isExpired ? 'Slot scaduto' : 'Conferma ';
+        return _StepNavigationConfig(
+          backLabel: isExpress ? 'Annulla' : 'Indietro',
+          nextLabel: nextLabel,
+          onBack:
+              isExpress
+                  ? () => _emitDismiss()
+                  : () => _goToStep(_BookingStep.availability),
+          onNext: isExpired || !canSubmit ? null : () => _confirmBooking(),
+          isNextLoading: isSubmitting,
+        );
+    }
+  }
+
+  String _headlineForCurrentStep() {
+    if (_showSuccess) {
+      return 'Prenotazione confermata';
+    }
+    switch (_currentStep) {
+      case _BookingStep.category:
+        return 'Scegli la categoria';
+      case _BookingStep.services:
+        return 'Scegli i servizi';
+      case _BookingStep.date:
+        return 'Scegli la data';
+      case _BookingStep.availability:
+        return 'Scegli l\'orario';
+      case _BookingStep.summary:
+        return _isLastMinuteExpress
+            ? 'Conferma il tuo slot'
+            : 'Rivedi la prenotazione';
+    }
+  }
+
+  Widget _buildStepHeader(
+    ThemeData theme, {
+    required int stepNumber,
+    required String label,
+  }) {
+    return Row(
+      children: [
+        CircleAvatar(
+          radius: 16,
+          backgroundColor: theme.colorScheme.primary.withOpacity(0.15),
+          foregroundColor: theme.colorScheme.primary,
+          child: Text(
+            '$stepNumber',
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          label,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildStepContent({
     required ThemeData theme,
     required List<_BookingCategory> bookingCategories,
@@ -760,10 +1015,15 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     required List<SalonClosure> selectedDayClosures,
     required List<_DaySuggestion> suggestions,
     required bool hasAnyAvailability,
-    required List<ClientPackagePurchase> packagesForService,
-    ClientPackagePurchase? selectedPackage,
-    String? packageSubtitle,
+    required List<ClientPackagePurchase> packagePurchases,
   }) {
+    if (_showSuccess) {
+      return _buildSuccessContent(
+        theme: theme,
+        serviceById: serviceById,
+        staffById: staffById,
+      );
+    }
     switch (_currentStep) {
       case _BookingStep.category:
         return _buildCategoryStep(
@@ -778,7 +1038,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
           visibleServices: visibleServices,
         );
       case _BookingStep.date:
-        return _buildDateStep(theme: theme);
+        return _buildDateStep(theme: theme, salon: salon);
       case _BookingStep.availability:
         return _buildAvailabilityStep(
           theme: theme,
@@ -790,17 +1050,152 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
           selectedDayClosures: selectedDayClosures,
           suggestions: suggestions,
           hasAnyAvailability: hasAnyAvailability,
-          packagesForService: packagesForService,
-          selectedPackage: selectedPackage,
-          packageSubtitle: packageSubtitle,
         );
       case _BookingStep.summary:
         return _buildSummaryStep(
           theme: theme,
           serviceById: serviceById,
           staffById: staffById,
+          packagePurchases: packagePurchases,
         );
     }
+  }
+
+  Widget _buildSuccessContent({
+    required ThemeData theme,
+    required Map<String, Service> serviceById,
+    required Map<String, StaffMember> staffById,
+  }) {
+    final appointment = _completedAppointment;
+    final services =
+        appointment?.serviceIds
+            .map((id) => serviceById[id]?.name)
+            .whereType<String>()
+            .toList() ??
+        const <String>[];
+    final staffName =
+        appointment != null && appointment.staffId.isNotEmpty
+            ? staffById[appointment.staffId]?.fullName ??
+                'Operatore da definire'
+            : 'Operatore da definire';
+    final start = appointment?.start;
+    final end = appointment?.end;
+    final dateLabel =
+        start != null ? _capitalize(_dayLabel.format(start)) : null;
+    final timeLabel =
+        start != null && end != null
+            ? '${_timeLabel.format(start)} - ${_timeLabel.format(end)}'
+            : null;
+    final serviceLabel =
+        services.isEmpty ? 'Servizio prenotato' : services.join(', ');
+
+    Widget detailRow({
+      required IconData icon,
+      required String label,
+      required String value,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: theme.colorScheme.primary),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Center(
+          child: CircleAvatar(
+            radius: 40,
+            backgroundColor: theme.colorScheme.primary.withOpacity(0.12),
+            child: Icon(
+              Icons.check_rounded,
+              size: 40,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Prenotazione confermata!',
+          style: theme.textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Ti aspettiamo in salone. Trovi qui sotto il riepilogo del tuo appuntamento.',
+          style: theme.textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 20),
+        Card(
+          color: theme.cardTheme.color ?? theme.cardColor,
+          elevation: theme.cardTheme.elevation ?? 6,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (dateLabel != null)
+                  detailRow(
+                    icon: Icons.event_available_rounded,
+                    label: 'Data',
+                    value: dateLabel,
+                  ),
+                if (timeLabel != null)
+                  detailRow(
+                    icon: Icons.schedule_rounded,
+                    label: 'Orario',
+                    value: timeLabel,
+                  ),
+                detailRow(
+                  icon: Icons.person_rounded,
+                  label: 'Operatore',
+                  value: staffName,
+                ),
+                detailRow(
+                  icon: Icons.spa_rounded,
+                  label: 'Servizio',
+                  value: serviceLabel,
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Puoi prenotare un altro appuntamento oppure chiudere questa schermata.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildCategoryStep({
@@ -811,60 +1206,60 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text('Step 1 · Categoria', style: theme.textTheme.titleMedium),
+        _buildStepHeader(theme, stepNumber: 1, label: 'Categoria'),
         const SizedBox(height: 12),
         if (bookingCategories.isEmpty)
           const Text('Nessuna categoria disponibile.')
         else
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          Column(
             children:
-                bookingCategories
-                    .map(
-                      (category) => ChoiceChip(
-                        label: Text(category.label),
-                        selected: category.id == _selectedCategoryId,
-                        onSelected: (selected) {
-                          if (!selected) return;
-                          setState(() {
-                            _selectedCategoryId = category.id;
-                            _selectedServiceId = null;
-                            _selectedStaffId = null;
-                            _staffFilterId = null;
-                            _selectedDay = null;
-                            _selectedSlotStart = null;
-                            _usePackageSession = false;
-                            _selectedPackageId = null;
-                            _packageSelectionManuallyChanged = false;
-                            _updateActiveSelection(
-                              (current) => current.copyWith(
-                                categoryId: category.id,
-                                serviceIds: const <String>[],
-                                staffId: null,
-                                start: null,
-                                end: null,
-                                usePackageSession: false,
-                                packageId: null,
-                              ),
-                            );
-                          });
-                        },
+                bookingCategories.map((category) {
+                  final isSelected = category.id == _selectedCategoryId;
+                  final servicesCount = category.services.length;
+                  final subtitle =
+                      servicesCount > 0
+                          ? '$servicesCount '
+                              '${servicesCount == 1 ? 'servizio' : 'servizi'} disponibili'
+                          : 'Nessun servizio disponibile';
+                  final borderSide = BorderSide(
+                    color:
+                        isSelected
+                            ? theme.colorScheme.primary
+                            : theme.colorScheme.outlineVariant,
+                    width: isSelected ? 1.5 : 1,
+                  );
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: borderSide,
+                    ),
+                    elevation: isSelected ? 1 : 0,
+                    child: RadioListTile<String>(
+                      value: category.id,
+                      groupValue: _selectedCategoryId,
+                      onChanged: (_) => _selectCategory(category.id),
+                      title: Text(
+                        category.label,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    )
-                    .toList(),
+                      subtitle: Text(subtitle),
+                      activeColor: theme.colorScheme.primary,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      controlAffinity: ListTileControlAffinity.trailing,
+                    ),
+                  );
+                }).toList(),
           ),
         const SizedBox(height: 24),
-        Align(
-          alignment: Alignment.centerRight,
-          child: FilledButton(
-            onPressed:
-                _selectedCategoryId != null
-                    ? () => _goToStep(_BookingStep.services)
-                    : null,
-            child: const Text('Continua'),
-          ),
-        ),
       ],
     );
   }
@@ -894,7 +1289,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text('Step 2 · Servizi', style: theme.textTheme.titleMedium),
+        _buildStepHeader(theme, stepNumber: 2, label: 'Servizi'),
         const SizedBox(height: 12),
         if (_selectedCategoryId == null)
           const Text('Seleziona prima una categoria per continuare.')
@@ -955,27 +1350,11 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             ],
           ),
         const SizedBox(height: 24),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            TextButton(
-              onPressed: () => _goToStep(_BookingStep.category),
-              child: const Text('Indietro'),
-            ),
-            FilledButton(
-              onPressed:
-                  selectedIdsInCategory.isNotEmpty
-                      ? () => _goToStep(_BookingStep.date)
-                      : null,
-              child: const Text('Continua'),
-            ),
-          ],
-        ),
       ],
     );
   }
 
-  Widget _buildDateStep({required ThemeData theme}) {
+  Widget _buildDateStep({required ThemeData theme, required Salon? salon}) {
     final now = DateTime.now();
     final firstDate = DateTime(now.year, now.month, now.day);
     final horizon = DateTime(
@@ -996,31 +1375,68 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     final hasServicesSelected =
         activeSelection != null && activeSelection.serviceIds.isNotEmpty;
 
+    final DateTime? desiredSelection;
+    if (hasServicesSelected) {
+      final currentSelection = _selectedDay;
+      final firstCandidate =
+          currentSelection != null && _isDaySelectable(currentSelection, salon)
+              ? currentSelection
+              : _findFirstSelectableDay(
+                from: currentSelection ?? firstDate,
+                firstDate: firstDate,
+                lastDate: lastDate,
+                salon: salon,
+              );
+
+      desiredSelection = firstCandidate;
+      if (desiredSelection != null &&
+          (currentSelection == null ||
+              !_isSameDay(currentSelection, desiredSelection))) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          setState(() {
+            _selectedDay = desiredSelection;
+          });
+        });
+      }
+    } else {
+      desiredSelection = null;
+    }
+
+    final calendarInitial = desiredSelection ?? adjustedInitial;
+    final displaySelection = desiredSelection ?? _selectedDay;
+    final selectablePredicate =
+        hasServicesSelected && desiredSelection != null
+            ? (DateTime date) => _isDaySelectable(date, salon)
+            : null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text('Step 3 · Data', style: theme.textTheme.titleMedium),
+        _buildStepHeader(theme, stepNumber: 3, label: 'Data'),
         const SizedBox(height: 12),
         if (!hasServicesSelected)
           const Text('Seleziona almeno un servizio per scegliere una data.')
         else ...[
-          DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: theme.colorScheme.outlineVariant),
-            ),
-            child: CalendarDatePicker(
-              initialDate: adjustedInitial,
-              firstDate: firstDate,
-              lastDate: lastDate,
-              onDateChanged: _onDateSelected,
+          Card(
+            color: theme.cardTheme.color ?? theme.cardColor,
+            elevation: theme.cardTheme.elevation ?? 6,
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: CalendarDatePicker(
+                initialDate: calendarInitial,
+                firstDate: firstDate,
+                lastDate: lastDate,
+                onDateChanged: _onDateSelected,
+                selectableDayPredicate: selectablePredicate,
+              ),
             ),
           ),
           const SizedBox(height: 12),
           Text(
-            _selectedDay != null
-                ? 'Data selezionata: ${_capitalize(_dayLabel.format(_selectedDay!))}'
+            displaySelection != null
+                ? 'Data selezionata: ${_capitalize(_dayLabel.format(displaySelection))}'
                 : 'Nessuna data selezionata',
             style: theme.textTheme.bodyMedium,
           ),
@@ -1029,22 +1445,6 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
           const SizedBox(height: 24)
         else
           const SizedBox(height: 16),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            TextButton(
-              onPressed: () => _goToStep(_BookingStep.date),
-              child: const Text('Indietro'),
-            ),
-            FilledButton(
-              onPressed:
-                  hasServicesSelected && _selectedDay != null
-                      ? () => _goToStep(_BookingStep.availability)
-                      : null,
-              child: const Text('Continua'),
-            ),
-          ],
-        ),
       ],
     );
   }
@@ -1060,15 +1460,12 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     required List<SalonClosure> selectedDayClosures,
     required List<_DaySuggestion> suggestions,
     required bool hasAnyAvailability,
-    required List<ClientPackagePurchase> packagesForService,
-    ClientPackagePurchase? selectedPackage,
-    String? packageSubtitle,
   }) {
     if (selectedServices.isEmpty) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Step 4 · Disponibilita\'', style: theme.textTheme.titleMedium),
+          _buildStepHeader(theme, stepNumber: 4, label: 'Disponibilita\''),
           const SizedBox(height: 12),
           const Text(
             'Seleziona almeno un servizio per vedere le disponibilita\'.',
@@ -1093,107 +1490,31 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             ? availabilityForFilter[selectedDayKey] ?? const <_AvailableSlot>[]
             : const <_AvailableSlot>[];
 
-    final packageWidgets = <Widget>[];
-    if (packagesForService.isNotEmpty) {
-      packageWidgets
-        ..add(Text('Sessioni pacchetto', style: theme.textTheme.titleMedium))
-        ..add(const SizedBox(height: 8))
-        ..add(
-          CheckboxListTile(
-            contentPadding: EdgeInsets.zero,
-            value: _usePackageSession,
-            onChanged: (checked) {
-              setState(() {
-                _packageSelectionManuallyChanged = true;
-                _usePackageSession = checked ?? false;
-                if (_usePackageSession) {
-                  _selectedPackageId =
-                      selectedPackage?.item.referenceId ??
-                      packagesForService.first.item.referenceId;
-                } else {
-                  _selectedPackageId = null;
-                }
-                _updateActiveSelection(
-                  (current) => current.copyWith(
-                    usePackageSession: _usePackageSession,
-                    packageId: _selectedPackageId,
-                  ),
-                );
-              });
-            },
-            title: const Text('Scala una sessione da un pacchetto'),
-            subtitle: packageSubtitle != null ? Text(packageSubtitle) : null,
-          ),
-        );
-      if (_usePackageSession && packagesForService.length > 1) {
-        packageWidgets
-          ..add(const SizedBox(height: 12))
-          ..add(
-            DropdownButtonFormField<String>(
-              value: _selectedPackageId,
-              decoration: const InputDecoration(
-                labelText: 'Seleziona il pacchetto',
-              ),
-              items:
-                  packagesForService
-                      .map(
-                        (purchase) => DropdownMenuItem(
-                          value: purchase.item.referenceId,
-                          child: Text(
-                            '${purchase.displayName} • ${purchase.effectiveRemainingSessions} sessioni',
-                          ),
-                        ),
-                      )
-                      .toList(),
-              onChanged: (value) {
-                setState(() {
-                  _selectedPackageId = value;
-                  _updateActiveSelection(
-                    (current) => current.copyWith(packageId: value),
-                  );
-                });
-              },
-            ),
-          );
-      }
-      packageWidgets.add(const SizedBox(height: 16));
-    }
-
     final operatorWidgets = <Widget>[];
     if (staff.isNotEmpty) {
       operatorWidgets
         ..add(Text('Operatore', style: theme.textTheme.titleMedium))
         ..add(const SizedBox(height: 8))
         ..add(
-          DropdownButtonFormField<String?>(
-            value: _staffFilterId,
-            decoration: const InputDecoration(
-              labelText: 'Filtra per operatore (opzionale)',
-            ),
-            items: [
-              const DropdownMenuItem<String?>(
-                value: null,
-                child: Text('Tutti gli operatori'),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildOperatorChoiceChip(
+                theme: theme,
+                staffId: null,
+                label: 'Tutti',
+                initials: null,
               ),
               ...staff.map(
-                (member) => DropdownMenuItem<String?>(
-                  value: member.id,
-                  child: Text(member.fullName),
+                (member) => _buildOperatorChoiceChip(
+                  theme: theme,
+                  staffId: member.id,
+                  label: member.fullName,
+                  initials: _staffInitials(member.fullName),
                 ),
               ),
             ],
-            onChanged: (value) {
-              setState(() {
-                _staffFilterId = value;
-                if (value == null) {
-                  _selectedStaffId = null;
-                  _selectedSlotStart = null;
-                } else if (value != _selectedStaffId) {
-                  _selectedStaffId = null;
-                  _selectedSlotStart = null;
-                }
-              });
-            },
           ),
         );
       operatorWidgets.add(const SizedBox(height: 16));
@@ -1204,6 +1525,11 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       Text('Disponibilita\'', style: theme.textTheme.titleMedium),
     );
     availabilityWidgets.add(const SizedBox(height: 8));
+    if (_selectedDay != null && slotsForDay.isEmpty && suggestions.isNotEmpty) {
+      availabilityWidgets
+        ..add(_buildSuggestedDaysRow(theme: theme, suggestions: suggestions))
+        ..add(const SizedBox(height: 16));
+    }
 
     if (staff.isEmpty) {
       availabilityWidgets.add(
@@ -1274,18 +1600,14 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             ..add(const SizedBox(height: 12));
         }
         if (!hasVisibleSlots) {
-          availabilityWidgets.add(
-            const Text('Nessuno slot disponibile per la data selezionata.'),
-          );
+          availabilityWidgets.add(_buildNoSlotsNotice(theme));
         }
       } else {
         final staffId = _staffFilterId!;
         final filteredSlots =
             availabilityByStaff[staffId]?[dayKey] ?? const <_AvailableSlot>[];
         if (filteredSlots.isEmpty) {
-          availabilityWidgets.add(
-            const Text('Nessuno slot disponibile per la data selezionata.'),
-          );
+          availabilityWidgets.add(_buildNoSlotsNotice(theme));
         } else {
           availabilityWidgets.add(
             Wrap(
@@ -1315,79 +1637,21 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
         }
       }
 
-      if (slotsForDay.isEmpty) {
-        if (suggestions.isNotEmpty) {
-          availabilityWidgets
-            ..add(const SizedBox(height: 12))
-            ..add(const Text('Prossime disponibilita\''))
-            ..add(const SizedBox(height: 8));
-          for (final suggestion in suggestions) {
-            final dayLabel = _capitalize(_dayLabel.format(suggestion.day));
-            availabilityWidgets
-              ..add(Text(dayLabel, style: theme.textTheme.bodyLarge))
-              ..add(const SizedBox(height: 6))
-              ..add(
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children:
-                      suggestion.slots.map((slot) {
-                        final staffMember = staffById[slot.staffId];
-                        final label =
-                            staffMember == null
-                                ? _timeLabel.format(slot.start)
-                                : '${_timeLabel.format(slot.start)} · ${staffMember.fullName}';
-                        return ChoiceChip(
-                          label: Text(label),
-                          selected:
-                              slot.start == _selectedSlotStart &&
-                              slot.staffId == _selectedStaffId,
-                          onSelected: (_) {
-                            _handleSlotSelection(
-                              staffId: slot.staffId,
-                              slot: slot,
-                              dayOverride: suggestion.day,
-                            );
-                          },
-                        );
-                      }).toList(),
-                ),
-              )
-              ..add(const SizedBox(height: 12));
-          }
-        } else if (!hasAnyAvailability) {
-          availabilityWidgets.add(
-            const Text('Nessuna disponibilita\' nelle prossime settimane.'),
-          );
-        }
+      if (slotsForDay.isEmpty && !hasAnyAvailability) {
+        availabilityWidgets.add(
+          const Text('Nessuna disponibilita\' nelle prossime settimane.'),
+        );
       }
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Step 4 · Disponibilita\'', style: theme.textTheme.titleMedium),
+        _buildStepHeader(theme, stepNumber: 4, label: 'Disponibilita\''),
         const SizedBox(height: 12),
         ...operatorWidgets,
-        ...packageWidgets,
         ...availabilityWidgets,
         const SizedBox(height: 24),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            TextButton(
-              onPressed: () => _goToStep(_BookingStep.date),
-              child: const Text('Indietro'),
-            ),
-            FilledButton(
-              onPressed:
-                  (_selectedSlotStart != null && _selectedStaffId != null)
-                      ? () => _goToStep(_BookingStep.summary)
-                      : null,
-              child: const Text('Vai al riepilogo'),
-            ),
-          ],
-        ),
       ],
     );
   }
@@ -1431,9 +1695,9 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
         _selectedSlotStart = null;
         _usePackageSession = false;
         _selectedPackageId = null;
+        _manualPackageOverrides.remove(_activeSelectionIndex);
       }
       _selectedServiceId = updatedIds.isNotEmpty ? updatedIds.first : null;
-      _packageSelectionManuallyChanged = false;
       _applySelectionToForm(updatedSelection);
     });
   }
@@ -1484,16 +1748,42 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     });
   }
 
+  void _selectCategory(String categoryId) {
+    setState(() {
+      _selectedCategoryId = categoryId;
+      _selectedServiceId = null;
+      _selectedStaffId = null;
+      _staffFilterId = null;
+      _selectedDay = null;
+      _selectedSlotStart = null;
+      _usePackageSession = false;
+      _selectedPackageId = null;
+      _manualPackageOverrides.remove(_activeSelectionIndex);
+      _updateActiveSelection(
+        (current) => current.copyWith(
+          categoryId: categoryId,
+          serviceIds: const <String>[],
+          staffId: null,
+          start: null,
+          end: null,
+          usePackageSession: false,
+          packageId: null,
+        ),
+      );
+    });
+  }
+
   Widget _buildSummaryStep({
     required ThemeData theme,
     required Map<String, Service> serviceById,
     required Map<String, StaffMember> staffById,
+    required List<ClientPackagePurchase> packagePurchases,
   }) {
     if (_selections.isEmpty) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Step 5 · Riepilogo', style: theme.textTheme.titleMedium),
+          _buildStepHeader(theme, stepNumber: 5, label: 'Riepilogo'),
           const SizedBox(height: 12),
           const Text('Non hai ancora selezionato alcun servizio.'),
           const SizedBox(height: 16),
@@ -1514,9 +1804,10 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          isExpress ? 'Last-Minute Express' : 'Step 5 · Riepilogo',
-          style: theme.textTheme.titleMedium,
+        _buildStepHeader(
+          theme,
+          stepNumber: 5,
+          label: isExpress ? 'Last-Minute Express' : 'Riepilogo',
         ),
         const SizedBox(height: 12),
         if (isExpress)
@@ -1531,6 +1822,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
           theme: theme,
           servicesById: serviceById,
           staffById: staffById,
+          packagePurchases: packagePurchases,
         ),
         const SizedBox(height: 24),
         if (!isExpress || needsServiceSelection)
@@ -1547,37 +1839,6 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             ),
           ),
         const SizedBox(height: 16),
-        Wrap(
-          alignment: WrapAlignment.spaceBetween,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            TextButton(
-              onPressed: () {
-                if (_isLastMinuteExpress) {
-                  _emitDismiss();
-                } else {
-                  _goToStep(_BookingStep.availability);
-                }
-              },
-              child: Text(isExpress ? 'Annulla' : 'Indietro'),
-            ),
-            FilledButton(
-              onPressed: _canSubmit ? _confirmBooking : null,
-              child:
-                  _isSubmitting
-                      ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                      : Text(
-                        isExpired ? 'Slot scaduto' : 'Conferma prenotazione',
-                      ),
-            ),
-          ],
-        ),
       ],
     );
   }
@@ -1595,7 +1856,6 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       _selectedSlotStart = null;
       _usePackageSession = false;
       _selectedPackageId = null;
-      _packageSelectionManuallyChanged = false;
       _applySelectionToForm(newSelection);
       _currentStep = _BookingStep.category;
     });
@@ -1719,7 +1979,6 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     }
     setState(() {
       _activeSelectionIndex = index;
-      _packageSelectionManuallyChanged = false;
       final selection = _selections[index];
       _applySelectionToForm(selection);
       _currentStep = _determineStepForSelection(selection);
@@ -1735,7 +1994,16 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       if (_activeSelectionIndex >= _selections.length) {
         _activeSelectionIndex = _selections.length - 1;
       }
-      _packageSelectionManuallyChanged = false;
+      final updatedManual = <int>{};
+      for (final manualIndex in _manualPackageOverrides) {
+        if (manualIndex == index) {
+          continue;
+        }
+        updatedManual.add(manualIndex > index ? manualIndex - 1 : manualIndex);
+      }
+      _manualPackageOverrides
+        ..clear()
+        ..addAll(updatedManual);
       final active = _selections[_activeSelectionIndex];
       _applySelectionToForm(active);
       _currentStep = _determineStepForSelection(active);
@@ -1997,7 +2265,16 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             );
       }
       if (!mounted) return;
-      _emitCompletion(appointmentsToSave.first);
+      final confirmedAppointment = appointmentsToSave.first;
+      final completed = widget.onCompleted;
+      if (completed != null) {
+        completed(confirmedAppointment);
+      }
+      setState(() {
+        _completedAppointment = confirmedAppointment;
+        _showSuccess = true;
+        _currentStep = _BookingStep.summary;
+      });
     } on StateError catch (error) {
       if (!mounted) return;
       _showError(error.message);
@@ -2100,6 +2377,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     required ThemeData theme,
     required Map<String, Service> servicesById,
     required Map<String, StaffMember> staffById,
+    required List<ClientPackagePurchase> packagePurchases,
   }) {
     final titleStyle = theme.textTheme.titleSmall;
     final infoStyle = theme.textTheme.bodySmall;
@@ -2136,19 +2414,172 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
         slotLabel = 'Orario da selezionare';
         slotStyle = warningStyle;
       }
-      String packageLabel;
-      if (selection.usePackageSession) {
-        packageLabel =
-            selection.packageId != null
-                ? 'Sessione pacchetto: #${selection.packageId}'
-                : 'Sessione pacchetto: seleziona pacchetto';
-      } else {
-        packageLabel = 'Pacchetto: non utilizzato';
+      final availablePackages =
+          selection.serviceIds.length == 1
+              ? _packagesAvailableForService(
+                purchases: packagePurchases,
+                serviceId: selection.serviceIds.first,
+              )
+              : const <ClientPackagePurchase>[];
+      final canUsePackages = availablePackages.isNotEmpty;
+      final hasManualOverride = _manualPackageOverrides.contains(index);
+      var selectedPackage =
+          selection.packageId != null
+              ? availablePackages.firstWhereOrNull(
+                (purchase) => purchase.item.referenceId == selection.packageId,
+              )
+              : null;
+      var usingPackage = selection.usePackageSession;
+
+      if (!canUsePackages && (usingPackage || selection.packageId != null)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          setState(() {
+            _selections[index] = _selections[index].copyWith(
+              usePackageSession: false,
+              packageId: null,
+            );
+            if (_activeSelectionIndex == index) {
+              _usePackageSession = false;
+              _selectedPackageId = null;
+            }
+            _manualPackageOverrides.remove(index);
+          });
+        });
+        usingPackage = false;
+        selectedPackage = null;
       }
-      final packageStyle =
-          selection.usePackageSession && selection.packageId == null
-              ? warningStyle
-              : infoStyle;
+
+      if (canUsePackages && !usingPackage && !hasManualOverride) {
+        final fallbackPackage = selectedPackage ?? availablePackages.first;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          setState(() {
+            _selections[index] = _selections[index].copyWith(
+              usePackageSession: true,
+              packageId: fallbackPackage.item.referenceId,
+            );
+            if (_activeSelectionIndex == index) {
+              _usePackageSession = true;
+              _selectedPackageId = fallbackPackage.item.referenceId;
+            }
+          });
+        });
+        usingPackage = true;
+        selectedPackage = fallbackPackage;
+      }
+
+      if (canUsePackages && usingPackage && selectedPackage == null) {
+        final fallbackPackage = availablePackages.first;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          setState(() {
+            _selections[index] = _selections[index].copyWith(
+              usePackageSession: true,
+              packageId: fallbackPackage.item.referenceId,
+            );
+            if (_activeSelectionIndex == index) {
+              _usePackageSession = true;
+              _selectedPackageId = fallbackPackage.item.referenceId;
+            }
+          });
+        });
+        selectedPackage = fallbackPackage;
+      }
+
+      Widget packageSection;
+      if (!canUsePackages) {
+        final message =
+            selection.serviceIds.length <= 1
+                ? 'Pacchetto: non utilizzato'
+                : 'Pacchetto non disponibile con pi\u00f9 servizi.';
+        packageSection = Text(message, style: infoStyle);
+      } else {
+        final referencePackage = selectedPackage ?? availablePackages.first;
+        final subtitleText =
+            usingPackage
+                ? '${referencePackage.displayName} • ${referencePackage.effectiveRemainingSessions} sessioni disponibili'
+                : availablePackages.length == 1
+                ? '${availablePackages.first.displayName} • ${availablePackages.first.effectiveRemainingSessions} sessioni disponibili'
+                : '${availablePackages.length} pacchetti disponibili';
+        packageSection = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Scala una sessione da un pacchetto'),
+              subtitle: Text(subtitleText),
+              value: usingPackage,
+              onChanged: (value) {
+                setState(() {
+                  _manualPackageOverrides.add(index);
+                  if (value) {
+                    final chosenId =
+                        (selectedPackage ?? availablePackages.first)
+                            .item
+                            .referenceId;
+                    _selections[index] = _selections[index].copyWith(
+                      usePackageSession: true,
+                      packageId: chosenId,
+                    );
+                    if (_activeSelectionIndex == index) {
+                      _usePackageSession = true;
+                      _selectedPackageId = chosenId;
+                    }
+                  } else {
+                    _selections[index] = _selections[index].copyWith(
+                      usePackageSession: false,
+                      packageId: null,
+                    );
+                    if (_activeSelectionIndex == index) {
+                      _usePackageSession = false;
+                      _selectedPackageId = null;
+                    }
+                  }
+                });
+              },
+            ),
+            if (usingPackage && availablePackages.length > 1)
+              Padding(
+                padding: const EdgeInsets.only(left: 16, top: 8),
+                child: DropdownButtonFormField<String>(
+                  value:
+                      (selectedPackage ?? availablePackages.first)
+                          .item
+                          .referenceId,
+                  decoration: const InputDecoration(
+                    labelText: 'Seleziona il pacchetto',
+                  ),
+                  items:
+                      availablePackages
+                          .map(
+                            (purchase) => DropdownMenuItem(
+                              value: purchase.item.referenceId,
+                              child: Text(
+                                '${purchase.displayName} • ${purchase.effectiveRemainingSessions} sessioni',
+                              ),
+                            ),
+                          )
+                          .toList(),
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() {
+                      _manualPackageOverrides.add(index);
+                      _selections[index] = _selections[index].copyWith(
+                        packageId: value,
+                        usePackageSession: true,
+                      );
+                      if (_activeSelectionIndex == index) {
+                        _usePackageSession = true;
+                        _selectedPackageId = value;
+                      }
+                    });
+                  },
+                ),
+              ),
+          ],
+        );
+      }
 
       final selectionBasePrice = services.fold<double>(
         0,
@@ -2157,6 +2588,9 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       double selectionPayablePrice = selectionBasePrice;
       if (_isLastMinuteExpress && index == 0 && _expressSlot != null) {
         selectionPayablePrice = _expressSlot!.priceNow;
+      }
+      if (canUsePackages && usingPackage) {
+        selectionPayablePrice = 0;
       }
 
       if (services.isNotEmpty) {
@@ -2207,7 +2641,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
                 const SizedBox(height: 4),
                 Text(slotLabel, style: slotStyle),
                 const SizedBox(height: 4),
-                Text(packageLabel, style: packageStyle),
+                packageSection,
                 if (services.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Row(
@@ -2343,6 +2777,31 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     final minutesTwo = minutes.toString().padLeft(2, '0');
     final secondsTwo = seconds.toString().padLeft(2, '0');
     return '$minutesTwo:$secondsTwo';
+  }
+
+  List<ClientPackagePurchase> _packagesAvailableForService({
+    required List<ClientPackagePurchase> purchases,
+    required String serviceId,
+  }) {
+    final filtered =
+        purchases
+            .where(
+              (purchase) =>
+                  purchase.isActive &&
+                  purchase.supportsService(serviceId) &&
+                  purchase.effectiveRemainingSessions > 0,
+            )
+            .toList()
+          ..sort((a, b) {
+            final aExpiration = a.expirationDate ?? DateTime(9999, 1, 1);
+            final bExpiration = b.expirationDate ?? DateTime(9999, 1, 1);
+            final expirationCompare = aExpiration.compareTo(bExpiration);
+            if (expirationCompare != 0) {
+              return expirationCompare;
+            }
+            return a.sale.createdAt.compareTo(b.sale.createdAt);
+          });
+    return _dedupePurchasesByReferenceId(filtered);
   }
 
   List<StaffMember> _availableStaff({
@@ -2639,6 +3098,18 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             continue;
           }
 
+          final hasStaffConflict = hasStaffBookingConflict(
+            appointments: allAppointments,
+            staffId: staffId,
+            start: slotStart,
+            end: slotEnd,
+            excludeAppointmentId: widget.initialAppointment?.id,
+          );
+          if (hasStaffConflict) {
+            slotStart = slotStart.add(slotStep);
+            continue;
+          }
+
           final dayKey = DateTime(
             slotStart.year,
             slotStart.month,
@@ -2670,17 +3141,51 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     required DateTime selectedDay,
     int maxDays = 3,
   }) {
-    final suggestions = <_DaySuggestion>[];
-    for (var offset = 1; offset <= maxDays; offset++) {
-      final candidateDay = _dayFrom(selectedDay.add(Duration(days: offset)));
-      final candidateSlots = availability[candidateDay];
-      if (candidateSlots != null && candidateSlots.isNotEmpty) {
-        suggestions.add(
-          _DaySuggestion(day: candidateDay, slots: candidateSlots),
-        );
-      }
+    if (availability.isEmpty || maxDays <= 0) {
+      return const <_DaySuggestion>[];
     }
-    return suggestions;
+    final normalizedSelected = _dayFrom(selectedDay);
+    final sortedEntries =
+        availability.entries.where((entry) => entry.value.isNotEmpty).toList()
+          ..sort((a, b) => a.key.compareTo(b.key));
+    if (sortedEntries.isEmpty) {
+      return const <_DaySuggestion>[];
+    }
+
+    final windowSize =
+        sortedEntries.length < maxDays ? sortedEntries.length : maxDays;
+    var windowStart = 0;
+    final selectedIndex = sortedEntries.indexWhere(
+      (entry) => _isSameDay(entry.key, normalizedSelected),
+    );
+
+    if (selectedIndex != -1) {
+      windowStart = windowSize > 1 ? selectedIndex - 1 : selectedIndex;
+    } else {
+      var insertionIndex = sortedEntries.indexWhere(
+        (entry) => entry.key.isAfter(normalizedSelected),
+      );
+      if (insertionIndex == -1) {
+        insertionIndex = sortedEntries.length;
+      }
+      windowStart = windowSize > 1 ? insertionIndex - 1 : insertionIndex;
+    }
+
+    if (windowStart < 0) {
+      windowStart = 0;
+    }
+    final maxStart = sortedEntries.length - windowSize;
+    if (windowStart > maxStart) {
+      windowStart = maxStart;
+    }
+
+    final windowEntries = sortedEntries.sublist(
+      windowStart,
+      windowStart + windowSize,
+    );
+    return windowEntries
+        .map((entry) => _DaySuggestion(day: entry.key, slots: entry.value))
+        .toList(growable: false);
   }
 
   Map<DateTime, List<_AvailableSlot>> _combineAvailability(
@@ -2766,15 +3271,26 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     AppDataState data, {
     String? excludeAppointmentId,
   }) {
-    final appointments = data.appointments;
-    if (excludeAppointmentId == null) {
-      return List.unmodifiable(appointments);
+    final relevantSalonId = widget.client.salonId;
+    final merged = <String, Appointment>{};
+    for (final appointment in data.publicAppointments) {
+      if (appointment.salonId != relevantSalonId) {
+        continue;
+      }
+      merged[appointment.id] = appointment;
     }
-    return List.unmodifiable(
-      appointments.where(
-        (appointment) => appointment.id != excludeAppointmentId,
-      ),
-    );
+    for (final appointment in data.appointments) {
+      if (appointment.salonId != relevantSalonId) {
+        continue;
+      }
+      merged[appointment.id] = appointment;
+    }
+    if (excludeAppointmentId != null) {
+      merged.remove(excludeAppointmentId);
+    }
+    final list =
+        merged.values.toList()..sort((a, b) => a.start.compareTo(b.start));
+    return List.unmodifiable(list);
   }
 
   List<StaffAbsence> _visibleStaffAbsences(AppDataState data) {
@@ -2891,6 +3407,54 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
 
   DateTime _dayFrom(DateTime value) {
     return DateTime(value.year, value.month, value.day);
+  }
+
+  bool _isDaySelectable(DateTime day, Salon? salon) {
+    final target = _dayFrom(day);
+    final dayEnd = target.add(const Duration(days: 1));
+    if (salon != null) {
+      for (final closure in salon.closures) {
+        if (!closure.end.isAfter(target) || !closure.start.isBefore(dayEnd)) {
+          continue;
+        }
+        final coversEntireDay =
+            (closure.start.isBefore(target) ||
+                closure.start.isAtSameMomentAs(target)) &&
+            (closure.end.isAfter(dayEnd) ||
+                closure.end.isAtSameMomentAs(dayEnd));
+        if (coversEntireDay) {
+          return false;
+        }
+      }
+      if (salon.schedule.isNotEmpty) {
+        final scheduleEntry = salon.schedule.firstWhereOrNull(
+          (entry) => entry.weekday == day.weekday,
+        );
+        if (scheduleEntry != null && !scheduleEntry.isOpen) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  DateTime? _findFirstSelectableDay({
+    required DateTime from,
+    required DateTime firstDate,
+    required DateTime lastDate,
+    required Salon? salon,
+  }) {
+    var current = _dayFrom(from);
+    if (current.isBefore(firstDate)) {
+      current = firstDate;
+    }
+    while (!current.isAfter(lastDate)) {
+      if (_isDaySelectable(current, salon)) {
+        return current;
+      }
+      current = current.add(const Duration(days: 1));
+    }
+    return null;
   }
 
   List<ClientPackagePurchase> _dedupePurchasesByReferenceId(

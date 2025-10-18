@@ -15,6 +15,10 @@ const REGION = 'europe-west1';
 
 const DISPATCH_ENABLED = process.env.MESSAGING_DISPATCH_ENABLED !== 'false';
 const BATCH_SIZE = Number.parseInt(process.env.MESSAGING_DISPATCH_BATCH ?? '10', 10);
+const DISPATCH_LEEWAY_MS = Number.parseInt(
+  process.env.MESSAGING_DISPATCH_LEEWAY_MS ?? '60000',
+  10,
+);
 
 function mapOutboxDocument(doc: FirebaseFirestore.QueryDocumentSnapshot): OutboxMessage {
   const data = doc.data();
@@ -101,12 +105,25 @@ export const dispatchOutbox = onSchedule(
       return;
     }
 
+    const nowInstant = new Date();
+
     for (const doc of snapshot.docs) {
       const message = mapOutboxDocument(doc);
       const channelAllowed = canUseChannel(
         message.channel,
         message.metadata?.channelPreferences,
       );
+
+      if (
+        message.scheduledAt &&
+        message.scheduledAt.getTime() - DISPATCH_LEEWAY_MS > nowInstant.getTime()
+      ) {
+        logger.debug('Skipping message scheduled in the future', {
+          id: message.id,
+          scheduledAt: message.scheduledAt,
+        });
+        break;
+      }
 
       if (!channelAllowed) {
         await markMessage(doc, 'skipped', {

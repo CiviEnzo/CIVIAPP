@@ -1,6 +1,4 @@
 import 'package:civiapp/app/router.dart';
-import 'package:civiapp/data/branding/branding_model.dart';
-import 'package:civiapp/data/branding/branding_repository.dart';
 import 'package:civiapp/data/models/app_user.dart';
 import 'package:civiapp/data/repositories/app_data_state.dart';
 import 'package:civiapp/data/repositories/app_data_store.dart';
@@ -10,13 +8,13 @@ import 'package:civiapp/domain/cart/cart_controller.dart';
 import 'package:civiapp/domain/cart/cart_models.dart';
 import 'package:civiapp/domain/entities/client_photo.dart';
 import 'package:civiapp/domain/entities/client_registration_draft.dart';
+import 'package:civiapp/domain/entities/salon_setup_progress.dart';
 import 'package:civiapp/domain/entities/user_role.dart';
 import 'package:civiapp/services/payments/stripe_connect_service.dart';
 import 'package:civiapp/services/payments/stripe_payments_service.dart';
 import 'package:civiapp/services/notifications/notification_service.dart';
 import 'package:civiapp/services/whatsapp_service.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_in_app_messaging/firebase_in_app_messaging.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -60,11 +58,6 @@ final sessionControllerProvider =
       return controller;
     });
 
-final brandingRepositoryProvider = Provider<BrandingRepository>((ref) {
-  final firestore = FirebaseFirestore.instance;
-  return BrandingRepository(firestore);
-});
-
 final firebaseStorageServiceProvider = Provider<FirebaseStorageService>((ref) {
   final storage = FirebaseStorage.instance;
   return FirebaseStorageService(storage);
@@ -81,6 +74,12 @@ final firebaseInAppMessagingProvider = Provider<FirebaseInAppMessaging>((ref) {
 final firebaseFunctionsProvider = Provider<FirebaseFunctions>((ref) {
   return FirebaseFunctions.instanceFor(region: 'europe-west1');
 });
+
+final themeModeProvider = StateNotifierProvider<ThemeModeController, ThemeMode>(
+  (ref) {
+    return ThemeModeController();
+  },
+);
 
 final currentSalonIdProvider = Provider<String?>((ref) {
   return ref.watch(sessionControllerProvider).salonId;
@@ -133,53 +132,6 @@ final clientDashboardIntentProvider = StateProvider<ClientDashboardIntent?>(
   (ref) => null,
 );
 
-final salonBrandingProvider = StreamProvider<BrandingModel>((ref) {
-  final salonId = ref.watch(currentSalonIdProvider);
-  final repository = ref.watch(brandingRepositoryProvider);
-  if (salonId == null) {
-    return Stream.value(
-      const BrandingModel(
-        primaryColor: '#1F2937',
-        accentColor: '#A855F7',
-        themeMode: 'system',
-      ),
-    );
-  }
-  return repository.watchSalonBranding(salonId);
-});
-
-final salonThemeProvider = Provider.autoDispose((ref) {
-  final brandingAsync = ref.watch(salonBrandingProvider);
-  final base =
-      brandingAsync.valueOrNull ??
-      const BrandingModel(
-        primaryColor: '#1F2937',
-        accentColor: '#A855F7',
-        themeMode: 'system',
-      );
-  final lightScheme = base.toColorScheme(Brightness.light);
-  final darkScheme = base.toColorScheme(Brightness.dark);
-
-  ThemeData buildTheme(ColorScheme scheme) {
-    return ThemeData(
-      colorScheme: scheme,
-      useMaterial3: true,
-      appBarTheme: AppBarTheme(
-        backgroundColor: scheme.surface,
-        foregroundColor: scheme.onSurface,
-        elevation: base.appBarStyle == 'elevated' ? 4 : 0,
-      ),
-    );
-  }
-
-  return (
-    theme: buildTheme(lightScheme),
-    darkTheme: buildTheme(darkScheme),
-    mode: base.resolveThemeMode(),
-    branding: base,
-  );
-});
-
 final clientPhotosProvider = Provider.family<List<ClientPhoto>, String?>((
   ref,
   clientId,
@@ -194,6 +146,23 @@ final clientPhotosProvider = Provider.family<List<ClientPhoto>, String?>((
       .where((photo) => photo.clientId == clientId)
       .toList(growable: false);
 });
+
+final salonSetupProgressProvider = Provider.family<AdminSetupProgress?, String>(
+  (ref, salonId) {
+    if (salonId.isEmpty) {
+      return null;
+    }
+    final progressList = ref.watch(
+      appDataProvider.select((state) => state.setupProgress),
+    );
+    for (final progress in progressList) {
+      if (progress.salonId == salonId) {
+        return progress;
+      }
+    }
+    return null;
+  },
+);
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   return createRouter(ref);
@@ -273,6 +242,22 @@ class SessionController extends StateNotifier<SessionState> {
       selectedSalonId: state.selectedSalonId,
       selectedEntityId: userId,
     );
+  }
+}
+
+class ThemeModeController extends StateNotifier<ThemeMode> {
+  ThemeModeController() : super(ThemeMode.system);
+
+  void setThemeMode(ThemeMode mode) {
+    state = mode;
+  }
+
+  void toggle() {
+    state = state == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+  }
+
+  void setDarkEnabled(bool enabled) {
+    state = enabled ? ThemeMode.dark : ThemeMode.light;
   }
 }
 

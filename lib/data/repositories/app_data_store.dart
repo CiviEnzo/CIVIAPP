@@ -30,6 +30,7 @@ import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/domain/entities/staff_role.dart';
 import 'package:civiapp/domain/entities/reminder_settings.dart';
 import 'package:civiapp/domain/entities/salon_access_request.dart';
+import 'package:civiapp/domain/entities/salon_setup_progress.dart';
 import 'package:civiapp/domain/entities/user_role.dart';
 import 'package:collection/collection.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -60,6 +61,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
               services: List.unmodifiable(MockData.services),
               packages: List.unmodifiable(MockData.packages),
               appointments: List.unmodifiable(MockData.appointments),
+              publicAppointments: List.unmodifiable(
+                MockData.publicAppointments,
+              ),
               quotes: List.unmodifiable(MockData.quotes),
               paymentTickets: List.unmodifiable(MockData.paymentTickets),
               inventoryItems: List.unmodifiable(MockData.inventoryItems),
@@ -84,6 +88,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
               promotions: List.unmodifiable(MockData.promotions),
               lastMinuteSlots: List.unmodifiable(MockData.lastMinuteSlots),
               salonAccessRequests: const [],
+              setupProgress: const [],
             ),
       ) {
     final firestore = _firestore;
@@ -117,6 +122,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
   static const String _defaultStaffRoleId = 'estetista';
   static const String _unknownStaffRoleId = 'staff-role-unknown';
   static const String _salonAccessRequestsCollection = 'salon_access_requests';
+  static const String _salonSetupProgressCollection = 'salon_setup_progress';
 
   AppUser? get currentUser => _currentUser;
 
@@ -174,6 +180,13 @@ class AppDataStore extends StateNotifier<AppDataState> {
           firestore.collection('last_minute_slots'),
           lastMinuteSlotFromDoc,
           _onLastMinuteSlotsData,
+        ),
+      );
+      subscriptions.add(
+        _listenCollection<AdminSetupProgress>(
+          firestore.collection(_salonSetupProgressCollection),
+          adminSetupProgressFromDoc,
+          (items) => state = state.copyWith(setupProgress: items),
         ),
       );
     } else {
@@ -279,6 +292,16 @@ class AppDataStore extends StateNotifier<AppDataState> {
               salonAccessRequests: List.unmodifiable(sorted),
             );
           },
+        ),
+      );
+
+      addAll(
+        _listenCollectionBySalonIds<AdminSetupProgress>(
+          firestore: firestore,
+          collectionPath: _salonSetupProgressCollection,
+          salonIds: salonIds,
+          fromDoc: adminSetupProgressFromDoc,
+          onData: (items) => state = state.copyWith(setupProgress: items),
         ),
       );
 
@@ -616,6 +639,20 @@ class AppDataStore extends StateNotifier<AppDataState> {
         );
 
         addAll(
+          _listenCollectionBySalonIds<Appointment>(
+            firestore: firestore,
+            collectionPath: 'public_appointments',
+            salonIds: normalizedSalonIds,
+            fromDoc: appointmentFromDoc,
+            onData:
+                (items) =>
+                    state = state.copyWith(
+                      publicAppointments: _sanitizePublicAppointments(items),
+                    ),
+          ),
+        );
+
+        addAll(
           _listenCollectionBySalonIds<Shift>(
             firestore: firestore,
             collectionPath: 'shifts',
@@ -717,6 +754,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
         state = state.copyWith(
           clients: const <Client>[],
           appointments: const <Appointment>[],
+          publicAppointments: const <Appointment>[],
           sales: const <Sale>[],
           clientPhotos: const <ClientPhoto>[],
           clientQuestionnaires: const <ClientQuestionnaire>[],
@@ -749,13 +787,12 @@ class AppDataStore extends StateNotifier<AppDataState> {
     final aggregated = <String, ReminderSettings>{};
 
     void emit() {
-      final items =
-          normalized
-              .map(
-                (salonId) =>
-                    aggregated[salonId] ?? ReminderSettings(salonId: salonId),
-              )
-              .toList(growable: false);
+      final items = normalized
+          .map(
+            (salonId) =>
+                aggregated[salonId] ?? ReminderSettings(salonId: salonId),
+          )
+          .toList(growable: false);
       onData(List.unmodifiable(items));
     }
 
@@ -792,10 +829,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
               library: 'AppDataStore',
               informationCollector:
                   () => [
-                    DiagnosticsProperty<String>(
-                      'Failed document',
-                      docRef.path,
-                    ),
+                    DiagnosticsProperty<String>('Failed document', docRef.path),
                   ],
             ),
           );
@@ -1238,6 +1272,10 @@ class AppDataStore extends StateNotifier<AppDataState> {
     );
   }
 
+  List<Appointment> _sanitizePublicAppointments(List<Appointment> items) {
+    return items.map(_publicViewOfAppointment).toList(growable: false);
+  }
+
   Set<String> _enabledSalonIds(
     bool Function(SalonFeatureFlags flags) predicate,
   ) {
@@ -1489,6 +1527,144 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
     await firestore.collection('salons').doc(salon.id).set(salonToMap(salon));
     await _ensureCurrentUserLinkedToSalon(salon.id);
+  }
+
+  Future<AdminSetupProgress> initializeSalonSetupProgress({
+    required String salonId,
+    String? adminId,
+    String? tenantId,
+  }) async {
+    final actor = _resolveActorId(adminId);
+    return _mutateSetupProgress(
+      salonId: salonId,
+      adminId: actor,
+      mutate: (current, timestamp) {
+        final items = _ensureChecklistDefaults(current.items);
+        var updated = current.copyWith(items: items, pendingReminder: true);
+        if (tenantId != null && tenantId.isNotEmpty) {
+          updated = updated.copyWith(tenantId: tenantId);
+        }
+        if (updated.createdAt == null) {
+          updated = updated.copyWith(createdAt: timestamp);
+        }
+        if (updated.createdBy == null) {
+          updated = updated.copyWith(createdBy: actor);
+        }
+        return updated;
+      },
+    );
+  }
+
+  Future<AdminSetupProgress> markSalonSetupItemInProgress({
+    required String salonId,
+    required String itemKey,
+    String? adminId,
+  }) async {
+    final actor = _resolveActorId(adminId);
+    return _mutateSetupProgress(
+      salonId: salonId,
+      adminId: actor,
+      mutate: (current, timestamp) {
+        final normalized = _ensureChecklistDefaults(current.items);
+        final items = _setChecklistItemStatus(
+          items: normalized,
+          key: itemKey,
+          status: SetupChecklistStatus.inProgress,
+          timestamp: timestamp,
+          adminId: actor,
+        );
+        return current.copyWith(items: items);
+      },
+    );
+  }
+
+  Future<AdminSetupProgress> markSalonSetupItemCompleted({
+    required String salonId,
+    required String itemKey,
+    Map<String, dynamic>? metadata,
+    bool? pendingReminder,
+    bool? markRequiredCompleted,
+    bool mergeMetadata = true,
+    String? adminId,
+  }) async {
+    final actor = _resolveActorId(adminId);
+    return _mutateSetupProgress(
+      salonId: salonId,
+      adminId: actor,
+      mutate: (current, timestamp) {
+        final normalized = _ensureChecklistDefaults(current.items);
+        final items = _setChecklistItemStatus(
+          items: normalized,
+          key: itemKey,
+          status: SetupChecklistStatus.completed,
+          timestamp: timestamp,
+          adminId: actor,
+          metadata: metadata,
+          mergeMetadata: mergeMetadata,
+        );
+        final operationsItem = items.firstWhereOrNull(
+          (element) => element.key == SetupChecklistKeys.operations,
+        );
+        final operationsCompleted =
+            operationsItem?.status == SetupChecklistStatus.completed;
+        final reminder = pendingReminder ?? _shouldKeepReminder(items);
+        var requiredCompletedFlag = current.requiredCompleted;
+        if (markRequiredCompleted != null) {
+          requiredCompletedFlag = markRequiredCompleted;
+        } else if (itemKey == SetupChecklistKeys.operations &&
+            operationsCompleted) {
+          requiredCompletedFlag = true;
+        }
+        return current.copyWith(
+          items: items,
+          pendingReminder: reminder,
+          requiredCompleted: requiredCompletedFlag || operationsCompleted,
+        );
+      },
+    );
+  }
+
+  Future<AdminSetupProgress> postponeSalonSetupItem({
+    required String salonId,
+    required String itemKey,
+    Map<String, dynamic>? metadata,
+    bool mergeMetadata = true,
+    String? adminId,
+  }) async {
+    final actor = _resolveActorId(adminId);
+    return _mutateSetupProgress(
+      salonId: salonId,
+      adminId: actor,
+      mutate: (current, timestamp) {
+        final normalized = _ensureChecklistDefaults(current.items);
+        final items = _setChecklistItemStatus(
+          items: normalized,
+          key: itemKey,
+          status: SetupChecklistStatus.postponed,
+          timestamp: timestamp,
+          adminId: actor,
+          metadata: metadata,
+          mergeMetadata: mergeMetadata,
+        );
+        return current.copyWith(items: items, pendingReminder: true);
+      },
+    );
+  }
+
+  Future<AdminSetupProgress> clearSalonSetupReminder({
+    required String salonId,
+    String? adminId,
+  }) async {
+    final actor = _resolveActorId(adminId);
+    return _mutateSetupProgress(
+      salonId: salonId,
+      adminId: actor,
+      mutate: (current, timestamp) {
+        final normalized = _ensureChecklistDefaults(current.items);
+        final shouldKeep = _shouldKeepReminder(normalized);
+        return current.copyWith(items: normalized, pendingReminder: shouldKeep);
+      },
+    );
   }
 
   Future<void> updateSalonFeatureFlags(
@@ -2611,32 +2787,50 @@ class AppDataStore extends StateNotifier<AppDataState> {
       );
       _upsertLocal(
         appointments: <Appointment>[bookingResult.appointment],
+        publicAppointments: <Appointment>[
+          _publicViewOfAppointment(bookingResult.appointment),
+        ],
         lastMinuteSlots:
             bookingResult.slot != null
                 ? <LastMinuteSlot>[bookingResult.slot!]
                 : null,
       );
+      final firestore = _firestore;
+      if (firestore != null) {
+        await firestore
+            .collection('public_appointments')
+            .doc(bookingResult.appointment.id)
+            .set(
+              publicAppointmentToMap(
+                _publicViewOfAppointment(bookingResult.appointment),
+              ),
+            );
+      }
       return;
     }
 
+    final previous = state.appointments.firstWhereOrNull(
+      (item) => item.id == appointment.id,
+    );
     final resolvedAppointment = appointment.copyWith(
       lastMinuteSlotId: appointment.lastMinuteSlotId ?? consumeLastMinuteSlotId,
+      createdAt: appointment.createdAt ?? previous?.createdAt ?? DateTime.now(),
     );
-
-    final previous = state.appointments.firstWhereOrNull(
-      (item) => item.id == resolvedAppointment.id,
-    );
+    final publicView = _publicViewOfAppointment(resolvedAppointment);
     final now = DateTime.now();
     if (resolvedAppointment.end.isAfter(now)) {
-      final combinedAppointments = <Appointment>[
-        ...state.appointments,
-        ..._blockingLastMinuteAppointments(
-          salonId: resolvedAppointment.salonId,
-          staffId: resolvedAppointment.staffId,
-          ignoreSlotId: consumeLastMinuteSlotId,
-          reference: now,
-        ),
-      ];
+      final blockingAppointments =
+          _blockingLastMinuteAppointments(
+            salonId: resolvedAppointment.salonId,
+            staffId: resolvedAppointment.staffId,
+            ignoreSlotId: consumeLastMinuteSlotId,
+            reference: now,
+          ).toList();
+      final combinedAppointments = _mergeAppointmentsForConflicts(
+        publicAppointments: state.publicAppointments,
+        ownAppointments: state.appointments,
+        additional: blockingAppointments,
+      );
       final hasStaffConflict = hasStaffBookingConflict(
         appointments: combinedAppointments,
         staffId: resolvedAppointment.staffId,
@@ -2658,6 +2852,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
         throw StateError('Cliente già impegnato in quel periodo');
       }
     }
+    await _ensureNoRemoteStaffConflict(resolvedAppointment);
     final shouldConsumeSession =
         resolvedAppointment.packageId != null &&
         resolvedAppointment.status == AppointmentStatus.completed &&
@@ -2680,6 +2875,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     if (firestore == null) {
       _upsertLocal(
         appointments: <Appointment>[resolvedAppointment],
+        publicAppointments: <Appointment>[publicView],
         paymentTickets: ticket != null ? [ticket] : null,
       );
       if (shouldRemoveTicket) {
@@ -2695,6 +2891,10 @@ class AppDataStore extends StateNotifier<AppDataState> {
         .collection('appointments')
         .doc(resolvedAppointment.id)
         .set(appointmentToMap(resolvedAppointment));
+    await firestore
+        .collection('public_appointments')
+        .doc(resolvedAppointment.id)
+        .set(publicAppointmentToMap(publicView));
     if (ticket != null) {
       await upsertPaymentTicket(ticket);
     }
@@ -2705,6 +2905,61 @@ class AppDataStore extends StateNotifier<AppDataState> {
       slotId: consumeLastMinuteSlotId,
       appointment: resolvedAppointment,
     );
+  }
+
+  List<Appointment> _mergeAppointmentsForConflicts({
+    required Iterable<Appointment> publicAppointments,
+    required Iterable<Appointment> ownAppointments,
+    required Iterable<Appointment> additional,
+  }) {
+    final merged = <String, Appointment>{};
+    for (final appointment in publicAppointments) {
+      merged[appointment.id] = appointment;
+    }
+    for (final appointment in ownAppointments) {
+      merged[appointment.id] = appointment;
+    }
+    for (final appointment in additional) {
+      merged[appointment.id] = appointment;
+    }
+    return merged.values.toList(growable: false);
+  }
+
+  Appointment _publicViewOfAppointment(Appointment appointment) {
+    return appointment.copyWith(clientId: '', notes: null, packageId: null);
+  }
+
+  Future<void> _ensureNoRemoteStaffConflict(Appointment appointment) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      return;
+    }
+    final staffId = appointment.staffId.trim();
+    final salonId = appointment.salonId.trim();
+    if (staffId.isEmpty || salonId.isEmpty) {
+      return;
+    }
+    final query = firestore
+        .collection('public_appointments')
+        .where('salonId', isEqualTo: salonId)
+        .where('staffId', isEqualTo: staffId)
+        .where('end', isGreaterThan: Timestamp.fromDate(appointment.start))
+        .orderBy('end')
+        .limit(50);
+    final snapshot = await query.get();
+    for (final doc in snapshot.docs) {
+      if (doc.id == appointment.id) {
+        continue;
+      }
+      final existing = appointmentFromDoc(doc);
+      if (!appointmentBlocksAvailability(existing)) {
+        continue;
+      }
+      if (!existing.start.isBefore(appointment.end)) {
+        continue;
+      }
+      throw StateError('Operatore già occupato in quel periodo');
+    }
   }
 
   bool _shouldCreatePaymentTicket({
@@ -3592,6 +3847,10 @@ class AppDataStore extends StateNotifier<AppDataState> {
 
     for (final salon in MockData.salons) {
       await upsertSalon(salon);
+      await initializeSalonSetupProgress(
+        salonId: salon.id,
+        adminId: 'seed-script',
+      );
     }
     for (final role in MockData.staffRoles) {
       await upsertStaffRole(role);
@@ -3687,6 +3946,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     List<Service>? services,
     List<ServicePackage>? packages,
     List<Appointment>? appointments,
+    List<Appointment>? publicAppointments,
     List<Quote>? quotes,
     List<PaymentTicket>? paymentTickets,
     List<InventoryItem>? inventoryItems,
@@ -3703,6 +3963,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     List<ClientQuestionnaire>? clientQuestionnaires,
     List<Promotion>? promotions,
     List<LastMinuteSlot>? lastMinuteSlots,
+    List<AdminSetupProgress>? setupProgress,
   }) {
     state = state.copyWith(
       salons:
@@ -3739,6 +4000,14 @@ class AppDataStore extends StateNotifier<AppDataState> {
           appointments != null
               ? _merge(state.appointments, appointments, (e) => e.id)
               : state.appointments,
+      publicAppointments:
+          publicAppointments != null
+              ? _merge(
+                state.publicAppointments,
+                publicAppointments,
+                (e) => e.id,
+              )
+              : state.publicAppointments,
       quotes:
           quotes != null
               ? _merge(state.quotes, quotes, (e) => e.id)
@@ -3821,6 +4090,10 @@ class AppDataStore extends StateNotifier<AppDataState> {
           lastMinuteSlots != null
               ? _merge(state.lastMinuteSlots, lastMinuteSlots, (e) => e.id)
               : state.lastMinuteSlots,
+      setupProgress:
+          setupProgress != null
+              ? _merge(state.setupProgress, setupProgress, (e) => e.id)
+              : state.setupProgress,
     );
   }
 
@@ -4194,6 +4467,11 @@ class AppDataStore extends StateNotifier<AppDataState> {
       appointments: List.unmodifiable(
         state.appointments.where((element) => element.id != appointmentId),
       ),
+      publicAppointments: List.unmodifiable(
+        state.publicAppointments.where(
+          (element) => element.id != appointmentId,
+        ),
+      ),
     );
   }
 
@@ -4550,6 +4828,238 @@ class AppDataStore extends StateNotifier<AppDataState> {
         state.publicStaffAbsences.where((element) => element.id != absenceId),
       ),
     );
+  }
+
+  Map<String, SetupChecklistStatus> _extractChecklistSnapshot(
+    List<SetupChecklistItem> items,
+  ) {
+    final result = <String, SetupChecklistStatus>{};
+    final allowed = SetupChecklistKeys.defaults.toSet();
+    for (final item in items) {
+      if (allowed.contains(item.key)) {
+        result[item.key] = item.status;
+      }
+    }
+    return Map<String, SetupChecklistStatus>.unmodifiable(result);
+  }
+
+  List<SetupChecklistItem> _ensureChecklistDefaults(
+    List<SetupChecklistItem> items,
+  ) {
+    final allowed = SetupChecklistKeys.defaults.toSet();
+    if (items.isEmpty) {
+      return List<SetupChecklistItem>.unmodifiable(
+        SetupChecklistKeys.defaults
+            .map((key) => SetupChecklistItem(key: key))
+            .toList(),
+      );
+    }
+    final map = LinkedHashMap<String, SetupChecklistItem>();
+    for (final item in items) {
+      if (allowed.contains(item.key)) {
+        map[item.key] = item;
+      }
+    }
+    for (final key in SetupChecklistKeys.defaults) {
+      map.putIfAbsent(key, () => SetupChecklistItem(key: key));
+    }
+    return List<SetupChecklistItem>.unmodifiable(map.values);
+  }
+
+  AdminSetupProgress _buildInitialSetupProgress({
+    required String salonId,
+    required String adminId,
+    DateTime? timestamp,
+    String? tenantId,
+  }) {
+    final now = timestamp ?? DateTime.now();
+    final defaults = _ensureChecklistDefaults(const <SetupChecklistItem>[]);
+    return AdminSetupProgress(
+      id: salonId,
+      salonId: salonId,
+      tenantId: tenantId,
+      createdBy: adminId,
+      createdAt: now,
+      updatedAt: now,
+      updatedBy: adminId,
+      pendingReminder: true,
+      requiredCompleted: false,
+      items: defaults,
+    );
+  }
+
+  List<SetupChecklistItem> _setChecklistItemStatus({
+    required List<SetupChecklistItem> items,
+    required String key,
+    required SetupChecklistStatus status,
+    required DateTime timestamp,
+    required String adminId,
+    Map<String, dynamic>? metadata,
+    bool mergeMetadata = true,
+  }) {
+    final next = <SetupChecklistItem>[];
+    var found = false;
+    for (final item in items) {
+      if (item.key == key) {
+        final newMetadata =
+            metadata == null
+                ? item.metadata
+                : Map<String, dynamic>.unmodifiable(
+                  mergeMetadata
+                      ? <String, dynamic>{...item.metadata, ...metadata}
+                      : Map<String, dynamic>.from(metadata),
+                );
+        next.add(
+          item.copyWith(
+            status: status,
+            metadata: newMetadata,
+            updatedAt: timestamp,
+            updatedBy: adminId,
+          ),
+        );
+        found = true;
+      } else {
+        next.add(item);
+      }
+    }
+    if (!found) {
+      final newMetadata =
+          metadata == null
+              ? const <String, dynamic>{}
+              : Map<String, dynamic>.unmodifiable(Map.of(metadata));
+      next.add(
+        SetupChecklistItem(
+          key: key,
+          status: status,
+          metadata: newMetadata,
+          updatedAt: timestamp,
+          updatedBy: adminId,
+        ),
+      );
+    }
+    return List<SetupChecklistItem>.unmodifiable(next);
+  }
+
+  bool _shouldKeepReminder(List<SetupChecklistItem> items) {
+    final hasActive = items.any(
+      (item) =>
+          item.status == SetupChecklistStatus.notStarted ||
+          item.status == SetupChecklistStatus.inProgress,
+    );
+    if (hasActive) {
+      return true;
+    }
+    final operations = items.firstWhereOrNull(
+      (item) => item.key == SetupChecklistKeys.operations,
+    );
+    if (operations == null) {
+      return false;
+    }
+    return operations.status != SetupChecklistStatus.completed;
+  }
+
+  String _resolveActorId(String? adminId) {
+    if (adminId != null && adminId.isNotEmpty) {
+      return adminId;
+    }
+    final uid = _currentUser?.uid;
+    if (uid != null && uid.isNotEmpty) {
+      return uid;
+    }
+    return 'system';
+  }
+
+  Future<AdminSetupProgress> _mutateSetupProgress({
+    required String salonId,
+    required String adminId,
+    required AdminSetupProgress Function(
+      AdminSetupProgress current,
+      DateTime timestamp,
+    )
+    mutate,
+  }) async {
+    final firestore = _firestore;
+    final now = DateTime.now();
+    AdminSetupProgress? updated;
+
+    if (firestore != null) {
+      final docRef = firestore
+          .collection(_salonSetupProgressCollection)
+          .doc(salonId);
+      await firestore.runTransaction((transaction) async {
+        final snapshot = await transaction.get(docRef);
+        var current =
+            snapshot.exists
+                ? adminSetupProgressFromDoc(snapshot)
+                : _buildInitialSetupProgress(
+                  salonId: salonId,
+                  adminId: adminId,
+                  timestamp: now,
+                );
+        if (current.createdAt == null) {
+          current = current.copyWith(createdAt: now);
+        }
+        if (current.createdBy == null) {
+          current = current.copyWith(createdBy: adminId);
+        }
+        final mutated = mutate(
+          current,
+          now,
+        ).copyWith(id: docRef.id, updatedAt: now, updatedBy: adminId);
+        transaction.set(
+          docRef,
+          adminSetupProgressToMap(mutated),
+          SetOptions(merge: true),
+        );
+        updated = mutated;
+      });
+    } else {
+      var current =
+          state.setupProgress.firstWhereOrNull(
+            (progress) => progress.salonId == salonId,
+          ) ??
+          _buildInitialSetupProgress(
+            salonId: salonId,
+            adminId: adminId,
+            timestamp: now,
+          );
+      if (current.createdAt == null) {
+        current = current.copyWith(createdAt: now);
+      }
+      if (current.createdBy == null) {
+        current = current.copyWith(createdBy: adminId);
+      }
+      final mutated = mutate(
+        current,
+        now,
+      ).copyWith(updatedAt: now, updatedBy: adminId);
+      updated = mutated;
+    }
+
+    final result = updated!;
+    _upsertLocal(setupProgress: <AdminSetupProgress>[result]);
+    await _syncSalonChecklistSnapshot(result);
+    return result;
+  }
+
+  Future<void> _syncSalonChecklistSnapshot(AdminSetupProgress progress) async {
+    final statuses = _extractChecklistSnapshot(progress.items);
+    final firestore = _firestore;
+    if (firestore != null) {
+      await firestore.collection('salons').doc(progress.salonId).set({
+        'setupChecklist': statuses.map(
+          (key, value) => MapEntry(key, setupChecklistStatusToName(value)),
+        ),
+      }, SetOptions(merge: true));
+    }
+
+    final currentSalon = state.salons.firstWhereOrNull(
+      (salon) => salon.id == progress.salonId,
+    );
+    if (currentSalon != null) {
+      final updatedSalon = currentSalon.copyWith(setupChecklist: statuses);
+      _upsertLocal(salons: <Salon>[updatedSalon]);
+    }
   }
 
   List<T> _merge<T>(

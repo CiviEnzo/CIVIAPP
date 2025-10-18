@@ -38,3 +38,25 @@ Lo script aggiorna:
 - Tutti i documenti `promotions` e `last_minute_slots` filtrati su `salonId`
 
 Con `--dryRun` vengono soltanto loggate le operazioni che verrebbero eseguite.
+
+---
+
+## Backfill setup saloni esistenti
+
+Quando dobbiamo migrare saloni già attivi al nuovo flusso di onboarding (card checklist + reminder dashboard) usa:
+
+```bash
+node functions/scripts/backfill_salon_setup_progress.js [--salonIds=salon-001,salon-002] [--dryRun] [--force]
+```
+
+Lo script:
+
+- legge tutti i documenti `salons` (o solo quelli indicati)
+- calcola lo stato delle voci di checklist a partire dai dati esistenti
+- scrive/aggiorna `salons/{id}.setupChecklist`
+- crea o aggiorna `salon_setup_progress/{id}` con gli item, il reminder e i metadati
+
+Flag utili:
+
+- `--dryRun` mostra le modifiche senza applicarle.
+- `--force` sovrascrive anche i saloni già configurati (di default vengono saltati).
