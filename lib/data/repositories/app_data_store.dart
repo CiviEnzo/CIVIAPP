@@ -2751,6 +2751,15 @@ class AppDataStore extends StateNotifier<AppDataState> {
 
     final firestore = _firestore;
     final payload = lastMinuteSlotToMap(slot);
+    final existingSlot =
+        _cachedLastMinuteSlots.firstWhereOrNull((item) => item.id == slot.id);
+    final hadImage =
+        existingSlot != null && (existingSlot.imageUrl?.isNotEmpty ?? false);
+    final hasImageNow = slot.imageUrl != null && slot.imageUrl!.isNotEmpty;
+    if (hadImage && !hasImageNow) {
+      payload['imageUrl'] = FieldValue.delete();
+      payload['imageStoragePath'] = FieldValue.delete();
+    }
     if (firestore != null) {
       await firestore
           .collection('last_minute_slots')

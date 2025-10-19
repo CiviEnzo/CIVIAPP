@@ -496,6 +496,8 @@ LastMinuteSlot lastMinuteSlotFromDoc(
         (serviceName == null || serviceName.isEmpty)
             ? 'Slot last-minute'
             : serviceName,
+    imageUrl: data['imageUrl'] as String?,
+    imageStoragePath: data['imageStoragePath'] as String?,
     start: _coerceToDateTime(data['startAt']) ?? DateTime.now(),
     duration: Duration(minutes: safeDurationMinutes),
     basePrice: _coerceToDouble(data['basePrice']) ?? 0,
@@ -548,6 +550,12 @@ Map<String, dynamic> lastMinuteSlotToMap(LastMinuteSlot slot) {
     'bookedClientId': slot.bookedClientId,
     'bookedClientName': slot.bookedClientName,
   }..removeWhere((_, value) => value == null);
+  if (slot.imageUrl != null && slot.imageUrl!.isNotEmpty) {
+    map['imageUrl'] = slot.imageUrl;
+  }
+  if (slot.imageStoragePath != null && slot.imageStoragePath!.isNotEmpty) {
+    map['imageStoragePath'] = slot.imageStoragePath;
+  }
   return map;
 }
 

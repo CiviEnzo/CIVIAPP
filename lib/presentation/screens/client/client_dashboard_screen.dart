@@ -1170,9 +1170,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     final service = services.firstWhereOrNull(
       (service) => service.id == slot.serviceId,
     );
-    final canUseStripe = salon?.canAcceptOnlinePayments ?? false;
-
-    if (!canUseStripe || salon == null) {
+    if (salon == null) {
       ScaffoldMessenger.of(targetContext).showSnackBar(
         const SnackBar(
           content: Text(
@@ -1216,6 +1214,13 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     final savings = slot.basePrice - slot.priceNow;
     final hasSavings = savings > 0.01;
     final savingsLabel = currency.format(savings);
+    final countdownDiff = slot.start.difference(DateTime.now());
+    final countdownLabel =
+        countdownDiff.isNegative
+            ? 'In corso'
+            : countdownDiff.inHours >= 1
+            ? '${countdownDiff.inHours}h ${countdownDiff.inMinutes.remainder(60).toString().padLeft(2, '0')}m'
+            : '${countdownDiff.inMinutes} min';
 
     final result = await showModalBottomSheet<bool>(
       context: context,
@@ -1228,23 +1233,50 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
             final theme = Theme.of(modalContext);
             final scheme = theme.colorScheme;
 
-            Widget infoSection(String label, String value) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Column(
+            Widget detailCard({
+              required IconData icon,
+              required String label,
+              required String value,
+            }) {
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: scheme.secondaryContainer.withOpacity(0.35),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      label,
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: scheme.primary.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(12),
                       ),
+                      child: Icon(icon, size: 20, color: scheme.primary),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      value,
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            label,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            value,
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              height: 1.2,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -1252,80 +1284,132 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
               );
             }
 
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Riepilogo last-minute',
-                  style: _sectionTitleStyle(context),
-                ),
-                const SizedBox(height: 12),
-                infoSection('Servizio', service?.name ?? slot.serviceName),
-                const Divider(height: 24),
-                infoSection('Data', dateLabel),
-                infoSection('Orario', timeLabel),
-                infoSection('Durata', durationLabel),
-                infoSection('Operatore', operatorName),
-                const Divider(height: 32),
-                Text(
-                  'Totale da pagare',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: scheme.onSurfaceVariant,
+            final maxHeight = MediaQuery.of(modalContext).size.height * 0.85;
+
+            return ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: maxHeight),
+              child: Column(
+                mainAxisSize: MainAxisSize.max,
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Riepilogo last-minute',
+                                style: _sectionTitleStyle(context),
+                              ),
+                              IconButton(
+                                onPressed:
+                                    () => Navigator.of(sheetContext).pop(false),
+                                icon: const Icon(Icons.close_rounded),
+                                tooltip: 'Chiudi',
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          _LastMinuteSummaryCover(slot: slot),
+                          const SizedBox(height: 16),
+                          detailCard(
+                            icon: Icons.spa_rounded,
+                            label: 'Servizio',
+                            value: service?.name ?? slot.serviceName,
+                          ),
+                          detailCard(
+                            icon: Icons.calendar_month_rounded,
+                            label: 'Appuntamento',
+                            value: '$dateLabel • $timeLabel',
+                          ),
+                          detailCard(
+                            icon: Icons.timer_rounded,
+                            label: 'Durata',
+                            value: durationLabel,
+                          ),
+                          detailCard(
+                            icon: Icons.person_outline_rounded,
+                            label: 'Operatore',
+                            value: operatorName,
+                          ),
+                          const SizedBox(height: 12),
+
+                          const SizedBox(height: 24),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Text(
-                      priceNowLabel,
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      basePriceLabel,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        decoration: TextDecoration.lineThrough,
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                    if (hasSavings) ...[
-                      const Spacer(),
-                      Text(
-                        'Risparmi $savingsLabel',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: scheme.secondary,
-                          fontWeight: FontWeight.w600,
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
+                    decoration: BoxDecoration(
+                      color: scheme.surface,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.04),
+                          blurRadius: 16,
+                          offset: const Offset(0, -4),
                         ),
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Pagamento immediato obbligatorio. Le offerte last-minute non possono essere modificate.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Totale',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              priceNowLabel,
+                              style: theme.textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              basePriceLabel,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                decoration: TextDecoration.lineThrough,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (hasSavings) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Risparmi $savingsLabel',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: scheme.secondary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed:
+                                () => Navigator.of(sheetContext).pop(true),
+                            icon: const Icon(Icons.lock_rounded),
+                            label: const Text('Paga ora'),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: () => Navigator.of(sheetContext).pop(false),
-                      child: const Text('Annulla'),
-                    ),
-                    const SizedBox(width: 12),
-                    FilledButton(
-                      onPressed: () => Navigator.of(sheetContext).pop(true),
-                      child: const Text('Conferma e paga'),
-                    ),
-                  ],
-                ),
-              ],
+                ],
+              ),
             );
           },
         );
@@ -1752,25 +1836,6 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
         }
         return null;
     }
-  }
-
-  String _formatCountdown(DateTime start) {
-    final now = DateTime.now();
-    final diff = start.difference(now);
-    if (diff.isNegative) {
-      return 'In corso';
-    }
-    final minutes = diff.inMinutes;
-    if (minutes >= 60) {
-      final hours = diff.inHours;
-      final remainingMinutes = minutes % 60;
-      if (remainingMinutes == 0) {
-        return '${hours}h';
-      }
-      return '${hours}h ${remainingMinutes}m';
-    }
-    final seconds = diff.inSeconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -2538,7 +2603,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
         ),
         const SizedBox(height: 16),
         if (showLastMinute) ...[
-          Text('Last Minute', style: sectionTitleStyle),
+          Text('Appuntamenti Last Minute', style: sectionTitleStyle),
           const SizedBox(height: 6),
           if (lastMinuteSlots.isEmpty)
             const Card(
@@ -2547,29 +2612,16 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
               ),
             )
           else ...[
-            Column(
-              children:
-                  lastMinuteSlots
-                      .take(4)
-                      .map(
-                        (slot) => Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: _LastMinuteSlotCard(
-                            slot: slot,
-                            currency: currency,
-                            countdownText: _formatCountdown(slot.start),
-                            onBook:
-                                () => _bookLastMinuteSlot(
-                                  client,
-                                  slot,
-                                  services,
-                                  salon: salon,
-                                  overrideContext: context,
-                                ),
-                          ),
-                        ),
-                      )
-                      .toList(),
+            _LastMinuteSlotsGrid(
+              slots: lastMinuteSlots.take(4).toList(growable: false),
+              onSlotTap:
+                  (slot) => _bookLastMinuteSlot(
+                    client,
+                    slot,
+                    services,
+                    salon: salon,
+                    overrideContext: context,
+                  ),
             ),
             if (lastMinuteSlots.length > 4)
               Align(
@@ -6464,309 +6516,429 @@ class _ProcessingPaymentDialog extends StatelessWidget {
   }
 }
 
-class _LastMinuteSlotCard extends StatefulWidget {
-  const _LastMinuteSlotCard({
-    required this.slot,
-    required this.currency,
-    required this.countdownText,
-    required this.onBook,
-  });
+class _LastMinuteSlotsGrid extends StatelessWidget {
+  const _LastMinuteSlotsGrid({required this.slots, required this.onSlotTap});
 
-  final LastMinuteSlot slot;
-  final NumberFormat currency;
-  final String countdownText;
-  final VoidCallback onBook;
+  final List<LastMinuteSlot> slots;
+  final ValueChanged<LastMinuteSlot> onSlotTap;
 
   @override
-  State<_LastMinuteSlotCard> createState() => _LastMinuteSlotCardState();
-}
-
-class _LastMinuteSlotCardState extends State<_LastMinuteSlotCard>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulseController;
-  late final Animation<double> _pulseAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    )..repeat(reverse: true);
-    _pulseAnimation = Tween<double>(begin: 1, end: 1.06).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+  Widget build(BuildContext context) {
+    if (slots.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth =
+            constraints.maxWidth.isFinite
+                ? constraints.maxWidth
+                : MediaQuery.of(context).size.width;
+        final crossAxisCount =
+            availableWidth >= 1024 ? 4 : (availableWidth >= 720 ? 3 : 2);
+        const spacing = 12.0;
+        final totalSpacing = spacing * (crossAxisCount - 1);
+        final itemWidth = (availableWidth - totalSpacing) / crossAxisCount;
+        final imageHeight = itemWidth * 0.75;
+        const bodyHeight = 156.0;
+        final itemHeight = imageHeight + bodyHeight;
+        final aspectRatio = itemWidth / itemHeight;
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            crossAxisSpacing: spacing,
+            mainAxisSpacing: spacing,
+            childAspectRatio: aspectRatio,
+          ),
+          itemCount: slots.length,
+          itemBuilder: (context, index) {
+            final slot = slots[index];
+            return _LastMinuteSlotCard(
+              slot: slot,
+              onTap: () => onSlotTap(slot),
+            );
+          },
+        );
+      },
     );
   }
+}
 
-  @override
-  void dispose() {
-    _pulseController.dispose();
-    super.dispose();
-  }
+class _LastMinuteSlotCard extends StatelessWidget {
+  const _LastMinuteSlotCard({required this.slot, required this.onTap});
+
+  final LastMinuteSlot slot;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final titleStyle = theme.textTheme.titleMedium?.copyWith(
-      fontWeight: FontWeight.w700,
-      height: 1.1,
-    );
     final dateLabelFormat = DateFormat('EEE d MMM', 'it_IT');
     final timeLabelFormat = DateFormat('HH:mm', 'it_IT');
-    final savings = widget.slot.basePrice - widget.slot.priceNow;
     final appointmentDateLabel = _capitalizeWords(
-      dateLabelFormat.format(widget.slot.start),
+      dateLabelFormat.format(slot.start),
     );
-    final appointmentTimeLabel = timeLabelFormat.format(widget.slot.start);
-    final operatorName = widget.slot.operatorName ?? 'Operatore da assegnare';
-    final operatorInitials = _initials(operatorName);
-    final discount = widget.slot.discountPercentage;
-    final hasDiscount = discount != null && discount > 0;
+    final appointmentTimeLabel = timeLabelFormat.format(slot.start);
+    final hasDiscount = slot.discountPercentage > 0;
+    final discountLabel =
+        hasDiscount ? _formatDiscountLabel(slot.discountPercentage) : null;
+    final now = DateTime.now();
+    final diff = slot.start.difference(now);
+    final countdownLabel =
+        diff.isNegative
+            ? 'Offerta scaduta'
+            : diff.inHours >= 1
+            ? '${diff.inHours}h ${diff.inMinutes.remainder(60).toString().padLeft(2, '0')}m'
+            : '${diff.inMinutes} min';
     return TweenAnimationBuilder<double>(
-      duration: const Duration(milliseconds: 450),
-      curve: Curves.easeOutBack,
-      tween: Tween<double>(begin: 0.95, end: 1),
+      duration: const Duration(milliseconds: 380),
+      curve: Curves.easeOutCubic,
+      tween: Tween<double>(begin: 0.94, end: 1),
       builder:
           (context, scale, child) =>
               Transform.scale(scale: scale, child: child),
-      child: Card(
-        elevation: 4,
-        shadowColor: scheme.primary.withOpacity(0.15),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Card(
+            clipBehavior: Clip.antiAlias,
+            elevation: 4,
+            shadowColor: scheme.primary.withOpacity(0.12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: InkWell(
+              onTap: onTap,
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
+                  _LastMinuteSlotCover(
+                    imageUrl: slot.imageUrl,
+                    discountLabel: discountLabel,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(widget.slot.serviceName, style: titleStyle),
-                        const SizedBox(height: 6),
-                        DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: scheme.primary.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(12),
+                        Text(
+                          slot.serviceName,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            height: 1.2,
                           ),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                Icon(
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: scheme.primary.withOpacity(0.08),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Padding(
+                                padding: EdgeInsets.all(8),
+                                child: Icon(
                                   Icons.event_available_rounded,
                                   size: 18,
-                                  color: scheme.primary,
                                 ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          appointmentDateLabel,
-                                          style: theme.textTheme.titleMedium
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.w800,
-                                                color: scheme.primary,
-                                              ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: scheme.primary,
-                                          borderRadius: BorderRadius.circular(
-                                            999,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          appointmentTimeLabel,
-                                          style: theme.textTheme.labelLarge
-                                              ?.copyWith(
-                                                color: scheme.onPrimary,
-                                                fontWeight: FontWeight.w700,
-                                                letterSpacing: 0.2,
-                                              ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
+                              ),
                             ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (hasDiscount) ...[
-                    const SizedBox(width: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: scheme.secondaryContainer,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        '-${discount!.toStringAsFixed(0)}%',
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: scheme.onSecondaryContainer,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Icon(Icons.schedule_rounded, size: 20, color: scheme.primary),
-                  const SizedBox(width: 8),
-                  Text(
-                    '${widget.slot.duration.inMinutes} min',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const Spacer(),
-                  Tooltip(
-                    message: operatorName,
-                    triggerMode: TooltipTriggerMode.tap,
-                    child: Semantics(
-                      label: 'Operatore: $operatorName',
-                      child: CircleAvatar(
-                        radius: 16,
-                        backgroundColor: scheme.primary.withOpacity(0.12),
-                        child: Text(
-                          operatorInitials,
-                          style: theme.textTheme.labelLarge?.copyWith(
-                            color: scheme.primary,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (widget.slot.roomName != null &&
-                  widget.slot.roomName!.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text(
-                  'Cabina: ${widget.slot.roomName}',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
-              const SizedBox(height: 12),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    widget.currency.format(widget.slot.priceNow),
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    widget.currency.format(widget.slot.basePrice),
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      decoration: TextDecoration.lineThrough,
-                      color: theme.textTheme.bodyMedium?.color?.withOpacity(
-                        0.7,
-                      ),
-                    ),
-                  ),
-                  const Spacer(),
-                  if (savings > 0)
-                    Text(
-                      'Risparmi ${widget.currency.format(savings)}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: scheme.secondary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                ],
-              ),
-              if (widget.slot.loyaltyPoints > 0) ...[
-                const SizedBox(height: 4),
-                Text(
-                  'Guadagni ${widget.slot.loyaltyPoints} punti',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
-              const SizedBox(height: 16),
-              ScaleTransition(
-                scale: _pulseAnimation,
-                child: FilledButton(
-                  onPressed: widget.onBook,
-                  child: Row(
-                    children: [
-                      const Icon(Icons.hourglass_top_rounded),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Row(
-                          children: [
-                            const Text('Prenota subito'),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 10),
                             Expanded(
-                              child: Text(
-                                'Scade tra ${widget.countdownText}',
-                                maxLines: 1,
-                                softWrap: false,
-                                overflow: TextOverflow.visible,
-                                textAlign: TextAlign.right,
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: theme.colorScheme.onPrimary
-                                      .withOpacity(0.9),
-                                ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    appointmentDateLabel,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    appointmentTimeLabel,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: scheme.onSurfaceVariant,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
                         ),
-                      ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Row(
+              children: [
+                const Icon(Icons.hourglass_top_rounded, size: 16),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Scade tra $countdownLabel',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LastMinuteSlotCover extends StatelessWidget {
+  const _LastMinuteSlotCover({required this.imageUrl, this.discountLabel});
+
+  final String? imageUrl;
+  final String? discountLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    Widget buildPlaceholder() {
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [scheme.secondaryContainer, scheme.primaryContainer],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Icon(
+          Icons.spa_rounded,
+          size: 48,
+          color: scheme.onSecondaryContainer.withOpacity(0.7),
+        ),
+      );
+    }
+
+    Widget buildImage() {
+      if (imageUrl == null || imageUrl!.isEmpty) {
+        return buildPlaceholder();
+      }
+      return Image.network(
+        imageUrl!,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => buildPlaceholder(),
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      child: AspectRatio(
+        aspectRatio: 4 / 3,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            buildImage(),
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                    colors: [
+                      Colors.black.withOpacity(0.35),
+                      Colors.transparent,
                     ],
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+            if (discountLabel != null)
+              Positioned(
+                top: 12,
+                left: 12,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: scheme.secondary,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    discountLabel!,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: scheme.onSecondary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
   }
+}
 
-  String _initials(String name) {
-    final trimmed = name.trim();
-    if (trimmed.isEmpty || trimmed == 'Operatore da assegnare') {
-      return '?';
+class _LastMinuteSummaryCover extends StatelessWidget {
+  const _LastMinuteSummaryCover({required this.slot});
+
+  final LastMinuteSlot slot;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final discount = slot.discountPercentage;
+    final hasDiscount = discount > 0;
+    final discountLabel = _formatDiscountLabel(discount);
+    final now = DateTime.now();
+    final diff = slot.start.difference(now);
+    String countdownLabel;
+    if (diff.isNegative) {
+      countdownLabel = 'Offerta scaduta';
+    } else if (diff.inMinutes < 60) {
+      countdownLabel = 'Scade tra ${diff.inMinutes} min';
+    } else {
+      final hours = diff.inHours;
+      final minutes = diff.inMinutes.remainder(60);
+      countdownLabel =
+          minutes == 0
+              ? 'Scade tra ${hours}h'
+              : 'Scade tra ${hours}h ${minutes}m';
     }
-    final parts =
-        trimmed.split(RegExp(r'\s+')).where((part) => part.isNotEmpty).toList();
-    if (parts.isEmpty) {
-      return '?';
+    final hasImage = slot.imageUrl != null && slot.imageUrl!.isNotEmpty;
+
+    Widget buildPlaceholder() {
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [scheme.secondaryContainer, scheme.primaryContainer],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Icon(
+          Icons.spa_rounded,
+          size: 56,
+          color: scheme.onSecondaryContainer.withOpacity(0.7),
+        ),
+      );
     }
-    final initials = parts.take(2).map((part) => part[0].toUpperCase()).join();
-    return initials.isEmpty ? '?' : initials;
+
+    final cover =
+        hasImage
+            ? Image.network(
+              slot.imageUrl!,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => buildPlaceholder(),
+            )
+            : buildPlaceholder();
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: AspectRatio(
+        aspectRatio: 4 / 3,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            cover,
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                    colors: [Colors.black.withOpacity(0.5), Colors.transparent],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: 16,
+              left: 16,
+              right: 16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.6),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.hourglass_top_rounded,
+                      size: 16,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        countdownLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (hasDiscount)
+              Positioned(
+                top: 16,
+                left: 16,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: scheme.secondary,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    discountLabel,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: scheme.onSecondary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -6782,6 +6954,25 @@ String _capitalizeWords(String value) {
         return '$first$rest';
       })
       .join(' ');
+}
+
+String _lastMinuteOperatorInitials(String name) {
+  final trimmed = name.trim();
+  if (trimmed.isEmpty || trimmed == 'Operatore da assegnare') {
+    return '?';
+  }
+  final parts =
+      trimmed.split(RegExp(r'\s+')).where((part) => part.isNotEmpty).toList();
+  if (parts.isEmpty) {
+    return '?';
+  }
+  final initials = parts.take(2).map((part) => part[0].toUpperCase()).join();
+  return initials.isEmpty ? '?' : initials;
+}
+
+String _formatDiscountLabel(double discount) {
+  final precision = discount % 1 == 0 ? 0 : 1;
+  return '${discount.toStringAsFixed(precision)}% di sconto';
 }
 
 class _LoyaltyStats {
@@ -6997,12 +7188,20 @@ class _AppointmentCard extends ConsumerWidget {
   }
 
   bool _canShowDeleteAction(Appointment appointment) {
-    final start = appointment.start;
     final now = DateTime.now();
-    if (!start.isAfter(now)) {
+    if (!appointment.start.isAfter(now)) {
       return false;
     }
-    return start.difference(now) <= const Duration(hours: 12);
+    final createdAt = appointment.createdAt;
+    if (createdAt == null) {
+      // Legacy safeguard: keep previous behaviour when the creation timestamp
+      // is unavailable.
+      return appointment.start.difference(now) <= const Duration(hours: 12);
+    }
+    final elapsed = now.isAfter(createdAt)
+        ? now.difference(createdAt)
+        : Duration.zero;
+    return elapsed <= const Duration(hours: 12);
   }
 
   String _staffInitials(String name) {

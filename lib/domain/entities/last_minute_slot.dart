@@ -6,6 +6,8 @@ class LastMinuteSlot {
     required this.salonId,
     this.serviceId,
     required this.serviceName,
+    this.imageUrl,
+    this.imageStoragePath,
     required this.start,
     required this.duration,
     required this.basePrice,
@@ -31,6 +33,8 @@ class LastMinuteSlot {
   final String salonId;
   final String? serviceId;
   final String serviceName;
+  final String? imageUrl;
+  final String? imageStoragePath;
   final DateTime start;
   final Duration duration;
   final double basePrice;
@@ -65,6 +69,8 @@ class LastMinuteSlot {
     String? salonId,
     String? serviceId,
     String? serviceName,
+    Object? imageUrl = _undefined,
+    Object? imageStoragePath = _undefined,
     DateTime? start,
     Duration? duration,
     double? basePrice,
@@ -88,6 +94,14 @@ class LastMinuteSlot {
       salonId: salonId ?? this.salonId,
       serviceId: serviceId ?? this.serviceId,
       serviceName: serviceName ?? this.serviceName,
+      imageUrl:
+          identical(imageUrl, _undefined)
+              ? this.imageUrl
+              : imageUrl as String?,
+      imageStoragePath:
+          identical(imageStoragePath, _undefined)
+              ? this.imageStoragePath
+              : imageStoragePath as String?,
       start: start ?? this.start,
       duration: duration ?? this.duration,
       basePrice: basePrice ?? this.basePrice,

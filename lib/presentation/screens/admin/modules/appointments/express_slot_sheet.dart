@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:typed_data';
+
+import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/last_minute_notification.dart';
 import 'package:civiapp/domain/entities/last_minute_slot.dart';
@@ -6,7 +10,9 @@ import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:collection/collection.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 class ExpressSlotSheetResult {
@@ -16,7 +22,7 @@ class ExpressSlotSheetResult {
   final LastMinuteNotificationRequest? notification;
 }
 
-class ExpressSlotSheet extends StatefulWidget {
+class ExpressSlotSheet extends ConsumerStatefulWidget {
   const ExpressSlotSheet({
     super.key,
     required this.salonId,
@@ -43,10 +49,12 @@ class ExpressSlotSheet extends StatefulWidget {
   final ReminderSettings? reminderSettings;
 
   @override
-  State<ExpressSlotSheet> createState() => _ExpressSlotSheetState();
+  ConsumerState<ExpressSlotSheet> createState() => _ExpressSlotSheetState();
 }
 
-class _ExpressSlotSheetState extends State<ExpressSlotSheet> {
+class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
+  static const int _maxImageBytes = 5 * 1024 * 1024;
+
   final _formKey = GlobalKey<FormState>();
   final _uuid = const Uuid();
   late final TextEditingController _labelController;
@@ -62,16 +70,24 @@ class _ExpressSlotSheetState extends State<ExpressSlotSheet> {
   String? _selectedServiceId;
   String? _selectedStaffId;
   String? _selectedRoomId;
+  late final String _slotId;
   LastMinuteSlot? _editing;
   bool _sendNotification = false;
   LastMinuteNotificationAudience _notificationAudience =
       LastMinuteNotificationAudience.everyone;
   final Set<String> _selectedClientIds = <String>{};
+  String? _imageUrl;
+  String? _imageStoragePath;
+  bool _isUploadingImage = false;
+  String? _imageUploadError;
+  final List<String> _pendingDeletePaths = <String>[];
+  bool _didSubmit = false;
 
   @override
   void initState() {
     super.initState();
     _editing = widget.initialSlot;
+    _slotId = _editing?.id ?? _uuid.v4();
     final durationMinutes = widget.initialEnd
         .difference(widget.initialStart)
         .inMinutes
@@ -87,6 +103,8 @@ class _ExpressSlotSheetState extends State<ExpressSlotSheet> {
     _windowLeadController = TextEditingController(text: '60');
     _windowExtendController = TextEditingController(text: '0');
     _labelController = TextEditingController();
+    _imageUrl = _editing?.imageUrl;
+    _imageStoragePath = _editing?.imageStoragePath;
 
     if (widget.initialSlot != null) {
       final slot = widget.initialSlot!;
@@ -148,6 +166,16 @@ class _ExpressSlotSheetState extends State<ExpressSlotSheet> {
 
   @override
   void dispose() {
+    if (!_didSubmit) {
+      final currentPath = _imageStoragePath;
+      final initialPath = _editing?.imageStoragePath;
+      if (currentPath != null &&
+          currentPath.isNotEmpty &&
+          currentPath != initialPath) {
+        final storage = ref.read(firebaseStorageServiceProvider);
+        unawaited(storage.deleteFile(currentPath));
+      }
+    }
     _labelController.dispose();
     _durationController.dispose();
     _basePriceController.dispose();
@@ -218,15 +246,24 @@ class _ExpressSlotSheetState extends State<ExpressSlotSheet> {
                 decoration: const InputDecoration(
                   labelText: 'Nome slot *',
                   helperText: 'Mostrato ai clienti nella sezione last-minute',
-                ),
-                validator:
-                    (value) =>
-                        value == null || value.trim().isEmpty
-                            ? 'Inserisci un nome per lo slot'
-                            : null,
               ),
-              const SizedBox(height: 12),
-              Row(
+              validator:
+                  (value) =>
+                      value == null || value.trim().isEmpty
+                          ? 'Inserisci un nome per lo slot'
+                          : null,
+            ),
+            const SizedBox(height: 12),
+            _SlotImageField(
+              imageUrl: _imageUrl,
+              isUploading: _isUploadingImage,
+              error: _imageUploadError,
+              onPickImage: _pickSlotImage,
+              onRemoveImage:
+                  _imageUrl != null && !_isUploadingImage ? _removeSlotImage : null,
+            ),
+            const SizedBox(height: 12),
+            Row(
                 children: [
                   Expanded(
                     child: TextFormField(
@@ -586,6 +623,104 @@ class _ExpressSlotSheetState extends State<ExpressSlotSheet> {
     return null;
   }
 
+  Future<void> _pickSlotImage() async {
+    setState(() {
+      _imageUploadError = null;
+    });
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: false,
+      type: FileType.image,
+      withData: true,
+      withReadStream: true,
+    );
+    if (!mounted || result == null || result.files.isEmpty) {
+      return;
+    }
+    final file = result.files.first;
+    if (file.size > _maxImageBytes) {
+      final maxMb = (_maxImageBytes / (1024 * 1024)).toStringAsFixed(1);
+      setState(() {
+        _imageUploadError = 'L\'immagine supera il limite di $maxMb MB.';
+      });
+      return;
+    }
+    final bytes = await _resolveBytes(file);
+    if (!mounted || bytes == null || bytes.isEmpty) {
+      setState(() {
+        _imageUploadError = 'Impossibile leggere il file selezionato.';
+      });
+      return;
+    }
+    setState(() {
+      _isUploadingImage = true;
+      _imageUploadError = null;
+    });
+    final storage = ref.read(firebaseStorageServiceProvider);
+    final session = ref.read(sessionControllerProvider);
+    final uploaderId = session.uid ?? 'unknown';
+    final previousPath = _imageStoragePath;
+    try {
+      final upload = await storage.uploadLastMinuteSlotImage(
+        salonId: widget.salonId,
+        slotId: _slotId,
+        data: bytes,
+        fileName: file.name,
+        uploaderId: uploaderId,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _imageUrl = upload.downloadUrl;
+        _imageStoragePath = upload.storagePath;
+      });
+      if (previousPath != null && previousPath.isNotEmpty) {
+        _pendingDeletePaths.add(previousPath);
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _imageUploadError = 'Impossibile caricare l\'immagine: $error';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingImage = false);
+      }
+    }
+  }
+
+  void _removeSlotImage() {
+    if (_imageStoragePath != null && _imageStoragePath!.isNotEmpty) {
+      _pendingDeletePaths.add(_imageStoragePath!);
+    }
+    setState(() {
+      _imageUrl = null;
+      _imageStoragePath = null;
+      _imageUploadError = null;
+    });
+  }
+
+  Future<Uint8List?> _resolveBytes(PlatformFile file) async {
+    if (file.bytes != null) {
+      return file.bytes;
+    }
+    final stream = file.readStream;
+    if (stream == null) {
+      return null;
+    }
+    final completer = Completer<Uint8List>();
+    final buffer = BytesBuilder(copy: false);
+    stream.listen(
+      buffer.add,
+      onDone: () => completer.complete(buffer.toBytes()),
+      onError: completer.completeError,
+      cancelOnError: true,
+    );
+    return completer.future;
+  }
+
   void _submit() {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -626,11 +761,23 @@ class _ExpressSlotSheetState extends State<ExpressSlotSheet> {
     final wasBooked = _editing?.isBooked ?? false;
     final preservedSeats = wasBooked ? _editing!.availableSeats : seats;
 
+    _didSubmit = true;
+    if (_pendingDeletePaths.isNotEmpty) {
+      final storage = ref.read(firebaseStorageServiceProvider);
+      final uniquePaths = _pendingDeletePaths.toSet();
+      for (final path in uniquePaths) {
+        if (path.isEmpty) continue;
+        unawaited(storage.deleteFile(path));
+      }
+    }
+
     final slot = LastMinuteSlot(
-      id: _editing?.id ?? _uuid.v4(),
+      id: _slotId,
       salonId: widget.salonId,
       serviceId: _selectedServiceId,
       serviceName: _labelController.text.trim(),
+      imageUrl: _imageUrl,
+      imageStoragePath: _imageStoragePath,
       start: start,
       duration: duration,
       basePrice: basePrice,
@@ -672,6 +819,120 @@ class _ExpressSlotSheetState extends State<ExpressSlotSheet> {
     Navigator.of(
       context,
     ).pop(ExpressSlotSheetResult(slot: slot, notification: notification));
+  }
+}
+
+class _SlotImageField extends StatelessWidget {
+  const _SlotImageField({
+    required this.imageUrl,
+    required this.isUploading,
+    required this.error,
+    required this.onPickImage,
+    this.onRemoveImage,
+  });
+
+  final String? imageUrl;
+  final bool isUploading;
+  final String? error;
+  final VoidCallback onPickImage;
+  final VoidCallback? onRemoveImage;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Immagine last-minute',
+          style: theme.textTheme.labelMedium,
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: AspectRatio(
+            aspectRatio: 4 / 3,
+            child:
+                imageUrl != null
+                    ? Image.network(
+                      imageUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder:
+                          (_, __, ___) => Container(
+                            color: scheme.surfaceVariant,
+                            child: const Icon(
+                              Icons.broken_image_outlined,
+                              size: 40,
+                            ),
+                          ),
+                    )
+                    : Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            scheme.secondaryContainer,
+                            scheme.primaryContainer,
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.photo_outlined,
+                        size: 48,
+                        color: scheme.onSecondaryContainer.withOpacity(0.6),
+                      ),
+                    ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Suggerimento: carica un\'immagine orizzontale del trattamento.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilledButton.icon(
+              onPressed: isUploading ? null : onPickImage,
+              icon:
+                  isUploading
+                      ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : const Icon(Icons.upload_rounded),
+              label: Text(
+                isUploading
+                    ? 'Caricamento...'
+                    : (imageUrl == null
+                        ? 'Carica immagine'
+                        : 'Sostituisci immagine'),
+              ),
+            ),
+            if (imageUrl != null && onRemoveImage != null)
+              OutlinedButton.icon(
+                onPressed: isUploading ? null : onRemoveImage,
+                icon: const Icon(Icons.delete_outline_rounded),
+                label: const Text('Rimuovi'),
+              ),
+          ],
+        ),
+        if (error != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            error!,
+            style: theme.textTheme.bodySmall?.copyWith(color: scheme.error),
+          ),
+        ],
+      ],
+    );
   }
 }
 
