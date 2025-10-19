@@ -2664,7 +2664,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
     required bool incrementCta,
   }) async {
     final firestore = _firestore;
-    if (firestore != null && (incrementView || incrementCta)) {
+    final shouldIncrement = incrementView || incrementCta;
+    var canUpdateLocal = shouldIncrement;
+    if (firestore != null && shouldIncrement) {
       final Map<String, Object> payload = <String, Object>{
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -2674,12 +2676,20 @@ class AppDataStore extends StateNotifier<AppDataState> {
       if (incrementCta) {
         payload['analytics.ctaClickCount'] = FieldValue.increment(1);
       }
-      await firestore
-          .collection('promotions')
-          .doc(promotion.id)
-          .set(payload, SetOptions(merge: true));
+      try {
+        await firestore
+            .collection('promotions')
+            .doc(promotion.id)
+            .set(payload, SetOptions(merge: true));
+      } on FirebaseException catch (error) {
+        if (error.code == 'permission-denied') {
+          canUpdateLocal = false;
+        } else {
+          rethrow;
+        }
+      }
     }
-    if (!incrementView && !incrementCta) {
+    if (!canUpdateLocal) {
       return;
     }
     final currentAnalytics = promotion.analytics ?? const PromotionAnalytics();

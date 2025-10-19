@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import 'package:civiapp/presentation/screens/client/client_theme.dart';
+import 'package:civiapp/presentation/shared/promotion_palette.dart';
 
 class PromotionEditorDialog extends ConsumerStatefulWidget {
   const PromotionEditorDialog({
@@ -31,6 +32,16 @@ class PromotionEditorDialog extends ConsumerStatefulWidget {
 
 class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
   static const int _maxImageBytes = 6 * 1024 * 1024;
+  static const List<Color> _accentPalette = <Color>[
+    Color(0xFF921625),
+    Color(0xFF6A1B9A),
+    Color(0xFF2F5BFF),
+    Color(0xFF0E7C7B),
+    Color(0xFF1E8E3E),
+    Color(0xFFFF7043),
+    Color(0xFFD81B60),
+    Color(0xFF546E7A),
+  ];
 
   final _formKey = GlobalKey<FormState>();
   final _detailsScrollController = ScrollController();
@@ -45,6 +56,8 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
   late final TextEditingController _ctaCustomUrlController;
   late final TextEditingController _ctaPhoneController;
   late final TextEditingController _ctaWhatsappMessageController;
+  late final TextEditingController _accentHexController;
+  String? _accentHexError;
 
   late final String _promotionId;
   PromotionStatus _status = PromotionStatus.draft;
@@ -63,6 +76,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
 
   PromotionCtaType _ctaType = PromotionCtaType.none;
   bool _ctaEnabled = true;
+  Color? _accentColor;
 
   @override
   void initState() {
@@ -84,6 +98,11 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
     _ctaCustomUrlController = TextEditingController();
     _ctaPhoneController = TextEditingController();
     _ctaWhatsappMessageController = TextEditingController();
+    final initialThemeColor = initial?.themeColor;
+    _accentColor = initialThemeColor != null ? Color(initialThemeColor) : null;
+    _accentHexController = TextEditingController(
+      text: initialThemeColor != null ? _colorToHex(initialThemeColor) : '',
+    );
     _startsAt = initial?.startsAt;
     _endsAt = initial?.endsAt;
     _coverImageUrl = initial?.coverImageUrl;
@@ -123,6 +142,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
         case PromotionSectionType.text:
           editable = _EditablePromotionSection.text(
             id: section.id.isEmpty ? const Uuid().v4() : section.id,
+            initialTitle: section.title ?? '',
             initialText: section.text ?? '',
             layout: section.layout,
             visible: section.visible,
@@ -131,6 +151,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
         case PromotionSectionType.image:
           editable = _EditablePromotionSection.image(
             id: section.id.isEmpty ? const Uuid().v4() : section.id,
+            initialTitle: section.title ?? '',
             imageUrl: section.imageUrl,
             imagePath: section.imagePath,
             altText: section.altText ?? '',
@@ -186,6 +207,53 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
     }
   }
 
+  String _colorToHex(int value) {
+    final hex = value.toRadixString(16).padLeft(8, '0');
+    return hex.substring(2).toUpperCase();
+  }
+
+  void _setAccentColor(Color? color, {bool updateField = true}) {
+    setState(() {
+      _accentColor = color;
+      _accentHexError = null;
+      if (updateField) {
+        final text = color != null ? _colorToHex(color.toARGB32()) : '';
+        _accentHexController.value = TextEditingValue(
+          text: text,
+          selection: TextSelection.collapsed(offset: text.length),
+        );
+      }
+    });
+  }
+
+  void _handleAccentHexChanged(String rawValue) {
+    final sanitized = rawValue.replaceAll('#', '').toUpperCase();
+    if (sanitized != rawValue) {
+      _accentHexController.value = TextEditingValue(
+        text: sanitized,
+        selection: TextSelection.collapsed(offset: sanitized.length),
+      );
+    }
+    setState(() {
+      if (sanitized.isEmpty) {
+        _accentColor = null;
+        _accentHexError = null;
+        return;
+      }
+      if (sanitized.length == 6) {
+        final parsed = int.tryParse('0xFF$sanitized');
+        if (parsed != null) {
+          _accentColor = Color(parsed);
+          _accentHexError = null;
+        } else {
+          _accentHexError = 'Valore non valido';
+        }
+      } else {
+        _accentHexError = 'Usa 6 caratteri esadecimali';
+      }
+    });
+  }
+
   @override
   void dispose() {
     _detailsScrollController.dispose();
@@ -199,6 +267,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
     _ctaCustomUrlController.dispose();
     _ctaPhoneController.dispose();
     _ctaWhatsappMessageController.dispose();
+    _accentHexController.dispose();
     for (final section in _sections) {
       section.dispose();
     }
@@ -351,7 +420,6 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
                 ),
               ],
             ),
-            const SizedBox(height: 24),
             Row(
               children: [
                 Expanded(
@@ -531,6 +599,96 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
     );
   }
 
+  Widget _buildAppearanceSection(ThemeData theme) {
+    final selected = _accentColor;
+    final textTheme = theme.textTheme;
+    final scheme = theme.colorScheme;
+    return ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: EdgeInsets.zero,
+      initiallyExpanded: widget.initialPromotion == null,
+      title: Text(
+        'Aspetto grafico',
+        style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+      ),
+      subtitle: const Text(
+        'Scegli il colore usato da badge, bottoni e sfumature della promo.',
+      ),
+      children: [
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            for (final color in _accentPalette)
+              _AccentColorSwatch(
+                color: color,
+                selected: selected?.toARGB32() == color.toARGB32(),
+                onTap: () => _setAccentColor(color),
+              ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              margin: const EdgeInsets.only(right: 16),
+              decoration: BoxDecoration(
+                color: selected ?? scheme.primary,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: scheme.outline.withValues(alpha: 0.4),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: (selected ?? scheme.primary).withValues(alpha: 0.28),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: TextFormField(
+                controller: _accentHexController,
+                maxLength: 6,
+                decoration: InputDecoration(
+                  labelText: 'Colore personalizzato (HEX)',
+                  prefixText: '#',
+                  helperText:
+                      'Esempio FF6F61. Lascia vuoto per usare il tema del cliente.',
+                  errorText: _accentHexError,
+                  counterText: '',
+                  suffixIcon:
+                      selected != null
+                          ? IconButton(
+                            tooltip: 'Rimuovi colore personalizzato',
+                            onPressed: () => _setAccentColor(null),
+                            icon: const Icon(Icons.clear_rounded),
+                          )
+                          : null,
+                ),
+                textCapitalization: TextCapitalization.characters,
+                onChanged: _handleAccentHexChanged,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: selected == null ? null : () => _setAccentColor(null),
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Usa colori del cliente'),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildContentStep(ThemeData theme) {
     return Scrollbar(
       controller: _contentScrollController,
@@ -623,6 +781,15 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
               },
               itemCount: _sections.length,
             ),
+            const SizedBox(height: 24),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FilledButton.icon(
+                onPressed: _showAddSectionPicker,
+                icon: const Icon(Icons.add_circle_outline_rounded),
+                label: const Text('Aggiungi nuova sezione'),
+              ),
+            ),
           ],
         ),
       ),
@@ -632,40 +799,90 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
   Widget _buildPreviewStep(ThemeData baseTheme) {
     final promotion = _buildPromotionForPreview();
     final themed = ClientTheme.resolve(baseTheme);
-    return Theme(
-      data: themed,
-      child: Builder(
-        builder: (context) {
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final isWide = constraints.maxWidth > 640;
-                final preview = _PromotionPreview(promotion: promotion);
-                final detail = _PromotionDetailPreview(promotion: promotion);
-                if (isWide) {
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(child: preview),
-                      const SizedBox(width: 24),
-                      Expanded(child: detail),
-                    ],
-                  );
-                }
-                return ListView(
-                  children: [
-                    SizedBox(height: 300, child: preview),
-                    const SizedBox(height: 24),
-                    detail,
-                  ],
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildAppearanceSection(baseTheme),
+          const SizedBox(height: 24),
+          Theme(
+            data: themed,
+            child: Builder(
+              builder: (context) {
+                return LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isWide = constraints.maxWidth > 640;
+                    final preview = _PromotionPreview(promotion: promotion);
+                    final detail = _PromotionDetailPreview(promotion: promotion);
+                    if (isWide) {
+                      final boundedDetail =
+                          constraints.maxHeight.isFinite
+                              ? SizedBox(
+                                height: constraints.maxHeight,
+                                child: detail,
+                              )
+                              : detail;
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: preview),
+                          const SizedBox(width: 24),
+                          Expanded(child: boundedDetail),
+                        ],
+                      );
+                    }
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(height: 300, child: preview),
+                        const SizedBox(height: 24),
+                        detail,
+                      ],
+                    );
+                  },
                 );
               },
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
+  }
+
+  Future<void> _showAddSectionPicker() async {
+    final selected = await showModalBottomSheet<PromotionSectionType>(
+      context: context,
+      builder:
+          (context) => SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.short_text_rounded),
+                  title: const Text('Sezione di testo'),
+                  subtitle: const Text('Per paragrafi e descrizioni'),
+                  onTap:
+                      () =>
+                          Navigator.of(context).pop(PromotionSectionType.text),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.image_rounded),
+                  title: const Text('Sezione immagine'),
+                  subtitle: const Text('Per foto con didascalia'),
+                  onTap:
+                      () =>
+                          Navigator.of(context).pop(PromotionSectionType.image),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+    );
+    if (!mounted || selected == null) {
+      return;
+    }
+    _addSection(selected);
   }
 
   void _addSection(PromotionSectionType type) {
@@ -887,6 +1104,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
               : _taglineController.text.trim(),
       coverImageUrl: _coverImageUrl,
       coverImagePath: _coverImagePath,
+      themeColor: _accentColor?.toARGB32(),
       cta: _buildPromotionCta(allowInvalid: true),
       sections: sections,
       startsAt: _startsAt,
@@ -949,6 +1167,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
               priority: priority,
               status: _status,
               isActive: _status == PromotionStatus.published,
+              themeColor: _accentColor?.toARGB32(),
             ))
         .copyWith(
           id: _promotionId,
@@ -972,6 +1191,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
           endsAt: _endsAt,
           status: _status,
           isActive: _status == PromotionStatus.published,
+          themeColor: _accentColor?.toARGB32(),
         );
     if (!mounted) return;
     Navigator.of(context).pop(promotion);
@@ -1500,10 +1720,12 @@ class _CoverImagePicker extends StatelessWidget {
 class _EditablePromotionSection {
   _EditablePromotionSection.text({
     required this.id,
+    String initialTitle = '',
     String initialText = '',
     PromotionSectionLayout layout = PromotionSectionLayout.full,
     bool visible = true,
   }) : type = PromotionSectionType.text,
+       titleController = TextEditingController(text: initialTitle),
        textController = TextEditingController(text: initialText),
        altTextController = null,
        captionController = null,
@@ -1514,6 +1736,7 @@ class _EditablePromotionSection {
 
   _EditablePromotionSection.image({
     required this.id,
+    String initialTitle = '',
     String? imageUrl,
     String? imagePath,
     String altText = '',
@@ -1521,6 +1744,7 @@ class _EditablePromotionSection {
     PromotionSectionLayout layout = PromotionSectionLayout.full,
     bool visible = true,
   }) : type = PromotionSectionType.image,
+       titleController = TextEditingController(text: initialTitle),
        textController = null,
        altTextController = TextEditingController(text: altText),
        captionController = TextEditingController(text: caption),
@@ -1531,6 +1755,7 @@ class _EditablePromotionSection {
 
   final String id;
   final PromotionSectionType type;
+  final TextEditingController titleController;
   final TextEditingController? textController;
   final TextEditingController? altTextController;
   final TextEditingController? captionController;
@@ -1541,9 +1766,11 @@ class _EditablePromotionSection {
   bool isUploading = false;
 
   bool get isEffectivelyEmpty {
+    final titleEmpty = titleController.text.trim().isEmpty;
     switch (type) {
       case PromotionSectionType.text:
-        return textController?.text.trim().isEmpty ?? true;
+        final textEmpty = textController?.text.trim().isEmpty ?? true;
+        return titleEmpty && textEmpty;
       case PromotionSectionType.image:
         return imageUrl == null || imageUrl!.isEmpty;
     }
@@ -1554,6 +1781,7 @@ class _EditablePromotionSection {
       case PromotionSectionType.text:
         return _EditablePromotionSection.text(
           id: const Uuid().v4(),
+          initialTitle: titleController.text,
           initialText: textController?.text ?? '',
           layout: layout,
           visible: visible,
@@ -1561,6 +1789,7 @@ class _EditablePromotionSection {
       case PromotionSectionType.image:
         return _EditablePromotionSection.image(
           id: const Uuid().v4(),
+          initialTitle: titleController.text,
           imageUrl: imageUrl,
           imagePath: imagePath,
           altText: altTextController?.text ?? '',
@@ -1572,12 +1801,15 @@ class _EditablePromotionSection {
   }
 
   PromotionSection toSection(int order) {
+    final trimmedTitle = titleController.text.trim();
+    final title = trimmedTitle.isEmpty ? null : trimmedTitle;
     switch (type) {
       case PromotionSectionType.text:
         return PromotionSection(
           id: id,
           type: type,
           order: order,
+          title: title,
           text: textController?.text.trim(),
           layout: layout,
           visible: visible,
@@ -1587,6 +1819,7 @@ class _EditablePromotionSection {
           id: id,
           type: type,
           order: order,
+          title: title,
           imageUrl: imageUrl,
           imagePath: imagePath,
           altText:
@@ -1604,6 +1837,7 @@ class _EditablePromotionSection {
   }
 
   void dispose() {
+    titleController.dispose();
     textController?.dispose();
     altTextController?.dispose();
     captionController?.dispose();
@@ -1686,8 +1920,11 @@ class _SectionEditorCardState extends State<_SectionEditorCard>
     super.build(context);
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final titlePreview = widget.section.titleController.text.trim();
     final subtitleText =
-        widget.section.type == PromotionSectionType.text
+        titlePreview.isNotEmpty
+            ? titlePreview
+            : widget.section.type == PromotionSectionType.text
             ? (widget.section.textController?.text.trim() ?? '')
             : (widget.section.imageUrl == null
                 ? 'Nessuna immagine caricata'
@@ -1792,6 +2029,14 @@ class _SectionEditorCardState extends State<_SectionEditorCard>
                             ),
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: widget.section.titleController,
+                        decoration: const InputDecoration(
+                          labelText: 'Titolo sezione (opzionale)',
+                        ),
+                        onChanged: (_) => widget.onChanged(),
                       ),
                       const SizedBox(height: 12),
                       if (widget.section.type == PromotionSectionType.text)
@@ -1950,6 +2195,7 @@ class _PromotionPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final palette = resolvePromotionPalette(promotion, scheme);
     final endsAt = promotion.endsAt;
     final dateLabel =
         endsAt == null
@@ -1962,25 +2208,37 @@ class _PromotionPreview extends StatelessWidget {
         children: [
           if (promotion.coverImageUrl != null)
             Positioned.fill(
-              child: Image.network(
-                promotion.coverImageUrl!,
-                fit: BoxFit.cover,
-                color: Colors.black.withOpacity(0.35),
-                colorBlendMode: BlendMode.darken,
-              ),
+              child: Image.network(promotion.coverImageUrl!, fit: BoxFit.cover),
             )
           else
             Positioned.fill(
               child: Container(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [scheme.primaryContainer, scheme.primary],
+                    colors: [
+                      palette.fallbackGradientStart,
+                      palette.fallbackGradientEnd,
+                    ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                 ),
               ),
             ),
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    palette.overlayGradientStart,
+                    palette.overlayGradientEnd,
+                  ],
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                ),
+              ),
+            ),
+          ),
           Positioned.fill(
             child: Padding(
               padding: const EdgeInsets.all(24),
@@ -1991,10 +2249,16 @@ class _PromotionPreview extends StatelessWidget {
                     label: Text(
                       dateLabel,
                       style: theme.textTheme.labelMedium?.copyWith(
-                        color: scheme.onPrimary,
+                        color:
+                            palette.hasCustomAccent
+                                ? palette.onAccent
+                                : scheme.onPrimary,
                       ),
                     ),
-                    backgroundColor: scheme.primary.withOpacity(0.75),
+                    backgroundColor:
+                        palette.hasCustomAccent
+                            ? palette.accent.withValues(alpha: 0.85)
+                            : scheme.primary.withValues(alpha: 0.75),
                   ),
                   const Spacer(),
                   Text(
@@ -2023,6 +2287,61 @@ class _PromotionPreview extends StatelessWidget {
   }
 }
 
+class _AccentColorSwatch extends StatelessWidget {
+  const _AccentColorSwatch({
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final checkColor =
+        ThemeData.estimateBrightnessForColor(color) == Brightness.dark
+            ? Colors.white
+            : const Color(0xFF1C1B1F);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color:
+                  selected
+                      ? scheme.onSurface
+                      : scheme.outlineVariant.withValues(alpha: 0.6),
+              width: selected ? 3 : 1,
+            ),
+            boxShadow:
+                selected
+                    ? [
+                      BoxShadow(
+                        color: color.withValues(alpha: 0.35),
+                        blurRadius: 12,
+                        offset: const Offset(0, 6),
+                      ),
+                    ]
+                    : const <BoxShadow>[],
+          ),
+          child: selected ? Icon(Icons.check_rounded, color: checkColor) : null,
+        ),
+      ),
+    );
+  }
+}
+
 class _PromotionDetailPreview extends StatelessWidget {
   const _PromotionDetailPreview({required this.promotion});
 
@@ -2032,91 +2351,207 @@ class _PromotionDetailPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (promotion.coverImageUrl != null)
-            AspectRatio(
-              aspectRatio: 16 / 9,
-              child: Image.network(promotion.coverImageUrl!, fit: BoxFit.cover),
-            )
-          else
-            Container(
-              height: 180,
-              color: scheme.surfaceVariant,
-              child: const Center(
-                child: Icon(Icons.image_not_supported_outlined, size: 48),
+    final palette = resolvePromotionPalette(promotion, scheme);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final hasFiniteHeight = constraints.maxHeight.isFinite;
+        final sectionWidgets =
+            promotion.sections.map((section) {
+              final rawTitle = section.title?.trim();
+              final hasTitle = rawTitle != null && rawTitle.isNotEmpty;
+              switch (section.type) {
+                case PromotionSectionType.text:
+                  final body = section.text?.trim() ?? '';
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (hasTitle)
+                          Text(
+                            rawTitle,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: palette.accent,
+                            ),
+                          ),
+                        if (hasTitle && body.isNotEmpty)
+                          const SizedBox(height: 6),
+                        if (body.isNotEmpty)
+                          Text(
+                            body,
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              height: 1.4,
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                case PromotionSectionType.image:
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (hasTitle)
+                          Text(
+                            rawTitle,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: palette.accent,
+                            ),
+                          ),
+                        if (hasTitle) const SizedBox(height: 8),
+                        if (section.imageUrl != null)
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: Image.network(
+                              section.imageUrl!,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        if (section.caption != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            section.caption!,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+              }
+            }).toList();
+
+        final content = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              promotion.title,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w800,
               ),
             ),
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            if (promotion.subtitle != null) ...[
+              const SizedBox(height: 8),
+              Text(promotion.subtitle!, style: theme.textTheme.titleMedium),
+            ],
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: [
-                Text(
-                  promotion.title,
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
+                if (promotion.startsAt != null)
+                  Chip(
+                    visualDensity: VisualDensity.compact,
+                    avatar: Icon(
+                      Icons.play_arrow_rounded,
+                      color: palette.accent,
+                      size: 18,
+                    ),
+                    label: Text(
+                      'Dal ${DateFormat('dd MMM', 'it_IT').format(promotion.startsAt!)}',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: palette.onAccentContainer,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    backgroundColor: palette.accentContainer,
                   ),
-                ),
-                if (promotion.subtitle != null) ...[
-                  const SizedBox(height: 8),
-                  Text(promotion.subtitle!, style: theme.textTheme.titleMedium),
-                ],
-                const SizedBox(height: 16),
-                ...promotion.sections.map((section) {
-                  switch (section.type) {
-                    case PromotionSectionType.text:
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: Text(
-                          section.text ?? '',
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            height: 1.4,
-                          ),
-                        ),
-                      );
-                    case PromotionSectionType.image:
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (section.imageUrl != null)
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(16),
-                                child: Image.network(
-                                  section.imageUrl!,
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                            if (section.caption != null) ...[
-                              const SizedBox(height: 4),
-                              Text(
-                                section.caption!,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      );
-                  }
-                }),
-                const SizedBox(height: 12),
-                FilledButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.chat_bubble_outline_rounded),
-                  label: Text(promotion.cta?.label ?? 'Contatta il salone'),
-                ),
+                if (promotion.endsAt != null)
+                  Chip(
+                    visualDensity: VisualDensity.compact,
+                    avatar: Icon(
+                      Icons.event_available_rounded,
+                      color: palette.accent,
+                      size: 18,
+                    ),
+                    label: Text(
+                      'Fino al ${DateFormat('dd MMM', 'it_IT').format(promotion.endsAt!)}',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: palette.onAccentContainer,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    backgroundColor: palette.accentContainer,
+                  ),
+                if (promotion.discountPercentage > 0)
+                  Chip(
+                    visualDensity: VisualDensity.compact,
+                    avatar: Icon(
+                      Icons.percent_rounded,
+                      color: palette.highlight,
+                      size: 18,
+                    ),
+                    label: Text(
+                      '-${promotion.discountPercentage.toStringAsFixed(0)}%',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: palette.onHighlightContainer,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    backgroundColor: palette.highlightContainer,
+                  ),
               ],
             ),
+            const SizedBox(height: 16),
+            ...sectionWidgets,
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: () {},
+              icon: const Icon(Icons.chat_bubble_outline_rounded),
+              label: Text(promotion.cta?.label ?? 'Contatta il salone'),
+              style: FilledButton.styleFrom(
+                backgroundColor: palette.accent,
+                foregroundColor: palette.onAccent,
+              ),
+            ),
+          ],
+        );
+
+        final cover =
+            promotion.coverImageUrl != null
+                ? AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: Image.network(
+                    promotion.coverImageUrl!,
+                    fit: BoxFit.cover,
+                  ),
+                )
+                : Container(
+                  height: 180,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        palette.fallbackGradientStart,
+                        palette.fallbackGradientEnd,
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                  child: const Center(
+                    child: Icon(Icons.image_not_supported_outlined, size: 48),
+                  ),
+                );
+        final body = Padding(padding: const EdgeInsets.all(20), child: content);
+        if (hasFiniteHeight) {
+          return Card(
+            clipBehavior: Clip.antiAlias,
+            child: ListView(padding: EdgeInsets.zero, children: [cover, body]),
+          );
+        }
+        return Card(
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [cover, body],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

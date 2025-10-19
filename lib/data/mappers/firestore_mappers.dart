@@ -366,6 +366,17 @@ Promotion promotionFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   if (analyticsRaw.isNotEmpty) {
     analytics = PromotionAnalytics.fromMap(analyticsRaw);
   }
+  final dynamic themeColorRaw = data['themeColor'];
+  int? themeColor;
+  if (themeColorRaw is int) {
+    themeColor = themeColorRaw;
+  } else if (themeColorRaw is String) {
+    final sanitized = themeColorRaw.replaceAll('#', '').trim();
+    if (sanitized.isNotEmpty) {
+      final hex = sanitized.length == 6 ? 'FF$sanitized' : sanitized;
+      themeColor = int.tryParse('0x$hex');
+    }
+  }
   final status =
       data.containsKey('status')
           ? promotionStatusFromName(data['status'] as String?)
@@ -388,6 +399,7 @@ Promotion promotionFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     coverImagePath:
         (data['coverImagePath'] as String?) ??
         (data['imageStoragePath'] as String?),
+    themeColor: themeColor,
     ctaUrl: ctaUrl,
     cta: cta,
     sections: List.unmodifiable(sections),
@@ -420,6 +432,7 @@ Map<String, dynamic> promotionToMap(Promotion promotion) {
     'coverImagePath': promotion.coverImagePath,
     'imageUrl': promotion.coverImageUrl,
     'imageStoragePath': promotion.coverImagePath,
+    'themeColor': promotion.themeColor,
     'ctaUrl': promotion.ctaUrl ?? promotion.cta?.url,
     if (promotion.cta != null) 'cta': promotion.cta!.toMap(),
     if (sections != null) 'sections': sections,

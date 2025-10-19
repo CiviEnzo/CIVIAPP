@@ -371,6 +371,7 @@ class Promotion {
     required this.title,
     this.subtitle,
     this.tagline,
+    this.themeColor,
     String? coverImageUrl,
     String? coverImagePath,
     String? imageUrl,
@@ -400,6 +401,7 @@ class Promotion {
   final String? tagline;
   final String? coverImageUrl;
   final String? coverImagePath;
+  final int? themeColor;
   final PromotionCta? cta;
   final String? ctaUrl;
   final List<PromotionSection> sections;
@@ -431,6 +433,7 @@ class Promotion {
     Object? coverImagePath = _promotionSentinel,
     Object? imageUrl = _promotionSentinel,
     Object? imageStoragePath = _promotionSentinel,
+    Object? themeColor = _promotionSentinel,
     Object? cta = _promotionSentinel,
     Object? ctaUrl = _promotionSentinel,
     List<PromotionSection>? sections,
@@ -464,6 +467,10 @@ class Promotion {
                   ? this.coverImagePath
                   : imageStoragePath as String?)
               : coverImagePath as String?,
+      themeColor:
+          identical(themeColor, _promotionSentinel)
+              ? this.themeColor
+              : themeColor as int?,
       cta: identical(cta, _promotionSentinel) ? this.cta : cta as PromotionCta?,
       ctaUrl:
           identical(ctaUrl, _promotionSentinel)

@@ -18,6 +18,7 @@ import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/presentation/common/theme_mode_action.dart';
 import 'package:civiapp/presentation/shared/client_package_purchase.dart';
+import 'package:civiapp/presentation/shared/promotion_palette.dart';
 import 'package:civiapp/services/payments/stripe_payments_service.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:collection/collection.dart';
@@ -38,6 +39,13 @@ import 'client_settings_screen.dart';
 import 'client_theme.dart';
 
 const _instagramLogoAsset = 'assets/social_logo/instagram.PNG';
+
+const BorderRadius _promotionContentRadius = BorderRadius.vertical(
+  top: Radius.circular(28),
+);
+const BorderRadius _promotionAppBarRadius = BorderRadius.vertical(
+  bottom: Radius.circular(24),
+);
 const _tiktokLogoAsset = 'assets/social_logo/tiktok.PNG';
 const _facebookLogoAsset = 'assets/social_logo/facebook.PNG';
 const _whatsappLogoAsset = 'assets/social_logo/whatsapp.PNG';
@@ -891,8 +899,10 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     _trackPromotionView(promotion);
     final targetContext = overrideContext ?? context;
     await Navigator.of(targetContext).push(
-      MaterialPageRoute<void>(
-        builder: (detailContext) {
+      PageRouteBuilder<void>(
+        transitionDuration: const Duration(milliseconds: 380),
+        reverseTransitionDuration: const Duration(milliseconds: 280),
+        pageBuilder: (detailContext, animation, secondaryAnimation) {
           return PromotionDetailPage(
             promotion: promotion,
             ctaLabel: _promotionCtaLabel(promotion),
@@ -902,6 +912,23 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
                   promotion,
                   overrideContext: detailContext,
                 ),
+          );
+        },
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final curved = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          );
+          return FadeTransition(
+            opacity: curved,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 0.04),
+                end: Offset.zero,
+              ).animate(curved),
+              child: child,
+            ),
           );
         },
       ),
@@ -3392,12 +3419,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
         padding: const EdgeInsets.all(16),
         child:
             notifications.isEmpty
-                ? Center(
-                  child: Text(
-                    'Nessuna notifica recente',
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                )
+                ? const _NotificationsEmptyState()
                 : ListView.separated(
                   itemCount: notifications.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
@@ -5428,43 +5450,164 @@ class _NotificationCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final direction = Directionality.of(context);
+    final shape =
+        theme.cardTheme.shape ??
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(18));
+    final borderRadius =
+        shape is RoundedRectangleBorder
+            ? shape.borderRadius.resolve(direction)
+            : const BorderRadius.all(Radius.circular(18));
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm', 'it_IT');
     final referenceDate =
         notification.sentAt ??
         notification.scheduledAt ??
         notification.createdAt;
-    final title = notification.title ?? 'Notifica';
-    final body =
+    final rawTitle = notification.title ?? '';
+    final title = rawTitle.trim().isEmpty ? 'Notifica' : rawTitle.trim();
+    final rawBody =
         notification.body ?? (notification.payload['body'] as String? ?? '');
+    final body = rawBody.trim();
     final statusLabel = _statusLabel(notification.status);
-    final colors = _statusColors(theme, notification.status);
+    final statusColors = _statusColors(theme, notification.status);
+    final rawType = notification.type ?? notification.payload['type'];
+    final type = rawType?.toString();
+    final visuals = _notificationVisuals(theme, type);
+    final isRead = notification.isRead;
+    final cardColor = theme.cardTheme.color ?? theme.cardColor;
+    final backgroundColor =
+        isRead
+            ? cardColor
+            : Color.alphaBlend(visuals.color.withOpacity(0.08), cardColor);
+    final borderColor = visuals.color.withOpacity(isRead ? 0.12 : 0.24);
 
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+      margin: EdgeInsets.zero,
+      color: Colors.transparent,
+      elevation: theme.cardTheme.elevation,
+      shadowColor: theme.cardTheme.shadowColor,
+      shape: shape,
+      child: Container(
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: borderRadius,
+          border: Border.all(color: borderColor, width: 1),
+        ),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Text(title, style: theme.textTheme.titleMedium),
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      height: 48,
+                      width: 48,
+                      decoration: BoxDecoration(
+                        color: visuals.color.withOpacity(0.16),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Icon(visuals.icon, color: visuals.color, size: 26),
+                    ),
+                    if (!isRead)
+                      Positioned(
+                        top: -2,
+                        right: -2,
+                        child: Container(
+                          height: 12,
+                          width: 12,
+                          decoration: BoxDecoration(
+                            color: visuals.color,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: visuals.color.withOpacity(0.35),
+                                blurRadius: 8,
+                                spreadRadius: 1,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-                Chip(
-                  label: Text(statusLabel),
-                  backgroundColor: colors.background,
-                  labelStyle: theme.textTheme.labelSmall?.copyWith(
-                    color: colors.foreground,
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusColors.background,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              statusLabel,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: statusColors.foreground,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (visuals.label != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          visuals.label!,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: visuals.color,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ],
             ),
-            if (body.isNotEmpty) ...[const SizedBox(height: 8), Text(body)],
-            const SizedBox(height: 8),
-            Text(
-              'Aggiornata il ${dateFormat.format(referenceDate)}',
-              style: theme.textTheme.bodySmall,
+            if (body.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Text(body, style: theme.textTheme.bodyMedium),
+            ],
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Icon(
+                  Icons.schedule_rounded,
+                  size: 16,
+                  color: scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Aggiornata il ${dateFormat.format(referenceDate)}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -5520,6 +5663,87 @@ class _NotificationCard extends StatelessWidget {
           foreground: theme.colorScheme.onSurface,
         );
     }
+  }
+
+  ({IconData icon, Color color, String? label}) _notificationVisuals(
+    ThemeData theme,
+    String? type,
+  ) {
+    final scheme = theme.colorScheme;
+    switch (type) {
+      case 'last_minute_slot':
+        return (
+          icon: Icons.flash_on_rounded,
+          color: scheme.tertiary,
+          label: 'Offerta last-minute',
+        );
+      case 'manual_notification':
+        return (
+          icon: Icons.campaign_rounded,
+          color: scheme.primary,
+          label: 'Messaggio dal salone',
+        );
+      case 'appointment_reminder':
+        return (
+          icon: Icons.event_available_rounded,
+          color: scheme.secondary,
+          label: 'Promemoria appuntamento',
+        );
+      default:
+        return (
+          icon: Icons.notifications_rounded,
+          color: scheme.secondary,
+          label: null,
+        );
+    }
+  }
+}
+
+class _NotificationsEmptyState extends StatelessWidget {
+  const _NotificationsEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            height: 72,
+            width: 72,
+            decoration: BoxDecoration(
+              color: scheme.primary.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Icon(
+              Icons.notifications_none_rounded,
+              color: scheme.primary,
+              size: 32,
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'Nessuna notifica recente',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: 260,
+            child: Text(
+              'Quando il salone ti invierà aggiornamenti li troverai qui.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -5657,6 +5881,7 @@ class _PromotionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final palette = resolvePromotionPalette(promotion, scheme);
     final subtitle = promotion.subtitle;
     final tagline = promotion.tagline;
     final endsAt = promotion.endsAt;
@@ -5686,28 +5911,20 @@ class _PromotionCard extends StatelessWidget {
                     errorBuilder:
                         (_, __, ___) => Container(color: scheme.surfaceVariant),
                   ),
-                )
-              else
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [scheme.primary, scheme.primaryContainer],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                  ),
+              )
+            else
+              Container(color: Colors.black87),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.black.withValues(alpha: 0.45),
+                    Colors.black.withValues(alpha: 0.08),
+                  ],
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
                 ),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.black.withOpacity(0.7),
-                      Colors.black.withOpacity(0.2),
-                    ],
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                  ),
-                ),
+              ),
               ),
               Padding(
                 padding: const EdgeInsets.all(24),
@@ -5723,13 +5940,13 @@ class _PromotionCard extends StatelessWidget {
                             vertical: 6,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.35),
+                            color: palette.accent.withValues(alpha: 0.92),
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: Text(
                             dateLabel,
                             style: theme.textTheme.labelSmall?.copyWith(
-                              color: Colors.white,
+                              color: palette.onAccent,
                               letterSpacing: 0.4,
                             ),
                           ),
@@ -5796,123 +6013,214 @@ class PromotionDetailPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final palette = resolvePromotionPalette(promotion, scheme);
     final visibleSections =
         promotion.sections.where((section) => section.visible).toList();
     final subtitle = promotion.subtitle;
     final tagline = promotion.tagline;
     final startsAt = promotion.startsAt;
     final endsAt = promotion.endsAt;
+    final route = ModalRoute.of(context);
+    final Animation<double> overlayAnimation =
+        route?.animation ?? const AlwaysStoppedAnimation<double>(1);
+    final Animation<double> curvedOverlayAnimation = CurvedAnimation(
+      parent: overlayAnimation,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
     return Scaffold(
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
             expandedHeight: 320,
             pinned: true,
+            backgroundColor: scheme.surface,
+            surfaceTintColor: scheme.surfaceTint,
+            foregroundColor: scheme.onSurface,
             flexibleSpace: FlexibleSpaceBar(
-              title: Text(
-                promotion.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              titlePadding: const EdgeInsetsDirectional.only(
+                start: 24,
+                end: 24,
+                bottom: 20,
               ),
-              background: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (promotion.coverImageUrl != null)
-                    Hero(
-                      tag: 'promotion-${promotion.id}',
-                      child: Image.network(
-                        promotion.coverImageUrl!,
-                        fit: BoxFit.cover,
-                        errorBuilder:
-                            (_, __, ___) =>
-                                Container(color: scheme.surfaceVariant),
-                      ),
-                    )
-                  else
-                    Container(color: scheme.primary),
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.black.withOpacity(0.65),
-                          Colors.black.withOpacity(0.05),
-                        ],
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                      ),
+              expandedTitleScale: 1.1,
+              title: _PromotionFlexibleTitle(title: promotion.title),
+              background: ClipRRect(
+                borderRadius: _promotionAppBarRadius,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (promotion.coverImageUrl != null)
+                      Hero(
+                        tag: 'promotion-${promotion.id}',
+                        child: Image.network(
+                          promotion.coverImageUrl!,
+                          fit: BoxFit.cover,
+                          errorBuilder:
+                              (_, __, ___) =>
+                                  Container(color: scheme.surfaceVariant),
+                        ),
+                      )
+                    else
+                      Container(color: Colors.black87),
+                    AnimatedBuilder(
+                      animation: curvedOverlayAnimation,
+                      builder: (context, child) {
+                        final double t = curvedOverlayAnimation.value;
+                        final Color baseStart =
+                            Colors.black.withValues(alpha: 0.45);
+                        final Color baseEnd =
+                            Colors.black.withValues(alpha: 0.08);
+                        final Color startColor =
+                            Color.lerp(Colors.transparent, baseStart, t) ??
+                            baseStart;
+                        final Color endColor =
+                            Color.lerp(Colors.transparent, baseEnd, t) ??
+                            baseEnd;
+                        return DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [startColor, endColor],
+                              begin: Alignment.bottomCenter,
+                              end: Alignment.topCenter,
+                            ),
+                          ),
+                        );
+                      },
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
           SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 100),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (subtitle != null && subtitle.isNotEmpty) ...[
-                    Text(
-                      subtitle,
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  if (tagline != null && tagline.isNotEmpty) ...[
-                    Text(
-                      tagline,
-                      style: theme.textTheme.bodyLarge?.copyWith(height: 1.4),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  if (startsAt != null || endsAt != null) ...[
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        if (startsAt != null)
-                          Chip(
-                            avatar: const Icon(
-                              Icons.play_arrow_rounded,
-                              size: 18,
-                            ),
-                            label: Text(
-                              'Dal ${DateFormat('dd MMM', 'it_IT').format(startsAt)}',
-                            ),
+            child: ClipRRect(
+              borderRadius: _promotionContentRadius,
+              child: ColoredBox(
+                color: theme.scaffoldBackgroundColor,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 100),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (subtitle != null && subtitle.isNotEmpty) ...[
+                        Text(
+                          subtitle,
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
                           ),
-                        if (endsAt != null)
-                          Chip(
-                            avatar: const Icon(
-                              Icons.event_available_rounded,
-                              size: 18,
-                            ),
-                            label: Text(
-                              'Fino al ${DateFormat('dd MMM', 'it_IT').format(endsAt)}',
-                            ),
-                          ),
+                        ),
+                        const SizedBox(height: 12),
                       ],
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                  if (promotion.discountPercentage > 0) ...[
-                    Chip(
-                      avatar: const Icon(Icons.percent_rounded, size: 18),
-                      label: Text(
-                        '-${promotion.discountPercentage.toStringAsFixed(0)}%',
+                      if (tagline != null && tagline.isNotEmpty) ...[
+                        Text(
+                          tagline,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            height: 1.4,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      if (startsAt != null || endsAt != null) ...[
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            if (startsAt != null)
+                              Chip(
+                                backgroundColor: palette.accentContainer,
+                                side: BorderSide(
+                                  color: palette.accent.withValues(alpha: 0.2),
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                label: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.play_arrow_rounded,
+                                      size: 18,
+                                      color: palette.accent,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Dal ${DateFormat('dd MMM', 'it_IT').format(startsAt)}',
+                                      style: theme.textTheme.labelLarge
+                                          ?.copyWith(
+                                            color: palette.onAccentContainer,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            if (endsAt != null)
+                              Chip(
+                                backgroundColor: palette.accentContainer,
+                                side: BorderSide(
+                                  color: palette.accent.withValues(alpha: 0.2),
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                label: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.event_available_rounded,
+                                      size: 18,
+                                      color: palette.accent,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Fino al ${DateFormat('dd MMM', 'it_IT').format(endsAt)}',
+                                      style: theme.textTheme.labelLarge
+                                          ?.copyWith(
+                                            color: palette.onAccentContainer,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+                      if (promotion.discountPercentage > 0) ...[
+                        Chip(
+                          backgroundColor: palette.highlightContainer,
+                          visualDensity: VisualDensity.compact,
+                          label: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.percent_rounded,
+                                size: 18,
+                                color: palette.highlight,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                '-${promotion.discountPercentage.toStringAsFixed(0)}%',
+                                style: theme.textTheme.labelLarge?.copyWith(
+                                  color: palette.onHighlightContainer,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+                      ...visibleSections.map(
+                        (section) => Padding(
+                          padding: const EdgeInsets.only(bottom: 20),
+                          child: _PromotionSectionContent(
+                            section: section,
+                            palette: palette,
+                          ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                  ...visibleSections.map(
-                    (section) => Padding(
-                      padding: const EdgeInsets.only(bottom: 20),
-                      child: _PromotionSectionContent(section: section),
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
@@ -5929,6 +6237,8 @@ class PromotionDetailPage extends StatelessWidget {
                     label: Text(ctaLabel),
                     style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(56),
+                      backgroundColor: palette.accent,
+                      foregroundColor: palette.onAccent,
                     ),
                   ),
                 ),
@@ -5938,10 +6248,59 @@ class PromotionDetailPage extends StatelessWidget {
   }
 }
 
+class _PromotionFlexibleTitle extends StatelessWidget {
+  const _PromotionFlexibleTitle({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final settings =
+        context.dependOnInheritedWidgetOfExactType<FlexibleSpaceBarSettings>();
+    double collapseFactor = 1;
+    if (settings != null) {
+      final deltaExtent = settings.maxExtent - settings.minExtent;
+      if (deltaExtent > 0) {
+        final normalizedExtent =
+            (settings.currentExtent - settings.minExtent) / deltaExtent;
+        collapseFactor = 1 - normalizedExtent;
+        if (collapseFactor < 0) {
+          collapseFactor = 0;
+        } else if (collapseFactor > 1) {
+          collapseFactor = 1;
+        }
+      }
+    }
+    final expandedColor =
+        scheme.brightness == Brightness.dark
+            ? scheme.onSurface
+            : scheme.onPrimary;
+    final collapsedColor = scheme.onSurface;
+    final titleColor =
+        Color.lerp(expandedColor, collapsedColor, collapseFactor) ??
+        collapsedColor;
+    return Text(
+      title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: theme.textTheme.titleLarge?.copyWith(
+        color: titleColor,
+        fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+}
+
 class _PromotionSectionContent extends StatelessWidget {
-  const _PromotionSectionContent({required this.section});
+  const _PromotionSectionContent({
+    required this.section,
+    required this.palette,
+  });
 
   final PromotionSection section;
+  final PromotionPalette palette;
 
   @override
   Widget build(BuildContext context) {
@@ -5949,16 +6308,16 @@ class _PromotionSectionContent extends StatelessWidget {
     final scheme = theme.colorScheme;
     switch (section.type) {
       case PromotionSectionType.text:
-        return _buildTextSection(theme, scheme, section);
+        return _buildTextSection(theme, palette, section);
       case PromotionSectionType.image:
-        return _buildImageSection(theme, scheme, section);
+        return _buildImageSection(theme, scheme, palette, section);
     }
   }
 }
 
 Widget _buildTextSection(
   ThemeData theme,
-  ColorScheme scheme,
+  PromotionPalette palette,
   PromotionSection section,
 ) {
   final hasTitle = section.title?.isNotEmpty == true;
@@ -5983,9 +6342,9 @@ Widget _buildTextSection(
     case PromotionSectionLayout.split:
       return Container(
         decoration: BoxDecoration(
-          color: scheme.primaryContainer.withOpacity(0.18),
+          color: palette.accentContainer,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: scheme.primary.withOpacity(0.25)),
+          border: Border.all(color: palette.accent.withValues(alpha: 0.25)),
         ),
         padding: const EdgeInsets.all(18),
         child: Column(
@@ -5996,7 +6355,7 @@ Widget _buildTextSection(
                 section.title!,
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w800,
-                  color: scheme.onPrimaryContainer,
+                  color: palette.onAccentContainer,
                 ),
               ),
               const SizedBox(height: 8),
@@ -6005,7 +6364,7 @@ Widget _buildTextSection(
               body,
               style: theme.textTheme.bodyLarge?.copyWith(
                 height: 1.5,
-                color: scheme.onPrimaryContainer,
+                color: palette.onAccentContainer,
               ),
             ),
           ],
@@ -6014,14 +6373,18 @@ Widget _buildTextSection(
     case PromotionSectionLayout.quote:
       return Container(
         decoration: BoxDecoration(
-          color: scheme.secondaryContainer.withOpacity(0.25),
+          color: palette.highlightContainer,
           borderRadius: BorderRadius.circular(18),
         ),
         padding: const EdgeInsets.all(18),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.format_quote_rounded, color: scheme.secondary, size: 32),
+            Icon(
+              Icons.format_quote_rounded,
+              color: palette.highlight,
+              size: 32,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -6032,7 +6395,7 @@ Widget _buildTextSection(
                       section.title!,
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w700,
-                        color: scheme.secondary,
+                        color: palette.highlight,
                         letterSpacing: 0.3,
                       ),
                     ),
@@ -6043,6 +6406,7 @@ Widget _buildTextSection(
                     style: theme.textTheme.bodyLarge?.copyWith(
                       fontStyle: FontStyle.italic,
                       height: 1.5,
+                      color: palette.onHighlightContainer,
                     ),
                   ),
                 ],
@@ -6057,6 +6421,7 @@ Widget _buildTextSection(
 Widget _buildImageSection(
   ThemeData theme,
   ColorScheme scheme,
+  PromotionPalette palette,
   PromotionSection section,
 ) {
   if (section.imageUrl == null || section.imageUrl!.isEmpty) {
@@ -6071,6 +6436,7 @@ Widget _buildImageSection(
           section.title!,
           style: theme.textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.w700,
+            color: palette.accent,
           ),
         ),
         const SizedBox(height: 8),
