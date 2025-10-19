@@ -4939,9 +4939,7 @@ class _ClientLoyaltySheetBody extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              subtitle: Text(
-                'Valore sconto: ${currency.format(summary.redeemedValue)}',
-              ),
+
               trailing: Column(
                 mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -4961,7 +4959,7 @@ class _ClientLoyaltySheetBody extends StatelessWidget {
                   if (hasUsed) ...[
                     Text('Usati', style: theme.textTheme.bodySmall),
                     Text(
-                      '-$usedPoints pt',
+                      '-$usedPoints',
                       style: theme.textTheme.titleSmall?.copyWith(
                         color: theme.colorScheme.error,
                         fontWeight: FontWeight.w600,
@@ -4970,7 +4968,7 @@ class _ClientLoyaltySheetBody extends StatelessWidget {
                   ],
                   if (!hasAssigned && !hasUsed)
                     Text(
-                      net >= 0 ? '+$net pt' : '$net pt',
+                      net >= 0 ? '+$net ' : '$net ',
                       style: theme.textTheme.titleMedium?.copyWith(
                         color: color,
                       ),
@@ -5021,7 +5019,7 @@ class _ClientLoyaltySheetBody extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Saldo utilizzabile',
+                        'Saldo disponibile',
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
@@ -5050,14 +5048,7 @@ class _ClientLoyaltySheetBody extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        'Saldo disponibile',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onPrimary.withOpacity(0.9),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '${stats.spendable} pt',
+                        '${stats.spendable}',
                         style: (theme.textTheme.headlineMedium ??
                                 const TextStyle(
                                   fontSize: 32,
@@ -5080,109 +5071,79 @@ class _ClientLoyaltySheetBody extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: Card(
-                color: metaTileBackground,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                  side: BorderSide(color: metaTileBorderColor),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 18,
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 18,
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.event_available,
-                        color:
-                            isDark
-                                ? theme.colorScheme.onPrimary
-                                : theme.colorScheme.primary,
-                        size: 24,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.event_available,
+                      color:
+                          isDark
+                              ? theme.colorScheme.onPrimary
+                              : theme.colorScheme.primary,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [Text('Scadono il ', style: metaLabelStyle)],
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Scadenza punti', style: metaLabelStyle),
-                            if (expirationTimezone != null &&
-                                expirationTimezone.isNotEmpty)
-                              Text(
-                                'Fuso orario: $expirationTimezone',
-                                style: metaCaptionStyle,
-                              ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        expirationLabel,
-                        style: metaValueStyle,
-                        textAlign: TextAlign.right,
-                      ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      expirationLabel,
+                      style: metaValueStyle,
+                      textAlign: TextAlign.right,
+                    ),
+                  ],
                 ),
               ),
             ),
-            const SizedBox(width: 16),
             Expanded(
-              child: Card(
-                color: metaTileBackground,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                  side: BorderSide(color: metaTileBorderColor),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 18,
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 18,
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.currency_exchange,
-                        color:
-                            isDark
-                                ? theme.colorScheme.onPrimary
-                                : theme.colorScheme.primary,
-                        size: 24,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.currency_exchange,
+                      color:
+                          isDark
+                              ? theme.colorScheme.onPrimary
+                              : theme.colorScheme.primary,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [Text('Valore punto', style: metaLabelStyle)],
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Valore punto', style: metaLabelStyle),
-                            if (redemptionRules != null)
-                              Text(
-                                'Per ogni punto nel saldo',
-                                style: metaCaptionStyle,
-                              ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        pointValueLabel,
-                        style: metaValueStyle,
-                        textAlign: TextAlign.right,
-                      ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      pointValueLabel,
+                      style: metaValueStyle,
+                      textAlign: TextAlign.right,
+                    ),
+                  ],
                 ),
               ),
             ),
           ],
         ),
+        SizedBox(height: 16),
+
         const SizedBox(height: 24),
         ...movementWidgets,
       ],
@@ -5911,20 +5872,20 @@ class _PromotionCard extends StatelessWidget {
                     errorBuilder:
                         (_, __, ___) => Container(color: scheme.surfaceVariant),
                   ),
-              )
-            else
-              Container(color: Colors.black87),
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Colors.black.withValues(alpha: 0.45),
-                    Colors.black.withValues(alpha: 0.08),
-                  ],
-                  begin: Alignment.bottomCenter,
-                  end: Alignment.topCenter,
+                )
+              else
+                Container(color: Colors.black87),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.black.withValues(alpha: 0.45),
+                      Colors.black.withValues(alpha: 0.08),
+                    ],
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                  ),
                 ),
-              ),
               ),
               Padding(
                 padding: const EdgeInsets.all(24),
@@ -6067,10 +6028,12 @@ class PromotionDetailPage extends StatelessWidget {
                       animation: curvedOverlayAnimation,
                       builder: (context, child) {
                         final double t = curvedOverlayAnimation.value;
-                        final Color baseStart =
-                            Colors.black.withValues(alpha: 0.45);
-                        final Color baseEnd =
-                            Colors.black.withValues(alpha: 0.08);
+                        final Color baseStart = Colors.black.withValues(
+                          alpha: 0.45,
+                        );
+                        final Color baseEnd = Colors.black.withValues(
+                          alpha: 0.08,
+                        );
                         final Color startColor =
                             Color.lerp(Colors.transparent, baseStart, t) ??
                             baseStart;
