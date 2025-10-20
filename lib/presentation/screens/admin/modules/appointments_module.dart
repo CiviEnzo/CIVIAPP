@@ -53,7 +53,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   _AppointmentDisplayMode _mode = _AppointmentDisplayMode.calendar;
   AppointmentCalendarScope _scope = AppointmentCalendarScope.week;
   late DateTime _anchorDate;
-  String? _selectedStaffId;
+  Set<String> _selectedStaffIds = <String>{};
   bool _isRescheduling = false;
   int _calendarSlotMinutes = 15;
   final Set<int> _visibleWeekdays = {
@@ -71,6 +71,183 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     super.initState();
     final now = DateTime.now();
     _anchorDate = DateTime(now.year, now.month, now.day);
+  }
+
+  String _staffFilterLabel(List<StaffMember> staff, Set<String> selectedIds) {
+    if (staff.isEmpty || selectedIds.isEmpty) {
+      return 'Operatori: Tutti';
+    }
+    final selectedMembers = staff
+        .where((member) => selectedIds.contains(member.id))
+        .toList(growable: false);
+    if (selectedMembers.isEmpty) {
+      return 'Operatori: Tutti';
+    }
+    if (selectedMembers.length == 1) {
+      return 'Operatori: ${selectedMembers.first.fullName}';
+    }
+    final firstNames = selectedMembers
+        .take(2)
+        .map((member) => _firstName(member.fullName))
+        .toList(growable: false);
+    if (selectedMembers.length == 2) {
+      return 'Operatori: ${firstNames[0]}, ${firstNames[1]}';
+    }
+    final remaining = selectedMembers.length - 2;
+    return 'Operatori: ${firstNames[0]}, ${firstNames[1]} +$remaining';
+  }
+
+  String _firstName(String fullName) {
+    final trimmed = fullName.trim();
+    if (trimmed.isEmpty) {
+      return fullName;
+    }
+    final parts = trimmed.split(RegExp(r'\\s+'));
+    return parts.isEmpty ? fullName : parts.first;
+  }
+
+  Future<void> _openStaffFilterSheet(
+    List<StaffMember> staff,
+    Set<String> selectedStaffIds,
+  ) async {
+    if (staff.isEmpty) {
+      return;
+    }
+    var selection = Set<String>.from(
+      selectedStaffIds.where((id) => staff.any((member) => member.id == id)),
+    );
+    final result = await showModalBottomSheet<Set<String>>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        final theme = Theme.of(context);
+        final mediaQuery = MediaQuery.of(context);
+        final maxHeight = mediaQuery.size.height * 0.7;
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final visibleItems = staff.length < 6 ? staff.length : 6;
+            final listHeight = visibleItems == 0 ? 0.0 : visibleItems * 56.0;
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: mediaQuery.viewInsets.bottom + 12,
+                ),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: maxHeight),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: Text(
+                          'Filtra operatori',
+                          style: theme.textTheme.titleMedium,
+                        ),
+                      ),
+                      CheckboxListTile(
+                        value: selection.isEmpty,
+                        onChanged: (value) {
+                          setModalState(() {
+                            if (value == true) {
+                              selection.clear();
+                            } else {
+                              selection =
+                                  staff.map((member) => member.id).toSet();
+                            }
+                          });
+                        },
+                        controlAffinity: ListTileControlAffinity.leading,
+                        title: const Text('Tutto lo staff'),
+                      ),
+                      if (staff.isNotEmpty) const Divider(height: 1),
+                      if (staff.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Text('Nessun operatore disponibile'),
+                        )
+                      else
+                        SizedBox(
+                          height: listHeight,
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            physics: const BouncingScrollPhysics(),
+                            itemCount: staff.length,
+                            separatorBuilder:
+                                (_, __) => const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final member = staff[index];
+                              final isSelected = selection.contains(member.id);
+                              return CheckboxListTile(
+                                value: isSelected,
+                                onChanged: (value) {
+                                  setModalState(() {
+                                    if (value == true) {
+                                      selection.add(member.id);
+                                    } else {
+                                      selection.remove(member.id);
+                                    }
+                                  });
+                                },
+                                controlAffinity:
+                                    ListTileControlAffinity.leading,
+                                title: Text(member.fullName),
+                              );
+                            },
+                          ),
+                        ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                        child: Row(
+                          children: [
+                            TextButton(
+                              onPressed: () {
+                                setModalState(() {
+                                  selection.clear();
+                                });
+                              },
+                              child: const Text('Reimposta'),
+                            ),
+                            const Spacer(),
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: const Text('Annulla'),
+                            ),
+                            const SizedBox(width: 8),
+                            FilledButton(
+                              onPressed:
+                                  () => Navigator.of(
+                                    context,
+                                  ).pop(Set<String>.from(selection)),
+                              child: const Text('Applica'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    if (result != null) {
+      final sanitizedResult =
+          result.where((id) => staff.any((member) => member.id == id)).toSet();
+      final normalized =
+          sanitizedResult.length == staff.length ? <String>{} : sanitizedResult;
+      setState(() => _selectedStaffIds = normalized);
+    }
+  }
+
+  String _staffSelectionKey(Set<String> ids) {
+    if (ids.isEmpty) {
+      return 'all';
+    }
+    final sorted = ids.toList()..sort();
+    return sorted.join('-');
   }
 
   @override
@@ -91,18 +268,26 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
             ? salons.firstWhereOrNull((salon) => salon.id == widget.salonId)
             : null;
 
-    final currentStaff = staffMembers.firstWhereOrNull(
-      (member) => member.id == _selectedStaffId,
-    );
-    if (currentStaff == null && _selectedStaffId != null) {
+    final sanitizedSelectedIds =
+        _selectedStaffIds
+            .where((id) => staffMembers.any((member) => member.id == id))
+            .toSet();
+    if (sanitizedSelectedIds.length != _selectedStaffIds.length) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        setState(() => _selectedStaffId = null);
+        setState(() => _selectedStaffIds = sanitizedSelectedIds);
       });
     }
 
-    final visibleStaff = currentStaff != null ? [currentStaff] : staffMembers;
-    final staffIds = visibleStaff.map((member) => member.id).toSet();
+    final selectedStaffIds = sanitizedSelectedIds;
+    final visibleStaff =
+        selectedStaffIds.isEmpty
+            ? staffMembers
+            : staffMembers
+                .where((member) => selectedStaffIds.contains(member.id))
+                .toList(growable: false);
+    final staffIds =
+        selectedStaffIds.isEmpty ? <String>{} : selectedStaffIds.toSet();
 
     final now = DateTime.now();
     final relevantAppointments = data.appointments
@@ -278,6 +463,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
 
     final roomsById = _buildRoomsIndex(salons, widget.salonId);
     final rangeLabel = _buildRangeLabel(rangeStart, rangeEnd, _scope);
+    final staffSelectionKey = _staffSelectionKey(selectedStaffIds);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -291,6 +477,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
             staff: staffMembers,
             services: services,
             rangeLabel: rangeLabel,
+            selectedStaffIds: selectedStaffIds,
             selectedSalon: selectedSalon,
           ),
         ),
@@ -304,7 +491,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                 _mode == _AppointmentDisplayMode.calendar
                     ? AppointmentCalendarView(
                       key: ValueKey(
-                        'calendar-${_scope.name}-${_selectedStaffId ?? 'all'}-${rangeStart.toIso8601String()}',
+                        'calendar-${_scope.name}-$staffSelectionKey-${rangeStart.toIso8601String()}',
                       ),
                       anchorDate: rangeStart,
                       scope: _scope,
@@ -358,7 +545,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                     )
                     : _ListAppointmentsView(
                       key: ValueKey(
-                        'list-${_scope.name}-${_selectedStaffId ?? 'all'}-${rangeStart.toIso8601String()}',
+                        'list-${_scope.name}-$staffSelectionKey-${rangeStart.toIso8601String()}',
                       ),
                       appointments: filteredAppointments,
                       lastMinutePlaceholders: expressPlaceholders,
@@ -391,6 +578,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     required List<StaffMember> staff,
     required List<Service> services,
     required String rangeLabel,
+    required Set<String> selectedStaffIds,
     Salon? selectedSalon,
   }) {
     final theme = Theme.of(context);
@@ -419,15 +607,42 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       ),
     ];
 
+    const compactDensity = VisualDensity(horizontal: -2, vertical: -2);
+    final segmentedStyle = ButtonStyle(
+      visualDensity: compactDensity,
+      padding: const MaterialStatePropertyAll(
+        EdgeInsets.symmetric(horizontal: 12),
+      ),
+      minimumSize: const MaterialStatePropertyAll(Size(0, 38)),
+    );
+    final filledButtonStyle = FilledButton.styleFrom(
+      visualDensity: compactDensity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      minimumSize: const Size(0, 40),
+    );
+    final tonalButtonStyle = FilledButton.styleFrom(
+      visualDensity: compactDensity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      minimumSize: const Size(0, 40),
+    );
+    final outlinedButtonStyle = OutlinedButton.styleFrom(
+      visualDensity: compactDensity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      minimumSize: const Size(0, 40),
+    );
+
+    final staffFilterLabel = _staffFilterLabel(staff, selectedStaffIds);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Wrap(
-          spacing: 12,
-          runSpacing: 12,
+          spacing: 8,
+          runSpacing: 8,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             FilledButton.icon(
+              style: filledButtonStyle,
               onPressed:
                   () => _openAppointmentForm(
                     context,
@@ -440,6 +655,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
               label: const Text('Nuovo appuntamento'),
             ),
             SegmentedButton<_AppointmentDisplayMode>(
+              style: segmentedStyle,
               segments: modeSegments,
               selected: {_mode},
               onSelectionChanged: (selection) {
@@ -447,12 +663,14 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
               },
             ),
             SegmentedButton<AppointmentCalendarScope>(
+              style: segmentedStyle,
               segments: scopeSegments,
               selected: {_scope},
               onSelectionChanged: (selection) => _updateScope(selection.first),
             ),
             if (_mode == _AppointmentDisplayMode.calendar)
               SegmentedButton<int>(
+                style: segmentedStyle,
                 segments: const [
                   ButtonSegment<int>(value: 15, label: Text('15 min')),
                   ButtonSegment<int>(value: 30, label: Text('30 min')),
@@ -463,53 +681,51 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                   setState(() => _calendarSlotMinutes = selection.first);
                 },
               ),
-            _RangeNavigator(
-              label: rangeLabel,
-              onPrevious: () => _shiftAnchor(-1),
-              onNext: () => _shiftAnchor(1),
-            ),
-            FilledButton.tonal(
-              onPressed: _goToToday,
-              child: const Text('Oggi'),
-            ),
-            FilledButton.tonalIcon(
-              onPressed: _pickDate,
-              icon: const Icon(Icons.event_available_rounded),
-              label: const Text('Vai a data'),
-            ),
-            SizedBox(
-              width: 260,
-              child: DropdownButtonFormField<String?>(
-                value: _selectedStaffId,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  labelText: 'Filtra per operatore',
-                ),
-                items: [
-                  const DropdownMenuItem<String?>(
-                    value: null,
-                    child: Text('Tutto lo staff'),
-                  ),
-                  ...staff.map(
-                    (member) => DropdownMenuItem<String?>(
-                      value: member.id,
-                      child: Text(member.fullName),
-                    ),
-                  ),
-                ],
-                onChanged: (value) => setState(() => _selectedStaffId = value),
+            if (staff.isNotEmpty)
+              OutlinedButton.icon(
+                style: outlinedButtonStyle,
+                onPressed: () => _openStaffFilterSheet(staff, selectedStaffIds),
+                icon: const Icon(Icons.people_alt_rounded),
+                label: Text(staffFilterLabel),
               ),
-            ),
           ],
+        ),
+        const SizedBox(height: 8),
+        Center(
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            runAlignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              FilledButton.tonal(
+                style: tonalButtonStyle,
+                onPressed: _goToToday,
+                child: const Text('Oggi'),
+              ),
+              _RangeNavigator(
+                label: rangeLabel,
+                onPrevious: () => _shiftAnchor(-1),
+                onNext: () => _shiftAnchor(1),
+              ),
+              FilledButton.tonalIcon(
+                style: tonalButtonStyle,
+                onPressed: _pickDate,
+                icon: const Icon(Icons.event_available_rounded),
+                label: const Text('Vai a data'),
+              ),
+            ],
+          ),
         ),
         if (_mode == _AppointmentDisplayMode.calendar)
           Padding(
-            padding: const EdgeInsets.only(top: 16),
+            padding: const EdgeInsets.only(top: 12),
             child: Row(
               children: [
                 Container(
-                  width: 12,
-                  height: 12,
+                  width: 10,
+                  height: 10,
                   decoration: BoxDecoration(
                     color: theme.colorScheme.tertiaryContainer.withValues(
                       alpha: 0.6,
@@ -1678,30 +1894,67 @@ class _RangeNavigator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+    final colorScheme = theme.colorScheme;
+    return DecoratedBox(
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
+        color: colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: colorScheme.outlineVariant),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            tooltip: 'Periodo precedente',
-            onPressed: onPrevious,
-            icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Text(label, style: theme.textTheme.titleSmall),
-          ),
-          IconButton(
-            tooltip: 'Periodo successivo',
-            onPressed: onNext,
-            icon: const Icon(Icons.arrow_forward_ios_rounded),
-          ),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: 'Periodo precedente',
+              onPressed: onPrevious,
+              style: IconButton.styleFrom(
+                backgroundColor: colorScheme.onPrimaryContainer.withOpacity(
+                  0.08,
+                ),
+                foregroundColor: colorScheme.onPrimaryContainer,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                minimumSize: const Size(40, 40),
+                visualDensity: const VisualDensity(
+                  horizontal: -1,
+                  vertical: -1,
+                ),
+              ),
+              icon: const Icon(Icons.chevron_left_rounded),
+            ),
+            const SizedBox(width: 20),
+            Text(
+              label,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: colorScheme.onPrimaryContainer,
+              ),
+            ),
+            const SizedBox(width: 20),
+            IconButton(
+              tooltip: 'Periodo successivo',
+              onPressed: onNext,
+              style: IconButton.styleFrom(
+                backgroundColor: colorScheme.onPrimaryContainer.withOpacity(
+                  0.08,
+                ),
+                foregroundColor: colorScheme.onPrimaryContainer,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                minimumSize: const Size(40, 40),
+                visualDensity: const VisualDensity(
+                  horizontal: -1,
+                  vertical: -1,
+                ),
+              ),
+              icon: const Icon(Icons.chevron_right_rounded),
+            ),
+          ],
+        ),
       ),
     );
   }

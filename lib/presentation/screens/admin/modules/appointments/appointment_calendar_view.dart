@@ -1466,22 +1466,12 @@ class _WeekSchedule extends StatelessWidget {
                                 dayIndex < dayData.length;
                                 dayIndex++
                               ) ...[
-                                Container(
-                                  margin: EdgeInsets.only(
+                                Padding(
+                                  padding: EdgeInsets.only(
                                     right:
                                         dayIndex == dayData.length - 1 ? 0 : 16,
-                                  ),
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: dayBodyColor,
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(
-                                      color: theme.dividerColor.withValues(
-                                        alpha: 0.25,
-                                      ),
-                                    ),
+                                    top: 6,
+                                    bottom: 6,
                                   ),
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
@@ -1503,26 +1493,61 @@ class _WeekSchedule extends StatelessWidget {
                                           ),
                                           child: Container(
                                             width: _kStaffColumnWidth,
-                                            height: staffHeaderHeight,
                                             padding: const EdgeInsets.symmetric(
                                               horizontal: 12,
                                               vertical: 10,
                                             ),
-                                            decoration: BoxDecoration(
-                                              color: theme.colorScheme.surface
-                                                  .withValues(alpha: 0.96),
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                              border: Border.all(
-                                                color: theme.dividerColor
-                                                    .withValues(alpha: 0.2),
-                                              ),
+                                            constraints: BoxConstraints(
+                                              minHeight: staffHeaderHeight,
                                             ),
-                                            child: Text(
-                                              staff[staffIndex].fullName,
-                                              style: theme.textTheme.titleSmall,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
+                                            decoration: BoxDecoration(
+                                              gradient: LinearGradient(
+                                                colors: [
+                                                  theme
+                                                      .colorScheme
+                                                      .surfaceVariant
+                                                      .withValues(alpha: 0.78),
+                                                  theme.colorScheme.surface,
+                                                ],
+                                                begin: Alignment.topCenter,
+                                                end: Alignment.bottomCenter,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                              border: Border.all(
+                                                color: staffColumnBorderColor,
+                                                width: 1.1,
+                                              ),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: staffColumnShadowColor,
+                                                  blurRadius: 18,
+                                                  offset: const Offset(0, 10),
+                                                ),
+                                              ],
+                                            ),
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  staff[staffIndex].fullName,
+                                                  style:
+                                                      theme
+                                                          .textTheme
+                                                          .titleSmall,
+                                                  textAlign: TextAlign.center,
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  _staffRoleLabel(
+                                                    staff[staffIndex],
+                                                    rolesById,
+                                                  ),
+                                                  style:
+                                                      theme.textTheme.bodySmall,
+                                                  textAlign: TextAlign.center,
+                                                ),
+                                              ],
                                             ),
                                           ),
                                         ),
@@ -2328,423 +2353,423 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
             _setDragging(false);
           },
           builder: (context, candidateData, rejectedData) {
-            return Container(
-              height: gridHeight,
-              decoration: BoxDecoration(
-                border: Border(
-                  left: BorderSide(
-                    color: theme.dividerColor.withValues(alpha: 0.4),
-                  ),
-                ),
-              ),
-              child: Stack(
-                children: [
-                  Column(
-                    children: List.generate(
-                      totalSlots,
-                      (index) => Container(
-                        height: widget.slotExtent,
-                        decoration: BoxDecoration(
-                          border: Border(
-                            top: BorderSide(
-                              color:
-                                  index.isOdd
-                                      ? theme.dividerColor.withValues(
-                                        alpha: 0.05,
-                                      )
-                                      : Colors.transparent,
+            final columnBackground = theme.colorScheme.surface.withValues(
+              alpha: 0.96,
+            );
+            return ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                height: gridHeight,
+                color: columnBackground,
+                child: Stack(
+                  children: [
+                    Column(
+                      children: List.generate(
+                        totalSlots,
+                        (index) => Container(
+                          height: widget.slotExtent,
+                          decoration: BoxDecoration(
+                            border: Border(
+                              top: BorderSide(
+                                color:
+                                    index.isOdd
+                                        ? theme.dividerColor.withValues(
+                                          alpha: 0.05,
+                                        )
+                                        : Colors.transparent,
+                              ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                  if (openOverlay != null) openOverlay,
-                  if (dragOverlay != null) dragOverlay,
-                  if (hoverOverlay != null) hoverOverlay,
-                  // Visual overlay for last-minute holds (blocked slots)
-                  ...widget.lastMinuteSlots.expand((slot) {
-                    if (!slot.isAvailable) {
-                      return const Iterable<Widget>.empty();
-                    }
-                    if (slot.operatorId != widget.staffMember.id) {
-                      return const Iterable<Widget>.empty();
-                    }
-                    final segment = _segmentWithinTimeline(
-                      slot.start,
-                      slot.end,
-                      widget.timelineStart,
-                      widget.timelineEnd,
-                    );
-                    if (segment == null) {
-                      return const Iterable<Widget>.empty();
-                    }
-                    final top =
-                        segment.start
-                            .difference(widget.timelineStart)
-                            .inMinutes /
-                        widget.slotMinutes *
-                        widget.slotExtent;
-                    final height = max(
-                      widget.slotExtent,
-                      segment.end.difference(segment.start).inMinutes /
-                          widget.slotMinutes *
-                          widget.slotExtent,
-                    );
-                    return [
-                      Positioned(
-                        top: top,
-                        left: 0,
-                        right: 0,
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap:
-                                widget.onTapLastMinuteSlot == null
-                                    ? null
-                                    : () => widget.onTapLastMinuteSlot!(slot),
-                            borderRadius: BorderRadius.circular(8),
-                            child: Container(
-                              height: height,
-                              decoration: BoxDecoration(
-                                color: theme.colorScheme.primaryContainer
-                                    .withValues(alpha: 0.30),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: theme.colorScheme.primary.withValues(
-                                    alpha: 0.50,
-                                  ),
-                                ),
-                              ),
-                              padding: const EdgeInsets.all(6),
-                              alignment: Alignment.topLeft,
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.flash_on_rounded,
-                                    size: 14,
-                                    color: theme.colorScheme.primary,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    'Slot last-minute (prenotabile)',
-                                    style: theme.textTheme.labelSmall?.copyWith(
-                                      color: theme.colorScheme.primary,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ];
-                  }),
-                  ...widget.absences.expand((absence) {
-                    final segment = _segmentWithinTimeline(
-                      absence.start,
-                      absence.end,
-                      widget.timelineStart,
-                      widget.timelineEnd,
-                    );
-                    if (segment == null) {
-                      return const Iterable<Widget>.empty();
-                    }
-                    final top =
-                        segment.start
-                            .difference(widget.timelineStart)
-                            .inMinutes /
-                        widget.slotMinutes *
-                        widget.slotExtent;
-                    final height = max(
-                      widget.slotExtent,
-                      segment.end.difference(segment.start).inMinutes /
-                          widget.slotMinutes *
-                          widget.slotExtent,
-                    );
-                    final timeLabel =
-                        '${_timeLabel.format(segment.start)} - ${_timeLabel.format(segment.end)}';
-                    final description = StringBuffer(absence.type.label);
-                    if (!absence.isAllDay || !absence.isSingleDay) {
-                      description.write(' • $timeLabel');
-                    }
-                    if (absence.notes != null && absence.notes!.isNotEmpty) {
-                      description.write('\n${absence.notes}');
-                    }
-
-                    return [
-                      Positioned(
-                        top: top,
-                        left: 0,
-                        right: 0,
-                        child: Container(
-                          height: height,
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.errorContainer.withValues(
-                              alpha: 0.5,
-                            ),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: theme.colorScheme.error.withValues(
-                                alpha: 0.6,
-                              ),
-                            ),
-                          ),
-                          padding: const EdgeInsets.all(6),
-                          alignment: Alignment.topLeft,
-                          child: Text(
-                            description.toString(),
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: theme.colorScheme.error,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ];
-                  }),
-                  ...widget.shifts.expand((shift) {
-                    final segment = _segmentWithinTimeline(
-                      shift.start,
-                      shift.end,
-                      widget.timelineStart,
-                      widget.timelineEnd,
-                    );
-                    if (segment == null) {
-                      return const Iterable<Widget>.empty();
-                    }
-
-                    final top =
-                        segment.start
-                            .difference(widget.timelineStart)
-                            .inMinutes /
-                        widget.slotMinutes *
-                        widget.slotExtent;
-                    final height = max(
-                      widget.slotExtent,
-                      segment.end.difference(segment.start).inMinutes /
-                          widget.slotMinutes *
-                          widget.slotExtent,
-                    );
-
-                    final widgets = <Widget>[
-                      Positioned(
-                        top: top,
-                        left: 0,
-                        right: 0,
-                        child: Container(
-                          height: height,
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.tertiaryContainer
-                                .withValues(alpha: 0.35),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                      ),
-                    ];
-
-                    if (shift.breakStart != null && shift.breakEnd != null) {
-                      final breakSegment = _segmentWithinTimeline(
-                        shift.breakStart!,
-                        shift.breakEnd!,
+                    if (openOverlay != null) openOverlay,
+                    if (dragOverlay != null) dragOverlay,
+                    if (hoverOverlay != null) hoverOverlay,
+                    // Visual overlay for last-minute holds (blocked slots)
+                    ...widget.lastMinuteSlots.expand((slot) {
+                      if (!slot.isAvailable) {
+                        return const Iterable<Widget>.empty();
+                      }
+                      if (slot.operatorId != widget.staffMember.id) {
+                        return const Iterable<Widget>.empty();
+                      }
+                      final segment = _segmentWithinTimeline(
+                        slot.start,
+                        slot.end,
                         widget.timelineStart,
                         widget.timelineEnd,
                       );
-                      if (breakSegment != null) {
-                        final breakTop =
-                            breakSegment.start
-                                .difference(widget.timelineStart)
-                                .inMinutes /
+                      if (segment == null) {
+                        return const Iterable<Widget>.empty();
+                      }
+                      final top =
+                          segment.start
+                              .difference(widget.timelineStart)
+                              .inMinutes /
+                          widget.slotMinutes *
+                          widget.slotExtent;
+                      final height = max(
+                        widget.slotExtent,
+                        segment.end.difference(segment.start).inMinutes /
                             widget.slotMinutes *
-                            widget.slotExtent;
-                        final breakHeight = max(
-                          widget.slotExtent / 2,
-                          breakSegment.end
-                                  .difference(breakSegment.start)
-                                  .inMinutes /
-                              widget.slotMinutes *
-                              widget.slotExtent,
-                        );
-                        widgets.add(
-                          Positioned(
-                            top: breakTop,
-                            left: 0,
-                            right: 0,
-                            child: Container(
-                              height: breakHeight,
-                              decoration: BoxDecoration(
-                                color: theme.colorScheme.errorContainer
-                                    .withValues(alpha: 0.35),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: theme.colorScheme.error.withValues(
-                                    alpha: 0.4,
+                            widget.slotExtent,
+                      );
+                      return [
+                        Positioned(
+                          top: top,
+                          left: 0,
+                          right: 0,
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap:
+                                  widget.onTapLastMinuteSlot == null
+                                      ? null
+                                      : () => widget.onTapLastMinuteSlot!(slot),
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                height: height,
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.primaryContainer
+                                      .withValues(alpha: 0.30),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: theme.colorScheme.primary.withValues(
+                                      alpha: 0.50,
+                                    ),
                                   ),
+                                ),
+                                padding: const EdgeInsets.all(6),
+                                alignment: Alignment.topLeft,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.flash_on_rounded,
+                                      size: 14,
+                                      color: theme.colorScheme.primary,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Slot last-minute (prenotabile)',
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(
+                                            color: theme.colorScheme.primary,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
                           ),
+                        ),
+                      ];
+                    }),
+                    ...widget.absences.expand((absence) {
+                      final segment = _segmentWithinTimeline(
+                        absence.start,
+                        absence.end,
+                        widget.timelineStart,
+                        widget.timelineEnd,
+                      );
+                      if (segment == null) {
+                        return const Iterable<Widget>.empty();
+                      }
+                      final top =
+                          segment.start
+                              .difference(widget.timelineStart)
+                              .inMinutes /
+                          widget.slotMinutes *
+                          widget.slotExtent;
+                      final height = max(
+                        widget.slotExtent,
+                        segment.end.difference(segment.start).inMinutes /
+                            widget.slotMinutes *
+                            widget.slotExtent,
+                      );
+                      final timeLabel =
+                          '${_timeLabel.format(segment.start)} - ${_timeLabel.format(segment.end)}';
+                      final description = StringBuffer(absence.type.label);
+                      if (!absence.isAllDay || !absence.isSingleDay) {
+                        description.write(' • $timeLabel');
+                      }
+                      if (absence.notes != null && absence.notes!.isNotEmpty) {
+                        description.write('\n${absence.notes}');
+                      }
+
+                      return [
+                        Positioned(
+                          top: top,
+                          left: 0,
+                          right: 0,
+                          child: Container(
+                            height: height,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.errorContainer
+                                  .withValues(alpha: 0.5),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: theme.colorScheme.error.withValues(
+                                  alpha: 0.6,
+                                ),
+                              ),
+                            ),
+                            padding: const EdgeInsets.all(6),
+                            alignment: Alignment.topLeft,
+                            child: Text(
+                              description.toString(),
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.error,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ];
+                    }),
+                    ...widget.shifts.expand((shift) {
+                      final segment = _segmentWithinTimeline(
+                        shift.start,
+                        shift.end,
+                        widget.timelineStart,
+                        widget.timelineEnd,
+                      );
+                      if (segment == null) {
+                        return const Iterable<Widget>.empty();
+                      }
+
+                      final top =
+                          segment.start
+                              .difference(widget.timelineStart)
+                              .inMinutes /
+                          widget.slotMinutes *
+                          widget.slotExtent;
+                      final height = max(
+                        widget.slotExtent,
+                        segment.end.difference(segment.start).inMinutes /
+                            widget.slotMinutes *
+                            widget.slotExtent,
+                      );
+
+                      final widgets = <Widget>[
+                        Positioned(
+                          top: top,
+                          left: 0,
+                          right: 0,
+                          child: Container(
+                            height: height,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.tertiaryContainer
+                                  .withValues(alpha: 0.35),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ];
+
+                      if (shift.breakStart != null && shift.breakEnd != null) {
+                        final breakSegment = _segmentWithinTimeline(
+                          shift.breakStart!,
+                          shift.breakEnd!,
+                          widget.timelineStart,
+                          widget.timelineEnd,
+                        );
+                        if (breakSegment != null) {
+                          final breakTop =
+                              breakSegment.start
+                                  .difference(widget.timelineStart)
+                                  .inMinutes /
+                              widget.slotMinutes *
+                              widget.slotExtent;
+                          final breakHeight = max(
+                            widget.slotExtent / 2,
+                            breakSegment.end
+                                    .difference(breakSegment.start)
+                                    .inMinutes /
+                                widget.slotMinutes *
+                                widget.slotExtent,
+                          );
+                          widgets.add(
+                            Positioned(
+                              top: breakTop,
+                              left: 0,
+                              right: 0,
+                              child: Container(
+                                height: breakHeight,
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.errorContainer
+                                      .withValues(alpha: 0.35),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: theme.colorScheme.error.withValues(
+                                      alpha: 0.4,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+                      }
+
+                      return widgets;
+                    }),
+                    ...widget.appointments.map((appointment) {
+                      final segment = _segmentWithinTimeline(
+                        appointment.start,
+                        appointment.end,
+                        widget.timelineStart,
+                        widget.timelineEnd,
+                      );
+                      if (segment == null) {
+                        return const SizedBox.shrink();
+                      }
+                      final top =
+                          segment.start
+                              .difference(widget.timelineStart)
+                              .inMinutes /
+                          widget.slotMinutes *
+                          widget.slotExtent;
+                      final height = max(
+                        widget.slotExtent * 0.75,
+                        segment.end.difference(segment.start).inMinutes /
+                            widget.slotMinutes *
+                            widget.slotExtent,
+                      );
+                      final client = widget.clientsById[appointment.clientId];
+                      final services =
+                          appointment.serviceIds
+                              .map((id) => widget.servicesById[id])
+                              .whereType<Service>()
+                              .toList();
+                      final service =
+                          services.isNotEmpty
+                              ? services.first
+                              : widget.servicesById[appointment.serviceId];
+                      final roomName =
+                          appointment.roomId != null
+                              ? widget.roomsById[appointment.roomId!]
+                              : null;
+                      final issues =
+                          widget.anomalies[appointment.id] ??
+                          const <AppointmentAnomalyType>{};
+                      final slotId = appointment.lastMinuteSlotId;
+                      final matchingSlot =
+                          slotId == null
+                              ? null
+                              : widget.lastMinuteSlots.firstWhereOrNull(
+                                (slot) => slot.id == slotId,
+                              );
+                      final lockReason =
+                          widget.lockedAppointmentReasons[appointment.id];
+                      final isLocked = lockReason != null;
+                      final card = _AppointmentCard(
+                        appointment: appointment,
+                        client: client,
+                        service: service,
+                        services: services,
+                        staff: widget.staffMember,
+                        roomName: roomName,
+                        statusColor: widget.statusColor,
+                        onTap: () => widget.onEdit(appointment),
+                        height: height,
+                        anomalies: issues,
+                        lockReason: lockReason,
+                        lastMinuteSlot: matchingSlot,
+                        categoriesById: widget.categoriesById,
+                        categoriesByName: widget.categoriesByName,
+                      );
+                      if (isLocked) {
+                        return Positioned(
+                          top: top,
+                          left: 4,
+                          right: 4,
+                          child: card,
                         );
                       }
-                    }
-
-                    return widgets;
-                  }),
-                  ...widget.appointments.map((appointment) {
-                    final segment = _segmentWithinTimeline(
-                      appointment.start,
-                      appointment.end,
-                      widget.timelineStart,
-                      widget.timelineEnd,
-                    );
-                    if (segment == null) {
-                      return const SizedBox.shrink();
-                    }
-                    final top =
-                        segment.start
-                            .difference(widget.timelineStart)
-                            .inMinutes /
-                        widget.slotMinutes *
-                        widget.slotExtent;
-                    final height = max(
-                      widget.slotExtent * 0.75,
-                      segment.end.difference(segment.start).inMinutes /
-                          widget.slotMinutes *
-                          widget.slotExtent,
-                    );
-                    final client = widget.clientsById[appointment.clientId];
-                    final services =
-                        appointment.serviceIds
-                            .map((id) => widget.servicesById[id])
-                            .whereType<Service>()
-                            .toList();
-                    final service =
-                        services.isNotEmpty
-                            ? services.first
-                            : widget.servicesById[appointment.serviceId];
-                    final roomName =
-                        appointment.roomId != null
-                            ? widget.roomsById[appointment.roomId!]
-                            : null;
-                    final issues =
-                        widget.anomalies[appointment.id] ??
-                        const <AppointmentAnomalyType>{};
-                    final slotId = appointment.lastMinuteSlotId;
-                    final matchingSlot =
-                        slotId == null
-                            ? null
-                            : widget.lastMinuteSlots.firstWhereOrNull(
-                              (slot) => slot.id == slotId,
-                            );
-                    final lockReason =
-                        widget.lockedAppointmentReasons[appointment.id];
-                    final isLocked = lockReason != null;
-                    final card = _AppointmentCard(
-                      appointment: appointment,
-                      client: client,
-                      service: service,
-                      services: services,
-                      staff: widget.staffMember,
-                      roomName: roomName,
-                      statusColor: widget.statusColor,
-                      onTap: () => widget.onEdit(appointment),
-                      height: height,
-                      anomalies: issues,
-                      lockReason: lockReason,
-                      lastMinuteSlot: matchingSlot,
-                      categoriesById: widget.categoriesById,
-                      categoriesByName: widget.categoriesByName,
-                    );
-                    if (isLocked) {
                       return Positioned(
                         top: top,
                         left: 4,
                         right: 4,
-                        child: card,
+                        child: LongPressDraggable<_AppointmentDragData>(
+                          data: _AppointmentDragData(appointment: appointment),
+                          dragAnchorStrategy: pointerDragAnchorStrategy,
+                          onDragStarted: () => _setDragging(true),
+                          onDragCompleted: () => _setDragging(false),
+                          onDragEnd: (_) => _setDragging(false),
+                          onDraggableCanceled: (_, __) => _setDragging(false),
+                          feedback: _DragFeedback(
+                            child: _DragPreviewCard(
+                              appointment: appointment,
+                              client: client,
+                              service: service,
+                              services: services,
+                              staff: widget.staffMember,
+                              roomName: roomName,
+                              statusColor: widget.statusColor,
+                              height: height,
+                              anomalies: issues,
+                              previewStart: _dragPreviewStart,
+                              previewDuration: _dragPreviewDuration,
+                              slotMinutes: widget.slotMinutes,
+                              lastMinuteSlot: matchingSlot,
+                              categoriesById: widget.categoriesById,
+                              categoriesByName: widget.categoriesByName,
+                            ),
+                          ),
+                          childWhenDragging: Opacity(
+                            opacity: 0.4,
+                            child: _AppointmentCard(
+                              appointment: appointment,
+                              client: client,
+                              service: service,
+                              services: services,
+                              staff: widget.staffMember,
+                              roomName: roomName,
+                              statusColor: widget.statusColor,
+                              height: height,
+                              anomalies: issues,
+                              lockReason: lockReason,
+                              lastMinuteSlot: matchingSlot,
+                              categoriesById: widget.categoriesById,
+                              categoriesByName: widget.categoriesByName,
+                            ),
+                          ),
+                          child: card,
+                        ),
                       );
-                    }
-                    return Positioned(
-                      top: top,
-                      left: 4,
-                      right: 4,
-                      child: LongPressDraggable<_AppointmentDragData>(
-                        data: _AppointmentDragData(appointment: appointment),
-                        dragAnchorStrategy: pointerDragAnchorStrategy,
-                        onDragStarted: () => _setDragging(true),
-                        onDragCompleted: () => _setDragging(false),
-                        onDragEnd: (_) => _setDragging(false),
-                        onDraggableCanceled: (_, __) => _setDragging(false),
-                        feedback: _DragFeedback(
-                          child: _DragPreviewCard(
-                            appointment: appointment,
-                            client: client,
-                            service: service,
-                            services: services,
-                            staff: widget.staffMember,
-                            roomName: roomName,
-                            statusColor: widget.statusColor,
-                            height: height,
-                            anomalies: issues,
-                            previewStart: _dragPreviewStart,
-                            previewDuration: _dragPreviewDuration,
-                            slotMinutes: widget.slotMinutes,
-                            lastMinuteSlot: matchingSlot,
-                            categoriesById: widget.categoriesById,
-                            categoriesByName: widget.categoriesByName,
-                          ),
-                        ),
-                        childWhenDragging: Opacity(
-                          opacity: 0.4,
-                          child: _AppointmentCard(
-                            appointment: appointment,
-                            client: client,
-                            service: service,
-                            services: services,
-                            staff: widget.staffMember,
-                            roomName: roomName,
-                            statusColor: widget.statusColor,
-                            height: height,
-                            anomalies: issues,
-                            lockReason: lockReason,
-                            lastMinuteSlot: matchingSlot,
-                            categoriesById: widget.categoriesById,
-                            categoriesByName: widget.categoriesByName,
-                          ),
-                        ),
-                        child: card,
-                      ),
-                    );
-                  }),
-                  if (candidateData.isNotEmpty)
-                    Positioned.fill(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color:
-                              _dragPreviewHasConflict
-                                  ? theme.colorScheme.error.withValues(
-                                    alpha: 0.08,
-                                  )
-                                  : theme.colorScheme.primary.withValues(
-                                    alpha: 0.08,
-                                  ),
-                          border: Border.all(
+                    }),
+                    if (candidateData.isNotEmpty)
+                      Positioned.fill(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
                             color:
                                 _dragPreviewHasConflict
                                     ? theme.colorScheme.error.withValues(
-                                      alpha: 0.2,
+                                      alpha: 0.08,
                                     )
                                     : theme.colorScheme.primary.withValues(
-                                      alpha: 0.2,
+                                      alpha: 0.08,
                                     ),
-                            width: 2,
+                            border: Border.all(
+                              color:
+                                  _dragPreviewHasConflict
+                                      ? theme.colorScheme.error.withValues(
+                                        alpha: 0.2,
+                                      )
+                                      : theme.colorScheme.primary.withValues(
+                                        alpha: 0.2,
+                                      ),
+                              width: 2,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             );
           },
