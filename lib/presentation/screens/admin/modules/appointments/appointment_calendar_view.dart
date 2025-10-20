@@ -7,6 +7,7 @@ import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/last_minute_slot.dart';
 import 'package:civiapp/domain/entities/service.dart';
+import 'package:civiapp/domain/entities/service_category.dart';
 import 'package:civiapp/domain/entities/shift.dart';
 import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
@@ -16,6 +17,9 @@ import 'package:collection/collection.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+
+const double _kStaffColumnWidth = 220.0;
+const double _kStaffHeaderHeight = 48.0;
 
 String _staffRoleLabel(StaffMember staff, Map<String, StaffRole> rolesById) {
   final names = staff.roleIds
@@ -92,6 +96,7 @@ class AppointmentCalendarView extends StatefulWidget {
     required this.staff,
     required this.clients,
     required this.services,
+    required this.serviceCategories,
     required this.shifts,
     required this.absences,
     required this.roles,
@@ -120,6 +125,7 @@ class AppointmentCalendarView extends StatefulWidget {
   final List<StaffRole> roles;
   final List<Client> clients;
   final List<Service> services;
+  final List<ServiceCategory> serviceCategories;
   final List<Shift> shifts;
   final List<StaffAbsence> absences;
   final List<SalonDailySchedule>? schedule;
@@ -201,6 +207,16 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
     final servicesById = {
       for (final service in widget.services) service.id: service,
     };
+    final categoriesById = {
+      for (final category in widget.serviceCategories) category.id: category,
+    };
+    final categoriesByName = <String, ServiceCategory>{};
+    for (final category in widget.serviceCategories) {
+      final normalized = category.name.trim().toLowerCase();
+      if (normalized.isNotEmpty) {
+        categoriesByName[normalized] = category;
+      }
+    }
     switch (widget.scope) {
       case AppointmentCalendarScope.day:
         return _DaySchedule(
@@ -216,6 +232,8 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           roles: widget.roles,
           clientsById: clientsById,
           servicesById: servicesById,
+          categoriesById: categoriesById,
+          categoriesByName: categoriesByName,
           roomsById: widget.roomsById,
           statusColor: widget.statusColor,
           salonsById: widget.salonsById,
@@ -245,6 +263,8 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           roles: widget.roles,
           clientsById: clientsById,
           servicesById: servicesById,
+          categoriesById: categoriesById,
+          categoriesByName: categoriesByName,
           roomsById: widget.roomsById,
           statusColor: widget.statusColor,
           salonsById: widget.salonsById,
@@ -263,6 +283,22 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
   }
 }
 
+class _CompactMacScrollBehavior extends ScrollBehavior {
+  const _CompactMacScrollBehavior();
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) =>
+      const ClampingScrollPhysics();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => const {
+    PointerDeviceKind.touch,
+    PointerDeviceKind.mouse,
+    PointerDeviceKind.trackpad,
+    PointerDeviceKind.stylus,
+  };
+}
+
 class _DaySchedule extends StatelessWidget {
   const _DaySchedule({
     required this.anchorDate,
@@ -277,6 +313,8 @@ class _DaySchedule extends StatelessWidget {
     required this.roles,
     required this.clientsById,
     required this.servicesById,
+    required this.categoriesById,
+    required this.categoriesByName,
     required this.roomsById,
     required this.statusColor,
     required this.salonsById,
@@ -304,6 +342,8 @@ class _DaySchedule extends StatelessWidget {
   final List<StaffRole> roles;
   final Map<String, Client> clientsById;
   final Map<String, Service> servicesById;
+  final Map<String, ServiceCategory> categoriesById;
+  final Map<String, ServiceCategory> categoriesByName;
   final Map<String, String> roomsById;
   final Map<String, Salon> salonsById;
   final Map<String, String> lockedAppointmentReasons;
@@ -413,6 +453,12 @@ class _DaySchedule extends StatelessWidget {
     final timelineColor = theme.colorScheme.surfaceContainerLowest.withValues(
       alpha: 0.45,
     );
+    final staffColumnBorderColor = theme.colorScheme.outlineVariant.withValues(
+      alpha: 0.55,
+    );
+    final staffColumnShadowColor = theme.colorScheme.shadow.withValues(
+      alpha: 0.08,
+    );
     final timeFormat = DateFormat('HH:mm');
     String openingInfo;
     if (scheduleEntry == null) {
@@ -482,164 +528,258 @@ class _DaySchedule extends StatelessWidget {
           ),
         ),
         Expanded(
-          child: Scrollbar(
-            controller: verticalController,
-            thumbVisibility: true,
-            child: SingleChildScrollView(
-              controller: verticalController,
-              child: Scrollbar(
-                controller: horizontalBodyController,
-                thumbVisibility: true,
-                child: SingleChildScrollView(
-                  controller: horizontalBodyController,
-                  scrollDirection: Axis.horizontal,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: _timeScaleExtent,
-                          margin: const EdgeInsets.only(right: 12),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 4,
-                            vertical: 12,
-                          ),
-                          decoration: BoxDecoration(
-                            color: timelineColor,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: theme.dividerColor.withValues(alpha: 0.35),
-                            ),
-                          ),
-                          child: Column(
+          child: Column(
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(
+                    width: _timeScaleExtent,
+                    height: _kStaffHeaderHeight,
+                  ),
+                  const SizedBox(width: 12, height: _kStaffHeaderHeight),
+                  Expanded(
+                    child: ScrollConfiguration(
+                      behavior: const _CompactMacScrollBehavior(),
+                      child: Scrollbar(
+                        controller: horizontalHeaderController,
+                        thumbVisibility: true,
+                        child: SingleChildScrollView(
+                          controller: horizontalHeaderController,
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
-                            children: List.generate(slotCount, (index) {
-                              final slotTime = timeSlots[index];
-                              final label = timeFormat.format(slotTime);
-                              return SizedBox(
-                                height: _slotExtent,
-                                child: Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: Text(
-                                    label,
-                                    style: theme.textTheme.bodySmall,
+                            children: [
+                              for (
+                                var staffIndex = 0;
+                                staffIndex < staff.length;
+                                staffIndex++
+                              ) ...[
+                                Padding(
+                                  padding: EdgeInsets.only(
+                                    right:
+                                        staffIndex == staff.length - 1 ? 0 : 16,
                                   ),
-                                ),
-                              );
-                            }),
-                          ),
-                        ),
-                        for (
-                          var staffIndex = 0;
-                          staffIndex < staff.length;
-                          staffIndex++
-                        ) ...[
-                          Padding(
-                            padding: EdgeInsets.only(
-                              right: staffIndex == staff.length - 1 ? 0 : 16,
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Container(
-                                  width: 220,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: theme.colorScheme.surface,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: theme.dividerColor.withValues(
-                                        alpha: 0.2,
-                                      ),
+                                  child: Container(
+                                    width: _kStaffColumnWidth,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
                                     ),
-                                  ),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        staff[staffIndex].fullName,
-                                        style: theme.textTheme.titleSmall,
-                                        textAlign: TextAlign.center,
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          theme.colorScheme.surfaceVariant
+                                              .withValues(alpha: 0.78),
+                                          theme.colorScheme.surface,
+                                        ],
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
                                       ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        _staffRoleLabel(
-                                          staff[staffIndex],
-                                          rolesById,
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(
+                                        color: staffColumnBorderColor,
+                                        width: 1.1,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: staffColumnShadowColor,
+                                          blurRadius: 18,
+                                          offset: const Offset(0, 10),
                                         ),
-                                        style: theme.textTheme.bodySmall,
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    color: theme.colorScheme.surface,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: theme.dividerColor.withValues(
-                                        alpha: 0.2,
-                                      ),
+                                      ],
                                     ),
-                                  ),
-                                  child: SizedBox(
-                                    width: 220,
-                                    height: gridHeight,
-                                    child: _StaffDayColumn(
-                                      staffMember: staff[staffIndex],
-                                      appointments:
-                                          appointmentsByStaff[staff[staffIndex]
-                                              .id] ??
-                                          const [],
-                                      lastMinutePlaceholders:
-                                          lastMinutePlaceholders,
-                                      lastMinuteSlots: lastMinuteSlots,
-                                      onTapLastMinuteSlot: onTapLastMinuteSlot,
-                                      shifts:
-                                          shiftsByStaff[staff[staffIndex].id] ??
-                                          const [],
-                                      absences:
-                                          absencesByStaff[staff[staffIndex]
-                                              .id] ??
-                                          const [],
-                                      timelineStart: bounds.start,
-                                      timelineEnd: bounds.end,
-                                      slotMinutes: slotMinutes,
-                                      slotExtent: _slotExtent,
-                                      clientsById: clientsById,
-                                      servicesById: servicesById,
-                                      roomsById: roomsById,
-                                      salonsById: salonsById,
-                                      allAppointments: allAppointments,
-                                      statusColor: statusColor,
-                                      lockedAppointmentReasons:
-                                          lockedAppointmentReasons,
-                                      onReschedule: onReschedule,
-                                      onEdit: onEdit,
-                                      onCreate: onCreate,
-                                      anomalies: anomalies,
-                                      openStart: openingStart,
-                                      openEnd: closingEnd,
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          staff[staffIndex].fullName,
+                                          style: theme.textTheme.titleSmall,
+                                          textAlign: TextAlign.center,
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          _staffRoleLabel(
+                                            staff[staffIndex],
+                                            rolesById,
+                                          ),
+                                          style: theme.textTheme.bodySmall,
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),
                               ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: Scrollbar(
+                  controller: verticalController,
+                  thumbVisibility: true,
+                  child: SingleChildScrollView(
+                    controller: verticalController,
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 0, bottom: 12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: _timeScaleExtent,
+                            margin: const EdgeInsets.only(right: 12),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 12,
+                            ),
+                            decoration: BoxDecoration(
+                              color: timelineColor,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: theme.dividerColor.withValues(
+                                  alpha: 0.35,
+                                ),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: List.generate(slotCount, (index) {
+                                final slotTime = timeSlots[index];
+                                final label = timeFormat.format(slotTime);
+                                return SizedBox(
+                                  height: _slotExtent,
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      label,
+                                      style: theme.textTheme.bodySmall,
+                                    ),
+                                  ),
+                                );
+                              }),
+                            ),
+                          ),
+                          Expanded(
+                            child: ScrollConfiguration(
+                              behavior: const _CompactMacScrollBehavior(),
+                              child: Scrollbar(
+                                controller: horizontalBodyController,
+                                thumbVisibility: true,
+                                child: SingleChildScrollView(
+                                  controller: horizontalBodyController,
+                                  scrollDirection: Axis.horizontal,
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      for (
+                                        var staffIndex = 0;
+                                        staffIndex < staff.length;
+                                        staffIndex++
+                                      ) ...[
+                                        Padding(
+                                          padding: EdgeInsets.only(
+                                            right:
+                                                staffIndex == staff.length - 1
+                                                    ? 0
+                                                    : 16,
+                                          ),
+                                          child: DecoratedBox(
+                                            decoration: BoxDecoration(
+                                              gradient: LinearGradient(
+                                                colors: [
+                                                  theme.colorScheme.surface,
+                                                  theme
+                                                      .colorScheme
+                                                      .surfaceVariant
+                                                      .withValues(alpha: 0.42),
+                                                ],
+                                                begin: Alignment.topCenter,
+                                                end: Alignment.bottomCenter,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(16),
+                                              border: Border.all(
+                                                color: staffColumnBorderColor,
+                                                width: 1.05,
+                                              ),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: staffColumnShadowColor,
+                                                  blurRadius: 24,
+                                                  offset: const Offset(0, 12),
+                                                ),
+                                              ],
+                                            ),
+                                            child: SizedBox(
+                                              width: _kStaffColumnWidth,
+                                              height: gridHeight,
+                                              child: _StaffDayColumn(
+                                                staffMember: staff[staffIndex],
+                                                appointments:
+                                                    appointmentsByStaff[staff[staffIndex]
+                                                        .id] ??
+                                                    const [],
+                                                lastMinutePlaceholders:
+                                                    lastMinutePlaceholders,
+                                                lastMinuteSlots:
+                                                    lastMinuteSlots,
+                                                onTapLastMinuteSlot:
+                                                    onTapLastMinuteSlot,
+                                                shifts:
+                                                    shiftsByStaff[staff[staffIndex]
+                                                        .id] ??
+                                                    const [],
+                                                absences:
+                                                    absencesByStaff[staff[staffIndex]
+                                                        .id] ??
+                                                    const [],
+                                                timelineStart: bounds.start,
+                                                timelineEnd: bounds.end,
+                                                slotMinutes: slotMinutes,
+                                                slotExtent: _slotExtent,
+                                                clientsById: clientsById,
+                                                servicesById: servicesById,
+                                                categoriesById: categoriesById,
+                                                categoriesByName:
+                                                    categoriesByName,
+                                                roomsById: roomsById,
+                                                salonsById: salonsById,
+                                                allAppointments:
+                                                    allAppointments,
+                                                statusColor: statusColor,
+                                                lockedAppointmentReasons:
+                                                    lockedAppointmentReasons,
+                                                onReschedule: onReschedule,
+                                                onEdit: onEdit,
+                                                onCreate: onCreate,
+                                                anomalies: anomalies,
+                                                openStart: openingStart,
+                                                openEnd: closingEnd,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ],
-                      ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
+            ],
           ),
         ),
       ],
@@ -732,6 +872,8 @@ class _WeekSchedule extends StatelessWidget {
     required this.roles,
     required this.clientsById,
     required this.servicesById,
+    required this.categoriesById,
+    required this.categoriesByName,
     required this.roomsById,
     required this.statusColor,
     required this.salonsById,
@@ -760,6 +902,8 @@ class _WeekSchedule extends StatelessWidget {
   final List<StaffRole> roles;
   final Map<String, Client> clientsById;
   final Map<String, Service> servicesById;
+  final Map<String, ServiceCategory> categoriesById;
+  final Map<String, ServiceCategory> categoriesByName;
   final Map<String, String> roomsById;
   final Map<String, Salon> salonsById;
   final Map<String, String> lockedAppointmentReasons;
@@ -777,6 +921,50 @@ class _WeekSchedule extends StatelessWidget {
   static const _slotExtent = _AppointmentCalendarViewState._slotExtent;
   static const _timeScaleExtent =
       _AppointmentCalendarViewState._timeScaleExtent;
+
+  static Widget _summaryChip({
+    required ThemeData theme,
+    required IconData icon,
+    required String label,
+    Color? background,
+    Color? foreground,
+    String? tooltip,
+  }) {
+    final chip = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: background ?? theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 14,
+            color: foreground ?? theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: foreground ?? theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ],
+      ),
+    );
+    if (tooltip != null && tooltip.isNotEmpty) {
+      return Tooltip(
+        message: tooltip,
+        waitDuration: const Duration(milliseconds: 250),
+        child: chip,
+      );
+    }
+    return chip;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -907,6 +1095,7 @@ class _WeekSchedule extends StatelessWidget {
     final totalMinutes = maxMinute - minMinute;
     final slotCount = max(1, (totalMinutes / slotMinutes).ceil());
     final gridHeight = slotCount * _slotExtent;
+    const double staffHeaderHeight = 44.0;
     final referenceDate = dayData.first.date;
     final referenceTimelineStart = referenceDate.add(
       Duration(minutes: minMinute),
@@ -927,6 +1116,14 @@ class _WeekSchedule extends StatelessWidget {
       alpha: 0.45,
     );
     final rolesById = {for (final role in roles) role.id: role};
+    final staffById = {for (final member in staff) member.id: member};
+    final now = DateTime.now();
+    final staffColumnBorderColor = theme.colorScheme.outlineVariant.withValues(
+      alpha: 0.55,
+    );
+    final staffColumnShadowColor = theme.colorScheme.shadow.withValues(
+      alpha: 0.08,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -942,103 +1139,402 @@ class _WeekSchedule extends StatelessWidget {
                   child: Text('Ora', style: theme.textTheme.labelMedium),
                 ),
               ),
+              const SizedBox(width: 12),
               Expanded(
-                child: Scrollbar(
-                  controller: horizontalHeaderController,
-                  thumbVisibility: true,
-                  child: SingleChildScrollView(
+                child: ScrollConfiguration(
+                  behavior: const _CompactMacScrollBehavior(),
+                  child: Scrollbar(
                     controller: horizontalHeaderController,
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Row(
-                      children: [
-                        for (
-                          var dayIndex = 0;
-                          dayIndex < dayData.length;
-                          dayIndex++
-                        ) ...[
-                          Container(
-                            margin: EdgeInsets.only(
-                              right: dayIndex == dayData.length - 1 ? 0 : 16,
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
-                            ),
-                            decoration: BoxDecoration(
-                              color: dayHeaderColor,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: theme.dividerColor.withValues(
-                                  alpha: 0.4,
-                                ),
-                              ),
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  dayLabelFormat.format(dayData[dayIndex].date),
-                                  style: theme.textTheme.titleMedium,
-                                  textAlign: TextAlign.center,
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _openingLabel(dayData[dayIndex], timeFormat),
-                                  style: theme.textTheme.bodySmall,
-                                  textAlign: TextAlign.center,
-                                ),
-                                const SizedBox(height: 12),
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    for (
-                                      var columnIndex = 0;
-                                      columnIndex < staff.length;
-                                      columnIndex++
-                                    ) ...[
-                                      Padding(
-                                        padding: EdgeInsets.only(
-                                          left: columnIndex == 0 ? 0 : 8,
-                                          right:
-                                              columnIndex == staff.length - 1
-                                                  ? 0
-                                                  : 8,
-                                        ),
-                                        child: SizedBox(
-                                          width: 220,
-                                          child: Column(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.center,
-                                            children: [
-                                              Text(
-                                                staff[columnIndex].fullName,
-                                                style:
-                                                    theme.textTheme.titleSmall,
-                                                textAlign: TextAlign.center,
+                    thumbVisibility: true,
+                    interactive: true,
+                    thickness: 8,
+                    radius: const Radius.circular(8),
+                    child: SingleChildScrollView(
+                      controller: horizontalHeaderController,
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              for (
+                                var dayIndex = 0;
+                                dayIndex < dayData.length;
+                                dayIndex++
+                              ) ...[
+                                Builder(
+                                  builder: (context) {
+                                    final data = dayData[dayIndex];
+                                    final isToday = DateUtils.isSameDay(
+                                      data.date,
+                                      now,
+                                    );
+                                    final headerColor =
+                                        isToday
+                                            ? Color.alphaBlend(
+                                              theme.colorScheme.primary
+                                                  .withValues(alpha: 0.08),
+                                              dayHeaderColor,
+                                            )
+                                            : dayHeaderColor;
+                                    final borderColor =
+                                        isToday
+                                            ? theme.colorScheme.primary
+                                                .withValues(alpha: 0.55)
+                                            : theme.dividerColor.withValues(
+                                              alpha: 0.4,
+                                            );
+                                    final List<BoxShadow>? boxShadow =
+                                        isToday
+                                            ? [
+                                              BoxShadow(
+                                                color: theme.colorScheme.primary
+                                                    .withValues(alpha: 0.18),
+                                                blurRadius: 18,
+                                                offset: const Offset(0, 6),
                                               ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                _staffRoleLabel(
-                                                  staff[columnIndex],
-                                                  rolesById,
-                                                ),
-                                                style:
-                                                    theme.textTheme.bodySmall,
-                                                textAlign: TextAlign.center,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
+                                            ]
+                                            : null;
+                                    final totalAppointments = data
+                                        .appointmentsByStaff
+                                        .values
+                                        .fold<int>(
+                                          0,
+                                          (running, list) =>
+                                              running + list.length,
+                                        );
+                                    final scheduledStaffIds = data
+                                        .shiftsByStaff
+                                        .entries
+                                        .where(
+                                          (entry) => entry.value.isNotEmpty,
+                                        )
+                                        .map((entry) => entry.key)
+                                        .toList(growable: false);
+                                    final absenceStaffIds = data
+                                        .absencesByStaff
+                                        .entries
+                                        .where(
+                                          (entry) => entry.value.isNotEmpty,
+                                        )
+                                        .map((entry) => entry.key)
+                                        .toList(growable: false);
+                                    final scheduledNames = scheduledStaffIds
+                                        .map((id) => staffById[id]?.fullName)
+                                        .whereType<String>()
+                                        .toList(growable: false);
+                                    final absenceNames = absenceStaffIds
+                                        .map((id) => staffById[id]?.fullName)
+                                        .whereType<String>()
+                                        .toList(growable: false);
+
+                                    final summaryChips = <Widget>[
+                                      _summaryChip(
+                                        theme: theme,
+                                        icon: Icons.event_available_rounded,
+                                        label:
+                                            '$totalAppointments appuntamenti',
+                                        background: theme
+                                            .colorScheme
+                                            .primaryContainer
+                                            .withValues(alpha: 0.6),
+                                        foreground:
+                                            theme
+                                                .colorScheme
+                                                .onPrimaryContainer,
                                       ),
-                                    ],
-                                  ],
+                                    ];
+                                    if (scheduledStaffIds.isNotEmpty) {
+                                      summaryChips.add(
+                                        _summaryChip(
+                                          theme: theme,
+                                          icon: Icons.account_circle_rounded,
+                                          label:
+                                              '${scheduledStaffIds.length} turni operativi',
+                                          background: theme
+                                              .colorScheme
+                                              .tertiaryContainer
+                                              .withValues(alpha: 0.6),
+                                          foreground:
+                                              theme
+                                                  .colorScheme
+                                                  .onTertiaryContainer,
+                                          tooltip:
+                                              scheduledNames.isEmpty
+                                                  ? null
+                                                  : scheduledNames.join('\n'),
+                                        ),
+                                      );
+                                    }
+                                    if (absenceStaffIds.isNotEmpty) {
+                                      summaryChips.add(
+                                        _summaryChip(
+                                          theme: theme,
+                                          icon: Icons.event_busy_rounded,
+                                          label:
+                                              '${absenceStaffIds.length} assenze',
+                                          background: theme
+                                              .colorScheme
+                                              .errorContainer
+                                              .withValues(alpha: 0.72),
+                                          foreground:
+                                              theme
+                                                  .colorScheme
+                                                  .onErrorContainer,
+                                          tooltip:
+                                              absenceNames.isEmpty
+                                                  ? null
+                                                  : absenceNames.join('\n'),
+                                        ),
+                                      );
+                                    }
+
+                                    return Container(
+                                      margin: EdgeInsets.only(
+                                        right:
+                                            dayIndex == dayData.length - 1
+                                                ? 0
+                                                : 16,
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 10,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: headerColor,
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(color: borderColor),
+                                        boxShadow: boxShadow,
+                                      ),
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                            ),
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                if (isToday) ...[
+                                                  Align(
+                                                    alignment: Alignment.center,
+                                                    child: Container(
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 10,
+                                                            vertical: 4,
+                                                          ),
+                                                      decoration: BoxDecoration(
+                                                        color: theme
+                                                            .colorScheme
+                                                            .primary
+                                                            .withValues(
+                                                              alpha: 0.15,
+                                                            ),
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              999,
+                                                            ),
+                                                      ),
+                                                      child: Text(
+                                                        'Oggi',
+                                                        style: theme
+                                                            .textTheme
+                                                            .labelSmall
+                                                            ?.copyWith(
+                                                              color:
+                                                                  theme
+                                                                      .colorScheme
+                                                                      .primary,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w700,
+                                                            ),
+                                                        textAlign:
+                                                            TextAlign.center,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 8),
+                                                ],
+                                                Text(
+                                                  dayLabelFormat.format(
+                                                    data.date,
+                                                  ),
+                                                  style:
+                                                      theme
+                                                          .textTheme
+                                                          .titleMedium,
+                                                  textAlign: TextAlign.center,
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  _openingLabel(
+                                                    data,
+                                                    timeFormat,
+                                                  ),
+                                                  style:
+                                                      theme.textTheme.bodySmall,
+                                                  textAlign: TextAlign.center,
+                                                ),
+                                                if (summaryChips
+                                                    .isNotEmpty) ...[
+                                                  const SizedBox(height: 8),
+                                                  ScrollConfiguration(
+                                                    behavior:
+                                                        const _CompactMacScrollBehavior(),
+                                                    child: SingleChildScrollView(
+                                                      scrollDirection:
+                                                          Axis.horizontal,
+                                                      child: Row(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          for (
+                                                            var i = 0;
+                                                            i <
+                                                                summaryChips
+                                                                    .length;
+                                                            i++
+                                                          ) ...[
+                                                            if (i != 0)
+                                                              const SizedBox(
+                                                                width: 8,
+                                                              ),
+                                                            summaryChips[i],
+                                                          ],
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                for (
+                                                  var columnIndex = 0;
+                                                  columnIndex < staff.length;
+                                                  columnIndex++
+                                                ) ...[
+                                                  Padding(
+                                                    padding: EdgeInsets.only(
+                                                      left:
+                                                          columnIndex == 0
+                                                              ? 0
+                                                              : 8,
+                                                      right:
+                                                          columnIndex ==
+                                                                  staff.length -
+                                                                      1
+                                                              ? 0
+                                                              : 8,
+                                                    ),
+                                                    child: SizedBox(
+                                                      width: _kStaffColumnWidth,
+                                                      height: 0,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
                                 ),
                               ],
-                            ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              for (
+                                var dayIndex = 0;
+                                dayIndex < dayData.length;
+                                dayIndex++
+                              ) ...[
+                                Container(
+                                  margin: EdgeInsets.only(
+                                    right:
+                                        dayIndex == dayData.length - 1 ? 0 : 16,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: dayBodyColor,
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: theme.dividerColor.withValues(
+                                        alpha: 0.25,
+                                      ),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      for (
+                                        var staffIndex = 0;
+                                        staffIndex < staff.length;
+                                        staffIndex++
+                                      ) ...[
+                                        Padding(
+                                          padding: EdgeInsets.only(
+                                            left: staffIndex == 0 ? 12 : 8,
+                                            right:
+                                                staffIndex == staff.length - 1
+                                                    ? 12
+                                                    : 8,
+                                          ),
+                                          child: Container(
+                                            width: _kStaffColumnWidth,
+                                            height: staffHeaderHeight,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 10,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: theme.colorScheme.surface
+                                                  .withValues(alpha: 0.96),
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              border: Border.all(
+                                                color: theme.dividerColor
+                                                    .withValues(alpha: 0.2),
+                                              ),
+                                            ),
+                                            child: Text(
+                                              staff[staffIndex].fullName,
+                                              style: theme.textTheme.titleSmall,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ],
-                      ],
+                      ),
                     ),
                   ),
                 ),
@@ -1052,30 +1548,26 @@ class _WeekSchedule extends StatelessWidget {
             thumbVisibility: true,
             child: SingleChildScrollView(
               controller: verticalController,
-              child: Scrollbar(
-                controller: horizontalBodyController,
-                thumbVisibility: true,
-                child: SingleChildScrollView(
-                  controller: horizontalBodyController,
-                  scrollDirection: Axis.horizontal,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: _timeScaleExtent,
-                          margin: const EdgeInsets.only(right: 12),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: _timeScaleExtent,
+                      decoration: BoxDecoration(
+                        color: dayHeaderColor,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: theme.dividerColor.withValues(alpha: 0.35),
+                        ),
+                      ),
+                      child: SizedBox(
+                        height: gridHeight,
+                        child: Padding(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 4,
-                            vertical: 12,
-                          ),
-                          decoration: BoxDecoration(
-                            color: dayHeaderColor,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: theme.dividerColor.withValues(alpha: 0.35),
-                            ),
+                            vertical: 0,
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1096,113 +1588,182 @@ class _WeekSchedule extends StatelessWidget {
                             }),
                           ),
                         ),
-                        for (
-                          var dayIndex = 0;
-                          dayIndex < dayData.length;
-                          dayIndex++
-                        ) ...[
-                          Container(
-                            margin: EdgeInsets.only(
-                              right: dayIndex == dayData.length - 1 ? 0 : 16,
-                            ),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              color: dayBodyColor,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: theme.dividerColor.withValues(
-                                  alpha: 0.25,
-                                ),
-                              ),
-                            ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ScrollConfiguration(
+                        behavior: const _CompactMacScrollBehavior(),
+                        child: Scrollbar(
+                          controller: horizontalBodyController,
+                          thumbVisibility: true,
+                          child: SingleChildScrollView(
+                            controller: horizontalBodyController,
+                            scrollDirection: Axis.horizontal,
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 for (
-                                  var staffIndex = 0;
-                                  staffIndex < staff.length;
-                                  staffIndex++
+                                  var dayIndex = 0;
+                                  dayIndex < dayData.length;
+                                  dayIndex++
                                 ) ...[
-                                  Padding(
-                                    padding: EdgeInsets.only(
-                                      left: staffIndex == 0 ? 12 : 8,
+                                  Container(
+                                    margin: EdgeInsets.only(
                                       right:
-                                          staffIndex == staff.length - 1
-                                              ? 12
-                                              : 8,
+                                          dayIndex == dayData.length - 1
+                                              ? 0
+                                              : 16,
                                     ),
-                                    child: DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        color: theme.colorScheme.surface,
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(
-                                          color: theme.dividerColor.withValues(
-                                            alpha: 0.2,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: dayBodyColor,
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: theme.dividerColor.withValues(
+                                          alpha: 0.25,
+                                        ),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        for (
+                                          var staffIndex = 0;
+                                          staffIndex < staff.length;
+                                          staffIndex++
+                                        ) ...[
+                                          Padding(
+                                            padding: EdgeInsets.only(
+                                              left: staffIndex == 0 ? 12 : 8,
+                                              right:
+                                                  staffIndex == staff.length - 1
+                                                      ? 12
+                                                      : 8,
+                                            ),
+                                            child: SizedBox(
+                                              width: _kStaffColumnWidth,
+                                              child: DecoratedBox(
+                                                decoration: BoxDecoration(
+                                                  gradient: LinearGradient(
+                                                    colors: [
+                                                      theme.colorScheme.surface,
+                                                      theme
+                                                          .colorScheme
+                                                          .surfaceVariant
+                                                          .withValues(
+                                                            alpha: 0.42,
+                                                          ),
+                                                    ],
+                                                    begin: Alignment.topCenter,
+                                                    end: Alignment.bottomCenter,
+                                                  ),
+                                                  borderRadius:
+                                                      BorderRadius.circular(16),
+                                                  border: Border.all(
+                                                    color:
+                                                        staffColumnBorderColor,
+                                                    width: 1.05,
+                                                  ),
+                                                  boxShadow: [
+                                                    BoxShadow(
+                                                      color:
+                                                          staffColumnShadowColor,
+                                                      blurRadius: 24,
+                                                      offset: const Offset(
+                                                        0,
+                                                        12,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                child: SizedBox(
+                                                  height: gridHeight,
+                                                  child: _StaffDayColumn(
+                                                    staffMember:
+                                                        staff[staffIndex],
+                                                    appointments:
+                                                        dayData[dayIndex]
+                                                            .appointmentsByStaff[staff[staffIndex]
+                                                            .id] ??
+                                                        const [],
+                                                    lastMinutePlaceholders:
+                                                        lastMinutePlaceholders,
+                                                    lastMinuteSlots:
+                                                        lastMinuteSlots,
+                                                    onTapLastMinuteSlot:
+                                                        onTapLastMinuteSlot,
+                                                    shifts:
+                                                        dayData[dayIndex]
+                                                            .shiftsByStaff[staff[staffIndex]
+                                                            .id] ??
+                                                        const [],
+                                                    absences:
+                                                        dayData[dayIndex]
+                                                            .absencesByStaff[staff[staffIndex]
+                                                            .id] ??
+                                                        const [],
+                                                    timelineStart:
+                                                        dayData[dayIndex].date
+                                                            .add(
+                                                              Duration(
+                                                                minutes:
+                                                                    minMinute,
+                                                              ),
+                                                            ),
+                                                    timelineEnd:
+                                                        dayData[dayIndex].date
+                                                            .add(
+                                                              Duration(
+                                                                minutes:
+                                                                    maxMinute,
+                                                              ),
+                                                            ),
+                                                    slotMinutes: slotMinutes,
+                                                    slotExtent: _slotExtent,
+                                                    clientsById: clientsById,
+                                                    servicesById: servicesById,
+                                                    categoriesById:
+                                                        categoriesById,
+                                                    categoriesByName:
+                                                        categoriesByName,
+                                                    roomsById: roomsById,
+                                                    salonsById: salonsById,
+                                                    allAppointments:
+                                                        allAppointments,
+                                                    statusColor: statusColor,
+                                                    onReschedule: onReschedule,
+                                                    onEdit: onEdit,
+                                                    onCreate: onCreate,
+                                                    anomalies: anomalies,
+                                                    lockedAppointmentReasons:
+                                                        lockedAppointmentReasons,
+                                                    openStart:
+                                                        dayData[dayIndex]
+                                                            .openStart,
+                                                    openEnd:
+                                                        dayData[dayIndex]
+                                                            .openEnd,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
                                           ),
-                                        ),
-                                      ),
-                                      child: SizedBox(
-                                        width: 220,
-                                        height: gridHeight,
-                                        child: _StaffDayColumn(
-                                          staffMember: staff[staffIndex],
-                                          appointments:
-                                              dayData[dayIndex]
-                                                  .appointmentsByStaff[staff[staffIndex]
-                                                  .id] ??
-                                              const [],
-                                          lastMinutePlaceholders:
-                                              lastMinutePlaceholders,
-                                          lastMinuteSlots: lastMinuteSlots,
-                                          onTapLastMinuteSlot:
-                                              onTapLastMinuteSlot,
-                                          shifts:
-                                              dayData[dayIndex]
-                                                  .shiftsByStaff[staff[staffIndex]
-                                                  .id] ??
-                                              const [],
-                                          absences:
-                                              dayData[dayIndex]
-                                                  .absencesByStaff[staff[staffIndex]
-                                                  .id] ??
-                                              const [],
-                                          timelineStart: dayData[dayIndex].date
-                                              .add(
-                                                Duration(minutes: minMinute),
-                                              ),
-                                          timelineEnd: dayData[dayIndex].date
-                                              .add(
-                                                Duration(minutes: maxMinute),
-                                              ),
-                                          slotMinutes: slotMinutes,
-                                          slotExtent: _slotExtent,
-                                          clientsById: clientsById,
-                                          servicesById: servicesById,
-                                          roomsById: roomsById,
-                                          salonsById: salonsById,
-                                          allAppointments: allAppointments,
-                                          statusColor: statusColor,
-                                          onReschedule: onReschedule,
-                                          onEdit: onEdit,
-                                          onCreate: onCreate,
-                                          anomalies: anomalies,
-                                          lockedAppointmentReasons:
-                                              lockedAppointmentReasons,
-                                          openStart:
-                                              dayData[dayIndex].openStart,
-                                          openEnd: dayData[dayIndex].openEnd,
-                                        ),
-                                      ),
+                                        ],
+                                      ],
                                     ),
                                   ),
                                 ],
                               ],
                             ),
                           ),
-                        ],
-                      ],
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ),
@@ -1266,6 +1827,8 @@ class _StaffDayColumn extends StatefulWidget {
     required this.slotExtent,
     required this.clientsById,
     required this.servicesById,
+    required this.categoriesById,
+    required this.categoriesByName,
     required this.roomsById,
     required this.salonsById,
     required this.statusColor,
@@ -1293,6 +1856,8 @@ class _StaffDayColumn extends StatefulWidget {
   final double slotExtent;
   final Map<String, Client> clientsById;
   final Map<String, Service> servicesById;
+  final Map<String, ServiceCategory> categoriesById;
+  final Map<String, ServiceCategory> categoriesByName;
   final Map<String, String> roomsById;
   final Map<String, Salon> salonsById;
   final Color Function(AppointmentStatus status) statusColor;
@@ -1595,6 +2160,8 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                 anomalies: anomalies,
                 lockReason: null,
                 highlight: true,
+                categoriesById: widget.categoriesById,
+                categoriesByName: widget.categoriesByName,
               ),
             ),
           ),
@@ -1637,17 +2204,57 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
             isBusy
                 ? theme.colorScheme.error.withValues(alpha: 0.35)
                 : theme.colorScheme.primary.withValues(alpha: 0.25);
+        final labelTextColor =
+            isBusy
+                ? theme.colorScheme.error.withValues(alpha: 0.9)
+                : theme.colorScheme.primary.withValues(alpha: 0.85);
+        final labelBackground = theme.colorScheme.surface.withValues(
+          alpha: 0.94,
+        );
+        final slotLabel =
+            '${_timeLabel.format(hoverStart)} - ${_timeLabel.format(hoverEnd)}';
         hoverOverlay = Positioned(
           top: top,
           left: 0,
           right: 0,
-          child: Container(
-            height: widget.slotExtent,
-            decoration: BoxDecoration(
-              color: fillColor,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: outlineColor, width: 1.5),
-            ),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                height: widget.slotExtent,
+                decoration: BoxDecoration(
+                  color: fillColor,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: outlineColor, width: 1.5),
+                ),
+              ),
+              Positioned(
+                top: 6,
+                left: 6,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: labelBackground,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: outlineColor.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    child: Text(
+                      slotLabel,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: labelTextColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         );
       }
@@ -2047,6 +2654,8 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                       anomalies: issues,
                       lockReason: lockReason,
                       lastMinuteSlot: matchingSlot,
+                      categoriesById: widget.categoriesById,
+                      categoriesByName: widget.categoriesByName,
                     );
                     if (isLocked) {
                       return Positioned(
@@ -2082,6 +2691,8 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                             previewDuration: _dragPreviewDuration,
                             slotMinutes: widget.slotMinutes,
                             lastMinuteSlot: matchingSlot,
+                            categoriesById: widget.categoriesById,
+                            categoriesByName: widget.categoriesByName,
                           ),
                         ),
                         childWhenDragging: Opacity(
@@ -2098,6 +2709,8 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                             anomalies: issues,
                             lockReason: lockReason,
                             lastMinuteSlot: matchingSlot,
+                            categoriesById: widget.categoriesById,
+                            categoriesByName: widget.categoriesByName,
                           ),
                         ),
                         child: card,
@@ -2201,6 +2814,92 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
   }
 }
 
+String? _primaryCategoryLabel(List<Service> services, Service? fallback) {
+  final categories = <String>{};
+  for (final service in services) {
+    final normalized = service.category.trim();
+    if (normalized.isNotEmpty) {
+      categories.add(normalized);
+    }
+  }
+  if (fallback != null) {
+    final normalized = fallback.category.trim();
+    if (normalized.isNotEmpty) {
+      categories.add(normalized);
+    }
+  }
+  if (categories.isEmpty) {
+    if (services.length > 1) {
+      return 'Multi-servizio';
+    }
+    return null;
+  }
+  if (categories.length == 1) {
+    return categories.first;
+  }
+  return 'Multi-servizio';
+}
+
+Color? _categoryAccentColor(String? label, ThemeData theme) {
+  final normalized = label?.trim();
+  if (normalized == null || normalized.isEmpty) {
+    return null;
+  }
+  final hash = normalized.toLowerCase().hashCode & 0xFFFFFFFF;
+  final hue = (hash % 360).toDouble();
+  final saturation = theme.brightness == Brightness.dark ? 0.35 : 0.55;
+  final lightness = theme.brightness == Brightness.dark ? 0.38 : 0.72;
+  return HSLColor.fromAHSL(1, hue, saturation, lightness).toColor();
+}
+
+Color? _resolveCategoryColor(
+  List<Service> services,
+  Map<String, ServiceCategory> categoriesById,
+  Map<String, ServiceCategory> categoriesByName,
+  String? fallbackLabel,
+  ThemeData theme,
+) {
+  final ids = <String>{};
+  final names = <String>{};
+
+  for (final service in services) {
+    final categoryId = service.categoryId?.trim();
+    if (categoryId != null && categoryId.isNotEmpty) {
+      ids.add(categoryId);
+    }
+    final normalizedName = service.category.trim().toLowerCase();
+    if (normalizedName.isNotEmpty) {
+      names.add(normalizedName);
+    }
+  }
+
+  for (final id in ids) {
+    final category = categoriesById[id];
+    final colorValue = category?.color;
+    if (colorValue != null) {
+      return Color(colorValue);
+    }
+  }
+
+  for (final name in names) {
+    final category = categoriesByName[name];
+    final colorValue = category?.color;
+    if (colorValue != null) {
+      return Color(colorValue);
+    }
+  }
+
+  return _categoryAccentColor(fallbackLabel, theme);
+}
+
+Color _onColorFor(Color background, ThemeData theme) {
+  final brightness = ThemeData.estimateBrightnessForColor(background);
+  if (brightness == Brightness.dark) {
+    return Colors.white.withValues(alpha: 0.92);
+  }
+  return theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.92);
+}
+
 class _AppointmentCard extends StatelessWidget {
   const _AppointmentCard({
     required this.appointment,
@@ -2216,6 +2915,8 @@ class _AppointmentCard extends StatelessWidget {
     this.lockReason,
     this.highlight = false,
     this.lastMinuteSlot,
+    required this.categoriesById,
+    required this.categoriesByName,
   });
 
   final Appointment appointment;
@@ -2231,6 +2932,8 @@ class _AppointmentCard extends StatelessWidget {
   final String? lockReason;
   final bool highlight;
   final LastMinuteSlot? lastMinuteSlot;
+  final Map<String, ServiceCategory> categoriesById;
+  final Map<String, ServiceCategory> categoriesByName;
 
   @override
   Widget build(BuildContext context) {
@@ -2238,7 +2941,7 @@ class _AppointmentCard extends StatelessWidget {
     final status = appointment.status;
     final timeLabel =
         '${DateFormat('HH:mm').format(appointment.start)} - ${DateFormat('HH:mm').format(appointment.end)}';
-    final color = statusColor(status);
+    final statusColorValue = statusColor(status);
     final hasAnomalies = anomalies.isNotEmpty;
     final isLocked = lockReason != null;
     final servicesToDisplay =
@@ -2248,6 +2951,24 @@ class _AppointmentCard extends StatelessWidget {
             ? servicesToDisplay.map((service) => service.name).join(' + ')
             : null;
     final isLastMinute = lastMinuteSlot != null;
+    final categoryLabel = _primaryCategoryLabel(servicesToDisplay, service);
+    final categoryColor = _resolveCategoryColor(
+      servicesToDisplay,
+      categoriesById,
+      categoriesByName,
+      categoryLabel,
+      theme,
+    );
+    final baseColor = categoryColor ?? theme.colorScheme.primary;
+    final gradientStart = baseColor;
+    final gradientEnd = Colors.white.withValues(
+      alpha: theme.brightness == Brightness.dark ? 0.2 : 0.95,
+    );
+
+    final baseBorder = Color.alphaBlend(
+      baseColor.withValues(alpha: 0.35),
+      gradientEnd,
+    );
     final borderColor =
         hasAnomalies
             ? theme.colorScheme.error.withValues(alpha: 0.6)
@@ -2255,7 +2976,7 @@ class _AppointmentCard extends StatelessWidget {
             ? theme.colorScheme.outline.withValues(alpha: 0.8)
             : isLastMinute
             ? theme.colorScheme.primary.withValues(alpha: 0.45)
-            : color.withValues(alpha: 0.2);
+            : baseBorder;
     final borderWidth = hasAnomalies || isLocked ? 1.5 : 1.0;
     final anomaliesTooltip =
         hasAnomalies
@@ -2278,7 +2999,11 @@ class _AppointmentCard extends StatelessWidget {
     final card = Container(
       height: height,
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [gradientStart, gradientEnd],
+        ),
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           if (highlight)
@@ -2312,7 +3037,7 @@ class _AppointmentCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                Icon(Icons.circle, size: 8, color: color),
+                Icon(Icons.circle, size: 8, color: statusColorValue),
               ],
             );
           }
@@ -2334,7 +3059,7 @@ class _AppointmentCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    Icon(Icons.circle, size: 9, color: color),
+                    Icon(Icons.circle, size: 10, color: statusColorValue),
                   ],
                 ),
                 SizedBox(height: availableHeight < 52 ? 2 : 4),
@@ -2361,9 +3086,8 @@ class _AppointmentCard extends StatelessWidget {
               serviceLabel != null &&
               serviceLabel.isNotEmpty &&
               availableHeight >= 96;
-          final showStaff = availableHeight >= 64;
           final showRoom = roomName != null && availableHeight >= 120;
-          final hasBottomSection = showStaff || showRoom;
+          final hasBottomSection = showRoom;
 
           final children = <Widget>[
             Row(
@@ -2371,7 +3095,7 @@ class _AppointmentCard extends StatelessWidget {
                 Expanded(
                   child: Text(timeLabel, style: theme.textTheme.labelLarge),
                 ),
-                Icon(Icons.circle, size: 10, color: color),
+                Icon(Icons.circle, size: 12, color: statusColorValue),
               ],
             ),
             const SizedBox(height: 4),
@@ -2404,17 +3128,6 @@ class _AppointmentCard extends StatelessWidget {
             } else {
               children.add(SizedBox(height: availableHeight >= 76 ? 4 : 2));
             }
-          }
-
-          if (showStaff) {
-            children.add(
-              Text(
-                staff.fullName,
-                style: theme.textTheme.bodySmall,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            );
           }
 
           if (showRoom) {
@@ -2594,6 +3307,8 @@ class _DragPreviewCard extends StatelessWidget {
     this.previewDuration,
     required this.slotMinutes,
     this.lastMinuteSlot,
+    required this.categoriesById,
+    required this.categoriesByName,
   });
 
   final Appointment appointment;
@@ -2609,6 +3324,8 @@ class _DragPreviewCard extends StatelessWidget {
   final Duration? previewDuration;
   final int slotMinutes;
   final LastMinuteSlot? lastMinuteSlot;
+  final Map<String, ServiceCategory> categoriesById;
+  final Map<String, ServiceCategory> categoriesByName;
 
   @override
   Widget build(BuildContext context) {
@@ -2631,6 +3348,8 @@ class _DragPreviewCard extends StatelessWidget {
       lockReason: null,
       highlight: true,
       lastMinuteSlot: lastMinuteSlot,
+      categoriesById: categoriesById,
+      categoriesByName: categoriesByName,
     );
   }
 }

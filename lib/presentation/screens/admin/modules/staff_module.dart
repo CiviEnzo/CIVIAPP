@@ -137,11 +137,19 @@ class StaffModule extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     CircleAvatar(
-                      radius: 26,
-                      child: Text(
-                        staff.fullName.characters.firstOrNull?.toUpperCase() ??
-                            '?',
-                      ),
+                      radius: 28,
+                      backgroundImage:
+                          staff.avatarUrl != null && staff.avatarUrl!.isNotEmpty
+                              ? NetworkImage(staff.avatarUrl!)
+                              : null,
+                      child:
+                          staff.avatarUrl == null || staff.avatarUrl!.isEmpty
+                              ? Text(
+                                staff.fullName.characters.firstOrNull
+                                        ?.toUpperCase() ??
+                                    '?',
+                              )
+                              : null,
                     ),
                     const SizedBox(width: 16),
                     Expanded(

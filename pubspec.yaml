@@ -36,6 +36,7 @@ dependencies:
   http: ^1.2.2
   google_fonts: ^6.2.1
   flutter_stripe: ^10.0.0
+  image: ^4.1.7
 
 dev_dependencies:
   flutter_test:

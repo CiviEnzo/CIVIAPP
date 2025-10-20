@@ -3,6 +3,21 @@ import 'package:civiapp/domain/entities/service_category.dart';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
+const List<Color> _categoryColorOptions = <Color>[
+  Color(0xFF6750A4),
+  Color(0xFF8E24AA),
+  Color(0xFF3949AB),
+  Color(0xFF1E88E5),
+  Color(0xFF039BE5),
+  Color(0xFF00897B),
+  Color(0xFF43A047),
+  Color(0xFF7CB342),
+  Color(0xFFFF7043),
+  Color(0xFFFB8C00),
+  Color(0xFFD81B60),
+  Color(0xFF546E7A),
+];
+
 class ServiceCategoryFormSheet extends StatefulWidget {
   const ServiceCategoryFormSheet({
     super.key,
@@ -29,6 +44,7 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
   late TextEditingController _description;
   late TextEditingController _sortOrder;
   String? _salonId;
+  Color? _color;
 
   @override
   void initState() {
@@ -43,6 +59,7 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
         initial?.salonId ??
         widget.initialSalonId ??
         (widget.salons.isNotEmpty ? widget.salons.first.id : null);
+    _color = initial?.color != null ? Color(initial!.color!) : null;
   }
 
   @override
@@ -56,6 +73,7 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
   @override
   Widget build(BuildContext context) {
     final canChangeSalon = widget.initial == null && widget.salons.length > 1;
+    final theme = Theme.of(context);
     return SafeArea(
       child: SingleChildScrollView(
         padding: EdgeInsets.fromLTRB(
@@ -132,6 +150,8 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
                 ),
                 keyboardType: TextInputType.number,
               ),
+              const SizedBox(height: 12),
+              _buildColorPicker(theme),
               const SizedBox(height: 24),
               Align(
                 alignment: Alignment.centerRight,
@@ -144,6 +164,74 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildColorPicker(ThemeData theme) {
+    final selected = _color;
+    final colors = List<Color>.from(_categoryColorOptions);
+    if (selected != null &&
+        colors.every((color) => color.value != selected.value)) {
+      colors.insert(0, selected);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Colore categoria',
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children:
+              colors
+                  .map(
+                    (color) => _CategoryColorSwatch(
+                      color: color,
+                      selected: selected?.value == color.value,
+                      onTap: () => setState(() => _color = color),
+                    ),
+                  )
+                  .toList(),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: selected ?? theme.colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: theme.colorScheme.outlineVariant.withValues(
+                    alpha: 0.5,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                selected != null
+                    ? 'Selezionato ${_formatColorHex(selected)}'
+                    : 'Nessun colore selezionato',
+                style: theme.textTheme.bodyMedium,
+              ),
+            ),
+            TextButton.icon(
+              onPressed:
+                  selected == null ? null : () => setState(() => _color = null),
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Nessun colore'),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -165,9 +253,15 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
       description:
           _description.text.trim().isEmpty ? null : _description.text.trim(),
       sortOrder: _parseSortOrder(_sortOrder.text.trim()),
+      color: _color?.value,
     );
 
     Navigator.of(context).pop(category);
+  }
+
+  String _formatColorHex(Color color) {
+    final value = color.value.toRadixString(16).padLeft(8, '0').toUpperCase();
+    return '#${value.substring(2)}';
   }
 
   int _parseSortOrder(String value) {
@@ -176,5 +270,60 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
       return widget.initial?.sortOrder ?? 100;
     }
     return parsed;
+  }
+}
+
+class _CategoryColorSwatch extends StatelessWidget {
+  const _CategoryColorSwatch({
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final checkColor =
+        ThemeData.estimateBrightnessForColor(color) == Brightness.dark
+            ? Colors.white
+            : const Color(0xFF1C1B1F);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color:
+                  selected
+                      ? scheme.onSurface
+                      : scheme.outlineVariant.withValues(alpha: 0.6),
+              width: selected ? 3 : 1,
+            ),
+            boxShadow:
+                selected
+                    ? [
+                      BoxShadow(
+                        color: color.withValues(alpha: 0.35),
+                        blurRadius: 12,
+                        offset: const Offset(0, 6),
+                      ),
+                    ]
+                    : const <BoxShadow>[],
+          ),
+          child: selected ? Icon(Icons.check_rounded, color: checkColor) : null,
+        ),
+      ),
+    );
   }
 }

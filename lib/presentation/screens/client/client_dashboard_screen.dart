@@ -7198,9 +7198,8 @@ class _AppointmentCard extends ConsumerWidget {
       // is unavailable.
       return appointment.start.difference(now) <= const Duration(hours: 12);
     }
-    final elapsed = now.isAfter(createdAt)
-        ? now.difference(createdAt)
-        : Duration.zero;
+    final elapsed =
+        now.isAfter(createdAt) ? now.difference(createdAt) : Duration.zero;
     return elapsed <= const Duration(hours: 12);
   }
 

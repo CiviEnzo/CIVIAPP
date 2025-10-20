@@ -134,6 +134,13 @@ class _StepNavigationConfig {
 class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
   static const _slotIntervalMinutes = 15;
   static const String _uncategorizedCategoryId = 'uncategorized';
+  static const List<_BookingFlowStage> _flowStages = <_BookingFlowStage>[
+    _BookingFlowStage(step: _BookingStep.category, label: 'Categoria'),
+    _BookingFlowStage(step: _BookingStep.services, label: 'Servizi'),
+    _BookingFlowStage(step: _BookingStep.date, label: 'Data'),
+    _BookingFlowStage(step: _BookingStep.availability, label: 'Orario'),
+    _BookingFlowStage(step: _BookingStep.summary, label: 'Riepilogo'),
+  ];
   final _uuid = const Uuid();
   final DateFormat _dayLabel = DateFormat('EEE d MMM', 'it_IT');
   final DateFormat _timeLabel = DateFormat('HH:mm', 'it_IT');
@@ -562,15 +569,12 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          _showSuccess
-                              ? 'Prenotazione completata'
-                              : 'Prenota un appuntamento',
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
+                        if (_showSuccess) ...[
+                          const SizedBox(height: 12),
+                        ] else ...[
+                          _buildBookingFlowIndicator(theme),
+                          const SizedBox(height: 16),
+                        ],
                         Text(
                           _headlineForCurrentStep(),
                           style: theme.textTheme.titleSmall?.copyWith(
@@ -604,6 +608,151 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
           );
         },
       ),
+    );
+  }
+
+  Widget _buildBookingFlowIndicator(ThemeData theme) {
+    if (_flowStages.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final colorScheme = theme.colorScheme;
+    final primaryColor = colorScheme.primary;
+    final inactiveColor = colorScheme.onSurface.withOpacity(0.18);
+    final activeIndex = _flowStages.indexWhere(
+      (stage) => stage.step == _currentStep,
+    );
+    final clampedActiveIndex = activeIndex >= 0 ? activeIndex : 0;
+    final isSuccess = _showSuccess;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (var index = 0; index < _flowStages.length; index++)
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      height: 52,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          if (index != 0)
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: FractionallySizedBox(
+                                widthFactor: 0.5,
+                                child: Container(
+                                  height: 3,
+                                  decoration: BoxDecoration(
+                                    color:
+                                        isSuccess ||
+                                                index - 1 < clampedActiveIndex
+                                            ? primaryColor
+                                            : inactiveColor,
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          if (index != _flowStages.length - 1)
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: FractionallySizedBox(
+                                widthFactor: 0.5,
+                                child: Container(
+                                  height: 3,
+                                  decoration: BoxDecoration(
+                                    color:
+                                        isSuccess || index < clampedActiveIndex
+                                            ? primaryColor
+                                            : inactiveColor,
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          _buildFlowCircle(
+                            theme: theme,
+                            isActive: !isSuccess && index == clampedActiveIndex,
+                            isCompleted:
+                                isSuccess || index < clampedActiveIndex,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _flowStages[index].label,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontWeight:
+                            !isSuccess && index == clampedActiveIndex
+                                ? FontWeight.w700
+                                : (isSuccess || index < clampedActiveIndex)
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                        color:
+                            (!isSuccess && index == clampedActiveIndex) ||
+                                    isSuccess ||
+                                    index < clampedActiveIndex
+                                ? primaryColor
+                                : theme.colorScheme.onSurface.withOpacity(0.7),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFlowCircle({
+    required ThemeData theme,
+    required bool isActive,
+    required bool isCompleted,
+  }) {
+    final colorScheme = theme.colorScheme;
+    final primaryColor = colorScheme.primary;
+    final borderColor =
+        isCompleted || isActive
+            ? primaryColor
+            : colorScheme.onSurface.withOpacity(0.3);
+    final backgroundColor =
+        isCompleted
+            ? primaryColor
+            : isActive
+            ? primaryColor.withOpacity(0.15)
+            : colorScheme.surface;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: borderColor, width: 2),
+      ),
+      child:
+          isCompleted
+              ? Icon(Icons.check, size: 20, color: colorScheme.onPrimary)
+              : Center(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: isActive ? 12 : 8,
+                  height: isActive ? 12 : 8,
+                  decoration: BoxDecoration(
+                    color: isActive ? primaryColor : borderColor,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
     );
   }
 
@@ -732,6 +881,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     required String? staffId,
     required String label,
     required String? initials,
+    StaffMember? staffMember,
   }) {
     final isSelected =
         staffId == null
@@ -745,16 +895,10 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
               size: 18,
               color: theme.colorScheme.primary,
             )
-            : CircleAvatar(
-              radius: 14,
-              backgroundColor: theme.colorScheme.primary.withOpacity(0.12),
-              foregroundColor: theme.colorScheme.primary,
-              child: Text(
-                initials ?? '—',
-                style: theme.textTheme.labelMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+            : _staffAvatar(
+              theme: theme,
+              initials: initials,
+              staffMember: staffMember,
             );
 
     return ChoiceChip(
@@ -876,6 +1020,61 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
         .where((part) => part.isNotEmpty);
     final initials = parts.take(2).map((part) => part[0].toUpperCase()).join();
     return initials.isEmpty ? '?' : initials;
+  }
+
+  Widget _staffAvatar({
+    required ThemeData theme,
+    required String? initials,
+    StaffMember? staffMember,
+  }) {
+    final fallback = _staffInitialsAvatar(theme, initials ?? '?');
+    if (staffMember == null) {
+      return fallback;
+    }
+    final avatarUrl = staffMember.avatarUrl;
+    if (avatarUrl == null || avatarUrl.isEmpty) {
+      return fallback;
+    }
+    return CircleAvatar(
+      radius: 14,
+      backgroundColor: theme.colorScheme.primary.withOpacity(0.08),
+      child: ClipOval(
+        child: Image.network(
+          avatarUrl,
+          width: 28,
+          height: 28,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => fallback,
+        ),
+      ),
+    );
+  }
+
+  Widget _staffInitialsAvatar(ThemeData theme, String initials) {
+    return CircleAvatar(
+      radius: 14,
+      backgroundColor: theme.colorScheme.primary.withOpacity(0.12),
+      foregroundColor: theme.colorScheme.primary,
+      child: Text(
+        initials,
+        style: theme.textTheme.labelMedium?.copyWith(
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Color? _categoryCardBackground(
+    ColorScheme scheme,
+    Color? color,
+    bool selected,
+  ) {
+    if (color == null) {
+      return null;
+    }
+    final overlayOpacity = selected ? 0.22 : 0.1;
+    final overlay = color.withOpacity(overlayOpacity);
+    return Color.alphaBlend(overlay, scheme.surface);
   }
 
   _StepNavigationConfig _resolveNavigationConfig({
@@ -1216,37 +1415,74 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
                 bookingCategories.map((category) {
                   final isSelected = category.id == _selectedCategoryId;
                   final servicesCount = category.services.length;
+                  final categoryColor = category.color;
+                  final backgroundColor = _categoryCardBackground(
+                    theme.colorScheme,
+                    categoryColor,
+                    isSelected,
+                  );
                   final subtitle =
                       servicesCount > 0
                           ? '$servicesCount '
                               '${servicesCount == 1 ? 'servizio' : 'servizi'} disponibili'
                           : 'Nessun servizio disponibile';
+                  final borderColor =
+                      categoryColor != null
+                          ? (isSelected
+                              ? categoryColor
+                              : categoryColor.withOpacity(0.55))
+                          : (isSelected
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.outlineVariant);
                   final borderSide = BorderSide(
-                    color:
-                        isSelected
-                            ? theme.colorScheme.primary
-                            : theme.colorScheme.outlineVariant,
-                    width: isSelected ? 1.5 : 1,
+                    color: borderColor,
+                    width: isSelected ? 1.8 : 1,
                   );
                   return Card(
                     margin: const EdgeInsets.only(bottom: 12),
+                    color: backgroundColor,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                       side: borderSide,
                     ),
-                    elevation: isSelected ? 1 : 0,
+                    elevation: isSelected ? 2 : 0,
+                    shadowColor:
+                        categoryColor != null
+                            ? categoryColor.withOpacity(0.35)
+                            : null,
                     child: RadioListTile<String>(
                       value: category.id,
                       groupValue: _selectedCategoryId,
                       onChanged: (_) => _selectCategory(category.id),
-                      title: Text(
-                        category.label,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                      title: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (categoryColor != null)
+                            Container(
+                              width: 18,
+                              height: 18,
+                              margin: const EdgeInsets.only(right: 12),
+                              decoration: BoxDecoration(
+                                color: categoryColor,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: theme.colorScheme.onSurface
+                                      .withOpacity(0.14),
+                                ),
+                              ),
+                            ),
+                          Flexible(
+                            child: Text(
+                              category.label,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       subtitle: Text(subtitle),
-                      activeColor: theme.colorScheme.primary,
+                      activeColor: categoryColor ?? theme.colorScheme.primary,
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 12,
@@ -1512,6 +1748,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
                   staffId: member.id,
                   label: member.fullName,
                   initials: _staffInitials(member.fullName),
+                  staffMember: member,
                 ),
               ),
             ],
@@ -1825,40 +2062,10 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
           packagePurchases: packagePurchases,
         ),
         const SizedBox(height: 24),
-        if (!isExpress || needsServiceSelection)
-          OutlinedButton.icon(
-            onPressed:
-                needsServiceSelection && isExpress
-                    ? () => _goToStep(_BookingStep.services)
-                    : _startAdditionalServiceFlow,
-            icon: const Icon(Icons.add_rounded),
-            label: Text(
-              needsServiceSelection && isExpress
-                  ? 'Seleziona servizio'
-                  : 'Aggiungi un altro servizio',
-            ),
-          ),
+
         const SizedBox(height: 16),
       ],
     );
-  }
-
-  void _startAdditionalServiceFlow() {
-    setState(() {
-      final newSelection = _ServiceBookingSelection();
-      _selections = [..._selections, newSelection];
-      _activeSelectionIndex = _selections.length - 1;
-      _selectedCategoryId = null;
-      _selectedServiceId = null;
-      _selectedStaffId = null;
-      _staffFilterId = null;
-      _selectedDay = null;
-      _selectedSlotStart = null;
-      _usePackageSession = false;
-      _selectedPackageId = null;
-      _applySelectionToForm(newSelection);
-      _currentStep = _BookingStep.category;
-    });
   }
 
   Widget _buildLastMinuteExpressBanner({
@@ -2675,67 +2882,6 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     }
 
     final summaryTiles = <Widget>[];
-    if (totalDuration > Duration.zero || totalPayablePrice > 0) {
-      final hasDiscount =
-          _isLastMinuteExpress && totalBasePrice > totalPayablePrice + 0.01;
-      summaryTiles.add(
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Durata totale', style: theme.textTheme.bodyMedium),
-                      const SizedBox(height: 4),
-                      Text(
-                        _formatDuration(totalDuration),
-                        style: theme.textTheme.titleMedium,
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text('Costo stimato', style: theme.textTheme.bodyMedium),
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            totalPayablePrice > 0
-                                ? currency.format(totalPayablePrice)
-                                : '—',
-                            style: theme.textTheme.titleMedium,
-                          ),
-                          if (hasDiscount)
-                            Padding(
-                              padding: const EdgeInsets.only(left: 8),
-                              child: Text(
-                                currency.format(totalBasePrice),
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  decoration: TextDecoration.lineThrough,
-                                  color: theme.textTheme.bodyMedium?.color
-                                      ?.withOpacity(0.7),
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-      summaryTiles.add(const SizedBox(height: 12));
-    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2893,6 +3039,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
           id: category.id,
           label: category.name,
           services: matchingServices,
+          colorValue: category.color,
         ),
       );
     }
@@ -3484,16 +3631,27 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
   }
 }
 
+class _BookingFlowStage {
+  const _BookingFlowStage({required this.step, required this.label});
+
+  final _BookingStep step;
+  final String label;
+}
+
 class _BookingCategory {
   const _BookingCategory({
     required this.id,
     required this.label,
     required this.services,
+    this.colorValue,
   });
 
   final String id;
   final String label;
   final List<Service> services;
+  final int? colorValue;
+
+  Color? get color => colorValue != null ? Color(colorValue!) : null;
 }
 
 class _DaySuggestion {

@@ -11,8 +11,11 @@ class StaffMember {
     this.isActive = true,
     this.vacationAllowance = defaultVacationAllowance,
     this.permissionAllowance = defaultPermissionAllowance,
+    this.avatarUrl,
+    this.avatarStoragePath,
   }) : assert(roleIds.isNotEmpty);
 
+  static const Object _unset = Object();
   static const int defaultVacationAllowance = 26;
   static const int defaultPermissionAllowance = 12;
   static const String unknownRoleId = 'staff-role-unknown';
@@ -28,6 +31,8 @@ class StaffMember {
   final bool isActive;
   final int vacationAllowance;
   final int permissionAllowance;
+  final String? avatarUrl;
+  final String? avatarStoragePath;
 
   String get primaryRoleId =>
       roleIds.isNotEmpty ? roleIds.first : unknownRoleId;
@@ -53,6 +58,8 @@ class StaffMember {
     bool? isActive,
     int? vacationAllowance,
     int? permissionAllowance,
+    Object? avatarUrl = _unset,
+    Object? avatarStoragePath = _unset,
   }) {
     List<String> resolvedRoleIds;
     if (roleIds != null && roleIds.isNotEmpty) {
@@ -74,6 +81,11 @@ class StaffMember {
       isActive: isActive ?? this.isActive,
       vacationAllowance: vacationAllowance ?? this.vacationAllowance,
       permissionAllowance: permissionAllowance ?? this.permissionAllowance,
+      avatarUrl: avatarUrl == _unset ? this.avatarUrl : avatarUrl as String?,
+      avatarStoragePath:
+          avatarStoragePath == _unset
+              ? this.avatarStoragePath
+              : avatarStoragePath as String?,
     );
   }
 }

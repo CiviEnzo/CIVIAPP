@@ -874,6 +874,8 @@ StaffMember staffFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final permissionAllowance =
       (data['permissionAllowance'] as num?)?.toInt() ??
       StaffMember.defaultPermissionAllowance;
+  final avatarUrlRaw = (data['avatarUrl'] as String?)?.trim();
+  final avatarStoragePathRaw = (data['avatarStoragePath'] as String?)?.trim();
 
   return StaffMember(
     id: doc.id,
@@ -887,6 +889,12 @@ StaffMember staffFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     isActive: data['isActive'] as bool? ?? true,
     vacationAllowance: vacationAllowance,
     permissionAllowance: permissionAllowance,
+    avatarUrl:
+        avatarUrlRaw != null && avatarUrlRaw.isNotEmpty ? avatarUrlRaw : null,
+    avatarStoragePath:
+        avatarStoragePathRaw != null && avatarStoragePathRaw.isNotEmpty
+            ? avatarStoragePathRaw
+            : null,
   );
 }
 
@@ -906,6 +914,10 @@ Map<String, dynamic> staffToMap(StaffMember staff) {
     'isActive': staff.isActive,
     'vacationAllowance': staff.vacationAllowance,
     'permissionAllowance': staff.permissionAllowance,
+    if (staff.avatarUrl != null && staff.avatarUrl!.isNotEmpty)
+      'avatarUrl': staff.avatarUrl,
+    if (staff.avatarStoragePath != null && staff.avatarStoragePath!.isNotEmpty)
+      'avatarStoragePath': staff.avatarStoragePath,
   };
 }
 
@@ -1408,6 +1420,7 @@ ServiceCategory serviceCategoryFromDoc(
     name: data['name'] as String? ?? '',
     description: data['description'] as String?,
     sortOrder: (data['sortOrder'] as num?)?.toInt() ?? 0,
+    color: (data['color'] as num?)?.toInt(),
   );
 }
 
@@ -1419,6 +1432,9 @@ Map<String, dynamic> serviceCategoryToMap(ServiceCategory category) {
   };
   if (category.description != null) {
     map['description'] = category.description;
+  }
+  if (category.color != null) {
+    map['color'] = category.color;
   }
   return map;
 }

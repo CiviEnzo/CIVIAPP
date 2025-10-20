@@ -158,6 +158,10 @@ class _ServiceCategoryManagerSheetState
                         serviceCountByCategoryId[category.id] ?? 0;
                     return Card(
                       child: ListTile(
+                        leading:
+                            category.color != null
+                                ? _CategoryColorDot(colorValue: category.color!)
+                                : null,
                         title: Text(category.name),
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -360,5 +364,26 @@ class _ServiceCategoryManagerSheetState
         context,
       ).showSnackBar(SnackBar(content: Text(message)));
     }
+  }
+}
+
+class _CategoryColorDot extends StatelessWidget {
+  const _CategoryColorDot({required this.colorValue});
+
+  final int colorValue;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Color(colorValue);
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+      ),
+    );
   }
 }

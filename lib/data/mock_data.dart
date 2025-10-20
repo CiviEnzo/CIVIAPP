@@ -671,6 +671,8 @@ class MockData {
       dateOfBirth: DateTime(1990, 3, 14),
       vacationAllowance: 28,
       permissionAllowance: 15,
+      avatarUrl:
+          'https://images.unsplash.com/photo-1589578527966-74ee9689173f?auto=format&fit=facearea&w=160&h=160&q=80',
     ),
     StaffMember(
       id: 'staff-002',
@@ -982,24 +984,28 @@ class MockData {
       salonId: 'salon-001',
       name: 'Skincare',
       sortOrder: 10,
+      color: 0xFF8F6BFF,
     ),
     ServiceCategory(
       id: 'cat-massaggi',
       salonId: 'salon-001',
       name: 'Massaggi',
       sortOrder: 20,
+      color: 0xFF30A28A,
     ),
     ServiceCategory(
       id: 'cat-unghie',
       salonId: 'salon-001',
       name: 'Unghie',
       sortOrder: 30,
+      color: 0xFFFF7B89,
     ),
     ServiceCategory(
       id: 'cat-benessere',
       salonId: 'salon-002',
       name: 'Benessere',
       sortOrder: 10,
+      color: 0xFF4C9EE3,
     ),
   ];
 

@@ -5,6 +5,7 @@ class ServiceCategory {
     required this.name,
     this.description,
     this.sortOrder = 0,
+    this.color,
   });
 
   final String id;
@@ -12,6 +13,7 @@ class ServiceCategory {
   final String name;
   final String? description;
   final int sortOrder;
+  final int? color;
 
   ServiceCategory copyWith({
     String? id,
@@ -19,6 +21,7 @@ class ServiceCategory {
     String? name,
     String? description,
     int? sortOrder,
+    int? color,
   }) {
     return ServiceCategory(
       id: id ?? this.id,
@@ -26,6 +29,7 @@ class ServiceCategory {
       name: name ?? this.name,
       description: description ?? this.description,
       sortOrder: sortOrder ?? this.sortOrder,
+      color: color ?? this.color,
     );
   }
 }

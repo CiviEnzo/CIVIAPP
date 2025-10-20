@@ -43,6 +43,16 @@ class LastMinuteSlotImageUploadData {
   final String downloadUrl;
 }
 
+class StaffAvatarUploadData {
+  const StaffAvatarUploadData({
+    required this.storagePath,
+    required this.downloadUrl,
+  });
+
+  final String storagePath;
+  final String downloadUrl;
+}
+
 class FirebaseStorageService {
   FirebaseStorageService(this._storage);
 
@@ -232,6 +242,41 @@ class FirebaseStorageService {
     await reference.putData(data, metadata);
     final downloadUrl = await reference.getDownloadURL();
     return LastMinuteSlotImageUploadData(
+      storagePath: storagePath,
+      downloadUrl: downloadUrl,
+    );
+  }
+
+  Future<StaffAvatarUploadData> uploadStaffAvatar({
+    required String salonId,
+    required String staffId,
+    required Uint8List data,
+    String? fileName,
+    String? uploaderId,
+  }) async {
+    final extension = _resolveExtension(fileName);
+    final contentType = _contentTypeForExtension(extension);
+    final sanitizedStaffId = staffId.replaceAll(
+      RegExp(r'[^a-zA-Z0-9_-]+'),
+      '-',
+    );
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final storagePath =
+        'salon_media/$salonId/staff/$sanitizedStaffId/avatar-$timestamp.$extension';
+    final reference = _storage.ref(storagePath);
+    final metadata = SettableMetadata(
+      contentType: contentType,
+      cacheControl: 'public,max-age=86400',
+      customMetadata: {
+        'salonId': salonId,
+        'staffId': staffId,
+        if (uploaderId != null && uploaderId.isNotEmpty)
+          'uploadedBy': uploaderId,
+      },
+    );
+    await reference.putData(data, metadata);
+    final downloadUrl = await reference.getDownloadURL();
+    return StaffAvatarUploadData(
       storagePath: storagePath,
       downloadUrl: downloadUrl,
     );
