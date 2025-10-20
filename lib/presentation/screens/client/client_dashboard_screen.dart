@@ -3497,14 +3497,23 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (routeContext) {
-          return Scaffold(
-            appBar: AppBar(
-              title: const Text('Notifiche'),
-              actions: const [ThemeModeAction()],
-            ),
-            body: _buildNotificationsTab(
-              context: routeContext,
-              notifications: notifications,
+          final baseTheme = Theme.of(routeContext);
+          final themedData = ClientTheme.resolve(baseTheme);
+          return Theme(
+            data: themedData,
+            child: Builder(
+              builder: (themedContext) {
+                return Scaffold(
+                  appBar: AppBar(
+                    title: const Text('Notifiche'),
+                    actions: const [ThemeModeAction()],
+                  ),
+                  body: _buildNotificationsTab(
+                    context: themedContext,
+                    notifications: notifications,
+                  ),
+                );
+              },
             ),
           );
         },

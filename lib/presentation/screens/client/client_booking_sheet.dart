@@ -1150,7 +1150,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
 
   String _headlineForCurrentStep() {
     if (_showSuccess) {
-      return 'Prenotazione confermata';
+      return '';
     }
     switch (_currentStep) {
       case _BookingStep.category:
@@ -1384,13 +1384,6 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
                 ),
               ],
             ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          'Puoi prenotare un altro appuntamento oppure chiudere questa schermata.',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
       ],

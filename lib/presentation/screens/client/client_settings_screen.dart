@@ -333,83 +333,112 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
                         ),
                         const SizedBox(height: 16),
                         Card(
+                          elevation: 0,
+                          clipBehavior: Clip.antiAlias,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            side: BorderSide(
+                              color: theme.colorScheme.outline.withOpacity(
+                                0.15,
+                              ),
+                            ),
+                          ),
                           child: Column(
-                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  20,
-                                  24,
-                                  20,
-                                  8,
-                                ),
-                                child: Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: Text(
-                                    'Notifiche',
-                                    style: theme.textTheme.titleMedium
-                                        ?.copyWith(fontWeight: FontWeight.w600),
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.secondaryContainer,
+                                  borderRadius: const BorderRadius.vertical(
+                                    top: Radius.circular(20),
                                   ),
                                 ),
+                                padding: const EdgeInsets.fromLTRB(
+                                  20,
+                                  16,
+                                  20,
+                                  12,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            'Notifiche',
+                                            style: theme.textTheme.titleMedium
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.w600,
+                                                  color:
+                                                      theme
+                                                          .colorScheme
+                                                          .onSecondaryContainer,
+                                                ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            'Scegli quali aggiornamenti ricevere dall\'app.',
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                                  color: theme
+                                                      .colorScheme
+                                                      .onSecondaryContainer
+                                                      .withOpacity(0.85),
+                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Icon(
+                                      Icons.notifications_rounded,
+                                      color: theme
+                                          .colorScheme
+                                          .onSecondaryContainer
+                                          .withOpacity(0.9),
+                                    ),
+                                  ],
+                                ),
                               ),
-                              SwitchListTile.adaptive(
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 20,
-                                  vertical: 6,
-                                ),
-                                secondary: _SettingsIconAvatar(
-                                  icon: Icons.alarm_rounded,
-                                  color: theme.colorScheme.primary,
-                                ),
-                                title: const Text('Reminder appuntamenti'),
-                                subtitle: const Text(
-                                  'Ricevi aggiornamenti prima dei tuoi appuntamenti',
-                                ),
+                              _NotificationPreferenceTile(
+                                icon: Icons.alarm_rounded,
+                                iconColor: theme.colorScheme.primary,
+                                title: 'Reminder appuntamenti',
+                                subtitle:
+                                    'Ricevi aggiornamenti prima dei tuoi appuntamenti',
                                 value: _reminderNotificationsEnabled,
                                 onChanged:
                                     (value) => _updateNotificationPrefs(
                                       reminder: value,
                                     ),
+                                isFirst: true,
                               ),
-                              const Divider(height: 1),
-                              SwitchListTile.adaptive(
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 20,
-                                  vertical: 6,
-                                ),
-                                secondary: _SettingsIconAvatar(
-                                  icon: Icons.local_offer_rounded,
-                                  color: theme.colorScheme.primary,
-                                ),
-                                title: const Text('Promozioni'),
-                                subtitle: const Text(
-                                  'Scopri in anticipo offerte e novità',
-                                ),
+                              _NotificationPreferenceTile(
+                                icon: Icons.local_offer_rounded,
+                                iconColor: theme.colorScheme.tertiary,
+                                title: 'Promozioni',
+                                subtitle: 'Scopri in anticipo offerte e novità',
                                 value: _promotionsNotificationsEnabled,
                                 onChanged:
                                     (value) => _updateNotificationPrefs(
                                       promotions: value,
                                     ),
                               ),
-                              const Divider(height: 1),
-                              SwitchListTile.adaptive(
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 20,
-                                  vertical: 6,
-                                ),
-                                secondary: _SettingsIconAvatar(
-                                  icon: Icons.flash_on_rounded,
-                                  color: theme.colorScheme.primary,
-                                ),
-                                title: const Text('Last minute'),
-                                subtitle: const Text(
-                                  'Ricevi occasioni last minute disponibili',
-                                ),
+                              _NotificationPreferenceTile(
+                                icon: Icons.flash_on_rounded,
+                                iconColor: theme.colorScheme.secondary,
+                                title: 'Last minute',
+                                subtitle:
+                                    'Ricevi occasioni last minute disponibili',
                                 value: _lastMinuteNotificationsEnabled,
                                 onChanged:
                                     (value) => _updateNotificationPrefs(
                                       lastMinute: value,
                                     ),
+                                isLast: true,
                               ),
                             ],
                           ),
@@ -694,24 +723,123 @@ class _MissingProfileState extends StatelessWidget {
   }
 }
 
+class _NotificationPreferenceTile extends StatelessWidget {
+  const _NotificationPreferenceTile({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+    this.isFirst = false,
+    this.isLast = false,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  final bool isFirst;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final borderRadius = BorderRadius.vertical(
+      top: isFirst ? const Radius.circular(20) : Radius.zero,
+      bottom: isLast ? const Radius.circular(20) : Radius.zero,
+    );
+
+    return Column(
+      children: [
+        if (!isFirst)
+          Divider(
+            height: 1,
+            indent: 20,
+            endIndent: 20,
+            color: colorScheme.outline.withOpacity(0.12),
+          ),
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: borderRadius,
+            onTap: () => onChanged(!value),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              child: Row(
+                children: [
+                  _SettingsIconAvatar(
+                    icon: icon,
+                    color: iconColor,
+                    backgroundOpacity:
+                        theme.brightness == Brightness.dark ? 0.25 : 0.15,
+                    radius: 20,
+                    iconSize: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          title,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: colorScheme.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch.adaptive(
+                    value: value,
+                    onChanged: onChanged,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    activeColor: iconColor,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _SettingsIconAvatar extends StatelessWidget {
   const _SettingsIconAvatar({
     required this.icon,
     required this.color,
     this.backgroundOpacity = 0.14,
+    this.radius = 22,
+    this.iconSize = 24,
   });
 
   final IconData icon;
   final Color color;
   final double backgroundOpacity;
+  final double radius;
+  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
     return CircleAvatar(
-      radius: 22,
+      radius: radius,
       backgroundColor: color.withOpacity(backgroundOpacity),
       foregroundColor: color,
-      child: Icon(icon),
+      child: Icon(icon, size: iconSize),
     );
   }
 }

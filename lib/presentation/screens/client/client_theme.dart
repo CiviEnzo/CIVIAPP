@@ -6,12 +6,22 @@ class ClientTheme {
 
   static const Color _brandPrimary = Color(0xFF921625);
   static const Color _brandOnPrimary = Colors.white;
+  static const Color _brandSecondary = Color(0xFFC75057);
+  static const Color _brandTertiary = Color(0xFFEFA66E);
   static const Color _lightBackground = Color(0xFFFFFAE8);
   static const Color _lightCard = Colors.white;
   static const Color _lightOnSurface = Color(0xFF2C2A28);
+  static const Color _lightSecondaryContainer = Color(0xFFFFE6EA);
+  static const Color _lightOnSecondaryContainer = Color(0xFF5E131C);
+  static const Color _lightTertiaryContainer = Color(0xFFFFF2E9);
+  static const Color _lightOnTertiaryContainer = Color(0xFF5A2A16);
   static const Color _darkBackground = Color(0xFF0F1012);
   static const Color _darkCard = Color(0xFF1B1D21);
   static const Color _darkOnSurface = Color(0xFFE6E6EA);
+  static const Color _darkSecondaryContainer = Color(0xFF351419);
+  static const Color _darkOnSecondaryContainer = Color(0xFFFFD7DE);
+  static const Color _darkTertiaryContainer = Color(0xFF3A2318);
+  static const Color _darkOnTertiaryContainer = Color(0xFFFFE1CC);
 
   static ThemeData resolve(ThemeData base) {
     final scheme = base.colorScheme;
@@ -29,8 +39,18 @@ class ClientTheme {
     final clientScheme = scheme.copyWith(
       primary: _brandPrimary,
       onPrimary: _brandOnPrimary,
-      secondary: _brandPrimary,
+      secondary: _brandSecondary,
       onSecondary: _brandOnPrimary,
+      tertiary: _brandTertiary,
+      onTertiary: _brandOnPrimary,
+      secondaryContainer:
+          isDark ? _darkSecondaryContainer : _lightSecondaryContainer,
+      onSecondaryContainer:
+          isDark ? _darkOnSecondaryContainer : _lightOnSecondaryContainer,
+      tertiaryContainer:
+          isDark ? _darkTertiaryContainer : _lightTertiaryContainer,
+      onTertiaryContainer:
+          isDark ? _darkOnTertiaryContainer : _lightOnTertiaryContainer,
       background: background,
       surface: background,
       onSurface: onSurface,

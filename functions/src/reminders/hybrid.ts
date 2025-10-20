@@ -114,100 +114,126 @@ async function loadReminderOffsets(
     .collection('settings')
     .doc('reminders');
   const snapshot = await docRef.get();
-  const data = (snapshot.data() ?? {}) as Record<string, unknown>;
-  const offsetsRaw = Array.isArray(data.offsets) ? data.offsets : [];
+  let data = (snapshot.data() ?? {}) as Record<string, unknown>;
 
-  const sanitized: ReminderOffsetConfig[] = [];
-  const usedIds = new Set<string>();
+  function buildOffsets(
+    source: Record<string, unknown>,
+  ): ReminderOffsetConfig[] {
+    const sanitized: ReminderOffsetConfig[] = [];
+    const usedIds = new Set<string>();
 
-  function ensureUniqueId(base: string, minutes: number): string {
-    let candidate = base.length > 0 ? base : `M${minutes}`;
-    let suffix = 1;
-    while (usedIds.has(candidate)) {
-      candidate = `${base.length > 0 ? base : 'OFFSET'}_${suffix}`;
-      suffix += 1;
-    }
-    usedIds.add(candidate);
-    return candidate;
-  }
-
-  if (offsetsRaw.length > 0) {
-    for (const entry of offsetsRaw) {
-      if (!entry || typeof entry !== 'object') {
-        continue;
+    function ensureUniqueId(base: string, minutes: number): string {
+      let candidate = base.length > 0 ? base : `M${minutes}`;
+      let suffix = 1;
+      while (usedIds.has(candidate)) {
+        candidate = `${base.length > 0 ? base : 'OFFSET'}_${suffix}`;
+        suffix += 1;
       }
-      const raw = entry as Record<string, unknown>;
-      const minutes = clampMinutes(
-        typeof raw.minutesBefore === 'number'
-          ? raw.minutesBefore
-          : typeof raw.minutesBefore === 'string'
-            ? Number.parseInt(raw.minutesBefore, 10)
-            : typeof raw.minutes === 'number'
-              ? raw.minutes
-              : 0,
-      );
-      if (!minutes) {
-        continue;
-      }
-      const slug = normalizeSlug(raw.id, `M${minutes}`);
-      const id = ensureUniqueId(slug, minutes);
-      const title =
-        typeof raw.title === 'string' && raw.title.trim().length > 0
-          ? raw.title.trim()
-          : undefined;
-      const bodyTemplate =
-        typeof raw.bodyTemplate === 'string' &&
-        raw.bodyTemplate.trim().length > 0
-          ? raw.bodyTemplate.trim()
-          : undefined;
-      const active = raw.active !== false;
-      sanitized.push({
-        id,
-        minutesBefore: minutes,
-        active,
-        title,
-        bodyTemplate,
-      });
+      usedIds.add(candidate);
+      return candidate;
     }
-  }
 
-  if (!sanitized.length) {
-    const explicitMinutes = parseMinutesList(
-      data.appointmentOffsetsMinutes,
-    );
-    if (explicitMinutes.length) {
-      for (const minutes of explicitMinutes) {
-        const id = ensureUniqueId(`M${minutes}`, minutes);
+    const offsetsRaw = Array.isArray(source.offsets) ? source.offsets : [];
+    if (offsetsRaw.length > 0) {
+      for (const entry of offsetsRaw) {
+        if (!entry || typeof entry !== 'object') {
+          continue;
+        }
+        const raw = entry as Record<string, unknown>;
+        const minutes = clampMinutes(
+          typeof raw.minutesBefore === 'number'
+            ? raw.minutesBefore
+            : typeof raw.minutesBefore === 'string'
+              ? Number.parseInt(raw.minutesBefore, 10)
+              : typeof raw.minutes === 'number'
+                ? raw.minutes
+                : 0,
+        );
+        if (!minutes) {
+          continue;
+        }
+        const slug = normalizeSlug(raw.id, `M${minutes}`);
+        const id = ensureUniqueId(slug, minutes);
+        const title =
+          typeof raw.title === 'string' && raw.title.trim().length > 0
+            ? raw.title.trim()
+            : undefined;
+        const bodyTemplate =
+          typeof raw.bodyTemplate === 'string' &&
+          raw.bodyTemplate.trim().length > 0
+            ? raw.bodyTemplate.trim()
+            : undefined;
+        const active = raw.active !== false;
         sanitized.push({
           id,
           minutesBefore: minutes,
-          active: true,
+          active,
+          title,
+          bodyTemplate,
         });
       }
+    }
+
+    if (!sanitized.length) {
+      const explicitMinutes = parseMinutesList(
+        source.appointmentOffsetsMinutes,
+      );
+      if (explicitMinutes.length) {
+        for (const minutes of explicitMinutes) {
+          const id = ensureUniqueId(`M${minutes}`, minutes);
+          sanitized.push({
+            id,
+            minutesBefore: minutes,
+            active: true,
+          });
+        }
+      }
+    }
+
+    if (!sanitized.length) {
+      const legacyMinutes = [
+        source.dayBeforeEnabled !== false ? 1440 : null,
+        source.threeHoursEnabled !== false ? 180 : null,
+        source.oneHourEnabled !== false ? 60 : null,
+      ].filter((value): value is number => value !== null);
+      if (legacyMinutes.length) {
+        for (const minutes of legacyMinutes) {
+          const id = ensureUniqueId(`M${minutes}`, minutes);
+          sanitized.push({
+            id,
+            minutesBefore: clampMinutes(minutes),
+            active: true,
+          });
+        }
+      }
+    }
+
+    return sanitized;
+  }
+
+  let sanitized = buildOffsets(data);
+
+  if (!sanitized.length) {
+    const fallbackSnapshot = await db
+      .collection('reminder_settings')
+      .doc(salonId)
+      .get();
+    if (fallbackSnapshot.exists) {
+      data = (fallbackSnapshot.data() ?? {}) as Record<string, unknown>;
+      sanitized = buildOffsets(data);
     }
   }
 
   if (!sanitized.length) {
-    const legacyMinutes = [
-      data.dayBeforeEnabled !== false ? 1440 : null,
-      data.threeHoursEnabled !== false ? 180 : null,
-      data.oneHourEnabled !== false ? 60 : null,
-    ].filter((value): value is number => value !== null);
-    if (legacyMinutes.length) {
-      for (const minutes of legacyMinutes) {
-        const id = ensureUniqueId(`M${minutes}`, minutes);
-        sanitized.push({
-          id,
-          minutesBefore: clampMinutes(minutes),
-          active: true,
-        });
-      }
-    }
+    const result: ReminderOffsetConfig[] = [];
+    offsetsCache.set(salonId, {
+      value: result,
+      expiresAt: now + CACHE_TTL_MS,
+    });
+    return result;
   }
 
-  if (!sanitized.length) {
-    sanitized.push(...DEFAULT_OFFSETS);
-  } else if (sanitized.length > MAX_OFFSETS_COUNT) {
+  if (sanitized.length > MAX_OFFSETS_COUNT) {
     sanitized.length = MAX_OFFSETS_COUNT;
   }
 
