@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/domain/entities/promotion.dart';
 import 'package:civiapp/domain/entities/salon.dart';
+import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -851,10 +852,10 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
   }
 
   Future<void> _showAddSectionPicker() async {
-    final selected = await showModalBottomSheet<PromotionSectionType>(
+    final selected = await showAppModalSheet<PromotionSectionType>(
       context: context,
       builder:
-          (context) => SafeArea(
+          (ctx) => SafeArea(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -864,7 +865,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
                   subtitle: const Text('Per paragrafi e descrizioni'),
                   onTap:
                       () =>
-                          Navigator.of(context).pop(PromotionSectionType.text),
+                          Navigator.of(ctx).pop(PromotionSectionType.text),
                 ),
                 ListTile(
                   leading: const Icon(Icons.image_rounded),
@@ -872,7 +873,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
                   subtitle: const Text('Per foto con didascalia'),
                   onTap:
                       () =>
-                          Navigator.of(context).pop(PromotionSectionType.image),
+                          Navigator.of(ctx).pop(PromotionSectionType.image),
                 ),
                 const SizedBox(height: 8),
               ],

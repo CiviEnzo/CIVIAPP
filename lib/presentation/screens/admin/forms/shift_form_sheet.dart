@@ -139,14 +139,26 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final dateTimeFormat = DateFormat('dd MMM yyyy HH:mm', 'it_IT');
     final dateFormat = DateFormat('dd MMM yyyy', 'it_IT');
     final timeFormat = DateFormat('HH:mm', 'it_IT');
+    final selectedSalon = widget.salons.firstWhereOrNull(
+      (salon) => salon.id == _salonId,
+    );
     final filteredStaff =
-        widget.staff
-            .where((member) => _salonId == null || member.salonId == _salonId)
-            .toList();
+        _salonId == null
+            ? const <StaffMember>[]
+            : widget.staff
+                .where((member) => member.salonId == _salonId)
+                .toList();
     final rooms = _availableRooms();
+    final hasRooms = rooms.isNotEmpty;
+    final salonLabel =
+        _salonId == null
+            ? 'Seleziona un salone dall\'appbar'
+            : selectedSalon?.name ?? 'Salone non disponibile';
+    final hasActiveSalon = selectedSalon != null;
 
     final recurrenceItems = <DropdownMenuItem<ShiftRecurrenceFrequency?>>[
       const DropdownMenuItem<ShiftRecurrenceFrequency?>(
@@ -174,30 +186,36 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              value: _salonId,
-              items:
-                  widget.salons
-                      .map(
-                        (salon) => DropdownMenuItem(
-                          value: salon.id,
-                          child: Text(salon.name),
+            InputDecorator(
+              decoration: const InputDecoration(
+                labelText: 'Salone',
+                border: OutlineInputBorder(),
+              ),
+              child: Text(
+                salonLabel,
+                style:
+                    hasActiveSalon
+                        ? null
+                        : theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.error,
                         ),
-                      )
-                      .toList(),
-              decoration: const InputDecoration(labelText: 'Salone'),
-              onChanged: (value) {
-                setState(() {
-                  _salonId = value;
-                  _staffId = null;
-                  _roomId = null;
-                  _ensureWeekdaySelection();
-                });
-              },
+              ),
             ),
+            if (!hasActiveSalon) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Seleziona un salone dall\'appbar per pianificare nuovi turni.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _staffId,
+              value:
+                  filteredStaff.any((member) => member.id == _staffId)
+                      ? _staffId
+                      : null,
               items:
                   filteredStaff
                       .map(
@@ -210,26 +228,33 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
               decoration: const InputDecoration(labelText: 'Operatore'),
               validator:
                   (value) => value == null ? 'Seleziona un operatore' : null,
-              onChanged: (value) => setState(() => _staffId = value),
+              onChanged:
+                  hasActiveSalon
+                      ? (value) => setState(() => _staffId = value)
+                      : null,
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: _roomId,
-              items:
-                  rooms
-                      .map(
-                        (room) => DropdownMenuItem(
-                          value: room.id,
-                          child: Text(room.name),
-                        ),
-                      )
-                      .toList(),
-              decoration: const InputDecoration(labelText: 'Cabina / stanza'),
-              validator:
-                  (value) => value == null ? 'Seleziona una stanza' : null,
-              onChanged: (value) => setState(() => _roomId = value),
-            ),
-            const SizedBox(height: 12),
+            if (hasRooms) ...[
+              DropdownButtonFormField<String?>(
+                value: rooms.any((room) => room.id == _roomId) ? _roomId : null,
+                items: [
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('Nessuna cabina'),
+                  ),
+                  ...rooms.map(
+                    (room) => DropdownMenuItem<String?>(
+                      value: room.id,
+                      child: Text(room.name),
+                    ),
+                  ),
+                ],
+                decoration: const InputDecoration(labelText: 'Cabina / stanza'),
+                onChanged: (value) => setState(() => _roomId = value),
+              ),
+              const SizedBox(height: 12),
+            ] else
+              const SizedBox(height: 12),
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Data di inizio'),
@@ -694,8 +719,8 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
     final salonId = _salonId;
     final staffId = _staffId;
     final roomId = _roomId;
-    if (salonId == null || staffId == null || roomId == null) {
-      _showError('Completa tutti i campi obbligatori.');
+    if (salonId == null || staffId == null) {
+      _showError('Completa i campi obbligatori.');
       return;
     }
 
@@ -805,7 +830,7 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
   List<Shift> _generateOccurrences({
     required String salonId,
     required String staffId,
-    required String roomId,
+    String? roomId,
     required Duration duration,
     required Duration? breakStartOffset,
     required Duration? breakEndOffset,
@@ -885,7 +910,7 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
   List<Shift> _generateWeeklyOccurrences({
     required String salonId,
     required String staffId,
-    required String roomId,
+    String? roomId,
     required Duration duration,
     required Duration? breakStartOffset,
     required Duration? breakEndOffset,
@@ -1060,15 +1085,23 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
         widget.staff
             .where((member) => _salonId == null || member.salonId == _salonId)
             .toList();
-    if (_staffId == null && filteredStaff.isNotEmpty) {
-      setState(() {
-        _staffId = filteredStaff.first.id;
-      });
-    }
     final rooms = _availableRooms();
-    if (_roomId == null && rooms.isNotEmpty) {
+    var nextStaffId = _staffId;
+    if (nextStaffId != null &&
+        filteredStaff.every((member) => member.id != nextStaffId)) {
+      nextStaffId = null;
+    }
+    if (nextStaffId == null && filteredStaff.isNotEmpty) {
+      nextStaffId = filteredStaff.first.id;
+    }
+    var nextRoomId = _roomId;
+    if (nextRoomId != null && rooms.every((room) => room.id != nextRoomId)) {
+      nextRoomId = null;
+    }
+    if (nextStaffId != _staffId || nextRoomId != _roomId) {
       setState(() {
-        _roomId = rooms.first.id;
+        _staffId = nextStaffId;
+        _roomId = nextRoomId;
       });
     }
     _ensureWeekdaySelection(rebuildIfChanged: true);

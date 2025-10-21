@@ -376,10 +376,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
                 data: item,
                 onStatusChanged:
                     (status) => _changeEquipmentStatus(item, status),
-                onRemove:
-                    _equipment.length <= 1
-                        ? null
-                        : () => _removeEquipment(item),
+                onRemove: () => _removeEquipment(item),
               ),
             ),
             const SizedBox(height: 12),
@@ -452,10 +449,8 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
             ..._rooms.map(
-              (room) => _RoomCard(
-                data: room,
-                onRemove: _rooms.length <= 1 ? null : () => _removeRoom(room),
-              ),
+              (room) =>
+                  _RoomCard(data: room, onRemove: () => _removeRoom(room)),
             ),
             const SizedBox(height: 12),
             Align(
@@ -849,11 +844,6 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
       );
     }
 
-    if (parsedRooms.isEmpty) {
-      _showError('Aggiungi almeno una cabina al salone.');
-      return;
-    }
-
     final parsedEquipment = <SalonEquipment>[];
     for (final equipment in _equipment) {
       final name = equipment.name.text.trim();
@@ -881,11 +871,6 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
                   : equipment.notes.text.trim(),
         ),
       );
-    }
-
-    if (parsedEquipment.isEmpty) {
-      _showError('Aggiungi almeno un macchinario al salone.');
-      return;
     }
 
     final schedule = <SalonDailySchedule>[];

@@ -1,4 +1,5 @@
 import 'package:civiapp/domain/entities/salon.dart';
+import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
@@ -246,110 +247,90 @@ class _SalonOperationsSheetState extends State<SalonOperationsSheet> {
     final theme = Theme.of(context);
     final bodyMedium = theme.textTheme.bodyMedium;
 
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 24,
-        right: 24,
-        top: 24,
-        bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Stato operativo', style: theme.textTheme.titleLarge),
-            const SizedBox(height: 12),
+    return DialogActionLayout(
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('Stato operativo', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 12),
+          Text(
+            'Aggiorna lo stato del salone, gestisci i giorni di apertura e pianifica le chiusure straordinarie.',
+            style: bodyMedium,
+          ),
+          const SizedBox(height: 20),
+          DropdownButtonFormField<SalonStatus>(
+            value: _status,
+            decoration: const InputDecoration(labelText: 'Stato del salone'),
+            items:
+                SalonStatus.values
+                    .map(
+                      (status) => DropdownMenuItem(
+                        value: status,
+                        child: Text(status.label),
+                      ),
+                    )
+                    .toList(),
+            onChanged: (value) {
+              if (value != null) {
+                setState(() => _status = value);
+              }
+            },
+          ),
+          const SizedBox(height: 24),
+          Text('Giorni di apertura', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 12),
+          Column(
+            children:
+                _schedule
+                    .map(
+                      (entry) => _ScheduleCard(
+                        entry: entry,
+                        onChanged: (value) => _toggleScheduleEntry(entry, value),
+                        onPickOpening:
+                            () => _pickScheduleTime(entry, isOpening: true),
+                        onPickClosing:
+                            () => _pickScheduleTime(entry, isOpening: false),
+                      ),
+                    )
+                    .toList(),
+          ),
+          const SizedBox(height: 24),
+          Text('Chiusure straordinarie', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 12),
+          if (_closures.isEmpty)
             Text(
-              'Aggiorna lo stato del salone, gestisci i giorni di apertura e pianifica le chiusure straordinarie.',
+              'Nessuna chiusura programmata. Aggiungi periodi di chiusura per aggiornare automaticamente disponibilità e prenotazioni.',
               style: bodyMedium,
             ),
-            const SizedBox(height: 20),
-            DropdownButtonFormField<SalonStatus>(
-              value: _status,
-              decoration: const InputDecoration(labelText: 'Stato del salone'),
-              items:
-                  SalonStatus.values
-                      .map(
-                        (status) => DropdownMenuItem(
-                          value: status,
-                          child: Text(status.label),
-                        ),
-                      )
-                      .toList(),
-              onChanged: (value) {
-                if (value != null) {
-                  setState(() => _status = value);
-                }
-              },
+          ..._closures.map(
+            (closure) => _ClosureCard(
+              data: closure,
+              onPickRange: () => _pickClosureRange(closure),
+              onRemove: () => _removeClosure(closure),
             ),
-            const SizedBox(height: 24),
-            Text('Giorni di apertura', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 12),
-            Column(
-              children:
-                  _schedule
-                      .map(
-                        (entry) => _ScheduleCard(
-                          entry: entry,
-                          onChanged:
-                              (value) => _toggleScheduleEntry(entry, value),
-                          onPickOpening:
-                              () => _pickScheduleTime(
-                                entry,
-                                isOpening: true,
-                              ),
-                          onPickClosing:
-                              () => _pickScheduleTime(
-                                entry,
-                                isOpening: false,
-                              ),
-                        ),
-                      )
-                      .toList(),
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _addClosure,
+              icon: const Icon(Icons.event_busy_rounded),
+              label: const Text('Aggiungi chiusura'),
             ),
-            const SizedBox(height: 24),
-            Text('Chiusure straordinarie', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 12),
-            if (_closures.isEmpty)
-              Text(
-                'Nessuna chiusura programmata. Aggiungi periodi di chiusura per aggiornare automaticamente disponibilità e prenotazioni.',
-                style: bodyMedium,
-              ),
-            ..._closures.map(
-              (closure) => _ClosureCard(
-                data: closure,
-                onPickRange: () => _pickClosureRange(closure),
-                onRemove: () => _removeClosure(closure),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                onPressed: _addClosure,
-                icon: const Icon(Icons.event_busy_rounded),
-                label: const Text('Aggiungi chiusura'),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).maybePop(),
-                  child: const Text('Annulla'),
-                ),
-                const SizedBox(width: 12),
-                FilledButton(
-                  onPressed: _submit,
-                  child: const Text('Salva'),
-                ),
-              ],
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).maybePop(),
+          child: const Text('Annulla'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Salva'),
+        ),
+      ],
     );
   }
 }

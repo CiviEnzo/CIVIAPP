@@ -446,6 +446,16 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
         _dateOfBirth != null
             ? dateFormatter.format(_dateOfBirth!)
             : 'Seleziona data';
+    final lockedSalon = widget.salons.firstWhereOrNull(
+      (salon) => salon.id == _salonId,
+    );
+    final hasLockedSalon = lockedSalon != null;
+    final salonLabel =
+        hasLockedSalon
+            ? lockedSalon!.name
+            : (_salonId == null
+                ? 'Seleziona un salone dall\'appbar'
+                : 'Salone non disponibile');
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -680,6 +690,36 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
               },
             ),
             const SizedBox(height: 12),
+            if (widget.salons.isEmpty) ...[
+              Card(
+                color: theme.colorScheme.surfaceContainerHighest,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    'Seleziona un salone dall\'appbar per assegnare il membro dello staff.',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ] else ...[
+              InputDecorator(
+                decoration: const InputDecoration(
+                  labelText: 'Salone di riferimento',
+                  border: OutlineInputBorder(),
+                ),
+                child: Text(
+                  salonLabel,
+                  style:
+                      hasLockedSalon
+                          ? null
+                          : theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.error,
+                          ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             Row(
               children: [
                 Expanded(
@@ -706,27 +746,6 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
               ],
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: _salonId,
-              decoration: const InputDecoration(
-                labelText: 'Salone di riferimento',
-              ),
-              items:
-                  widget.salons
-                      .map(
-                        (salon) => DropdownMenuItem(
-                          value: salon.id,
-                          child: Text(salon.name),
-                        ),
-                      )
-                      .toList(),
-              onChanged: (value) => setState(() => _salonId = value),
-              validator:
-                  (value) =>
-                      value == null || value.isEmpty
-                          ? 'Seleziona il salone di riferimento'
-                          : null,
-            ),
             const SizedBox(height: 24),
             Align(
               alignment: Alignment.centerRight,

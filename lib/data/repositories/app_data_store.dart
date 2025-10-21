@@ -154,7 +154,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
       subscriptions.addAll(items);
     }
 
-    if (role == null || salonIds.isEmpty) {
+    if (role == null) {
       subscriptions.add(
         _listenCollection<Salon>(firestore.collection('salons'), salonFromDoc, (
           items,
@@ -203,6 +203,18 @@ class AppDataStore extends StateNotifier<AppDataState> {
           (items) => state = state.copyWith(setupProgress: items),
         ),
       );
+    } else if (salonIds.isEmpty) {
+      state = state.copyWith(
+        salons: const <Salon>[],
+        serviceCategories: const <ServiceCategory>[],
+        quotes: const <Quote>[],
+        promotions: const <Promotion>[],
+        lastMinuteSlots: const <LastMinuteSlot>[],
+        setupProgress: const <AdminSetupProgress>[],
+      );
+      _cachedPromotions = const <Promotion>[];
+      _cachedLastMinuteSlots = const <LastMinuteSlot>[];
+      _refreshFeatureFilteredCollections();
     } else {
       addAll(
         _listenDocumentsByIds<Salon>(
@@ -1604,6 +1616,8 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
     await firestore.collection('salons').doc(salon.id).set(salonToMap(salon));
     await _ensureCurrentUserLinkedToSalon(salon.id);
+    _upsertLocal(salons: <Salon>[salon]);
+    _refreshFeatureFilteredCollections();
   }
 
   Future<AdminSetupProgress> initializeSalonSetupProgress({

@@ -38,22 +38,41 @@ class StaffModule extends ConsumerWidget {
     final data = ref.watch(appDataProvider);
     final salons = data.salons;
     final staffRoles = data.staffRoles;
+    final effectiveSalonId = session.selectedSalonId ?? salonId;
+    final visibleSalons =
+        effectiveSalonId == null
+            ? salons
+            : salons.where((salon) => salon.id == effectiveSalonId).toList();
+    final primarySalon = visibleSalons.length == 1 ? visibleSalons.first : null;
     final staffMembers =
         data.staff
-            .where((member) => salonId == null || member.salonId == salonId)
+            .where(
+              (member) =>
+                  effectiveSalonId == null ||
+                  member.salonId == effectiveSalonId,
+            )
             .sortedByDisplayOrder();
     final shifts = data.shifts
-        .where((shift) => salonId == null || shift.salonId == salonId)
+        .where(
+          (shift) =>
+              effectiveSalonId == null || shift.salonId == effectiveSalonId,
+        )
         .sortedBy((shift) => shift.start);
     final absences = data.staffAbsences
-        .where((absence) => salonId == null || absence.salonId == salonId)
+        .where(
+          (absence) =>
+              effectiveSalonId == null || absence.salonId == effectiveSalonId,
+        )
         .sortedBy((absence) => absence.start);
     final now = DateTime.now();
     final canManageRoles = session.role == UserRole.admin;
     final rolesById = {for (final role in staffRoles) role.id: role};
+    final salonsById = {for (final salon in salons) salon.id: salon};
+    final canCreateStaff = primarySalon != null;
 
     final roomsBySalon = <String, Map<String, String>>{};
-    for (final salon in salons) {
+    final roomSourceSalons = effectiveSalonId == null ? salons : visibleSalons;
+    for (final salon in roomSourceSalons) {
       roomsBySalon[salon.id] = {
         for (final room in salon.rooms) room.id: room.name,
       };
@@ -76,14 +95,16 @@ class StaffModule extends ConsumerWidget {
               children: [
                 FilledButton.icon(
                   onPressed:
-                      () => _openStaffForm(
-                        context,
-                        ref,
-                        salons: salons,
-                        roles: staffRoles,
-                        defaultSalonId: salonId,
-                        defaultRoleId: staffRoles.firstOrNull?.id,
-                      ),
+                      !canCreateStaff
+                          ? null
+                          : () => _openStaffForm(
+                            context,
+                            ref,
+                            salons: [primarySalon!],
+                            roles: staffRoles,
+                            defaultSalonId: primarySalon.id,
+                            defaultRoleId: staffRoles.firstOrNull?.id,
+                          ),
                   icon: const Icon(Icons.person_add_alt_1_rounded),
                   label: const Text('Nuovo membro'),
                 ),
@@ -93,19 +114,19 @@ class StaffModule extends ConsumerWidget {
                         context,
                         ref,
                         canManageRoles: canManageRoles,
-                        salonId: salonId,
+                        salonId: primarySalon?.id ?? effectiveSalonId,
                       ),
                   icon: const Icon(Icons.tune_rounded),
                   label: const Text('Gestisci ruoli'),
                 ),
                 OutlinedButton.icon(
                   onPressed:
-                      salons.isEmpty
+                      !canCreateStaff
                           ? null
                           : () => StaffOrderSheet.show(
                             context,
-                            salons: salons,
-                            selectedSalonId: salonId,
+                            salons: [primarySalon!],
+                            selectedSalonId: primarySalon.id,
                           ),
                   icon: const Icon(Icons.sort_rounded),
                   label: const Text('Ordina staff'),
@@ -124,6 +145,12 @@ class StaffModule extends ConsumerWidget {
                 .sortedBy((shift) => shift.start)
                 .toList();
         final upcoming = futureShifts.take(6).toList();
+        final staffSalon = salonsById[staff.salonId];
+        final staffSalons = staffSalon != null ? [staffSalon] : visibleSalons;
+        final staffPeers =
+            staffMembers
+                .where((member) => member.salonId == staff.salonId)
+                .toList();
         final roomNames = roomsBySalon[staff.salonId] ?? const {};
         final allStaffAbsences =
             absencesByStaff[staff.id] ?? const <StaffAbsence>[];
@@ -240,9 +267,9 @@ class StaffModule extends ConsumerWidget {
                                           () => _openStaffForm(
                                             context,
                                             ref,
-                                            salons: salons,
+                                            salons: staffSalons,
                                             roles: staffRoles,
-                                            defaultSalonId: salonId,
+                                            defaultSalonId: staff.salonId,
                                             defaultRoleId: staff.primaryRoleId,
                                             existing: staff,
                                           ),
@@ -332,8 +359,8 @@ class StaffModule extends ConsumerWidget {
                                   () => _openShiftForm(
                                     context,
                                     ref,
-                                    salons: salons,
-                                    staff: staffMembers,
+                                    salons: staffSalons,
+                                    staff: staffPeers,
                                     defaultSalonId: staff.salonId,
                                     defaultStaffId: staff.id,
                                   ),
@@ -375,8 +402,8 @@ class StaffModule extends ConsumerWidget {
                                                 () => _openShiftForm(
                                                   context,
                                                   ref,
-                                                  salons: salons,
-                                                  staff: staffMembers,
+                                                  salons: staffSalons,
+                                                  staff: staffPeers,
                                                   initial: shift,
                                                 ),
                                             onDelete:
@@ -407,8 +434,8 @@ class StaffModule extends ConsumerWidget {
                               () => _openAbsenceForm(
                                 context,
                                 ref,
-                                salons: salons,
-                                staff: staffMembers,
+                                salons: staffSalons,
+                                staff: staffPeers,
                                 defaultSalonId: staff.salonId,
                                 defaultStaffId: staff.id,
                               ),
@@ -463,8 +490,8 @@ class StaffModule extends ConsumerWidget {
                                                 () => _openAbsenceForm(
                                                   context,
                                                   ref,
-                                                  salons: salons,
-                                                  staff: staffMembers,
+                                                  salons: staffSalons,
+                                                  staff: staffPeers,
                                                   initial: absence,
                                                 ),
                                             onDelete:
@@ -502,8 +529,8 @@ class StaffModule extends ConsumerWidget {
                                                 () => _openAbsenceForm(
                                                   context,
                                                   ref,
-                                                  salons: salons,
-                                                  staff: staffMembers,
+                                                  salons: staffSalons,
+                                                  staff: staffPeers,
                                                   initial: absence,
                                                 ),
                                             onDelete:

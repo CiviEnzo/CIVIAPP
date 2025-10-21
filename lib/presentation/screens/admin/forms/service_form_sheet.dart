@@ -2,6 +2,7 @@ import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/service_category.dart';
 import 'package:civiapp/domain/entities/staff_role.dart';
+import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
@@ -165,9 +166,8 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
     final hasRoles = sortedRoles.isNotEmpty;
     final equipmentOptions = _equipmentForSalon(_salonId);
     final categoriesForSalon = _categoriesForSalon(_salonId);
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Form(
+    return DialogActionLayout(
+      body: Form(
         key: _formKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -400,17 +400,16 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
                         )
                         .toList(),
               ),
-            const SizedBox(height: 24),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                onPressed: _submit,
-                child: const Text('Salva'),
-              ),
-            ),
+            const SizedBox(height: 16),
           ],
         ),
       ),
+      actions: [
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Salva'),
+        ),
+      ],
     );
   }
 

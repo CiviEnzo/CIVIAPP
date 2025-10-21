@@ -1,4 +1,5 @@
 import 'package:civiapp/domain/entities/salon.dart';
+import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
@@ -21,9 +22,6 @@ class _SalonRoomsSheetState extends State<SalonRoomsSheet> {
   void initState() {
     super.initState();
     _rooms = widget.initialRooms.map(_EditableRoom.fromRoom).toList();
-    if (_rooms.isEmpty) {
-      _rooms = [_EditableRoom(id: _uuid.v4())];
-    }
   }
 
   @override
@@ -41,9 +39,6 @@ class _SalonRoomsSheetState extends State<SalonRoomsSheet> {
   }
 
   void _removeRoom(_EditableRoom room) {
-    if (_rooms.length == 1) {
-      return;
-    }
     var removed = false;
     setState(() {
       removed = _rooms.remove(room);
@@ -54,7 +49,13 @@ class _SalonRoomsSheetState extends State<SalonRoomsSheet> {
   }
 
   void _submit() {
-    if (!_formKey.currentState!.validate()) {
+    final formState = _formKey.currentState;
+    if (!(formState?.validate() ?? true)) {
+      return;
+    }
+
+    if (_rooms.isEmpty) {
+      Navigator.of(context).pop(const <SalonRoom>[]);
       return;
     }
 
@@ -95,9 +96,8 @@ class _SalonRoomsSheetState extends State<SalonRoomsSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Form(
+    return DialogActionLayout(
+      body: Form(
         key: _formKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -111,31 +111,25 @@ class _SalonRoomsSheetState extends State<SalonRoomsSheet> {
                 style: theme.textTheme.bodyMedium,
               ),
             ..._rooms.map(
-              (room) => _RoomCard(
-                data: room,
-                onRemove: _rooms.length <= 1 ? null : () => _removeRoom(room),
-              ),
+              (room) =>
+                  _RoomCard(data: room, onRemove: () => _removeRoom(room)),
             ),
             const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                onPressed: _addRoom,
-                icon: const Icon(Icons.add_rounded),
-                label: const Text('Aggiungi cabina'),
-              ),
+            OutlinedButton.icon(
+              onPressed: _addRoom,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Aggiungi cabina'),
             ),
-            const SizedBox(height: 24),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                onPressed: _submit,
-                child: const Text('Salva'),
-              ),
-            ),
+            const SizedBox(height: 16),
           ],
         ),
       ),
+      actions: [
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Salva'),
+        ),
+      ],
     );
   }
 }

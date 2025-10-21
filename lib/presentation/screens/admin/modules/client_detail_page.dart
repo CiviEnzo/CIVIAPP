@@ -4020,7 +4020,7 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
             .where((channel) => effectiveAvailable.contains(channel))
             .toSet();
 
-    return showModalBottomSheet<List<MessageChannel>>(
+    return showAppModalSheet<List<MessageChannel>>(
       context: context,
       builder: (ctx) {
         final selections = Set<MessageChannel>.from(initialSelection);

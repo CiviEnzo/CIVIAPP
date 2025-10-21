@@ -1,4 +1,5 @@
 import 'package:civiapp/domain/entities/salon.dart';
+import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
@@ -22,9 +23,6 @@ class _SalonEquipmentSheetState extends State<SalonEquipmentSheet> {
     super.initState();
     _equipment =
         widget.initialEquipment.map(_EditableEquipment.fromEquipment).toList();
-    if (_equipment.isEmpty) {
-      _equipment = [_EditableEquipment(id: _uuid.v4())];
-    }
   }
 
   @override
@@ -42,9 +40,6 @@ class _SalonEquipmentSheetState extends State<SalonEquipmentSheet> {
   }
 
   void _removeEquipment(_EditableEquipment equipment) {
-    if (_equipment.length == 1) {
-      return;
-    }
     var removed = false;
     setState(() {
       removed = _equipment.remove(equipment);
@@ -55,7 +50,13 @@ class _SalonEquipmentSheetState extends State<SalonEquipmentSheet> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) {
+    final formState = _formKey.currentState;
+    if (!(formState?.validate() ?? true)) {
+      return;
+    }
+
+    if (_equipment.isEmpty) {
+      Navigator.of(context).pop(const <SalonEquipment>[]);
       return;
     }
 
@@ -87,9 +88,8 @@ class _SalonEquipmentSheetState extends State<SalonEquipmentSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Form(
+    return DialogActionLayout(
+      body: Form(
         key: _formKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -108,32 +108,25 @@ class _SalonEquipmentSheetState extends State<SalonEquipmentSheet> {
                 onStatusChanged: (value) {
                   setState(() => item.status = value);
                 },
-                onRemove:
-                    _equipment.length <= 1
-                        ? null
-                        : () => _removeEquipment(item),
+                onRemove: () => _removeEquipment(item),
               ),
             ),
             const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                onPressed: _addEquipment,
-                icon: const Icon(Icons.add_rounded),
-                label: const Text('Aggiungi macchinario'),
-              ),
+            OutlinedButton.icon(
+              onPressed: _addEquipment,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Aggiungi macchinario'),
             ),
-            const SizedBox(height: 24),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                onPressed: _submit,
-                child: const Text('Salva'),
-              ),
-            ),
+            const SizedBox(height: 16),
           ],
         ),
       ),
+      actions: [
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Salva'),
+        ),
+      ],
     );
   }
 }

@@ -53,6 +53,38 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   static final _weekStartLabel = DateFormat('dd MMM', 'it_IT');
   static final _timeLabel = DateFormat('HH:mm', 'it_IT');
   static const Uuid _uuid = Uuid();
+  static const List<ButtonSegment<_AppointmentDisplayMode>> _modeSegments =
+      <ButtonSegment<_AppointmentDisplayMode>>[
+        const ButtonSegment(
+          value: _AppointmentDisplayMode.calendar,
+          label: const Text('Calendario'),
+          icon: const Icon(Icons.calendar_month_rounded),
+        ),
+        const ButtonSegment(
+          value: _AppointmentDisplayMode.list,
+          label: const Text('Lista'),
+          icon: const Icon(Icons.view_list_rounded),
+        ),
+      ];
+  static const List<ButtonSegment<AppointmentCalendarScope>> _scopeSegments =
+      <ButtonSegment<AppointmentCalendarScope>>[
+        const ButtonSegment(
+          value: AppointmentCalendarScope.day,
+          label: const Text('Giorno'),
+          icon: const Icon(Icons.calendar_view_day_rounded),
+        ),
+        const ButtonSegment(
+          value: AppointmentCalendarScope.week,
+          label: const Text('Settimana'),
+          icon: const Icon(Icons.view_week_rounded),
+        ),
+      ];
+  static const List<ButtonSegment<int>> _slotDurationSegments =
+      <ButtonSegment<int>>[
+        const ButtonSegment<int>(value: 15, label: const Text('15 min')),
+        const ButtonSegment<int>(value: 30, label: const Text('30 min')),
+        const ButtonSegment<int>(value: 60, label: const Text('60 min')),
+      ];
 
   _AppointmentDisplayMode _mode = _AppointmentDisplayMode.calendar;
   AppointmentCalendarScope _scope = AppointmentCalendarScope.week;
@@ -133,10 +165,8 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     var selection = Set<String>.from(
       selectedStaffIds.where((id) => staff.any((member) => member.id == id)),
     );
-    final result = await showModalBottomSheet<Set<String>>(
+    final result = await showAppModalSheet<Set<String>>(
       context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
       builder: (context) {
         final theme = Theme.of(context);
         final mediaQuery = MediaQuery.of(context);
@@ -284,6 +314,181 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   ) {
     return source.firstWhereOrNull(
       (item) => item.salonId == salonId && DateUtils.isSameDay(item.date, day),
+    );
+  }
+
+  Future<void> _openAgendaVisionDialog(
+    BuildContext context, {
+    required List<StaffMember> staff,
+  }) async {
+    const compactDensity = VisualDensity(horizontal: -2, vertical: -2);
+    final segmentedStyle = ButtonStyle(
+      visualDensity: compactDensity,
+      padding: const MaterialStatePropertyAll(
+        EdgeInsets.symmetric(horizontal: 12),
+      ),
+      minimumSize: const MaterialStatePropertyAll(Size(0, 38)),
+    );
+    final tonalButtonStyle = FilledButton.styleFrom(
+      visualDensity: compactDensity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      minimumSize: const Size(0, 40),
+    );
+    final outlinedButtonStyle = OutlinedButton.styleFrom(
+      visualDensity: compactDensity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      minimumSize: const Size(0, 40),
+    );
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: 24,
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: StatefulBuilder(
+                builder: (context, setDialogState) {
+                  final staffLabel =
+                      staff.isEmpty
+                          ? null
+                          : _staffFilterLabel(staff, _selectedStaffIds);
+                  final rangeStart = _rangeStart(_anchorDate, _scope);
+                  final rangeEnd = _rangeEnd(rangeStart, _scope);
+                  final rangeLabel = _buildRangeLabel(
+                    rangeStart,
+                    rangeEnd,
+                    _scope,
+                  );
+                  final currentView =
+                      _mode == _AppointmentDisplayMode.calendar
+                          ? 'Calendario'
+                          : 'Lista';
+
+                  void refresh() {
+                    if (!mounted) return;
+                    setDialogState(() {});
+                  }
+
+                  return SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Visione agenda',
+                                style: theme.textTheme.titleMedium,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Chiudi',
+                              onPressed:
+                                  () => Navigator.of(dialogContext).pop(),
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                          ],
+                        ),
+                        Text(
+                          '$currentView - $rangeLabel',
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        SegmentedButton<_AppointmentDisplayMode>(
+                          style: segmentedStyle,
+                          segments: _modeSegments,
+                          selected: {_mode},
+                          onSelectionChanged: (selection) {
+                            final newMode = selection.first;
+                            setState(() => _mode = newMode);
+                            refresh();
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        SegmentedButton<AppointmentCalendarScope>(
+                          style: segmentedStyle,
+                          segments: _scopeSegments,
+                          selected: {_scope},
+                          onSelectionChanged: (selection) {
+                            final newScope = selection.first;
+                            _updateScope(newScope);
+                            refresh();
+                          },
+                        ),
+                        if (_mode == _AppointmentDisplayMode.calendar) ...[
+                          const SizedBox(height: 12),
+                          SegmentedButton<int>(
+                            style: segmentedStyle,
+                            segments: _slotDurationSegments,
+                            selected: {_calendarSlotMinutes},
+                            onSelectionChanged: (selection) {
+                              final minutes = selection.first;
+                              setState(() => _calendarSlotMinutes = minutes);
+                              refresh();
+                            },
+                          ),
+                        ],
+                        if (staffLabel != null) ...[
+                          const SizedBox(height: 16),
+                          OutlinedButton.icon(
+                            style: outlinedButtonStyle,
+                            onPressed: () async {
+                              await _openStaffFilterSheet(
+                                staff,
+                                _selectedStaffIds,
+                              );
+                              if (!mounted) return;
+                              refresh();
+                            },
+                            icon: const Icon(Icons.people_alt_rounded),
+                            label: Text(staffLabel),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        Wrap(
+                          alignment: WrapAlignment.center,
+                          spacing: 12,
+                          runSpacing: 8,
+                          children: [
+                            FilledButton.tonal(
+                              style: tonalButtonStyle,
+                              onPressed: () {
+                                _goToToday();
+                                refresh();
+                              },
+                              child: const Text('Oggi'),
+                            ),
+                            FilledButton.tonalIcon(
+                              style: tonalButtonStyle,
+                              onPressed: () async {
+                                await _pickDate();
+                                if (!mounted) return;
+                                refresh();
+                              },
+                              icon: const Icon(Icons.event_available_rounded),
+                              label: const Text('Vai a data'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -619,12 +824,13 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     final salons = data.salons;
     final salonsById = {for (final salon in salons) salon.id: salon};
     final clients = data.clients;
-    final staffMembers = data.staff
-        .where(
-          (member) =>
-              widget.salonId == null || member.salonId == widget.salonId,
-        )
-        .sortedBy((member) => member.fullName.toLowerCase());
+    final staffMembers =
+        data.staff
+            .where(
+              (member) =>
+                  widget.salonId == null || member.salonId == widget.salonId,
+            )
+            .sortedByDisplayOrder();
     final services = data.services;
     final selectedSalon =
         widget.salonId != null
@@ -849,7 +1055,6 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
             staff: staffMembers,
             services: services,
             rangeLabel: rangeLabel,
-            selectedStaffIds: selectedStaffIds,
             selectedSalon: selectedSalon,
           ),
         ),
@@ -965,147 +1170,73 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     required List<StaffMember> staff,
     required List<Service> services,
     required String rangeLabel,
-    required Set<String> selectedStaffIds,
     Salon? selectedSalon,
   }) {
-    final theme = Theme.of(context);
-    final scopeSegments = <ButtonSegment<AppointmentCalendarScope>>[
-      const ButtonSegment(
-        value: AppointmentCalendarScope.day,
-        label: Text('Giorno'),
-        icon: Icon(Icons.calendar_view_day_rounded),
-      ),
-      const ButtonSegment(
-        value: AppointmentCalendarScope.week,
-        label: Text('Settimana'),
-        icon: Icon(Icons.view_week_rounded),
-      ),
-    ];
-    final modeSegments = <ButtonSegment<_AppointmentDisplayMode>>[
-      const ButtonSegment(
-        value: _AppointmentDisplayMode.calendar,
-        label: Text('Calendario'),
-        icon: Icon(Icons.calendar_month_rounded),
-      ),
-      const ButtonSegment(
-        value: _AppointmentDisplayMode.list,
-        label: Text('Lista'),
-        icon: Icon(Icons.view_list_rounded),
-      ),
-    ];
-
     const compactDensity = VisualDensity(horizontal: -2, vertical: -2);
-    final segmentedStyle = ButtonStyle(
-      visualDensity: compactDensity,
-      padding: const MaterialStatePropertyAll(
-        EdgeInsets.symmetric(horizontal: 12),
-      ),
-      minimumSize: const MaterialStatePropertyAll(Size(0, 38)),
-    );
-    final filledButtonStyle = FilledButton.styleFrom(
-      visualDensity: compactDensity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      minimumSize: const Size(0, 40),
-    );
     final tonalButtonStyle = FilledButton.styleFrom(
       visualDensity: compactDensity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       minimumSize: const Size(0, 40),
     );
-    final outlinedButtonStyle = OutlinedButton.styleFrom(
-      visualDensity: compactDensity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      minimumSize: const Size(0, 40),
-    );
 
-    final staffFilterLabel = _staffFilterLabel(staff, selectedStaffIds);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 720;
+        final visionButton = FilledButton.tonalIcon(
+          style: tonalButtonStyle,
+          onPressed: () => _openAgendaVisionDialog(context, staff: staff),
+          icon: const Icon(Icons.tune_rounded),
+          label: const Text('Visione agenda'),
+        );
+        final todayButton = FilledButton.tonal(
+          style: tonalButtonStyle,
+          onPressed: _goToToday,
+          child: const Text('Oggi'),
+        );
+        final goToDateButton = FilledButton.tonalIcon(
+          style: tonalButtonStyle,
+          onPressed: () => _pickDate(),
+          icon: const Icon(Icons.event_available_rounded),
+          label: const Text('Vai a data'),
+        );
+        final rangeNavigator = _RangeNavigator(
+          label: rangeLabel,
+          onPrevious: () => _shiftAnchor(-1),
+          onNext: () => _shiftAnchor(1),
+        );
+        final centerControls = Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            FilledButton.icon(
-              style: filledButtonStyle,
-              onPressed:
-                  () => _openAppointmentForm(
-                    context,
-                    salons: salons,
-                    clients: clients,
-                    staff: staff,
-                    services: services,
-                  ),
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('Nuovo appuntamento'),
-            ),
-            SegmentedButton<_AppointmentDisplayMode>(
-              style: segmentedStyle,
-              segments: modeSegments,
-              selected: {_mode},
-              onSelectionChanged: (selection) {
-                setState(() => _mode = selection.first);
-              },
-            ),
-            SegmentedButton<AppointmentCalendarScope>(
-              style: segmentedStyle,
-              segments: scopeSegments,
-              selected: {_scope},
-              onSelectionChanged: (selection) => _updateScope(selection.first),
-            ),
-            if (_mode == _AppointmentDisplayMode.calendar)
-              SegmentedButton<int>(
-                style: segmentedStyle,
-                segments: const [
-                  ButtonSegment<int>(value: 15, label: Text('15 min')),
-                  ButtonSegment<int>(value: 30, label: Text('30 min')),
-                  ButtonSegment<int>(value: 60, label: Text('60 min')),
-                ],
-                selected: {_calendarSlotMinutes},
-                onSelectionChanged: (selection) {
-                  setState(() => _calendarSlotMinutes = selection.first);
-                },
-              ),
-            if (staff.isNotEmpty)
-              OutlinedButton.icon(
-                style: outlinedButtonStyle,
-                onPressed: () => _openStaffFilterSheet(staff, selectedStaffIds),
-                icon: const Icon(Icons.people_alt_rounded),
-                label: Text(staffFilterLabel),
-              ),
+            todayButton,
+            const SizedBox(width: 12),
+            rangeNavigator,
+            const SizedBox(width: 12),
+            goToDateButton,
           ],
-        ),
-        const SizedBox(height: 8),
-        Center(
-          child: Wrap(
-            alignment: WrapAlignment.center,
-            runAlignment: WrapAlignment.center,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 12,
-            runSpacing: 8,
+        );
+
+        if (isCompact) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              FilledButton.tonal(
-                style: tonalButtonStyle,
-                onPressed: _goToToday,
-                child: const Text('Oggi'),
-              ),
-              _RangeNavigator(
-                label: rangeLabel,
-                onPrevious: () => _shiftAnchor(-1),
-                onNext: () => _shiftAnchor(1),
-              ),
-              FilledButton.tonalIcon(
-                style: tonalButtonStyle,
-                onPressed: _pickDate,
-                icon: const Icon(Icons.event_available_rounded),
-                label: const Text('Vai a data'),
-              ),
+              visionButton,
+              const SizedBox(height: 12),
+              Center(child: centerControls),
             ],
-          ),
-        ),
-      ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            visionButton,
+            const SizedBox(width: 16),
+            Expanded(
+              child: Align(alignment: Alignment.center, child: centerControls),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -1212,7 +1343,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
             .map((entry) => entry.key)
             .toList();
 
-    final result = await showModalBottomSheet<Set<int>>(
+    final result = await showAppModalSheet<Set<int>>(
       context: context,
       builder: (context) {
         return StatefulBuilder(
@@ -1351,10 +1482,9 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         widget.salonId ??
         (salons.isNotEmpty ? salons.first.id : null);
 
-    final slotAction = await showModalBottomSheet<_SlotAction>(
+    final slotAction = await showAppModalSheet<_SlotAction>(
       context: context,
-      showDragHandle: true,
-      builder: (sheetContext) {
+      builder: (modalContext) {
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1364,13 +1494,13 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                 title: const Text('Crea appuntamento standard'),
                 onTap:
                     () =>
-                        Navigator.of(sheetContext).pop(_SlotAction.appointment),
+                        Navigator.of(modalContext).pop(_SlotAction.appointment),
               ),
               ListTile(
                 leading: const Icon(Icons.flash_on_rounded),
                 title: const Text('Crea slot express last-minute'),
                 onTap:
-                    () => Navigator.of(sheetContext).pop(_SlotAction.express),
+                    () => Navigator.of(modalContext).pop(_SlotAction.express),
               ),
               const SizedBox(height: 12),
             ],
@@ -1450,10 +1580,9 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     required List<StaffMember> staff,
     required List<Service> services,
   }) async {
-    final action = await showModalBottomSheet<String>(
+    final action = await showAppModalSheet<String>(
       context: context,
-      showDragHandle: true,
-      builder: (sheetContext) {
+      builder: (modalContext) {
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1461,12 +1590,12 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
               ListTile(
                 leading: const Icon(Icons.edit_rounded),
                 title: const Text('Modifica slot last-minute'),
-                onTap: () => Navigator.of(sheetContext).pop('edit'),
+                onTap: () => Navigator.of(modalContext).pop('edit'),
               ),
               ListTile(
                 leading: const Icon(Icons.delete_outline_rounded),
                 title: const Text('Elimina slot last-minute'),
-                onTap: () => Navigator.of(sheetContext).pop('delete'),
+                onTap: () => Navigator.of(modalContext).pop('delete'),
               ),
               const SizedBox(height: 12),
             ],
@@ -1516,9 +1645,12 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     final servicesForSalon = services
         .where((service) => service.salonId == slot.salonId && service.isActive)
         .sortedBy((service) => service.name.toLowerCase());
-    final staffForSalon = staff
-        .where((member) => member.salonId == slot.salonId && member.isActive)
-        .sortedBy((member) => member.fullName.toLowerCase());
+    final staffForSalon =
+        staff
+            .where(
+              (member) => member.salonId == slot.salonId && member.isActive,
+            )
+            .sortedByDisplayOrder();
     final rooms = salon?.rooms ?? const <SalonRoom>[];
     final data = ref.read(appDataProvider);
     final reminderSettings = data.reminderSettings.firstWhereOrNull(
@@ -1529,10 +1661,8 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         .sortedBy((client) => client.fullName.toLowerCase())
         .toList(growable: false);
 
-    final result = await showModalBottomSheet<ExpressSlotSheetResult>(
+    final result = await showAppModalSheet<ExpressSlotSheetResult>(
       context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
       builder: (sheetContext) {
         return ExpressSlotSheet(
           salonId: slot.salonId,
@@ -1653,15 +1783,16 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
           (service) => service.salonId == resolvedSalonId && service.isActive,
         )
         .sortedBy((service) => service.name.toLowerCase());
-    final staffForSalon = staff
-        .where((member) => member.salonId == resolvedSalonId && member.isActive)
-        .sortedBy((member) => member.fullName.toLowerCase());
+    final staffForSalon =
+        staff
+            .where(
+              (member) => member.salonId == resolvedSalonId && member.isActive,
+            )
+            .sortedByDisplayOrder();
     final rooms = salon?.rooms ?? const <SalonRoom>[];
 
-    final result = await showModalBottomSheet<ExpressSlotSheetResult>(
+    final result = await showAppModalSheet<ExpressSlotSheetResult>(
       context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
       builder: (sheetContext) {
         return ExpressSlotSheet(
           salonId: resolvedSalonId,

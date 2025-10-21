@@ -1,4 +1,5 @@
 import 'package:civiapp/domain/entities/salon.dart';
+import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:flutter/material.dart';
 
 class SalonSocialSheet extends StatefulWidget {
@@ -143,56 +144,41 @@ class _SalonSocialSheetState extends State<SalonSocialSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 24,
-        right: 24,
-        top: 24,
-        bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
-      ),
-      child: SingleChildScrollView(
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Presenza online e social', style: theme.textTheme.titleLarge),
-              const SizedBox(height: 12),
-              Text(
-                'Aggiungi i canali social e digitali del salone.',
-                style: theme.textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 16),
-              ..._links.map((link) => _buildCard(context, link)).toList(),
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: OutlinedButton.icon(
-                  onPressed: _addLink,
-                  icon: const Icon(Icons.add_link_rounded),
-                  label: const Text('Aggiungi canale'),
-                ),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).maybePop(),
-                    child: const Text('Annulla'),
-                  ),
-                  const SizedBox(width: 12),
-                  FilledButton(
-                    onPressed: _submit,
-                    child: const Text('Salva'),
-                  ),
-                ],
-              ),
-            ],
-          ),
+    return DialogActionLayout(
+      body: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Presenza online e social', style: theme.textTheme.titleLarge),
+            const SizedBox(height: 12),
+            Text(
+              'Aggiungi i canali social e digitali del salone.',
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            ..._links.map((link) => _buildCard(context, link)).toList(),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _addLink,
+              icon: const Icon(Icons.add_link_rounded),
+              label: const Text('Aggiungi canale'),
+            ),
+            const SizedBox(height: 16),
+          ],
         ),
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).maybePop(),
+          child: const Text('Annulla'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Salva'),
+        ),
+      ],
     );
   }
 

@@ -2478,13 +2478,19 @@ Shift shiftFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     );
   }
 
+  final rawRoomId = data['roomId'];
+  final normalizedRoomId =
+      rawRoomId is String && rawRoomId.trim().isNotEmpty
+          ? rawRoomId.trim()
+          : null;
+
   return Shift(
     id: doc.id,
     salonId: data['salonId'] as String? ?? '',
     staffId: data['staffId'] as String? ?? '',
     start: ((data['start'] as Timestamp?) ?? Timestamp.now()).toDate(),
     end: ((data['end'] as Timestamp?) ?? Timestamp.now()).toDate(),
-    roomId: data['roomId'] as String? ?? '',
+    roomId: normalizedRoomId,
     notes: data['notes'] as String?,
     breakStart: breakStartTimestamp?.toDate(),
     breakEnd: breakEndTimestamp?.toDate(),

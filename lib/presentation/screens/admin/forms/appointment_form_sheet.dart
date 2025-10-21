@@ -1419,9 +1419,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     final theme = Theme.of(context);
 
     final searchController = TextEditingController();
-    final result = await showModalBottomSheet<List<String>>(
+    final result = await showAppModalSheet<List<String>>(
       context: context,
-      isScrollControlled: true,
       builder: (context) {
         var query = '';
         var workingSelection = List<String>.from(initialSelection);

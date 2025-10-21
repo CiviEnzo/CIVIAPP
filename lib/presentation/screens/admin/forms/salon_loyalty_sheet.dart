@@ -1,5 +1,6 @@
 import 'package:civiapp/domain/entities/loyalty_settings.dart';
 import 'package:civiapp/domain/entities/salon.dart';
+import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:flutter/material.dart';
 
 class SalonLoyaltySheet extends StatefulWidget {
@@ -142,167 +143,154 @@ class _SalonLoyaltySheetState extends State<SalonLoyaltySheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 24,
-        right: 24,
-        top: 24,
-        bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text('Programma fedeltà', style: theme.textTheme.titleLarge),
-                ),
-                Switch.adaptive(
-                  value: _enabled,
-                  onChanged: (value) => setState(() => _enabled = value),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Attiva il programma punti e definisci le regole di earning e redemption.',
-              style: theme.textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 16),
-            IgnorePointer(
-              ignoring: !_enabled,
-              child: AnimatedOpacity(
-                opacity: _enabled ? 1 : 0.4,
-                duration: const Duration(milliseconds: 200),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _euroPerPoint,
-                            decoration: const InputDecoration(
-                              labelText: '€ per punto',
-                              helperText: 'Es. 10 = 1 punto ogni 10 €',
-                            ),
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+    return DialogActionLayout(
+      body: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text('Programma fedeltà', style: theme.textTheme.titleLarge),
+              ),
+              Switch.adaptive(
+                value: _enabled,
+                onChanged: (value) => setState(() => _enabled = value),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Attiva il programma punti e definisci le regole di earning e redemption.',
+            style: theme.textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 16),
+          IgnorePointer(
+            ignoring: !_enabled,
+            child: AnimatedOpacity(
+              opacity: _enabled ? 1 : 0.4,
+              duration: const Duration(milliseconds: 200),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _euroPerPoint,
+                          decoration: const InputDecoration(
+                            labelText: '€ per punto',
+                            helperText: 'Es. 10 = 1 punto ogni 10 €',
                           ),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: DropdownButtonFormField<LoyaltyRoundingMode>(
-                            value: _roundingMode,
-                            decoration: const InputDecoration(labelText: 'Arrotondamento'),
-                            items: LoyaltyRoundingMode.values
-                                .map(
-                                  (mode) => DropdownMenuItem(
-                                    value: mode,
-                                    child: Text(_roundingLabel(mode)),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (value) {
-                              if (value != null) {
-                                setState(() => _roundingMode = value);
-                              }
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _pointValueEuro,
-                            decoration: const InputDecoration(
-                              labelText: 'Valore punto (€)',
-                              helperText: 'Es. 1 = 1€ di sconto per 1 punto',
-                            ),
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextField(
-                            controller: _maxPercent,
-                            decoration: const InputDecoration(
-                              labelText: 'Max sconto (%)',
-                              helperText: 'Percentuale massima per transazione',
-                            ),
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Suggerisci automaticamente i punti da usare'),
-                      value: _autoSuggest,
-                      onChanged: (value) => setState(() => _autoSuggest = value),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _initialBalance,
-                            decoration: const InputDecoration(labelText: 'Saldo iniziale punti'),
-                            keyboardType: TextInputType.number,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextField(
-                            controller: _resetMonth,
-                            decoration: const InputDecoration(labelText: 'Mese reset (1-12)'),
-                            keyboardType: TextInputType.number,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextField(
-                            controller: _resetDay,
-                            decoration: const InputDecoration(labelText: 'Giorno reset (1-31)'),
-                            keyboardType: TextInputType.number,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _timezone,
-                      decoration: const InputDecoration(
-                        labelText: 'Timezone',
-                        helperText: 'Es. Europe/Rome',
                       ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: DropdownButtonFormField<LoyaltyRoundingMode>(
+                          value: _roundingMode,
+                          decoration: const InputDecoration(labelText: 'Arrotondamento'),
+                          items: LoyaltyRoundingMode.values
+                              .map(
+                                (mode) => DropdownMenuItem(
+                                  value: mode,
+                                  child: Text(_roundingLabel(mode)),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) {
+                            if (value != null) {
+                              setState(() => _roundingMode = value);
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _pointValueEuro,
+                          decoration: const InputDecoration(
+                            labelText: 'Valore punto (€)',
+                            helperText: 'Es. 1 = 1€ di sconto per 1 punto',
+                          ),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: _maxPercent,
+                          decoration: const InputDecoration(
+                            labelText: 'Max sconto (%)',
+                            helperText: 'Percentuale massima per transazione',
+                          ),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Suggerisci automaticamente i punti da usare'),
+                    value: _autoSuggest,
+                    onChanged: (value) => setState(() => _autoSuggest = value),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _initialBalance,
+                          decoration: const InputDecoration(labelText: 'Saldo iniziale punti'),
+                          keyboardType: TextInputType.number,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: _resetMonth,
+                          decoration: const InputDecoration(labelText: 'Mese reset (1-12)'),
+                          keyboardType: TextInputType.number,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: _resetDay,
+                          decoration: const InputDecoration(labelText: 'Giorno reset (1-31)'),
+                          keyboardType: TextInputType.number,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _timezone,
+                    decoration: const InputDecoration(
+                      labelText: 'Timezone',
+                      helperText: 'Es. Europe/Rome',
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).maybePop(),
-                  child: const Text('Annulla'),
-                ),
-                const SizedBox(width: 12),
-                FilledButton(
-                  onPressed: _submit,
-                  child: const Text('Salva'),
-                ),
-              ],
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).maybePop(),
+          child: const Text('Annulla'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Salva'),
+        ),
+      ],
     );
   }
 

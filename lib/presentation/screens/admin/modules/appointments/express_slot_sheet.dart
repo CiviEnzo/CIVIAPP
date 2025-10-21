@@ -9,6 +9,7 @@ import 'package:civiapp/domain/entities/reminder_settings.dart';
 import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/domain/entities/salon.dart';
+import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:collection/collection.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -551,10 +552,8 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
 
   Future<void> _pickRecipients() async {
     final initialSelection = Set<String>.from(_selectedClientIds);
-    final result = await showModalBottomSheet<Set<String>>(
+    final result = await showAppModalSheet<Set<String>>(
       context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
       builder: (sheetContext) {
         return _LastMinuteRecipientPicker(
           clients: widget.clients,

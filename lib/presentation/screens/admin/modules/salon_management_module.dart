@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:civiapp/app/providers.dart';
+import 'package:civiapp/data/models/app_user.dart';
 import 'package:civiapp/domain/entities/loyalty_settings.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/salon_setup_progress.dart';
+import 'package:civiapp/domain/entities/user_role.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
-import 'package:civiapp/presentation/screens/admin/forms/salon_create_essential_sheet.dart';
+import 'package:civiapp/presentation/screens/admin/forms/salon_create_essential_dialog.dart';
 import 'package:civiapp/presentation/screens/admin/forms/salon_equipment_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/salon_profile_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/salon_operations_sheet.dart';
@@ -27,6 +29,7 @@ class SalonManagementModule extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final session = ref.watch(sessionControllerProvider);
     final data = ref.watch(appDataProvider);
     final theme = Theme.of(context);
     final salons = data.salons;
@@ -51,10 +54,12 @@ class SalonManagementModule extends ConsumerWidget {
       );
     }
 
+    final currentSalonId = session.selectedSalonId;
+    final effectiveSalonId = currentSalonId ?? selectedSalonId;
     final selected =
-        selectedSalonId == null
+        effectiveSalonId == null
             ? salons
-            : salons.where((salon) => salon.id == selectedSalonId).toList();
+            : salons.where((salon) => salon.id == effectiveSalonId).toList();
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
@@ -110,11 +115,10 @@ class _SalonDashboard extends ConsumerWidget {
         );
 
     Future<void> _openChecklist() async {
-      await showModalBottomSheet<void>(
+      await showDialog<void>(
         context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
-        builder: (ctx) => SalonSetupChecklistSheet(salonId: salon.id),
+        barrierDismissible: false,
+        builder: (ctx) => SalonSetupChecklistDialog(salonId: salon.id),
       );
     }
 
@@ -124,10 +128,8 @@ class _SalonDashboard extends ConsumerWidget {
         salonId: salon.id,
         itemKey: SetupChecklistKeys.profile,
       );
-      final updated = await showModalBottomSheet<Salon>(
+      final updated = await showAppModalSheet<Salon>(
         context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
         builder: (ctx) => SalonProfileSheet(salon: salon),
       );
       if (updated != null) {
@@ -374,10 +376,8 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
 
     Future<void> editOperationsAsync() async {
       final store = ref.read(appDataProvider.notifier);
-      final updated = await showModalBottomSheet<Salon>(
+      final updated = await showAppModalSheet<Salon>(
         context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
         builder: (ctx) => SalonOperationsSheet(salon: salon),
       );
       if (updated == null) {
@@ -397,10 +397,8 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
 
     Future<void> editEquipmentAsync() async {
       final store = ref.read(appDataProvider.notifier);
-      final updated = await showModalBottomSheet<List<SalonEquipment>>(
+      final updated = await showAppModalSheet<List<SalonEquipment>>(
         context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
         builder:
             (ctx) => SalonEquipmentSheet(initialEquipment: salon.equipment),
       );
@@ -418,10 +416,8 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
 
     Future<void> editRoomsAsync() async {
       final store = ref.read(appDataProvider.notifier);
-      final updated = await showModalBottomSheet<List<SalonRoom>>(
+      final updated = await showAppModalSheet<List<SalonRoom>>(
         context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
         builder: (ctx) => SalonRoomsSheet(initialRooms: salon.rooms),
       );
       if (updated == null) {
@@ -438,10 +434,8 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
 
     Future<void> editSocialAsync() async {
       final store = ref.read(appDataProvider.notifier);
-      final updated = await showModalBottomSheet<Salon>(
+      final updated = await showAppModalSheet<Salon>(
         context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
         builder: (ctx) => SalonSocialSheet(salon: salon),
       );
       if (updated == null) {
@@ -457,10 +451,8 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
 
     Future<void> editLoyaltyAsync() async {
       final store = ref.read(appDataProvider.notifier);
-      final updated = await showModalBottomSheet<Salon>(
+      final updated = await showAppModalSheet<Salon>(
         context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
         builder: (ctx) => SalonLoyaltySheet(salon: salon),
       );
       if (updated == null) {
@@ -496,10 +488,8 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
 
     Future<void> showSectionsFilter() async {
       var prefsDraft = salon.dashboardSections;
-      await showModalBottomSheet<void>(
+      await showAppModalSheet<void>(
         context: context,
-        showDragHandle: true,
-        isScrollControlled: true,
         builder: (ctx) {
           return SafeArea(
             child: Padding(
@@ -1941,9 +1931,10 @@ String _loyaltyRoundingLabel(LoyaltyRoundingMode mode) {
 }
 
 Future<void> _startCreateFlow(BuildContext context, WidgetRef ref) async {
-  final created = await showAppModalSheet<Salon>(
+  final created = await showDialog<Salon>(
     context: context,
-    builder: (ctx) => const SalonCreateEssentialSheet(),
+    barrierDismissible: false,
+    builder: (ctx) => const SalonCreateEssentialDialog(),
   );
   if (created == null) {
     return;
@@ -1952,12 +1943,32 @@ Future<void> _startCreateFlow(BuildContext context, WidgetRef ref) async {
   final store = ref.read(appDataProvider.notifier);
   await store.upsertSalon(created);
   await store.initializeSalonSetupProgress(salonId: created.id);
+
+  final session = ref.read(sessionControllerProvider);
+  final currentUser = session.user;
+  if (currentUser != null &&
+      currentUser.role == UserRole.admin &&
+      !currentUser.salonIds.contains(created.id)) {
+    final updatedUser = AppUser(
+      uid: currentUser.uid,
+      role: currentUser.role,
+      salonIds: [...currentUser.salonIds, created.id],
+      staffId: currentUser.staffId,
+      clientId: currentUser.clientId,
+      displayName: currentUser.displayName,
+      email: currentUser.email,
+      availableRoles: currentUser.availableRoles,
+    );
+    ref.read(sessionControllerProvider.notifier).updateUser(updatedUser);
+  }
+
+  ref.read(sessionControllerProvider.notifier).setSalon(created.id);
+
   if (!context.mounted) return;
 
-  await showModalBottomSheet<void>(
+  await showDialog<void>(
     context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (ctx) => SalonSetupChecklistSheet(salonId: created.id),
+    barrierDismissible: false,
+    builder: (ctx) => SalonSetupChecklistDialog(salonId: created.id),
   );
 }

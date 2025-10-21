@@ -1249,7 +1249,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     required String Function(T) labelBuilder,
     String Function(T)? subtitleBuilder,
   }) {
-    return showModalBottomSheet<T>(
+    return showAppModalSheet<T>(
       context: context,
       builder: (ctx) {
         return SafeArea(

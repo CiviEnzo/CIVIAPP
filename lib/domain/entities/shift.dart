@@ -5,7 +5,7 @@ class Shift {
     required this.staffId,
     required this.start,
     required this.end,
-    required this.roomId,
+    this.roomId,
     this.notes,
     this.breakStart,
     this.breakEnd,
@@ -13,12 +13,14 @@ class Shift {
     this.recurrence,
   });
 
+  static const Object _roomIdUnset = Object();
+
   final String id;
   final String salonId;
   final String staffId;
   final DateTime start;
   final DateTime end;
-  final String roomId;
+  final String? roomId;
   final String? notes;
   final DateTime? breakStart;
   final DateTime? breakEnd;
@@ -31,7 +33,7 @@ class Shift {
     String? staffId,
     DateTime? start,
     DateTime? end,
-    String? roomId,
+    Object? roomId = _roomIdUnset,
     String? notes,
     DateTime? breakStart,
     DateTime? breakEnd,
@@ -45,7 +47,7 @@ class Shift {
       staffId: staffId ?? this.staffId,
       start: start ?? this.start,
       end: end ?? this.end,
-      roomId: roomId ?? this.roomId,
+      roomId: roomId == _roomIdUnset ? this.roomId : roomId as String?,
       notes: notes ?? this.notes,
       breakStart: clearBreak ? null : (breakStart ?? this.breakStart),
       breakEnd: clearBreak ? null : (breakEnd ?? this.breakEnd),

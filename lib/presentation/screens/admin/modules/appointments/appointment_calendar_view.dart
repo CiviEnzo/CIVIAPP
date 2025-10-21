@@ -122,7 +122,6 @@ class AppointmentCalendarView extends StatefulWidget {
     this.onRenameChecklistItem,
     this.onDeleteChecklistItem,
   });
-
   final DateTime anchorDate;
   final AppointmentCalendarScope scope;
   final List<Appointment> appointments;
@@ -174,12 +173,15 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
   final ScrollController _horizontalBodyController = ScrollController();
   final ScrollController _verticalController = ScrollController();
   bool _isSynchronizing = false;
+  late final DateTime _initialScrollDate;
+  bool _didAutoScrollToInitialDay = false;
 
   @override
   void initState() {
     super.initState();
     _horizontalHeaderController.addListener(_syncFromHeader);
     _horizontalBodyController.addListener(_syncFromBody);
+    _initialScrollDate = DateUtils.dateOnly(DateTime.now());
   }
 
   @override
@@ -308,6 +310,15 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           onToggleChecklistItem: widget.onToggleChecklistItem,
           onRenameChecklistItem: widget.onRenameChecklistItem,
           onDeleteChecklistItem: widget.onDeleteChecklistItem,
+          autoScrollTargetDate: _initialScrollDate,
+          autoScrollPending: !_didAutoScrollToInitialDay,
+          onAutoScrollComplete: () {
+            if (!_didAutoScrollToInitialDay && mounted) {
+              setState(() {
+                _didAutoScrollToInitialDay = true;
+              });
+            }
+          },
         );
     }
   }
@@ -948,6 +959,9 @@ class _WeekSchedule extends StatelessWidget {
     this.onToggleChecklistItem,
     this.onRenameChecklistItem,
     this.onDeleteChecklistItem,
+    this.autoScrollTargetDate,
+    this.autoScrollPending = false,
+    this.onAutoScrollComplete,
   });
 
   final DateTime anchorDate;
@@ -990,6 +1004,9 @@ class _WeekSchedule extends StatelessWidget {
   onRenameChecklistItem;
   final Future<void> Function(String checklistId, String itemId)?
   onDeleteChecklistItem;
+  final DateTime? autoScrollTargetDate;
+  final bool autoScrollPending;
+  final VoidCallback? onAutoScrollComplete;
 
   static const _slotExtent = _AppointmentCalendarViewState._slotExtent;
   static const _timeScaleExtent =
@@ -1240,10 +1257,37 @@ class _WeekSchedule extends StatelessWidget {
                                 Builder(
                                   builder: (context) {
                                     final data = dayData[dayIndex];
-                                    final isToday = DateUtils.isSameDay(
+                                    final normalizedDate = DateUtils.dateOnly(
                                       data.date,
+                                    );
+                                    final isToday = DateUtils.isSameDay(
+                                      normalizedDate,
                                       now,
                                     );
+                                    final shouldAutoScroll =
+                                        autoScrollPending &&
+                                        autoScrollTargetDate != null &&
+                                        DateUtils.isSameDay(
+                                          normalizedDate,
+                                          autoScrollTargetDate!,
+                                        );
+                                    if (shouldAutoScroll) {
+                                      WidgetsBinding.instance.addPostFrameCallback((
+                                        _,
+                                      ) {
+                                        onAutoScrollComplete?.call();
+                                        Scrollable.ensureVisible(
+                                          context,
+                                          alignment: 0.25,
+                                          duration: const Duration(
+                                            milliseconds: 360,
+                                          ),
+                                          curve: Curves.easeOutCubic,
+                                        ).catchError((_) {
+                                          // Ignored: the scrollable may be gone.
+                                        });
+                                      });
+                                    }
                                     final headerColor =
                                         isToday
                                             ? Color.alphaBlend(
@@ -1329,58 +1373,14 @@ class _WeekSchedule extends StatelessWidget {
                                             '$totalAppointments appuntamenti',
                                         background: theme
                                             .colorScheme
-                                            .primaryContainer
+                                            .tertiaryContainer
                                             .withValues(alpha: 0.6),
                                         foreground:
                                             theme
                                                 .colorScheme
-                                                .onPrimaryContainer,
+                                                .onTertiaryContainer,
                                       ),
                                     ];
-                                    if (scheduledStaffIds.isNotEmpty) {
-                                      summaryChips.add(
-                                        _summaryChip(
-                                          theme: theme,
-                                          icon: Icons.account_circle_rounded,
-                                          label:
-                                              '${scheduledStaffIds.length} turni operativi',
-                                          background: theme
-                                              .colorScheme
-                                              .tertiaryContainer
-                                              .withValues(alpha: 0.6),
-                                          foreground:
-                                              theme
-                                                  .colorScheme
-                                                  .onTertiaryContainer,
-                                          tooltip:
-                                              scheduledNames.isEmpty
-                                                  ? null
-                                                  : scheduledNames.join('\n'),
-                                        ),
-                                      );
-                                    }
-                                    if (absenceStaffIds.isNotEmpty) {
-                                      summaryChips.add(
-                                        _summaryChip(
-                                          theme: theme,
-                                          icon: Icons.event_busy_rounded,
-                                          label:
-                                              '${absenceStaffIds.length} assenze',
-                                          background: theme
-                                              .colorScheme
-                                              .errorContainer
-                                              .withValues(alpha: 0.72),
-                                          foreground:
-                                              theme
-                                                  .colorScheme
-                                                  .onErrorContainer,
-                                          tooltip:
-                                              absenceNames.isEmpty
-                                                  ? null
-                                                  : absenceNames.join('\n'),
-                                        ),
-                                      );
-                                    }
 
                                     return Container(
                                       margin: EdgeInsets.only(
@@ -1470,25 +1470,25 @@ class _WeekSchedule extends StatelessWidget {
                                                     ),
                                                     if (showChecklistLauncher) ...[
                                                       const SizedBox(width: 8),
-                                                    _ChecklistDialogLauncher(
-                                                      day: data.date,
-                                                      dateLabel:
-                                                          dayLabelFormat
-                                                              .format(
-                                                                data.date,
-                                                              ),
-                                                      checklist: dayChecklist,
-                                                      total: checklistTotal,
-                                                      completed:
-                                                          checklistCompleted,
-                                                      salonId:
-                                                          dayChecklist
-                                                              ?.salonId,
-                                                      onAdd:
-                                                          onAddChecklistItem,
-                                                      onToggle:
-                                                          onToggleChecklistItem,
-                                                      onRename:
+                                                      _ChecklistDialogLauncher(
+                                                        day: data.date,
+                                                        dateLabel:
+                                                            dayLabelFormat
+                                                                .format(
+                                                                  data.date,
+                                                                ),
+                                                        checklist: dayChecklist,
+                                                        total: checklistTotal,
+                                                        completed:
+                                                            checklistCompleted,
+                                                        salonId:
+                                                            dayChecklist
+                                                                ?.salonId,
+                                                        onAdd:
+                                                            onAddChecklistItem,
+                                                        onToggle:
+                                                            onToggleChecklistItem,
+                                                        onRename:
                                                             onRenameChecklistItem,
                                                         onDelete:
                                                             onDeleteChecklistItem,
@@ -2211,9 +2211,7 @@ class _ChecklistSectionState extends State<_ChecklistSection> {
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap:
-              canToggle
-                  ? () => _handleToggle(item, !item.isCompleted)
-                  : null,
+              canToggle ? () => _handleToggle(item, !item.isCompleted) : null,
           onLongPress: canRename ? () => _promptRename(item) : null,
           child: Text(
             item.label,
@@ -2488,31 +2486,30 @@ class _ChecklistDialogLauncher extends StatelessWidget {
           builder: (context, ref, _) {
             final latestChecklist = ref.watch(
               appDataProvider.select((state) {
-                return state.appointmentDayChecklists.firstWhereOrNull(
-                  (entry) {
-                    final sameDay = entry.date.year == normalizedDay.year &&
-                        entry.date.month == normalizedDay.month &&
-                        entry.date.day == normalizedDay.day;
-                    if (!sameDay) {
-                      return false;
-                    }
-                    if (expectedSalonId != null &&
-                        expectedSalonId.isNotEmpty &&
-                        entry.salonId != expectedSalonId) {
-                      return false;
-                    }
-                    return true;
-                  },
-                );
+                return state.appointmentDayChecklists.firstWhereOrNull((entry) {
+                  final sameDay =
+                      entry.date.year == normalizedDay.year &&
+                      entry.date.month == normalizedDay.month &&
+                      entry.date.day == normalizedDay.day;
+                  if (!sameDay) {
+                    return false;
+                  }
+                  if (expectedSalonId != null &&
+                      expectedSalonId.isNotEmpty &&
+                      entry.salonId != expectedSalonId) {
+                    return false;
+                  }
+                  return true;
+                });
               }),
             );
             final effectiveChecklist = latestChecklist ?? checklist;
             final currentTotal = effectiveChecklist?.items.length ?? total;
             final currentCompleted =
                 effectiveChecklist?.items
-                        .where((item) => item.isCompleted)
-                        .length ??
-                    completed;
+                    .where((item) => item.isCompleted)
+                    .length ??
+                completed;
             final currentPending = max(currentTotal - currentCompleted, 0);
             final summaryText =
                 currentTotal == 0
@@ -3912,8 +3909,7 @@ class _AppointmentCard extends StatelessWidget {
     if (needsAttention) {
       final double startAlpha =
           theme.brightness == Brightness.dark ? 0.45 : 0.25;
-      final double endAlpha =
-          theme.brightness == Brightness.dark ? 0.3 : 0.12;
+      final double endAlpha = theme.brightness == Brightness.dark ? 0.3 : 0.12;
       gradientStart = Color.alphaBlend(
         theme.colorScheme.error.withValues(alpha: startAlpha),
         gradientStart,
@@ -3931,15 +3927,19 @@ class _AppointmentCard extends StatelessWidget {
     final borderColor =
         hasAnomalies
             ? theme.colorScheme.error.withValues(
-                alpha: theme.brightness == Brightness.dark ? 0.85 : 0.75,
-              )
+              alpha: theme.brightness == Brightness.dark ? 0.85 : 0.75,
+            )
             : isLocked
             ? theme.colorScheme.outline.withValues(alpha: 0.8)
             : isLastMinute
             ? theme.colorScheme.primary.withValues(alpha: 0.45)
             : baseBorder;
     final borderWidth =
-        hasAnomalies ? 2.0 : isLocked ? 1.5 : 1.0;
+        hasAnomalies
+            ? 2.0
+            : isLocked
+            ? 1.5
+            : 1.0;
     final anomaliesTooltip =
         hasAnomalies
             ? (anomalies.toList()..sort((a, b) => a.index.compareTo(b.index)))

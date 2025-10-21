@@ -1,6 +1,8 @@
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service_category.dart';
+import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 const List<Color> _categoryColorOptions = <Color>[
@@ -43,8 +45,11 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
   late TextEditingController _name;
   late TextEditingController _description;
   late TextEditingController _sortOrder;
+  late TextEditingController _colorHex;
   String? _salonId;
   Color? _color;
+  String? _colorHexError;
+  bool _isUpdatingHexField = false;
 
   @override
   void initState() {
@@ -60,6 +65,9 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
         widget.initialSalonId ??
         (widget.salons.isNotEmpty ? widget.salons.first.id : null);
     _color = initial?.color != null ? Color(initial!.color!) : null;
+    _colorHex = TextEditingController(
+      text: _color != null ? _formatColorHex(_color!) : '',
+    );
   }
 
   @override
@@ -67,6 +75,7 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
     _name.dispose();
     _description.dispose();
     _sortOrder.dispose();
+    _colorHex.dispose();
     super.dispose();
   }
 
@@ -74,96 +83,87 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
   Widget build(BuildContext context) {
     final canChangeSalon = widget.initial == null && widget.salons.length > 1;
     final theme = Theme.of(context);
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(
-          24,
-          24,
-          24,
-          24 + MediaQuery.of(context).viewInsets.bottom,
-        ),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                widget.initial == null
-                    ? 'Nuova categoria'
-                    : 'Modifica categoria',
-                style: Theme.of(context).textTheme.titleLarge,
+    return DialogActionLayout(
+      body: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              widget.initial == null
+                  ? 'Nuova categoria'
+                  : 'Modifica categoria',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 16),
+            if (widget.salons.length > 1)
+              DropdownButtonFormField<String>(
+                value: _salonId,
+                decoration: const InputDecoration(labelText: 'Salone'),
+                items:
+                    widget.salons
+                        .map(
+                          (salon) => DropdownMenuItem(
+                            value: salon.id,
+                            child: Text(salon.name),
+                          ),
+                        )
+                        .toList(),
+                onChanged:
+                    canChangeSalon
+                        ? (value) => setState(() => _salonId = value)
+                        : null,
+              )
+            else
+              TextFormField(
+                enabled: false,
+                initialValue:
+                    widget.salons.isNotEmpty
+                        ? widget.salons.first.name
+                        : 'Nessun salone',
+                decoration: const InputDecoration(labelText: 'Salone'),
               ),
-              const SizedBox(height: 16),
-              if (widget.salons.length > 1)
-                DropdownButtonFormField<String>(
-                  value: _salonId,
-                  decoration: const InputDecoration(labelText: 'Salone'),
-                  items:
-                      widget.salons
-                          .map(
-                            (salon) => DropdownMenuItem(
-                              value: salon.id,
-                              child: Text(salon.name),
-                            ),
-                          )
-                          .toList(),
-                  onChanged:
-                      canChangeSalon
-                          ? (value) => setState(() => _salonId = value)
+            if (widget.salons.isNotEmpty) const SizedBox(height: 12),
+            TextFormField(
+              controller: _name,
+              decoration: const InputDecoration(labelText: 'Nome'),
+              validator:
+                  (value) =>
+                      value == null || value.trim().isEmpty
+                          ? 'Inserisci il nome della categoria'
                           : null,
-                )
-              else
-                TextFormField(
-                  enabled: false,
-                  initialValue:
-                      widget.salons.isNotEmpty
-                          ? widget.salons.first.name
-                          : 'Nessun salone',
-                  decoration: const InputDecoration(labelText: 'Salone'),
-                ),
-              if (widget.salons.isNotEmpty) const SizedBox(height: 12),
-              TextFormField(
-                controller: _name,
-                decoration: const InputDecoration(labelText: 'Nome'),
-                validator:
-                    (value) =>
-                        value == null || value.trim().isEmpty
-                            ? 'Inserisci il nome della categoria'
-                            : null,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _description,
+              decoration: const InputDecoration(
+                labelText: 'Descrizione (opzionale)',
               ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _description,
-                decoration: const InputDecoration(
-                  labelText: 'Descrizione (opzionale)',
-                ),
-                maxLines: 2,
+              maxLines: 2,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _sortOrder,
+              decoration: const InputDecoration(
+                labelText: 'Ordine di visualizzazione',
+                helperText:
+                    'Numeri più bassi mostrano la categoria più in alto.',
               ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _sortOrder,
-                decoration: const InputDecoration(
-                  labelText: 'Ordine di visualizzazione',
-                  helperText:
-                      'Numeri più bassi mostrano la categoria più in alto.',
-                ),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 12),
-              _buildColorPicker(theme),
-              const SizedBox(height: 24),
-              Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton(
-                  onPressed: _submit,
-                  child: const Text('Salva'),
-                ),
-              ),
-            ],
-          ),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 12),
+            _buildColorPicker(theme),
+            const SizedBox(height: 16),
+          ],
         ),
       ),
+      actions: [
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Salva'),
+        ),
+      ],
     );
   }
 
@@ -193,10 +193,25 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
                     (color) => _CategoryColorSwatch(
                       color: color,
                       selected: selected?.value == color.value,
-                      onTap: () => setState(() => _color = color),
+                      onTap: () => _handlePresetColorTap(color),
                     ),
                   )
                   .toList(),
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _colorHex,
+          decoration: InputDecoration(
+            labelText: 'Codice colore personalizzato',
+            hintText: '#RRGGBB',
+            errorText: _colorHexError,
+          ),
+          autocorrect: false,
+          textCapitalization: TextCapitalization.characters,
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'[#0-9a-fA-F]')),
+          ],
+          onChanged: _onColorHexChanged,
         ),
         const SizedBox(height: 12),
         Row(
@@ -225,7 +240,9 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
             ),
             TextButton.icon(
               onPressed:
-                  selected == null ? null : () => setState(() => _color = null),
+                  selected == null
+                      ? null
+                      : () => _setSelectedColor(null, syncHexField: true),
               icon: const Icon(Icons.refresh_rounded),
               label: const Text('Nessun colore'),
             ),
@@ -259,9 +276,74 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
     Navigator.of(context).pop(category);
   }
 
+  void _handlePresetColorTap(Color color) {
+    _setSelectedColor(color, syncHexField: true);
+  }
+
+  void _setSelectedColor(Color? color, {bool syncHexField = false}) {
+    setState(() {
+      _color = color;
+      _colorHexError = null;
+      if (syncHexField) {
+        _syncHexField(color);
+      }
+    });
+  }
+
+  void _syncHexField(Color? color) {
+    _isUpdatingHexField = true;
+    final text = color != null ? _formatColorHex(color) : '';
+    _colorHex.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    _isUpdatingHexField = false;
+  }
+
+  void _onColorHexChanged(String rawValue) {
+    if (_isUpdatingHexField) {
+      return;
+    }
+    final value = rawValue.trim();
+    if (value.isEmpty) {
+      _setSelectedColor(null);
+      return;
+    }
+
+    final parsed = _tryParseHexColor(value);
+    if (parsed != null) {
+      setState(() {
+        _color = parsed;
+        _colorHexError = null;
+        _syncHexField(parsed);
+      });
+    } else {
+      setState(() {
+        _colorHexError = 'Inserisci un colore hex valido (es. #FFAA33).';
+      });
+    }
+  }
+
   String _formatColorHex(Color color) {
     final value = color.value.toRadixString(16).padLeft(8, '0').toUpperCase();
     return '#${value.substring(2)}';
+  }
+
+  Color? _tryParseHexColor(String input) {
+    final match =
+        RegExp(r'^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$').firstMatch(input);
+    if (match == null) {
+      return null;
+    }
+    var hex = match.group(1)!;
+    if (hex.length == 3) {
+      hex = hex.split('').map((char) => '$char$char').join();
+    }
+    final value = int.tryParse(hex, radix: 16);
+    if (value == null) {
+      return null;
+    }
+    return Color(0xFF000000 | value);
   }
 
   int _parseSortOrder(String value) {

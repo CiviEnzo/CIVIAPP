@@ -5,6 +5,7 @@ import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/domain/entities/shift.dart';
+import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:civiapp/presentation/common/theme_mode_action.dart';
 import 'package:civiapp/presentation/shared/client_package_purchase.dart';
 import 'package:collection/collection.dart';
@@ -563,11 +564,10 @@ class _TodayView extends ConsumerWidget {
     BuildContext context,
     Appointment appointment,
   ) {
-    return showModalBottomSheet<void>(
+    return showAppModalSheet<void>(
       context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (context) => _AppointmentDetailSheet(appointment: appointment),
+      builder:
+          (ctx) => _AppointmentDetailSheet(appointment: appointment),
     );
   }
 }
