@@ -7,6 +7,7 @@ import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/salon_setup_progress.dart';
 import 'package:civiapp/domain/entities/user_role.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
+import 'package:civiapp/presentation/screens/admin/admin_theme.dart';
 import 'package:civiapp/presentation/screens/admin/forms/salon_create_essential_dialog.dart';
 import 'package:civiapp/presentation/screens/admin/forms/salon_equipment_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/salon_profile_sheet.dart';
@@ -32,9 +33,21 @@ class SalonManagementModule extends ConsumerWidget {
     final session = ref.watch(sessionControllerProvider);
     final data = ref.watch(appDataProvider);
     final theme = Theme.of(context);
-    final salons = data.salons;
+    final allSalons = data.salons;
+    final availableSalonIds = session.availableSalonIds.toSet();
+    final salons =
+        availableSalonIds.isEmpty
+            ? allSalons
+            : allSalons
+                .where((salon) => availableSalonIds.contains(salon.id))
+                .toList(growable: false);
 
     if (salons.isEmpty) {
+      if (session.selectedSalonId != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          ref.read(sessionControllerProvider.notifier).setSalon(null);
+        });
+      }
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -55,22 +68,69 @@ class SalonManagementModule extends ConsumerWidget {
     }
 
     final currentSalonId = session.selectedSalonId;
-    final effectiveSalonId = currentSalonId ?? selectedSalonId;
+    String? effectiveSalonId = currentSalonId ?? selectedSalonId;
+    if (effectiveSalonId != null &&
+        !salons.any((salon) => salon.id == effectiveSalonId)) {
+      effectiveSalonId = salons.first.id;
+      if (effectiveSalonId != currentSalonId) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          ref.read(sessionControllerProvider.notifier).setSalon(effectiveSalonId);
+        });
+      }
+    } else if (effectiveSalonId == null && salons.length == 1) {
+      effectiveSalonId = salons.first.id;
+      if (effectiveSalonId != currentSalonId) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          ref.read(sessionControllerProvider.notifier).setSalon(effectiveSalonId);
+        });
+      }
+    }
     final selected =
         effectiveSalonId == null
             ? salons
             : salons.where((salon) => salon.id == effectiveSalonId).toList();
 
+    Widget? salonSelector;
+    if (salons.length > 1) {
+      salonSelector = DropdownButtonHideUnderline(
+        child: DropdownButton<String?>(
+          value: effectiveSalonId,
+          hint: const Text('Tutti i saloni'),
+          items: [
+            const DropdownMenuItem<String?>(
+              value: null,
+              child: Text('Tutti i saloni'),
+            ),
+            ...salons.map(
+              (salon) => DropdownMenuItem<String?>(
+                value: salon.id,
+                child: Text(salon.name),
+              ),
+            ),
+          ],
+          onChanged: (value) {
+            ref.read(sessionControllerProvider.notifier).setSalon(value);
+          },
+        ),
+      );
+    }
+
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
       children: [
-        Align(
-          alignment: Alignment.centerLeft,
-          child: FilledButton.icon(
-            onPressed: () => _startCreateFlow(context, ref),
-            icon: const Icon(Icons.add_business_rounded),
-            label: const Text('Nuovo salone'),
-          ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            FilledButton.icon(
+              onPressed: () => _startCreateFlow(context, ref),
+              icon: const Icon(Icons.add_business_rounded),
+              label: const Text('Nuovo salone'),
+            ),
+            if (salonSelector != null) ...[
+              const Spacer(),
+              Flexible(child: Align(alignment: Alignment.centerRight, child: salonSelector)),
+            ],
+          ],
         ),
         const SizedBox(height: 24),
         for (final salon in selected) ...[
@@ -353,6 +413,7 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final adminTheme = AdminTheme.of(context);
     final textTheme = theme.textTheme;
     final data = ref.watch(appDataProvider);
     final staffCount =
@@ -720,12 +781,18 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
 
     final prefs = salon.dashboardSections;
     final sectionWidgets = <Widget>[];
+    final highlightedCardColor = adminTheme.layer(2);
+    final highlightedShadowColor = adminTheme.mediumShadowColor;
+    final highlightedElevation = adminTheme.baseCardElevation + 2;
 
     if (prefs.showKpis) {
       sectionWidgets.add(
         _SectionBlock(
           title: 'KPI giornalieri',
           icon: Icons.analytics_rounded,
+          backgroundColor: highlightedCardColor,
+          shadowColor: highlightedShadowColor,
+          elevation: highlightedElevation,
           children: [
             _DataRowTile(
               leadingIcon: Icons.groups_rounded,
@@ -754,6 +821,9 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
           icon: Icons.settings_input_component_rounded,
           onEdit: onEditOperations,
           editLabel: 'Gestisci operatività',
+          backgroundColor: highlightedCardColor,
+          shadowColor: highlightedShadowColor,
+          elevation: highlightedElevation,
           children: [
             _DataRowTile(
               leadingIcon: _statusIcon(salon.status),
@@ -788,6 +858,9 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
           icon: Icons.precision_manufacturing_rounded,
           onEdit: onEditEquipment,
           editLabel: 'Gestisci macchinari',
+          backgroundColor: highlightedCardColor,
+          shadowColor: highlightedShadowColor,
+          elevation: highlightedElevation,
           children: equipmentChildren,
         ),
       );
@@ -800,6 +873,9 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
           icon: Icons.meeting_room_rounded,
           onEdit: onEditRooms,
           editLabel: 'Gestisci cabine',
+          backgroundColor: highlightedCardColor,
+          shadowColor: highlightedShadowColor,
+          elevation: highlightedElevation,
           children: roomsChildren,
         ),
       );
@@ -812,6 +888,9 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
           icon: Icons.loyalty_rounded,
           onEdit: onEditLoyalty,
           editLabel: 'Configura fedeltà',
+          backgroundColor: highlightedCardColor,
+          shadowColor: highlightedShadowColor,
+          elevation: highlightedElevation,
           children: loyaltyChildren,
         ),
       );
@@ -824,6 +903,9 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
           icon: Icons.alternate_email_rounded,
           onEdit: onEditSocial,
           editLabel: 'Gestisci social',
+          backgroundColor: highlightedCardColor,
+          shadowColor: highlightedShadowColor,
+          elevation: highlightedElevation,
           children: socialChildren,
         ),
       );
@@ -966,6 +1048,9 @@ class _SectionBlock extends StatelessWidget {
     required this.children,
     this.onEdit,
     this.editLabel,
+    this.backgroundColor,
+    this.shadowColor,
+    this.elevation,
   });
 
   final String title;
@@ -973,16 +1058,20 @@ class _SectionBlock extends StatelessWidget {
   final List<Widget> children;
   final VoidCallback? onEdit;
   final String? editLabel;
+  final Color? backgroundColor;
+  final Color? shadowColor;
+  final double? elevation;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final primaryColor = theme.colorScheme.primary;
     final effectiveChildren = children.whereType<Widget>().toList();
     if (effectiveChildren.isEmpty) {
       return const SizedBox.shrink();
     }
 
-    final dividerColor = theme.dividerColor.withValues(alpha: 0.14);
+    final dividerColor = theme.dividerColor.withOpacity(0.14);
 
     final content = <Widget>[];
     for (var i = 0; i < effectiveChildren.length; i++) {
@@ -994,11 +1083,29 @@ class _SectionBlock extends StatelessWidget {
       }
     }
 
+    final hasCustomColor = backgroundColor != null;
+    final defaultShadow =
+        theme.cardTheme.shadowColor ??
+        Colors.black.withOpacity(
+          theme.brightness == Brightness.dark ? 0.4 : 0.12,
+        );
+    final borderSide = BorderSide(
+      color: theme.colorScheme.outlineVariant.withOpacity(
+        hasCustomColor ? 0.22 : 0.18,
+      ),
+      width: 1.1,
+    );
     return Card(
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      color: hasCustomColor ? backgroundColor : null,
+      elevation: elevation ?? 2,
+      shadowColor: shadowColor ?? defaultShadow,
+      surfaceTintColor: hasCustomColor ? Colors.transparent : null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: borderSide,
+      ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
         child: Column(
@@ -1007,7 +1114,7 @@ class _SectionBlock extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Icon(icon, size: 28, color: theme.colorScheme.primary),
+                Icon(icon, size: 28, color: primaryColor),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
@@ -1022,6 +1129,7 @@ class _SectionBlock extends StatelessWidget {
                 if (onEdit != null)
                   TextButton.icon(
                     onPressed: onEdit,
+                    style: TextButton.styleFrom(foregroundColor: primaryColor),
                     icon: const Icon(Icons.edit_outlined, size: 18),
                     label: Text(editLabel ?? 'Modifica'),
                   ),
@@ -1105,10 +1213,12 @@ class _InfoBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final background = theme.colorScheme.surfaceContainerHighest.withValues(
-      alpha: 0.28,
+    final adminTheme = AdminTheme.of(context);
+    final accentColor = adminTheme.colorScheme.secondary;
+    final background = accentColor.withOpacity(
+      theme.brightness == Brightness.dark ? 0.28 : 0.12,
     );
-    final borderColor = theme.dividerColor.withValues(alpha: 0.15);
+    final borderColor = accentColor.withOpacity(0.22);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -1120,13 +1230,14 @@ class _InfoBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 22, color: theme.colorScheme.primary),
+          Icon(icon, size: 22, color: accentColor),
           const SizedBox(width: 8),
           Flexible(
             child: Text(
               label,
               style: theme.textTheme.bodyLarge?.copyWith(
                 fontWeight: FontWeight.w600,
+                color: adminTheme.colorScheme.onSecondaryContainer,
               ),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,

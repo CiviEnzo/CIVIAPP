@@ -6,6 +6,7 @@ import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/domain/availability/appointment_conflicts.dart';
 import 'package:civiapp/domain/availability/equipment_availability.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
+import 'package:civiapp/domain/entities/appointment_clipboard.dart';
 import 'package:civiapp/domain/entities/cash_flow_entry.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/client_questionnaire.dart';
@@ -2490,7 +2491,7 @@ class _AppointmentsTab extends ConsumerWidget {
       final sheetServices =
           latest.services.isNotEmpty ? latest.services : services;
 
-      final result = await showAppModalSheet<Appointment>(
+      final result = await showAppModalSheet<AppointmentFormResult>(
         context: context,
         builder:
             (ctx) => AppointmentFormSheet(
@@ -2510,10 +2511,23 @@ class _AppointmentsTab extends ConsumerWidget {
       if (!context.mounted) {
         return;
       }
+      if (result.action == AppointmentFormAction.copy) {
+        ref.read(appointmentClipboardProvider.notifier).state =
+            AppointmentClipboard(
+              appointment: result.appointment,
+              copiedAt: DateTime.now(),
+            );
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Appuntamento copiato. Seleziona uno slot libero.'),
+          ),
+        );
+        return;
+      }
       await _validateAndSaveAppointment(
         context,
         ref,
-        result,
+        result.appointment,
         appointments,
         sheetServices,
         sheetSalons,

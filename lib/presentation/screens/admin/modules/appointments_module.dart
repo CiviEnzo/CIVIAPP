@@ -9,11 +9,13 @@ import 'package:civiapp/domain/entities/last_minute_notification.dart';
 import 'package:civiapp/domain/entities/last_minute_slot.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
+import 'package:civiapp/domain/entities/appointment_clipboard.dart';
 import 'package:civiapp/domain/entities/shift.dart';
 import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:civiapp/presentation/screens/admin/forms/appointment_form_sheet.dart';
+import 'package:civiapp/presentation/screens/admin/admin_theme.dart';
 import 'package:civiapp/presentation/screens/admin/modules/appointments/appointment_calendar_view.dart';
 import 'package:civiapp/presentation/screens/admin/modules/appointments/appointment_anomaly.dart';
 import 'package:civiapp/presentation/screens/admin/modules/appointments/express_slot_sheet.dart';
@@ -27,7 +29,9 @@ import 'package:uuid/uuid.dart';
 
 enum _AppointmentDisplayMode { calendar, list }
 
-enum _SlotAction { appointment, express }
+enum _WeekLayoutMode { detailed, compact, operators }
+
+enum _SlotAction { appointment, express, copyFromClipboard }
 
 class AppointmentsModule extends ConsumerStatefulWidget {
   const AppointmentsModule({super.key, this.salonId});
@@ -79,6 +83,24 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
           icon: const Icon(Icons.view_week_rounded),
         ),
       ];
+  static const List<ButtonSegment<_WeekLayoutMode>> _weekLayoutSegments =
+      <ButtonSegment<_WeekLayoutMode>>[
+        const ButtonSegment(
+          value: _WeekLayoutMode.detailed,
+          label: const Text('Dettaglio'),
+          icon: const Icon(Icons.view_week_rounded),
+        ),
+        const ButtonSegment(
+          value: _WeekLayoutMode.compact,
+          label: const Text('Compatto'),
+          icon: const Icon(Icons.grid_view_rounded),
+        ),
+        const ButtonSegment(
+          value: _WeekLayoutMode.operators,
+          label: const Text('Operatori'),
+          icon: const Icon(Icons.table_chart_rounded),
+        ),
+      ];
   static const List<ButtonSegment<int>> _slotDurationSegments =
       <ButtonSegment<int>>[
         const ButtonSegment<int>(value: 15, label: const Text('15 min')),
@@ -93,6 +115,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   bool _isRescheduling = false;
   int _calendarSlotMinutes = 15;
   bool _checklistEditingEnabled = true;
+  _WeekLayoutMode _weekLayoutMode = _WeekLayoutMode.detailed;
   final Set<int> _visibleWeekdays = {
     DateTime.monday,
     DateTime.tuesday,
@@ -113,6 +136,18 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       return sessionSalon;
     }
     return null;
+  }
+
+  AppointmentWeekLayoutMode get _effectiveWeekLayout {
+    switch (_weekLayoutMode) {
+      case _WeekLayoutMode.compact:
+        return AppointmentWeekLayoutMode.compact;
+      case _WeekLayoutMode.operators:
+        return AppointmentWeekLayoutMode.operatorBoard;
+      case _WeekLayoutMode.detailed:
+      default:
+        return AppointmentWeekLayoutMode.detailed;
+    }
   }
 
   @override
@@ -434,6 +469,20 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                             onSelectionChanged: (selection) {
                               final minutes = selection.first;
                               setState(() => _calendarSlotMinutes = minutes);
+                              refresh();
+                            },
+                          ),
+                        ],
+                        if (_mode == _AppointmentDisplayMode.calendar &&
+                            _scope == AppointmentCalendarScope.week) ...[
+                          const SizedBox(height: 12),
+                          SegmentedButton<_WeekLayoutMode>(
+                            style: segmentedStyle,
+                            segments: _weekLayoutSegments,
+                            selected: {_weekLayoutMode},
+                            onSelectionChanged: (selection) {
+                              final newLayout = selection.first;
+                              setState(() => _weekLayoutMode = newLayout);
                               refresh();
                             },
                           ),
@@ -1042,124 +1091,133 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     final roomsById = _buildRoomsIndex(salons, widget.salonId);
     final rangeLabel = _buildRangeLabel(rangeStart, rangeEnd, _scope);
     final staffSelectionKey = _staffSelectionKey(selectedStaffIds);
+    final adminTheme = AdminTheme.of(context);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: _buildToolbar(
-            context,
-            salons: salons,
-            clients: clients,
-            staff: staffMembers,
-            services: services,
-            rangeLabel: rangeLabel,
-            selectedSalon: selectedSalon,
+    return ColoredBox(
+      color: adminTheme.moduleBackground,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: _buildToolbar(
+              context,
+              salons: salons,
+              clients: clients,
+              staff: staffMembers,
+              services: services,
+              rangeLabel: rangeLabel,
+              selectedSalon: selectedSalon,
+            ),
           ),
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 250),
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeInCubic,
-            child:
-                _mode == _AppointmentDisplayMode.calendar
-                    ? AppointmentCalendarView(
-                      key: ValueKey(
-                        'calendar-${_scope.name}-$staffSelectionKey-${rangeStart.toIso8601String()}',
+          const Divider(height: 1),
+          Expanded(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              child:
+                  _mode == _AppointmentDisplayMode.calendar
+                      ? AppointmentCalendarView(
+                        key: ValueKey(
+                          'calendar-${_scope.name}-${_weekLayoutMode.name}-$staffSelectionKey-${rangeStart.toIso8601String()}',
+                        ),
+                        anchorDate: rangeStart,
+                        scope: _scope,
+                        weekLayout:
+                            _scope == AppointmentCalendarScope.week
+                                ? _effectiveWeekLayout
+                                : AppointmentWeekLayoutMode.detailed,
+                        appointments: filteredAppointments,
+                        allAppointments: allAppointmentsWithPlaceholders,
+                        lastMinutePlaceholders: expressPlaceholders,
+                        lastMinuteSlots: lastMinuteSlotsInRange,
+                        staff: visibleStaff,
+                        clients: clients,
+                        services: services,
+                        serviceCategories: data.serviceCategories,
+                        shifts: filteredShifts,
+                        absences: filteredAbsences,
+                        roles: data.staffRoles,
+                        schedule: selectedSalon?.schedule,
+                        roomsById: roomsById,
+                        salonsById: salonsById,
+                        visibleWeekdays: _visibleWeekdays,
+                        lockedAppointmentReasons: lockedAppointmentReasons,
+                        anomalies: anomalies,
+                        statusColor:
+                            (status) => _colorForStatus(context, status),
+                        dayChecklists: dayChecklists,
+                        onTapLastMinuteSlot:
+                            (slot) => _onTapLastMinuteSlot(
+                              context,
+                              slot,
+                              salons: salons,
+                              staff: staffMembers,
+                              services: services,
+                            ),
+                        onReschedule:
+                            _isRescheduling ? (_) async {} : _onReschedule,
+                        onEdit:
+                            (appointment) => _handleEditAppointment(
+                              context,
+                              appointment,
+                              salons: salons,
+                              clients: clients,
+                              staff: staffMembers,
+                              services: services,
+                            ),
+                        onCreate:
+                            (selection) => _onSlotSelected(
+                              context,
+                              selection,
+                              salons,
+                              clients,
+                              staffMembers,
+                              services,
+                            ),
+                        slotMinutes: _calendarSlotMinutes,
+                        onAddChecklistItem:
+                            _checklistEditingEnabled ? _addChecklistItem : null,
+                        onToggleChecklistItem:
+                            _checklistEditingEnabled
+                                ? _toggleChecklistItem
+                                : null,
+                        onRenameChecklistItem:
+                            _checklistEditingEnabled
+                                ? _renameChecklistItem
+                                : null,
+                        onDeleteChecklistItem:
+                            _checklistEditingEnabled
+                                ? _deleteChecklistItem
+                                : null,
+                      )
+                      : _ListAppointmentsView(
+                        key: ValueKey(
+                          'list-${_scope.name}-$staffSelectionKey-${rangeStart.toIso8601String()}',
+                        ),
+                        appointments: filteredAppointments,
+                        lastMinutePlaceholders: expressPlaceholders,
+                        data: data,
+                        rangeStart: rangeStart,
+                        rangeEnd: rangeEnd,
+                        lockedReasons: lockedAppointmentReasons,
+                        anomalies: anomalies,
+                        attentionAppointments: attentionAppointments,
+                        onEdit:
+                            (appointment) => _handleEditAppointment(
+                              context,
+                              appointment,
+                              salons: salons,
+                              clients: clients,
+                              staff: staffMembers,
+                              services: services,
+                            ),
                       ),
-                      anchorDate: rangeStart,
-                      scope: _scope,
-                      appointments: filteredAppointments,
-                      allAppointments: allAppointmentsWithPlaceholders,
-                      lastMinutePlaceholders: expressPlaceholders,
-                      lastMinuteSlots: lastMinuteSlotsInRange,
-                      staff: visibleStaff,
-                      clients: clients,
-                      services: services,
-                      serviceCategories: data.serviceCategories,
-                      shifts: filteredShifts,
-                      absences: filteredAbsences,
-                      roles: data.staffRoles,
-                      schedule: selectedSalon?.schedule,
-                      roomsById: roomsById,
-                      salonsById: salonsById,
-                      visibleWeekdays: _visibleWeekdays,
-                      lockedAppointmentReasons: lockedAppointmentReasons,
-                      anomalies: anomalies,
-                      statusColor: (status) => _colorForStatus(context, status),
-                      dayChecklists: dayChecklists,
-                      onTapLastMinuteSlot:
-                          (slot) => _onTapLastMinuteSlot(
-                            context,
-                            slot,
-                            salons: salons,
-                            staff: staffMembers,
-                            services: services,
-                          ),
-                      onReschedule:
-                          _isRescheduling ? (_) async {} : _onReschedule,
-                      onEdit:
-                          (appointment) => _handleEditAppointment(
-                            context,
-                            appointment,
-                            salons: salons,
-                            clients: clients,
-                            staff: staffMembers,
-                            services: services,
-                          ),
-                      onCreate:
-                          (selection) => _onSlotSelected(
-                            context,
-                            selection,
-                            salons,
-                            clients,
-                            staffMembers,
-                            services,
-                          ),
-                      slotMinutes: _calendarSlotMinutes,
-                      onAddChecklistItem:
-                          _checklistEditingEnabled ? _addChecklistItem : null,
-                      onToggleChecklistItem:
-                          _checklistEditingEnabled
-                              ? _toggleChecklistItem
-                              : null,
-                      onRenameChecklistItem:
-                          _checklistEditingEnabled
-                              ? _renameChecklistItem
-                              : null,
-                      onDeleteChecklistItem:
-                          _checklistEditingEnabled
-                              ? _deleteChecklistItem
-                              : null,
-                    )
-                    : _ListAppointmentsView(
-                      key: ValueKey(
-                        'list-${_scope.name}-$staffSelectionKey-${rangeStart.toIso8601String()}',
-                      ),
-                      appointments: filteredAppointments,
-                      lastMinutePlaceholders: expressPlaceholders,
-                      data: data,
-                      rangeStart: rangeStart,
-                      rangeEnd: rangeEnd,
-                      lockedReasons: lockedAppointmentReasons,
-                      anomalies: anomalies,
-                      attentionAppointments: attentionAppointments,
-                      onEdit:
-                          (appointment) => _handleEditAppointment(
-                            context,
-                            appointment,
-                            salons: salons,
-                            clients: clients,
-                            staff: staffMembers,
-                            services: services,
-                          ),
-                    ),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -1482,26 +1540,54 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         widget.salonId ??
         (salons.isNotEmpty ? salons.first.id : null);
 
+    final clipboard = ref.read(appointmentClipboardProvider);
+
     final slotAction = await showAppModalSheet<_SlotAction>(
       context: context,
       builder: (modalContext) {
+        final tiles = <Widget>[
+          ListTile(
+            leading: const Icon(Icons.event_available_rounded),
+            title: const Text('Crea appuntamento standard'),
+            onTap:
+                () =>
+                    Navigator.of(modalContext).pop(_SlotAction.appointment),
+          ),
+        ];
+        if (clipboard != null) {
+          final title = _clipboardActionTitle(
+            clipboard,
+            clients: clients,
+          );
+          final subtitle = _clipboardActionSubtitle(
+            clipboard,
+            services: services,
+          );
+          tiles.add(
+            ListTile(
+              leading: const Icon(Icons.content_paste_go_rounded),
+              title: Text(title),
+              subtitle: subtitle != null ? Text(subtitle) : null,
+              onTap:
+                  () => Navigator.of(modalContext).pop(
+                    _SlotAction.copyFromClipboard,
+                  ),
+            ),
+          );
+        }
+        tiles.add(
+          ListTile(
+            leading: const Icon(Icons.flash_on_rounded),
+            title: const Text('Crea slot express last-minute'),
+            onTap:
+                () => Navigator.of(modalContext).pop(_SlotAction.express),
+          ),
+        );
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              ListTile(
-                leading: const Icon(Icons.event_available_rounded),
-                title: const Text('Crea appuntamento standard'),
-                onTap:
-                    () =>
-                        Navigator.of(modalContext).pop(_SlotAction.appointment),
-              ),
-              ListTile(
-                leading: const Icon(Icons.flash_on_rounded),
-                title: const Text('Crea slot express last-minute'),
-                onTap:
-                    () => Navigator.of(modalContext).pop(_SlotAction.express),
-              ),
+              ...tiles,
               const SizedBox(height: 12),
             ],
           ),
@@ -1531,6 +1617,18 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       return;
     }
 
+    if (slotAction == _SlotAction.copyFromClipboard) {
+      await _createAppointmentFromClipboard(
+        context,
+        selection: selection,
+        salons: salons,
+        clients: clients,
+        staff: staff,
+        services: services,
+      );
+      return;
+    }
+
     await _openExpressSlotSheet(
       context,
       selection: selection,
@@ -1538,6 +1636,87 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       staff: staff,
       services: services,
       defaultSalonId: defaultSalonId,
+    );
+  }
+
+  String _clipboardActionTitle(
+    AppointmentClipboard clipboard, {
+    required List<Client> clients,
+  }) {
+    final client = clients.firstWhereOrNull(
+      (item) => item.id == clipboard.appointment.clientId,
+    );
+    final name = client?.fullName.trim();
+    if (name == null || name.isEmpty) {
+      return 'Copia appuntamento';
+    }
+    return 'Copia appuntamento $name';
+  }
+
+  String? _clipboardActionSubtitle(
+    AppointmentClipboard clipboard, {
+    required List<Service> services,
+  }) {
+    final serviceNames =
+        clipboard.appointment.serviceIds
+            .map(
+              (id) => services.firstWhereOrNull((service) => service.id == id),
+            )
+            .whereType<Service>()
+            .map((service) => service.name)
+            .toList(growable: false);
+    final parts = <String>[];
+    if (serviceNames.isNotEmpty) {
+      parts.add(serviceNames.join(', '));
+    }
+    final minutes = clipboard.appointment.duration.inMinutes;
+    if (minutes > 0) {
+      parts.add('$minutes min');
+    }
+    if (parts.isEmpty) {
+      return null;
+    }
+    return parts.join(' • ');
+  }
+
+  Future<void> _createAppointmentFromClipboard(
+    BuildContext context, {
+    required AppointmentSlotSelection selection,
+    required List<Salon> salons,
+    required List<Client> clients,
+    required List<StaffMember> staff,
+    required List<Service> services,
+  }) async {
+    final clipboard = ref.read(appointmentClipboardProvider);
+    if (clipboard == null) {
+      return;
+    }
+    final template = clipboard.appointment;
+    final staffMember = staff.firstWhereOrNull(
+      (member) => member.id == selection.staffId,
+    );
+    final salonId = staffMember?.salonId ?? template.salonId;
+    final appointment = template.copyWith(
+      id: _uuid.v4(),
+      salonId: salonId,
+      staffId: selection.staffId,
+      start: selection.start,
+      end: selection.end,
+    );
+    final saved = await _validateAndSaveAppointment(
+      context,
+      ref,
+      appointment,
+      services,
+      salons,
+    );
+    if (!saved || !mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Appuntamento copiato sullo slot selezionato.'),
+      ),
     );
   }
 
@@ -2790,7 +2969,7 @@ Future<void> _openForm(
     );
     return;
   }
-  final result = await showAppModalSheet<Appointment>(
+  final result = await showAppModalSheet<AppointmentFormResult>(
     context: context,
     builder:
         (ctx) => AppointmentFormSheet(
@@ -2806,127 +2985,170 @@ Future<void> _openForm(
           enableDelete: existing != null,
         ),
   );
-  if (result != null) {
-    final data = ref.read(appDataProvider);
-    final existingAppointments = data.appointments;
-    final allServices = data.services.isNotEmpty ? data.services : services;
-    final allSalons = data.salons.isNotEmpty ? data.salons : salons;
-    final nowReference = DateTime.now();
-    final expressPlaceholders =
-        data.lastMinuteSlots
-            .where((slot) {
-              if (slot.salonId != result.salonId) {
-                return false;
-              }
-              if (slot.operatorId != result.staffId) {
-                return false;
-              }
-              if (!slot.isAvailable) {
-                return false;
-              }
-              if (!slot.end.isAfter(nowReference)) {
-                return false;
-              }
-              return true;
-            })
-            .map(
-              (slot) => Appointment(
-                id: 'last-minute-${slot.id}',
-                salonId: slot.salonId,
-                clientId: 'last-minute-${slot.id}',
-                staffId: slot.operatorId ?? result.staffId,
-                serviceIds:
-                    slot.serviceId != null && slot.serviceId!.isNotEmpty
-                        ? <String>[slot.serviceId!]
-                        : const <String>[],
-                start: slot.start,
-                end: slot.end,
-                status: AppointmentStatus.scheduled,
-                roomId: slot.roomId,
-              ),
-            )
-            .toList();
-    final combinedAppointments = <Appointment>[
-      ...existingAppointments,
-      ...expressPlaceholders,
-    ];
-    final hasStaffConflict = hasStaffBookingConflict(
-      appointments: combinedAppointments,
-      staffId: result.staffId,
-      start: result.start,
-      end: result.end,
-      excludeAppointmentId: result.id,
+  if (result == null) {
+    return;
+  }
+  if (result.action == AppointmentFormAction.copy) {
+    ref.read(appointmentClipboardProvider.notifier).state =
+        AppointmentClipboard(
+          appointment: result.appointment,
+          copiedAt: DateTime.now(),
+        );
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Appuntamento copiato. Seleziona uno slot libero.'),
+      ),
     );
-    if (hasStaffConflict) {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Impossibile salvare: operatore già occupato in quel periodo',
-          ),
+    return;
+  }
+  await _validateAndSaveAppointment(
+    context,
+    ref,
+    result.appointment,
+    services,
+    salons,
+  );
+}
+
+Future<bool> _validateAndSaveAppointment(
+  BuildContext context,
+  WidgetRef ref,
+  Appointment appointment,
+  List<Service> fallbackServices,
+  List<Salon> fallbackSalons,
+) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final data = ref.read(appDataProvider);
+  final existingAppointments = data.appointments;
+  final allServices =
+      data.services.isNotEmpty ? data.services : fallbackServices;
+  final allSalons = data.salons.isNotEmpty ? data.salons : fallbackSalons;
+  final nowReference = DateTime.now();
+  final expressPlaceholders =
+      data.lastMinuteSlots
+          .where((slot) {
+            if (slot.salonId != appointment.salonId) {
+              return false;
+            }
+            if (slot.operatorId != appointment.staffId) {
+              return false;
+            }
+            if (!slot.isAvailable) {
+              return false;
+            }
+            if (!slot.end.isAfter(nowReference)) {
+              return false;
+            }
+            return true;
+          })
+          .map(
+            (slot) => Appointment(
+              id: 'last-minute-${slot.id}',
+              salonId: slot.salonId,
+              clientId: 'last-minute-${slot.id}',
+              staffId: slot.operatorId ?? appointment.staffId,
+              serviceIds:
+                  slot.serviceId != null && slot.serviceId!.isNotEmpty
+                      ? <String>[slot.serviceId!]
+                      : const <String>[],
+              start: slot.start,
+              end: slot.end,
+              status: AppointmentStatus.scheduled,
+              roomId: slot.roomId,
+            ),
+          )
+          .toList();
+  final combinedAppointments = <Appointment>[
+    ...existingAppointments,
+    ...expressPlaceholders,
+  ];
+  final hasStaffConflict = hasStaffBookingConflict(
+    appointments: combinedAppointments,
+    staffId: appointment.staffId,
+    start: appointment.start,
+    end: appointment.end,
+    excludeAppointmentId: appointment.id,
+  );
+  if (hasStaffConflict) {
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Impossibile salvare: operatore già occupato in quel periodo',
         ),
-      );
-      return;
-    }
-    final hasClientConflict = hasClientBookingConflict(
-      appointments: existingAppointments,
-      clientId: result.clientId,
-      start: result.start,
-      end: result.end,
-      excludeAppointmentId: result.id,
+      ),
     );
-    if (hasClientConflict) {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Impossibile salvare: il cliente ha già un appuntamento in quel periodo',
-          ),
+    return false;
+  }
+  final hasClientConflict = hasClientBookingConflict(
+    appointments: existingAppointments,
+    clientId: appointment.clientId,
+    start: appointment.start,
+    end: appointment.end,
+    excludeAppointmentId: appointment.id,
+  );
+  if (hasClientConflict) {
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Impossibile salvare: il cliente ha già un appuntamento in quel periodo',
         ),
-      );
-      return;
-    }
-    final service = allServices.firstWhereOrNull(
-      (item) => item.id == result.serviceId,
+      ),
     );
-    if (service == null) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Servizio non valido.')),
-      );
-      return;
-    }
-    final salon = allSalons.firstWhereOrNull(
-      (item) => item.id == result.salonId,
+    return false;
+  }
+  final appointmentServices =
+      appointment.serviceIds
+          .map(
+            (id) => allServices.firstWhereOrNull((service) => service.id == id),
+          )
+          .whereType<Service>()
+          .toList(growable: false);
+  if (appointmentServices.isEmpty) {
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Servizio non valido.')),
     );
+    return false;
+  }
+  final salon = allSalons.firstWhereOrNull(
+    (item) => item.id == appointment.salonId,
+  );
+  final blockingEquipment = <String>{};
+  for (final service in appointmentServices) {
     final equipmentCheck = EquipmentAvailabilityChecker.check(
       salon: salon,
       service: service,
       allServices: allServices,
       appointments: combinedAppointments,
-      start: result.start,
-      end: result.end,
-      excludeAppointmentId: result.id,
+      start: appointment.start,
+      end: appointment.end,
+      excludeAppointmentId: appointment.id,
     );
     if (equipmentCheck.hasConflicts) {
-      final equipmentLabel = equipmentCheck.blockingEquipment.join(', ');
-      final message =
-          equipmentLabel.isEmpty
-              ? 'Macchinario non disponibile per questo orario.'
-              : 'Macchinario non disponibile per questo orario: $equipmentLabel.';
-      messenger.showSnackBar(
-        SnackBar(content: Text('$message Scegli un altro slot.')),
-      );
-      return;
+      blockingEquipment.addAll(equipmentCheck.blockingEquipment);
     }
-    try {
-      await ref.read(appDataProvider.notifier).upsertAppointment(result);
-    } on StateError catch (error) {
-      messenger.showSnackBar(SnackBar(content: Text(error.message)));
-      return;
-    } catch (error) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('Errore durante il salvataggio: $error')),
-      );
-      return;
-    }
+  }
+  if (blockingEquipment.isNotEmpty) {
+    final equipmentLabel = blockingEquipment.join(', ');
+    final message =
+        equipmentLabel.isEmpty
+            ? 'Macchinario non disponibile per questo orario.'
+            : 'Macchinario non disponibile per questo orario: $equipmentLabel.';
+    messenger.showSnackBar(
+      SnackBar(content: Text('$message Scegli un altro slot.')),
+    );
+    return false;
+  }
+  try {
+    await ref.read(appDataProvider.notifier).upsertAppointment(appointment);
+    return true;
+  } on StateError catch (error) {
+    messenger.showSnackBar(SnackBar(content: Text(error.message)));
+    return false;
+  } catch (error) {
+    messenger.showSnackBar(
+      SnackBar(content: Text('Errore durante il salvataggio: $error')),
+    );
+    return false;
   }
 }
 

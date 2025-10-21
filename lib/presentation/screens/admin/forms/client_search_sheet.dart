@@ -104,68 +104,74 @@ class _ClientSearchSheetState extends State<ClientSearchSheet> {
     final theme = Theme.of(context);
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(widget.title, style: theme.textTheme.titleLarge),
-                ),
-                IconButton(
-                  tooltip: 'Chiudi',
-                  icon: const Icon(Icons.close_rounded),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _generalQueryController,
-              decoration: const InputDecoration(
-                labelText: 'Nome, cognome, telefono, email',
-                prefixIcon: Icon(Icons.search_rounded),
+        padding: const EdgeInsets.all(24),
+        child: SizedBox(
+          width: double.infinity,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.title,
+                      style: theme.textTheme.titleLarge,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Chiudi',
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
               ),
-              textInputAction: TextInputAction.search,
-              onChanged: (_) => _resetError(),
-              onSubmitted: (_) => _performSearch(),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _clientNumberController,
-              decoration: const InputDecoration(
-                labelText: 'Numero cliente',
-                prefixIcon: Icon(Icons.badge_outlined),
-              ),
-              textInputAction: TextInputAction.search,
-              onChanged: (_) => _resetError(),
-              onSubmitted: (_) => _performSearch(),
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                FilledButton.icon(
-                  onPressed: _performSearch,
-                  icon: const Icon(Icons.manage_search_rounded),
-                  label: const Text('Cerca'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: _clearSearch,
-                  icon: const Icon(Icons.clear_rounded),
-                  label: const Text('Azzera'),
-                ),
-              ],
-            ),
-            if (_error != null) ...[
               const SizedBox(height: 12),
-              Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+              TextField(
+                controller: _generalQueryController,
+                decoration: const InputDecoration(
+                  labelText: 'Nome, cognome, telefono, email',
+                  prefixIcon: Icon(Icons.search_rounded),
+                ),
+                textInputAction: TextInputAction.search,
+                onChanged: (_) => _resetError(),
+                onSubmitted: (_) => _performSearch(),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _clientNumberController,
+                decoration: const InputDecoration(
+                  labelText: 'Numero cliente',
+                  prefixIcon: Icon(Icons.badge_outlined),
+                ),
+                textInputAction: TextInputAction.search,
+                onChanged: (_) => _resetError(),
+                onSubmitted: (_) => _performSearch(),
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  FilledButton.icon(
+                    onPressed: _performSearch,
+                    icon: const Icon(Icons.manage_search_rounded),
+                    label: const Text('Cerca'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _clearSearch,
+                    icon: const Icon(Icons.clear_rounded),
+                    label: const Text('Azzera'),
+                  ),
+                ],
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+              ],
+              const SizedBox(height: 16),
+              Expanded(child: _buildResults(context)),
             ],
-            const SizedBox(height: 16),
-            Expanded(child: _buildResults(context)),
-          ],
+          ),
         ),
       ),
     );

@@ -10,6 +10,7 @@ import 'package:civiapp/domain/cart/cart_controller.dart';
 import 'package:civiapp/domain/cart/cart_models.dart';
 import 'package:civiapp/domain/entities/client_photo.dart';
 import 'package:civiapp/domain/entities/client_registration_draft.dart';
+import 'package:civiapp/domain/entities/appointment_clipboard.dart';
 import 'package:civiapp/domain/entities/salon_setup_progress.dart';
 import 'package:civiapp/domain/entities/user_role.dart';
 import 'package:civiapp/services/payments/stripe_connect_service.dart';
@@ -185,6 +186,9 @@ final clientRegistrationDraftProvider = StateNotifierProvider<
   ClientRegistrationDraftController,
   ClientRegistrationDraft?
 >((ref) => ClientRegistrationDraftController());
+
+final appointmentClipboardProvider =
+    StateProvider<AppointmentClipboard?>((ref) => null);
 
 class SessionState {
   const SessionState({this.user, this.selectedSalonId, this.selectedEntityId});

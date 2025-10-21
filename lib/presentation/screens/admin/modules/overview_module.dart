@@ -75,21 +75,21 @@ class AdminOverviewModule extends ConsumerWidget {
                 value: appointments.length.toString(),
                 subtitle: 'Totale pianificati',
                 icon: Icons.event_available_rounded,
-                color: theme.colorScheme.primary,
+                accentColor: theme.colorScheme.primary,
               ),
               _MetricCard(
                 title: 'Staff attivo',
                 value: staff.length.toString(),
                 subtitle: 'Operatori per salone',
                 icon: Icons.groups_2_rounded,
-                color: theme.colorScheme.tertiary,
+                accentColor: theme.colorScheme.tertiary,
               ),
               _MetricCard(
                 title: 'Clienti',
                 value: clients.length.toString(),
                 subtitle: 'Anagrafiche registrate',
                 icon: Icons.people_alt_rounded,
-                color: theme.colorScheme.secondary,
+                accentColor: theme.colorScheme.secondary,
               ),
               _MetricCard(
                 title: 'Incasso oggi',
@@ -98,23 +98,21 @@ class AdminOverviewModule extends ConsumerWidget {
                 ).format(todayRevenue),
                 subtitle: 'Vendite registrate',
                 icon: Icons.point_of_sale_rounded,
-                color: theme.colorScheme.error,
+                accentColor: theme.colorScheme.error,
               ),
               _MetricCard(
                 title: 'Servizi',
                 value: services.length.toString(),
                 subtitle: 'Catalogo trattamenti',
                 icon: Icons.spa_rounded,
-                color: theme.colorScheme.primaryContainer,
-                textColor: theme.colorScheme.onPrimaryContainer,
+                accentColor: theme.colorScheme.primary,
               ),
               _MetricCard(
                 title: 'Pacchetti',
                 value: packages.length.toString(),
                 subtitle: 'Offerte attive',
                 icon: Icons.card_giftcard_rounded,
-                color: theme.colorScheme.secondaryContainer,
-                textColor: theme.colorScheme.onSecondaryContainer,
+                accentColor: theme.colorScheme.secondary,
               ),
             ],
           ),
@@ -236,50 +234,50 @@ class _MetricCard extends StatelessWidget {
     required this.value,
     required this.subtitle,
     required this.icon,
-    required this.color,
-    this.textColor,
+    this.accentColor,
   });
 
   final String title;
   final String value;
   final String subtitle;
   final IconData icon;
-  final Color color;
-  final Color? textColor;
+  final Color? accentColor;
 
   @override
   Widget build(BuildContext context) {
-    final foreground = textColor ?? Colors.white;
+    final theme = Theme.of(context);
+    final effectiveAccent = accentColor ?? theme.colorScheme.primary;
     return SizedBox(
       width: 260,
       child: Card(
-        color: color,
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(icon, color: foreground, size: 28),
-              const SizedBox(height: 12),
-              Text(
-                title,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(color: foreground),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: effectiveAccent.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(icon, color: effectiveAccent, size: 24),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 16),
+              Text(title, style: theme.textTheme.titleMedium),
+              const SizedBox(height: 6),
               Text(
                 value,
-                style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                  color: foreground,
+                style: theme.textTheme.displaySmall?.copyWith(
                   fontWeight: FontWeight.bold,
+                  letterSpacing: -0.5,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
                 subtitle,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: foreground.withValues(alpha: 0.8),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
             ],

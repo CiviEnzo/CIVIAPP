@@ -1,6 +1,7 @@
 import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/presentation/common/theme_mode_action.dart';
+import 'package:civiapp/presentation/screens/admin/admin_theme.dart';
 import 'package:civiapp/presentation/screens/admin/modules/appointments_module.dart';
 import 'package:civiapp/presentation/screens/admin/modules/clients_module.dart';
 import 'package:civiapp/presentation/screens/admin/modules/inventory_module.dart';
@@ -45,6 +46,11 @@ class AdminModuleDefinition {
 class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   int _selectedIndex = 0;
+
+  static const AdminPalette _adminPalette = AdminPalette(
+    primary: Color.fromARGB(255, 255, 255, 255),
+    accent: Color.fromARGB(255, 0, 0, 0),
+  );
 
   static final _modules = <AdminModuleDefinition>[
     AdminModuleDefinition(
@@ -156,63 +162,72 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     }
     final selectedModule = _modules[_selectedIndex];
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isLargeScreen = constraints.maxWidth >= 1080;
-        final content = selectedModule.builder(context, ref, selectedSalonId);
+    return AdminTheme(
+      palette: _adminPalette,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final adminTheme = AdminTheme.of(context);
+          final isLargeScreen = constraints.maxWidth >= 1080;
+          final content = selectedModule.builder(context, ref, selectedSalonId);
 
-        return Scaffold(
-          key: _scaffoldKey,
-          drawer:
-              isLargeScreen
-                  ? null
-                  : Drawer(
-                    child: SafeArea(
-                      child: _DrawerNavigation(
-                        modules: _modules,
-                        selectedIndex: _selectedIndex,
-                        onSelect: (index) {
-                          setState(() => _selectedIndex = index);
-                          Navigator.of(context).maybePop();
-                        },
+          return Scaffold(
+            key: _scaffoldKey,
+            drawer:
+                isLargeScreen
+                    ? null
+                    : Drawer(
+                      child: SafeArea(
+                        child: _DrawerNavigation(
+                          modules: _modules,
+                          selectedIndex: _selectedIndex,
+                          onSelect: (index) {
+                            setState(() => _selectedIndex = index);
+                            Navigator.of(context).maybePop();
+                          },
+                        ),
                       ),
                     ),
+            appBar: AppBar(
+              automaticallyImplyLeading: !isLargeScreen,
+              title: Text(selectedModule.title),
+              actions: [
+                if (salons.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _SalonSelector(
+                      salons: salons,
+                      selectedSalonId: selectedSalonId,
+                    ),
                   ),
-          appBar: AppBar(
-            automaticallyImplyLeading: !isLargeScreen,
-            title: Text(selectedModule.title),
-            actions: [
-              if (salons.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: _SalonSelector(
-                    salons: salons,
-                    selectedSalonId: selectedSalonId,
+                const ThemeModeAction(),
+                IconButton(
+                  tooltip: 'Esci',
+                  onPressed: () async {
+                    await ref.read(authRepositoryProvider).signOut();
+                  },
+                  icon: const Icon(Icons.logout_rounded),
+                ),
+              ],
+            ),
+            body: Row(
+              children: [
+                if (isLargeScreen)
+                  _RailNavigation(
+                    modules: _modules,
+                    selectedIndex: _selectedIndex,
+                    onSelect: (index) => setState(() => _selectedIndex = index),
+                  ),
+                Expanded(
+                  child: ColoredBox(
+                    color: adminTheme.moduleBackground,
+                    child: content,
                   ),
                 ),
-              const ThemeModeAction(),
-              IconButton(
-                tooltip: 'Esci',
-                onPressed: () async {
-                  await ref.read(authRepositoryProvider).signOut();
-                },
-                icon: const Icon(Icons.logout_rounded),
-              ),
-            ],
-          ),
-          body: Row(
-            children: [
-              if (isLargeScreen)
-                _RailNavigation(
-                  modules: _modules,
-                  selectedIndex: _selectedIndex,
-                  onSelect: (index) => setState(() => _selectedIndex = index),
-                ),
-              Expanded(child: content),
-            ],
-          ),
-        );
-      },
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 }

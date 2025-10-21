@@ -40,13 +40,13 @@ Future<void> main() async {
     rethrow;
   }
 
-  if (kDebugMode) {
+  /* if (kDebugMode) {
     final emulatorHost = Platform.isAndroid ? '10.0.2.2' : 'localhost';
     await FirebaseAuth.instance.useAuthEmulator(emulatorHost, 9099);
     FirebaseFirestore.instance.useFirestoreEmulator(emulatorHost, 8080);
     FirebaseStorage.instance.useStorageEmulator(emulatorHost, 9199);
     FirebaseFunctions.instance.useFunctionsEmulator(emulatorHost, 5001);
-  }
+  }*/
 
   if (_stripePublishableKey.isNotEmpty) {
     Stripe.publishableKey = _stripePublishableKey;

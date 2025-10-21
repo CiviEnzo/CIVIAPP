@@ -20,6 +20,18 @@ import 'package:collection/collection.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
+enum AppointmentFormAction { save, copy }
+
+class AppointmentFormResult {
+  const AppointmentFormResult({
+    required this.action,
+    required this.appointment,
+  });
+
+  final AppointmentFormAction action;
+  final Appointment appointment;
+}
+
 class AppointmentFormSheet extends ConsumerStatefulWidget {
   const AppointmentFormSheet({
     super.key,
@@ -118,7 +130,16 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final dateFormat = DateFormat('dd MMMM yyyy HH:mm', 'it_IT');
+    final theme = Theme.of(context);
+    final bookingDateFormat = DateFormat('EEEE d MMMM yyyy', 'it_IT');
+    final timeFormat = DateFormat('HH:mm', 'it_IT');
+    final formattedBookingDate = bookingDateFormat.format(_start);
+    final String? bookingDateRaw =
+        toBeginningOfSentenceCase(formattedBookingDate);
+    final String bookingDateLabel = bookingDateRaw ?? formattedBookingDate;
+    final startTimeLabel = timeFormat.format(_start);
+    final endTimeLabel = timeFormat.format(_end);
+    final durationMinutes = _end.difference(_start).inMinutes;
     final data = ref.watch(appDataProvider);
     final salons = data.salons.isNotEmpty ? data.salons : widget.salons;
     final clients = data.clients.isNotEmpty ? data.clients : widget.clients;
@@ -432,12 +453,27 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              widget.initial == null
-                  ? 'Nuovo appuntamento'
-                  : 'Modifica appuntamento',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
+            if (widget.initial == null)
+              Wrap(
+                spacing: 12,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(
+                    'Nuovo appuntamento',
+                    style: theme.textTheme.titleLarge,
+                  ),
+                  Text(
+                    '$bookingDateLabel (non modificabile)',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ],
+              )
+            else
+              Text(
+                'Modifica appuntamento',
+                style: theme.textTheme.titleLarge,
+              ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               value: _salonId,
@@ -723,19 +759,62 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
               ],
               const SizedBox(height: 12),
             ],
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Data e ora di inizio'),
-              subtitle: Text(dateFormat.format(_start)),
-              trailing: const Icon(Icons.calendar_today_rounded),
-              onTap: _pickStart,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Orario appuntamento',
+                  style: theme.textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _TimelineInfoBox(
+                        label: 'Ora di inizio',
+                        value: startTimeLabel,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _TimelineInfoBox(
+                        label: 'Ora di fine',
+                        value: endTimeLabel,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Data e ora di fine'),
-              subtitle: Text(dateFormat.format(_end)),
-              trailing: const Icon(Icons.schedule_rounded),
-              onTap: _pickEnd,
+            const SizedBox(height: 12),
+            Text(
+              'Durata appuntamento',
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                OutlinedButton.icon(
+                  onPressed:
+                      durationMinutes > _slotIntervalMinutes
+                          ? () => _adjustDuration(-_slotIntervalMinutes)
+                          : null,
+                  icon: const Icon(Icons.remove_rounded),
+                  label: Text('-$_slotIntervalMinutes min'),
+                ),
+                Text(
+                  '$durationMinutes min',
+                  style: theme.textTheme.titleMedium,
+                ),
+                FilledButton.icon(
+                  onPressed: () => _adjustDuration(_slotIntervalMinutes),
+                  icon: const Icon(Icons.add_rounded),
+                  label: Text('+$_slotIntervalMinutes min'),
+                ),
+              ],
             ),
             if (closureConflicts.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -796,6 +875,13 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                   const Spacer(),
                 ] else
                   const Spacer(),
+                if (widget.initial == null) ...[
+                  FilledButton.tonal(
+                    onPressed: _isDeleting ? null : _copy,
+                    child: const Text('Copia'),
+                  ),
+                  const SizedBox(width: 12),
+                ],
                 FilledButton(
                   onPressed: _isDeleting ? null : _submit,
                   child: const Text('Salva'),
@@ -1465,153 +1551,156 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                 bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
               ),
               child: SafeArea(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Seleziona servizi',
-                              style: theme.textTheme.titleLarge,
-                            ),
-                            if (selectedStaff != null)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Text(
-                                  'Operatore: ${selectedStaff.fullName}',
-                                  style: theme.textTheme.bodySmall,
-                                ),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Seleziona servizi',
+                                style: theme.textTheme.titleLarge,
                               ),
-                          ],
-                        ),
-                        TextButton(
-                          onPressed:
-                              workingSelection.isEmpty
-                                  ? null
-                                  : () => setModalState(
-                                    () => workingSelection = const [],
+                              if (selectedStaff != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    'Operatore: ${selectedStaff.fullName}',
+                                    style: theme.textTheme.bodySmall,
                                   ),
-                          child: const Text('Pulisci'),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: searchController,
-                      decoration: InputDecoration(
-                        labelText: 'Cerca servizio',
-                        prefixIcon: const Icon(Icons.search_rounded),
-                        suffixIcon:
-                            query.isEmpty
-                                ? null
-                                : IconButton(
-                                  tooltip: 'Pulisci ricerca',
-                                  icon: const Icon(Icons.clear_rounded),
-                                  onPressed: () {
-                                    searchController.clear();
-                                    setModalState(() => query = '');
-                                  },
                                 ),
-                      ),
-                      onChanged: (value) => setModalState(() => query = value),
-                    ),
-                    const SizedBox(height: 16),
-                    if (filtered.isEmpty)
-                      Expanded(
-                        child: Center(
-                          child: Text(
-                            'Nessun servizio trovato',
-                            style: theme.textTheme.bodyMedium,
+                            ],
                           ),
-                        ),
-                      )
-                    else
-                      Expanded(
-                        child: ListView.builder(
-                          itemCount: categories.length,
-                          itemBuilder: (context, index) {
-                            final category = categories[index];
-                            final categoryServices =
-                                grouped[category] ?? const [];
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (categoryServices.isNotEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 8,
+                          TextButton(
+                            onPressed:
+                                workingSelection.isEmpty
+                                    ? null
+                                    : () => setModalState(
+                                      () => workingSelection = const [],
                                     ),
-                                    child: Text(
-                                      category,
-                                      style: theme.textTheme.titleMedium,
-                                    ),
+                            child: const Text('Pulisci'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: searchController,
+                        decoration: InputDecoration(
+                          labelText: 'Cerca servizio',
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          suffixIcon:
+                              query.isEmpty
+                                  ? null
+                                  : IconButton(
+                                    tooltip: 'Pulisci ricerca',
+                                    icon: const Icon(Icons.clear_rounded),
+                                    onPressed: () {
+                                      searchController.clear();
+                                      setModalState(() => query = '');
+                                    },
                                   ),
-                                ...categoryServices.map((service) {
-                                  final selected = workingSelection.contains(
-                                    service.id,
-                                  );
-                                  final subtitleParts = <String>[];
-                                  final durationMinutes =
-                                      service.totalDuration.inMinutes;
-                                  if (durationMinutes > 0) {
-                                    subtitleParts.add(
-                                      'Durata ${durationMinutes} min',
-                                    );
-                                  }
-                                  if (service.price > 0) {
-                                    subtitleParts.add(
-                                      '€ ${service.price.toStringAsFixed(2)}',
-                                    );
-                                  }
-                                  final subtitle =
-                                      subtitleParts.isEmpty
-                                          ? null
-                                          : subtitleParts.join(' • ');
-                                  return CheckboxListTile(
-                                    value: selected,
-                                    onChanged:
-                                        (_) => toggleSelection(service.id),
-                                    dense: true,
-                                    title: Text(service.name),
-                                    subtitle:
-                                        subtitle != null
-                                            ? Text(subtitle)
-                                            : null,
-                                  );
-                                }),
-                              ],
-                            );
-                          },
                         ),
+                        onChanged: (value) => setModalState(() => query = value),
                       ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
+                      const SizedBox(height: 16),
+                      if (filtered.isEmpty)
                         Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            child: const Text('Annulla'),
+                          child: Center(
+                            child: Text(
+                              'Nessun servizio trovato',
+                              style: theme.textTheme.bodyMedium,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
+                        )
+                      else
                         Expanded(
-                          child: FilledButton(
-                            onPressed: () {
-                              Navigator.of(
-                                context,
-                              ).pop<List<String>>(workingSelection);
+                          child: ListView.builder(
+                            itemCount: categories.length,
+                            itemBuilder: (context, index) {
+                              final category = categories[index];
+                              final categoryServices =
+                                  grouped[category] ?? const [];
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (categoryServices.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 8,
+                                      ),
+                                      child: Text(
+                                        category,
+                                        style: theme.textTheme.titleMedium,
+                                      ),
+                                    ),
+                                  ...categoryServices.map((service) {
+                                    final selected = workingSelection.contains(
+                                      service.id,
+                                    );
+                                    final subtitleParts = <String>[];
+                                    final durationMinutes =
+                                        service.totalDuration.inMinutes;
+                                    if (durationMinutes > 0) {
+                                      subtitleParts.add(
+                                        'Durata $durationMinutes min',
+                                      );
+                                    }
+                                    if (service.price > 0) {
+                                      subtitleParts.add(
+                                        '€ ${service.price.toStringAsFixed(2)}',
+                                      );
+                                    }
+                                    final subtitle =
+                                        subtitleParts.isEmpty
+                                            ? null
+                                            : subtitleParts.join(' • ');
+                                    return CheckboxListTile(
+                                      value: selected,
+                                      onChanged:
+                                          (_) => toggleSelection(service.id),
+                                      dense: true,
+                                      title: Text(service.name),
+                                      subtitle:
+                                          subtitle != null
+                                              ? Text(subtitle)
+                                              : null,
+                                    );
+                                  }),
+                                ],
+                              );
                             },
-                            child: const Text('Conferma'),
                           ),
                         ),
-                      ],
-                    ),
-                  ],
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: const Text('Annulla'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: () {
+                                Navigator.of(
+                                  context,
+                                ).pop<List<String>>(workingSelection);
+                              },
+                              child: const Text('Conferma'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
@@ -1656,22 +1745,33 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     });
   }
 
-  void _submit() {
-    if (!_formKey.currentState!.validate()) {
+  void _adjustDuration(int deltaMinutes) {
+    final currentDuration = _end.difference(_start).inMinutes;
+    final nextDuration = currentDuration + deltaMinutes;
+    if (nextDuration < _slotIntervalMinutes) {
       return;
+    }
+    setState(() {
+      _end = _start.add(Duration(minutes: nextDuration));
+    });
+  }
+
+  Appointment? _buildAppointment({required bool skipAvailabilityChecks}) {
+    if (!_formKey.currentState!.validate()) {
+      return null;
     }
     if (_salonId == null) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Seleziona un salone')));
-      return;
+      return null;
     }
 
     if (_usePackageSession && _selectedPackageId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Seleziona il pacchetto da utilizzare')),
       );
-      return;
+      return null;
     }
 
     final data = ref.read(appDataProvider);
@@ -1687,7 +1787,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Servizi non validi.')));
-      return;
+      return null;
     }
 
     final staffMember = staffMembers.firstWhereOrNull(
@@ -1697,7 +1797,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Operatore non valido.')));
-      return;
+      return null;
     }
 
     final incompatibleService = selectedServices.firstWhereOrNull((service) {
@@ -1717,7 +1817,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           ),
         ),
       );
-      return;
+      return null;
     }
 
     final selectedSalon = salons.firstWhereOrNull(
@@ -1738,7 +1838,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           content: Text('Il salone è chiuso in questo orario. $firstConflict'),
         ),
       );
-      return;
+      return null;
     }
 
     final appointment = Appointment(
@@ -1764,74 +1864,108 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           ),
         ),
       );
-      return;
+      return null;
     }
 
-    final existingAppointments = data.appointments;
-    final hasStaffConflict = hasStaffBookingConflict(
-      appointments: existingAppointments,
-      staffId: appointment.staffId,
-      start: appointment.start,
-      end: appointment.end,
-      excludeAppointmentId: appointment.id,
-    );
-    if (hasStaffConflict) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Impossibile salvare: operatore già occupato in quel periodo',
-          ),
-        ),
-      );
-      return;
-    }
-
-    final hasClientConflict = hasClientBookingConflict(
-      appointments: existingAppointments,
-      clientId: appointment.clientId,
-      start: appointment.start,
-      end: appointment.end,
-      excludeAppointmentId: appointment.id,
-    );
-    if (hasClientConflict) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Impossibile salvare: il cliente ha già un appuntamento in quel periodo',
-          ),
-        ),
-      );
-      return;
-    }
-
-    final blockingEquipment = <String>{};
-    for (final service in selectedServices) {
-      final equipmentCheck = EquipmentAvailabilityChecker.check(
-        salon: selectedSalon,
-        service: service,
-        allServices: allServices,
+    if (!skipAvailabilityChecks) {
+      final existingAppointments = data.appointments;
+      final hasStaffConflict = hasStaffBookingConflict(
         appointments: existingAppointments,
+        staffId: appointment.staffId,
         start: appointment.start,
         end: appointment.end,
         excludeAppointmentId: appointment.id,
       );
-      if (equipmentCheck.hasConflicts) {
-        blockingEquipment.addAll(equipmentCheck.blockingEquipment);
+      if (hasStaffConflict) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Impossibile salvare: operatore già occupato in quel periodo',
+            ),
+          ),
+        );
+        return null;
+      }
+
+      final hasClientConflict = hasClientBookingConflict(
+        appointments: existingAppointments,
+        clientId: appointment.clientId,
+        start: appointment.start,
+        end: appointment.end,
+        excludeAppointmentId: appointment.id,
+      );
+      if (hasClientConflict) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Impossibile salvare: il cliente ha già un appuntamento in quel periodo',
+            ),
+          ),
+        );
+        return null;
+      }
+
+      final blockingEquipment = <String>{};
+      for (final service in selectedServices) {
+        final equipmentCheck = EquipmentAvailabilityChecker.check(
+          salon: selectedSalon,
+          service: service,
+          allServices: allServices,
+          appointments: existingAppointments,
+          start: appointment.start,
+          end: appointment.end,
+          excludeAppointmentId: appointment.id,
+        );
+        if (equipmentCheck.hasConflicts) {
+          blockingEquipment.addAll(equipmentCheck.blockingEquipment);
+        }
+      }
+      if (blockingEquipment.isNotEmpty) {
+        final equipmentLabel = blockingEquipment.join(', ');
+        final message =
+            equipmentLabel.isEmpty
+                ? 'Macchinario non disponibile per questo orario.'
+                : 'Macchinario non disponibile per questo orario: $equipmentLabel.';
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(
+          SnackBar(content: Text('$message Scegli un altro slot.')),
+        );
+        return null;
       }
     }
-    if (blockingEquipment.isNotEmpty) {
-      final equipmentLabel = blockingEquipment.join(', ');
-      final message =
-          equipmentLabel.isEmpty
-              ? 'Macchinario non disponibile per questo orario.'
-              : 'Macchinario non disponibile per questo orario: $equipmentLabel.';
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('$message Scegli un altro slot.')));
+
+    return appointment;
+  }
+
+  void _submit() {
+    final appointment = _buildAppointment(skipAvailabilityChecks: false);
+    if (appointment == null) {
       return;
     }
 
-    Navigator.of(context).pop(appointment);
+    Navigator.of(context).pop(
+      AppointmentFormResult(
+        action: AppointmentFormAction.save,
+        appointment: appointment,
+      ),
+    );
+  }
+
+  void _copy() {
+    final appointment = _buildAppointment(skipAvailabilityChecks: true);
+    if (appointment == null) {
+      return;
+    }
+
+    Navigator.of(context).pop(
+      AppointmentFormResult(
+        action: AppointmentFormAction.copy,
+        appointment: appointment.copyWith(
+          id: _uuid.v4(),
+        ),
+      ),
+    );
   }
 
   Future<void> _confirmDelete() async {
@@ -1993,6 +2127,40 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       case AppointmentStatus.noShow:
         return 'No show';
     }
+  }
+}
+
+class _TimelineInfoBox extends StatelessWidget {
+  const _TimelineInfoBox({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final borderColor = theme.colorScheme.outline.withValues(alpha: 0.5);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelSmall,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: theme.textTheme.titleMedium,
+          ),
+        ],
+      ),
+    );
   }
 }
 

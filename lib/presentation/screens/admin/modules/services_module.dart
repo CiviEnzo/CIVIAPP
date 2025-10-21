@@ -8,6 +8,7 @@ import 'package:civiapp/domain/entities/user_role.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:civiapp/presentation/screens/admin/forms/package_form_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/service_form_sheet.dart';
+import 'package:civiapp/presentation/screens/admin/admin_theme.dart';
 import 'package:civiapp/presentation/screens/admin/modules/service_category_manager_sheet.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
@@ -64,54 +65,27 @@ class ServicesModule extends ConsumerWidget {
             .toList()
           ..sort((a, b) => a.name.compareTo(b.name));
     final theme = Theme.of(context);
+    final adminTheme = AdminTheme.of(context);
+    final accentColor = adminTheme.colorScheme.secondary;
     final isDark = theme.brightness == Brightness.dark;
-    final moduleBackground = _surfaceLayerColor(
-      context,
-      lightColor: Colors.white,
-      lightAlpha: 0.26,
-      darkElevation: 2,
-    );
-    final sectionBackground = _surfaceLayerColor(
-      context,
-      lightColor: Colors.white,
-      lightAlpha: 0.2,
-      darkElevation: 4,
-    );
-    final groupCardBackground = _surfaceLayerColor(
-      context,
-      lightColor: Colors.white,
-      lightAlpha: 0.18,
-      darkElevation: 3,
-    );
-    final serviceCardBackground = _surfaceLayerColor(
-      context,
-      lightColor: Colors.white,
-      lightAlpha: 0.16,
-      darkElevation: 2,
-    );
-    final packageCardBackground = _surfaceLayerColor(
-      context,
-      lightColor: Colors.white,
-      lightAlpha: 0.18,
-      darkElevation: 6,
-    );
-    final strongShadowColor =
-        isDark
-            ? Colors.black.withValues(alpha: 0.6)
-            : Colors.black.withValues(alpha: 0.18);
-    final mediumShadowColor =
-        isDark
-            ? Colors.black.withValues(alpha: 0.45)
-            : Colors.black.withValues(alpha: 0.14);
+    final moduleBackground = adminTheme.moduleBackground;
+    final sectionBackground = adminTheme.layer(1);
+    final groupCardBackground = adminTheme.layer(2);
+    final serviceCardBackground = adminTheme.layer(2);
+    final packageCardBackground = adminTheme.layer(2);
+    final strongShadowColor = adminTheme.strongShadowColor;
+    final mediumShadowColor = adminTheme.mediumShadowColor;
     final sectionShadowColor = mediumShadowColor;
     final groupShadowColor = mediumShadowColor;
     final serviceShadowColor = mediumShadowColor;
     final packageShadowColor = strongShadowColor;
-    final double tabElevation = isDark ? 6 : 4;
-    final double sectionElevation = isDark ? 6 : 4;
-    final double groupElevation = isDark ? 8 : 6;
-    final double serviceElevation = isDark ? 6 : 5;
-    final double packageElevation = isDark ? 14 : 8;
+    final double tabElevation = adminTheme.baseCardElevation;
+    final double sectionElevation = adminTheme.baseCardElevation;
+    final double groupElevation = adminTheme.baseCardElevation + 2;
+    final double serviceElevation =
+        adminTheme.baseCardElevation + (isDark ? 0 : 1);
+    final double packageElevation =
+        adminTheme.baseCardElevation + (isDark ? 8 : 4);
 
     return DefaultTabController(
       length: 2,
@@ -143,11 +117,14 @@ class ServicesModule extends ConsumerWidget {
               shadowColor: sectionShadowColor,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: accentColor.withOpacity(0.18)),
               ),
               clipBehavior: Clip.antiAlias,
               child: TabBar(
-                labelColor: Theme.of(context).colorScheme.primary,
-                indicatorColor: Theme.of(context).colorScheme.primary,
+                labelColor: accentColor,
+                unselectedLabelColor: theme.colorScheme.onSurfaceVariant
+                    .withOpacity(0.7),
+                indicatorColor: accentColor,
                 tabs: [
                   Tab(text: 'Attivi (${activeServices.length})'),
                   Tab(text: 'Disattivati (${inactiveServices.length})'),
@@ -237,6 +214,8 @@ class ServicesModule extends ConsumerWidget {
                         _PackagesList(
                           packages: packages,
                           services: data.services,
+                          salons: salons,
+                          selectedSalonId: salonId,
                           cardColor: packageCardBackground,
                           cardElevation: packageElevation,
                           shadowColor: packageShadowColor,
@@ -662,26 +641,56 @@ class _ServicesList extends StatefulWidget {
 
 class _ServicesListState extends State<_ServicesList> {
   final Set<String> _expandedGroupIds = <String>{};
+  String? _selectedGroupId;
 
   @override
   Widget build(BuildContext context) {
+    final adminTheme = AdminTheme.of(context);
+    final accentColor = adminTheme.colorScheme.secondary;
     final groups = _buildGroups();
     final groupIds = groups.map((group) => group.id).toSet();
     _expandedGroupIds.retainAll(groupIds);
+    if (_selectedGroupId != null && !groupIds.contains(_selectedGroupId)) {
+      _selectedGroupId = null;
+    }
 
     final serviceSalonIds =
         widget.services.map((service) => service.salonId).toSet();
     final bool showSalonChip =
         widget.selectedSalonId == null && serviceSalonIds.length > 1;
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    final selectedGroupId = _selectedGroupId;
+    final visibleGroups =
+        selectedGroupId == null
+            ? groups
+            : groups.where((group) => group.id == selectedGroupId).toList();
+    final showFilterCard = groups.length > 1;
 
-    return ListView.separated(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: groups.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final group = groups[index];
+    final children = <Widget>[];
+    if (showFilterCard) {
+      children.add(_buildCategoryFilterCard(context, groups, accentColor));
+      children.add(const SizedBox(height: 12));
+    }
+
+    if (visibleGroups.isEmpty) {
+      children.add(
+        Card(
+          color: adminTheme.layer(1),
+          elevation: widget.groupCardElevation,
+          shadowColor: widget.groupShadowColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: accentColor.withOpacity(0.12)),
+          ),
+          child: const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('Nessun servizio disponibile per questa categoria.'),
+          ),
+        ),
+      );
+    } else {
+      for (var i = 0; i < visibleGroups.length; i++) {
+        final group = visibleGroups[i];
         final isExpanded = _expandedGroupIds.contains(group.id);
         final serviceCountLabel =
             group.services.isEmpty
@@ -689,18 +698,18 @@ class _ServicesListState extends State<_ServicesList> {
                 : group.services.length == 1
                 ? '1 servizio'
                 : '${group.services.length} servizi';
-        final children = <Widget>[];
+        final tileChildren = <Widget>[];
         if (group.services.isEmpty) {
-          children.add(
+          tileChildren.add(
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Text('Nessun servizio in questa categoria.'),
             ),
           );
         } else {
-          for (var i = 0; i < group.services.length; i++) {
-            final service = group.services[i];
-            children.add(
+          for (var j = 0; j < group.services.length; j++) {
+            final service = group.services[j];
+            tileChildren.add(
               _buildServiceCard(
                 context,
                 service,
@@ -709,43 +718,194 @@ class _ServicesListState extends State<_ServicesList> {
                 showSalonChip,
               ),
             );
-            if (i < group.services.length - 1) {
-              children.add(const SizedBox(height: 12));
+            if (j < group.services.length - 1) {
+              tileChildren.add(const SizedBox(height: 12));
             }
           }
         }
 
-        return Card(
-          color: widget.groupCardColor,
-          elevation: widget.groupCardElevation,
-          shadowColor: widget.groupShadowColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Theme(
-            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-            child: ExpansionTile(
-              key: PageStorageKey(group.id),
-              initiallyExpanded: isExpanded,
-              title: Text(group.title),
-              subtitle: Text(serviceCountLabel),
-              onExpansionChanged: (expanded) {
-                setState(() {
-                  if (expanded) {
-                    _expandedGroupIds.add(group.id);
-                  } else {
-                    _expandedGroupIds.remove(group.id);
-                  }
-                });
-              },
-              childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              children: children,
+        children.add(
+          Card(
+            color: widget.groupCardColor,
+            elevation: widget.groupCardElevation,
+            shadowColor: widget.groupShadowColor,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: accentColor.withOpacity(0.16)),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Theme(
+              data: Theme.of(
+                context,
+              ).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                key: PageStorageKey(group.id),
+                leading: Icon(
+                  group.category != null
+                      ? Icons.category_rounded
+                      : Icons.label_outline_rounded,
+                  color: accentColor,
+                ),
+                maintainState: true,
+                initiallyExpanded: isExpanded,
+                title: Text(group.title),
+                subtitle: Text(serviceCountLabel),
+                onExpansionChanged: (expanded) {
+                  setState(() {
+                    if (expanded) {
+                      _expandedGroupIds.add(group.id);
+                    } else {
+                      _expandedGroupIds.remove(group.id);
+                    }
+                  });
+                },
+                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                children: tileChildren,
+              ),
             ),
           ),
         );
-      },
+        if (i < visibleGroups.length - 1) {
+          children.add(const SizedBox(height: 12));
+        }
+      }
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: children,
     );
+  }
+
+  Widget _buildCategoryFilterCard(
+    BuildContext context,
+    List<_ServiceGroup> groups,
+    Color accentColor,
+  ) {
+    final adminTheme = AdminTheme.of(context);
+    final theme = Theme.of(context);
+    final descriptionStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    final chips = _buildCategoryFilterChips(context, groups, accentColor);
+
+    return Card(
+      color: adminTheme.layer(1),
+      elevation: widget.groupCardElevation,
+      shadowColor: widget.groupShadowColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: accentColor.withOpacity(0.12)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.dashboard_customize_rounded, color: accentColor),
+                const SizedBox(width: 8),
+                Text('Categorie', style: theme.textTheme.titleMedium),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Seleziona una categoria per filtrare rapidamente l\'elenco.',
+              style: descriptionStyle,
+            ),
+            const SizedBox(height: 12),
+            Wrap(spacing: 8, runSpacing: 8, children: chips),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildCategoryFilterChips(
+    BuildContext context,
+    List<_ServiceGroup> groups,
+    Color accentColor,
+  ) {
+    final theme = Theme.of(context);
+    final adminTheme = AdminTheme.of(context);
+    final brightness = theme.brightness;
+    final baseOpacity = brightness == Brightness.dark ? 0.22 : 0.08;
+    final selectedOpacity = brightness == Brightness.dark ? 0.36 : 0.2;
+
+    final entries = <({String? id, String label, int count, IconData icon})>[
+      (
+        id: null,
+        label: 'Tutti i servizi',
+        count: widget.services.length,
+        icon: Icons.grid_view_rounded,
+      ),
+      ...groups.map(
+        (group) => (
+          id: group.id,
+          label: group.title,
+          count: group.services.length,
+          icon:
+              group.category != null
+                  ? Icons.category_rounded
+                  : Icons.label_outline_rounded,
+        ),
+      ),
+    ];
+
+    return entries.map((entry) {
+      final isSelected =
+          entry.id == null
+              ? _selectedGroupId == null
+              : _selectedGroupId == entry.id;
+      final label =
+          entry.count == 0 ? entry.label : '${entry.label} (${entry.count})';
+      final textColor =
+          isSelected
+              ? adminTheme.colorScheme.onSecondaryContainer
+              : theme.colorScheme.onSurface;
+
+      return FilterChip(
+        selected: isSelected,
+        onSelected: (selected) => _handleGroupSelection(entry.id, selected),
+        showCheckmark: false,
+        backgroundColor: accentColor.withOpacity(baseOpacity),
+        selectedColor: accentColor.withOpacity(selectedOpacity),
+        side: BorderSide(
+          color: accentColor.withOpacity(isSelected ? 0.5 : 0.18),
+        ),
+        avatar: Icon(entry.icon, size: 18, color: accentColor),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        shape: const StadiumBorder(),
+        label: Text(
+          label,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: textColor,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+  void _handleGroupSelection(String? groupId, bool isSelected) {
+    setState(() {
+      if (groupId == null) {
+        _selectedGroupId = null;
+        _expandedGroupIds.clear();
+        return;
+      }
+      if (isSelected) {
+        _selectedGroupId = groupId;
+        _expandedGroupIds
+          ..clear()
+          ..add(groupId);
+      } else {
+        _selectedGroupId = null;
+        _expandedGroupIds.clear();
+      }
+    });
   }
 
   List<_ServiceGroup> _buildGroups() {
@@ -868,11 +1028,17 @@ class _ServicesListState extends State<_ServicesList> {
       ),
     ]);
 
+    final adminTheme = AdminTheme.of(context);
+    final accentColor = adminTheme.colorScheme.secondary;
+
     return Card(
       color: widget.serviceCardColor,
       elevation: widget.serviceCardElevation,
       shadowColor: widget.serviceShadowColor,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: accentColor.withOpacity(0.12)),
+      ),
       margin: EdgeInsets.zero,
       child: ListTile(
         contentPadding: const EdgeInsets.fromLTRB(16, 16, 12, 16),
@@ -910,7 +1076,7 @@ class _ServicesListState extends State<_ServicesList> {
             IconButton(
               tooltip: 'Modifica servizio',
               onPressed: () => widget.onEdit(service),
-              icon: const Icon(Icons.edit_rounded),
+              icon: Icon(Icons.edit_rounded, color: accentColor),
             ),
             IconButton(
               tooltip:
@@ -921,12 +1087,13 @@ class _ServicesListState extends State<_ServicesList> {
                 service.isActive
                     ? Icons.visibility_off_rounded
                     : Icons.visibility_rounded,
+                color: accentColor,
               ),
             ),
             IconButton(
               tooltip: 'Elimina servizio',
               onPressed: () => widget.onDelete(service),
-              icon: const Icon(Icons.delete_outline_rounded),
+              icon: Icon(Icons.delete_outline_rounded, color: accentColor),
             ),
           ],
         ),
@@ -953,10 +1120,12 @@ class _ServiceGroup {
   final Salon? salon;
 }
 
-class _PackagesList extends StatelessWidget {
+class _PackagesList extends StatefulWidget {
   const _PackagesList({
     required this.packages,
     required this.services,
+    required this.salons,
+    this.selectedSalonId,
     required this.onEdit,
     required this.onDelete,
     required this.cardColor,
@@ -966,6 +1135,8 @@ class _PackagesList extends StatelessWidget {
 
   final List<ServicePackage> packages;
   final List<Service> services;
+  final List<Salon> salons;
+  final String? selectedSalonId;
   final ValueChanged<ServicePackage> onEdit;
   final ValueChanged<ServicePackage> onDelete;
   final Color cardColor;
@@ -973,147 +1144,411 @@ class _PackagesList extends StatelessWidget {
   final Color shadowColor;
 
   @override
+  State<_PackagesList> createState() => _PackagesListState();
+}
+
+class _PackagesListState extends State<_PackagesList> {
+  String? _salonFilter;
+  bool _onlyDiscounted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _salonFilter = widget.selectedSalonId;
+  }
+
+  @override
+  void didUpdateWidget(covariant _PackagesList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selectedSalonId != oldWidget.selectedSalonId &&
+        widget.selectedSalonId != _salonFilter) {
+      _salonFilter = widget.selectedSalonId;
+    }
+    if (_salonFilter != null &&
+        !widget.packages.any((pkg) => pkg.salonId == _salonFilter)) {
+      _salonFilter = null;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final availableWidth =
-            constraints.maxWidth.isFinite
-                ? constraints.maxWidth
-                : MediaQuery.of(context).size.width;
-        const spacing = 16.0;
-        const desiredTileWidth = 360.0;
-        var columns = (availableWidth / (desiredTileWidth + spacing)).floor();
-        if (columns < 1) {
-          columns = 1;
-        } else if (columns > 4) {
-          columns = 4;
-        }
-        final effectiveWidth =
-            columns == 1
-                ? availableWidth
-                : (availableWidth - spacing * (columns - 1)) / columns;
+    final adminTheme = AdminTheme.of(context);
+    final accentColor = adminTheme.colorScheme.secondary;
+    final salonsById = {for (final salon in widget.salons) salon.id: salon};
+    final salonIdsInPackages =
+        widget.packages.map((pkg) => pkg.salonId).toSet();
+    final hasMultipleSalons = salonIdsInPackages.length > 1;
+    final hasDiscountedPackages = widget.packages.any(
+      (pkg) => _effectiveDiscount(pkg) != null,
+    );
+    final filteredPackages = _applyFilters();
 
-        return Wrap(
-          spacing: spacing,
-          runSpacing: spacing,
-          children:
-              packages.map((pkg) {
-                final discount = _effectiveDiscount(pkg);
-                return SizedBox(
-                  width: effectiveWidth,
-                  child: Card(
-                    color: cardColor,
-                    elevation: cardElevation,
-                    shadowColor: shadowColor,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
+    final filterCard = _buildFilterCard(
+      context,
+      accentColor,
+      salonsById,
+      salonIdsInPackages,
+      hasMultipleSalons,
+      hasDiscountedPackages,
+    );
+
+    final children = <Widget>[];
+    if (filterCard != null) {
+      children.add(filterCard);
+      children.add(const SizedBox(height: 12));
+    }
+
+    if (filteredPackages.isEmpty) {
+      children.add(
+        Card(
+          color: adminTheme.layer(1),
+          elevation: widget.cardElevation,
+          shadowColor: widget.shadowColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: accentColor.withOpacity(0.12)),
+          ),
+          child: const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('Nessun pacchetto corrisponde ai filtri selezionati.'),
+          ),
+        ),
+      );
+    } else {
+      children.add(
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final availableWidth =
+                constraints.maxWidth.isFinite
+                    ? constraints.maxWidth
+                    : MediaQuery.of(context).size.width;
+            const spacing = 16.0;
+            const desiredTileWidth = 360.0;
+            var columns =
+                (availableWidth / (desiredTileWidth + spacing)).floor();
+            if (columns < 1) {
+              columns = 1;
+            } else if (columns > 4) {
+              columns = 4;
+            }
+            final effectiveWidth =
+                columns == 1
+                    ? availableWidth
+                    : (availableWidth - spacing * (columns - 1)) / columns;
+            final showSalonBadge = hasMultipleSalons;
+
+            return Wrap(
+              spacing: spacing,
+              runSpacing: spacing,
+              children:
+                  filteredPackages.map((pkg) {
+                    final discount = _effectiveDiscount(pkg);
+                    final salon = salonsById[pkg.salonId];
+                    final salonName = salon?.name;
+                    return SizedBox(
+                      width: effectiveWidth,
+                      child: Card(
+                        color: widget.cardColor,
+                        elevation: widget.cardElevation,
+                        shadowColor: widget.shadowColor,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          side: BorderSide(
+                            color: accentColor.withOpacity(0.16),
+                          ),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      pkg.name,
-                                      style:
-                                          Theme.of(
-                                            context,
-                                          ).textTheme.titleMedium,
-                                    ),
-                                    if (pkg.description != null) ...[
-                                      const SizedBox(height: 4),
-                                      Text(pkg.description!),
-                                    ],
-                                  ],
-                                ),
-                              ),
                               Row(
-                                mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  IconButton(
-                                    tooltip: 'Modifica pacchetto',
-                                    onPressed: () => onEdit(pkg),
-                                    icon: const Icon(Icons.edit_rounded),
-                                  ),
-                                  IconButton(
-                                    tooltip: 'Elimina pacchetto',
-                                    onPressed: () => onDelete(pkg),
-                                    icon: const Icon(
-                                      Icons.delete_outline_rounded,
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          pkg.name,
+                                          style:
+                                              Theme.of(
+                                                context,
+                                              ).textTheme.titleMedium,
+                                        ),
+                                        if (pkg.description != null) ...[
+                                          const SizedBox(height: 4),
+                                          Text(pkg.description!),
+                                        ],
+                                        if (showSalonBadge && salonName != null)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 8,
+                                            ),
+                                            child: _InfoChip(
+                                              icon: Icons.storefront_rounded,
+                                              label: salonName,
+                                            ),
+                                          ),
+                                      ],
                                     ),
+                                  ),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        tooltip: 'Modifica pacchetto',
+                                        onPressed: () => widget.onEdit(pkg),
+                                        icon: Icon(
+                                          Icons.edit_rounded,
+                                          color: accentColor,
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Elimina pacchetto',
+                                        onPressed: () => widget.onDelete(pkg),
+                                        icon: Icon(
+                                          Icons.delete_outline_rounded,
+                                          color: accentColor,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Wrap(
-                            spacing: 12,
-                            runSpacing: 6,
-                            children: [
-                              _PriceInfoChip(
-                                package: pkg,
-                                currency: currency,
-                                discountPercentage: discount,
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 6,
+                                children: [
+                                  _PriceInfoChip(
+                                    package: pkg,
+                                    currency: currency,
+                                    discountPercentage: discount,
+                                  ),
+                                  if (discount != null)
+                                    _InfoChip(
+                                      icon: Icons.percent_rounded,
+                                      label: '-${_formatDiscount(discount)}%',
+                                    ),
+                                  if (pkg.sessionCount != null)
+                                    _InfoChip(
+                                      icon: Icons.event_repeat,
+                                      label: '${pkg.sessionCount} sessioni',
+                                    ),
+                                  if (pkg.validDays != null)
+                                    _InfoChip(
+                                      icon: Icons.calendar_month_rounded,
+                                      label: 'Validità ${pkg.validDays} gg',
+                                    ),
+                                ],
                               ),
-                              if (discount != null)
-                                _InfoChip(
-                                  icon: Icons.percent_rounded,
-                                  label: '-${_formatDiscount(discount)}%',
-                                ),
-                              if (pkg.sessionCount != null)
-                                _InfoChip(
-                                  icon: Icons.event_repeat,
-                                  label: '${pkg.sessionCount} sessioni',
-                                ),
-                              if (pkg.validDays != null)
-                                _InfoChip(
-                                  icon: Icons.calendar_month_rounded,
-                                  label: 'Validità ${pkg.validDays} gg',
-                                ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Servizi inclusi',
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                              const SizedBox(height: 4),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children:
+                                    pkg.serviceIds
+                                        .map(
+                                          (id) => _InfoChip(
+                                            icon:
+                                                Icons
+                                                    .check_circle_outline_rounded,
+                                            label:
+                                                widget.services
+                                                    .firstWhereOrNull(
+                                                      (s) => s.id == id,
+                                                    )
+                                                    ?.name ??
+                                                id,
+                                          ),
+                                        )
+                                        .toList(),
+                              ),
                             ],
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Servizi inclusi',
-                            style: Theme.of(context).textTheme.titleSmall,
-                          ),
-                          const SizedBox(height: 4),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children:
-                                pkg.serviceIds
-                                    .map(
-                                      (id) => Chip(
-                                        label: Text(
-                                          services
-                                                  .firstWhereOrNull(
-                                                    (s) => s.id == id,
-                                                  )
-                                                  ?.name ??
-                                              id,
-                                        ),
-                                      ),
-                                    )
-                                    .toList(),
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
-                );
-              }).toList(),
-        );
-      },
+                    );
+                  }).toList(),
+            );
+          },
+        ),
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: children,
     );
+  }
+
+  Widget? _buildFilterCard(
+    BuildContext context,
+    Color accentColor,
+    Map<String, Salon> salonsById,
+    Set<String> salonIdsInPackages,
+    bool hasMultipleSalons,
+    bool hasDiscountedPackages,
+  ) {
+    if (!hasMultipleSalons && !hasDiscountedPackages) {
+      return null;
+    }
+
+    final theme = Theme.of(context);
+    final adminTheme = AdminTheme.of(context);
+    final brightness = theme.brightness;
+    final baseOpacity = brightness == Brightness.dark ? 0.22 : 0.08;
+    final selectedOpacity = brightness == Brightness.dark ? 0.36 : 0.2;
+
+    final chips = <Widget>[];
+
+    void addSalonChip({
+      required String? salonId,
+      required String label,
+      required IconData icon,
+    }) {
+      final isSelected =
+          salonId == null ? _salonFilter == null : _salonFilter == salonId;
+      chips.add(
+        FilterChip(
+          selected: isSelected,
+          onSelected: (selected) {
+            setState(() {
+              if (salonId == null) {
+                _salonFilter = null;
+              } else {
+                _salonFilter = selected ? salonId : null;
+              }
+            });
+          },
+          showCheckmark: false,
+          backgroundColor: accentColor.withOpacity(baseOpacity),
+          selectedColor: accentColor.withOpacity(selectedOpacity),
+          side: BorderSide(
+            color: accentColor.withOpacity(isSelected ? 0.5 : 0.18),
+          ),
+          avatar: Icon(icon, size: 18, color: accentColor),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          shape: const StadiumBorder(),
+          label: Text(
+            label,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color:
+                  isSelected
+                      ? adminTheme.colorScheme.onSecondaryContainer
+                      : theme.colorScheme.onSurface,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (hasMultipleSalons) {
+      addSalonChip(
+        salonId: null,
+        label: 'Tutti i saloni',
+        icon: Icons.grid_view_rounded,
+      );
+
+      final sortedSalonIds =
+          salonIdsInPackages.toList()..sort((a, b) {
+            final nameA = salonsById[a]?.name ?? a;
+            final nameB = salonsById[b]?.name ?? b;
+            return nameA.toLowerCase().compareTo(nameB.toLowerCase());
+          });
+      for (final id in sortedSalonIds) {
+        final label = salonsById[id]?.name ?? id;
+        addSalonChip(salonId: id, label: label, icon: Icons.storefront_rounded);
+      }
+    }
+
+    if (hasDiscountedPackages) {
+      final isSelected = _onlyDiscounted;
+      chips.add(
+        FilterChip(
+          selected: isSelected,
+          onSelected: (selected) {
+            setState(() {
+              _onlyDiscounted = selected;
+            });
+          },
+          showCheckmark: false,
+          backgroundColor: accentColor.withOpacity(baseOpacity),
+          selectedColor: accentColor.withOpacity(selectedOpacity),
+          side: BorderSide(
+            color: accentColor.withOpacity(isSelected ? 0.5 : 0.18),
+          ),
+          avatar: Icon(Icons.local_offer_rounded, size: 18, color: accentColor),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          shape: const StadiumBorder(),
+          label: Text(
+            'Solo promozioni',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color:
+                  isSelected
+                      ? adminTheme.colorScheme.onSecondaryContainer
+                      : theme.colorScheme.onSurface,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Card(
+      color: adminTheme.layer(1),
+      elevation: widget.cardElevation,
+      shadowColor: widget.shadowColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: accentColor.withOpacity(0.12)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.filter_list_rounded, color: accentColor),
+                const SizedBox(width: 8),
+                Text('Filtri pacchetti', style: theme.textTheme.titleMedium),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Affina l\'elenco per salone o mostra solo le promozioni attive.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Wrap(spacing: 8, runSpacing: 8, children: chips),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<ServicePackage> _applyFilters() {
+    return widget.packages.where((pkg) {
+      if (_salonFilter != null && pkg.salonId != _salonFilter) {
+        return false;
+      }
+      if (_onlyDiscounted && _effectiveDiscount(pkg) == null) {
+        return false;
+      }
+      return true;
+    }).toList();
   }
 
   double? _effectiveDiscount(ServicePackage pkg) {
@@ -1145,7 +1580,19 @@ class _InfoChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Chip(avatar: Icon(icon, size: 18), label: Text(label));
+    final adminTheme = AdminTheme.of(context);
+    final accentColor = adminTheme.colorScheme.secondary;
+    return Chip(
+      backgroundColor: accentColor.withOpacity(
+        Theme.of(context).brightness == Brightness.dark ? 0.28 : 0.14,
+      ),
+      side: BorderSide(color: accentColor.withOpacity(0.16)),
+      avatar: Icon(icon, size: 18, color: accentColor),
+      label: Text(
+        label,
+        style: TextStyle(color: adminTheme.colorScheme.onSecondaryContainer),
+      ),
+    );
   }
 }
 
@@ -1176,15 +1623,21 @@ class _PriceInfoChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasDiscount = _hasDiscount;
+    final adminTheme = AdminTheme.of(context);
+    final accentColor = adminTheme.colorScheme.secondary;
+    final labelStyle = TextStyle(
+      color: adminTheme.colorScheme.onSecondaryContainer,
+      fontWeight: FontWeight.w600,
+    );
     final icon = hasDiscount ? Icons.local_offer_rounded : Icons.euro_rounded;
-    final label =
+    final Widget label =
         hasDiscount
             ? Text.rich(
               TextSpan(
                 children: [
                   TextSpan(
                     text: currency.format(package.price),
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+                    style: labelStyle,
                   ),
                   const TextSpan(text: '  '),
                   TextSpan(
@@ -1197,30 +1650,16 @@ class _PriceInfoChip extends StatelessWidget {
                   ),
                 ],
               ),
+              style: labelStyle,
             )
-            : Text(currency.format(package.price));
-    return Chip(avatar: Icon(icon, size: 18), label: label);
-  }
-}
-
-Color _surfaceLayerColor(
-  BuildContext context, {
-  Color lightColor = Colors.white,
-  double lightAlpha = 0.08,
-  double darkElevation = 1,
-}) {
-  final theme = Theme.of(context);
-  final baseSurface = theme.colorScheme.surface;
-  if (theme.brightness == Brightness.dark) {
-    return ElevationOverlay.applySurfaceTint(
-      baseSurface,
-      theme.colorScheme.surfaceTint,
-      darkElevation,
+            : Text(currency.format(package.price), style: labelStyle);
+    return Chip(
+      backgroundColor: accentColor.withOpacity(
+        Theme.of(context).brightness == Brightness.dark ? 0.28 : 0.14,
+      ),
+      side: BorderSide(color: accentColor.withOpacity(0.16)),
+      avatar: Icon(icon, size: 18, color: accentColor),
+      label: label,
     );
   }
-  final normalizedAlpha = lightAlpha.clamp(0.0, 1.0);
-  return Color.alphaBlend(
-    lightColor.withValues(alpha: normalizedAlpha),
-    baseSurface,
-  );
 }
