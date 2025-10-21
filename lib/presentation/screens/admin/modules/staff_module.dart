@@ -13,10 +13,15 @@ import 'package:civiapp/presentation/screens/admin/forms/shift_bulk_delete_sheet
 import 'package:civiapp/presentation/screens/admin/forms/staff_absence_form_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/staff_form_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/staff_role_manager_sheet.dart';
+import 'package:civiapp/presentation/screens/admin/forms/staff_order_sheet.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+
+final _staffExpansionProvider = StateProvider.autoDispose.family<bool, String>(
+  (ref, staffId) => false,
+);
 
 class StaffModule extends ConsumerWidget {
   const StaffModule({super.key, this.salonId});
@@ -33,9 +38,10 @@ class StaffModule extends ConsumerWidget {
     final data = ref.watch(appDataProvider);
     final salons = data.salons;
     final staffRoles = data.staffRoles;
-    final staffMembers = data.staff
-        .where((member) => salonId == null || member.salonId == salonId)
-        .sortedBy((member) => member.fullName.toLowerCase());
+    final staffMembers =
+        data.staff
+            .where((member) => salonId == null || member.salonId == salonId)
+            .sortedByDisplayOrder();
     final shifts = data.shifts
         .where((shift) => salonId == null || shift.salonId == salonId)
         .sortedBy((shift) => shift.start);
@@ -92,6 +98,18 @@ class StaffModule extends ConsumerWidget {
                   icon: const Icon(Icons.tune_rounded),
                   label: const Text('Gestisci ruoli'),
                 ),
+                OutlinedButton.icon(
+                  onPressed:
+                      salons.isEmpty
+                          ? null
+                          : () => StaffOrderSheet.show(
+                            context,
+                            salons: salons,
+                            selectedSalonId: salonId,
+                          ),
+                  icon: const Icon(Icons.sort_rounded),
+                  label: const Text('Ordina staff'),
+                ),
               ],
             ),
           );
@@ -127,361 +145,402 @@ class StaffModule extends ConsumerWidget {
           referenceYear: now.year,
         );
 
+        final isExpanded = ref.watch(_staffExpansionProvider(staff.id));
+        final expansionController = ref.read(
+          _staffExpansionProvider(staff.id).notifier,
+        );
+
+        void toggleExpansion() {
+          expansionController.state = !expansionController.state;
+        }
+
         return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    CircleAvatar(
-                      radius: 28,
-                      backgroundImage:
-                          staff.avatarUrl != null && staff.avatarUrl!.isNotEmpty
-                              ? NetworkImage(staff.avatarUrl!)
-                              : null,
-                      child:
-                          staff.avatarUrl == null || staff.avatarUrl!.isEmpty
-                              ? Text(
-                                staff.fullName.characters.firstOrNull
-                                        ?.toUpperCase() ??
-                                    '?',
-                              )
-                              : null,
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            staff.fullName,
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _roleLabel(rolesById: rolesById, staff: staff),
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                          if (staff.dateOfBirth != null) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              'Nato il ${_birthLabel.format(staff.dateOfBirth!)}',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ],
+          elevation: isExpanded ? 3 : 1.5,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          color: _softSurface(context, blend: 0.14),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              InkWell(
+                onTap: toggleExpansion,
+                borderRadius: BorderRadius.circular(24),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CircleAvatar(
+                        radius: 28,
+                        backgroundImage:
+                            staff.avatarUrl != null &&
+                                    staff.avatarUrl!.isNotEmpty
+                                ? NetworkImage(staff.avatarUrl!)
+                                : null,
+                        child:
+                            staff.avatarUrl == null || staff.avatarUrl!.isEmpty
+                                ? Text(
+                                  staff.fullName.characters.firstOrNull
+                                          ?.toUpperCase() ??
+                                      '?',
+                                )
+                                : null,
                       ),
-                    ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        IconButton(
-                          tooltip: 'Modifica profilo',
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        staff.fullName,
+                                        style:
+                                            Theme.of(
+                                              context,
+                                            ).textTheme.titleMedium,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        _roleLabel(
+                                          rolesById: rolesById,
+                                          staff: staff,
+                                        ),
+                                        style:
+                                            Theme.of(
+                                              context,
+                                            ).textTheme.bodyMedium,
+                                      ),
+                                      if (staff.dateOfBirth != null) ...[
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Nato il ${_birthLabel.format(staff.dateOfBirth!)}',
+                                          style:
+                                              Theme.of(
+                                                context,
+                                              ).textTheme.bodySmall,
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      tooltip: 'Modifica profilo',
+                                      onPressed:
+                                          () => _openStaffForm(
+                                            context,
+                                            ref,
+                                            salons: salons,
+                                            roles: staffRoles,
+                                            defaultSalonId: salonId,
+                                            defaultRoleId: staff.primaryRoleId,
+                                            existing: staff,
+                                          ),
+                                      icon: const Icon(Icons.edit_rounded),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Elimina membro',
+                                      onPressed:
+                                          () => _confirmDeleteStaff(
+                                            context,
+                                            ref,
+                                            staff: staff,
+                                            hasUpcomingShifts:
+                                                futureShifts.isNotEmpty,
+                                          ),
+                                      icon: const Icon(
+                                        Icons.delete_outline_rounded,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip:
+                                          isExpanded
+                                              ? 'Comprimi dettagli'
+                                              : 'Espandi dettagli',
+                                      onPressed: toggleExpansion,
+                                      icon: AnimatedRotation(
+                                        turns: isExpanded ? 0.5 : 0.0,
+                                        duration: const Duration(
+                                          milliseconds: 200,
+                                        ),
+                                        child: const Icon(
+                                          Icons.expand_more_rounded,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                            if (staff.phone != null || staff.email != null) ...[
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 8,
+                                children: [
+                                  if (staff.phone != null)
+                                    _ContactInfo(
+                                      icon: Icons.phone,
+                                      label: staff.phone!,
+                                    ),
+                                  if (staff.email != null)
+                                    _ContactInfo(
+                                      icon: Icons.email,
+                                      label: staff.email!,
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              AnimatedCrossFade(
+                duration: const Duration(milliseconds: 220),
+                alignment: Alignment.topCenter,
+                crossFadeState:
+                    isExpanded
+                        ? CrossFadeState.showSecond
+                        : CrossFadeState.showFirst,
+                firstChild: const SizedBox.shrink(),
+                secondChild: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                  child: Column(
+                    children: [
+                      _StaffSectionCard(
+                        title: 'Turni programmati',
+                        trailing: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          alignment: WrapAlignment.end,
+                          children: [
+                            TextButton.icon(
+                              onPressed:
+                                  () => _openShiftForm(
+                                    context,
+                                    ref,
+                                    salons: salons,
+                                    staff: staffMembers,
+                                    defaultSalonId: staff.salonId,
+                                    defaultStaffId: staff.id,
+                                  ),
+                              icon: const Icon(Icons.add_rounded),
+                              label: const Text('Nuovo turno'),
+                            ),
+                            if (futureShifts.isNotEmpty)
+                              TextButton.icon(
+                                onPressed:
+                                    () => _openShiftBulkDelete(
+                                      context,
+                                      ref,
+                                      staff: staff,
+                                      shifts: futureShifts,
+                                      roomNames: roomNames,
+                                    ),
+                                icon: const Icon(Icons.delete_sweep_rounded),
+                                label: const Text('Elimina turni'),
+                              ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (upcoming.isEmpty)
+                              Text(
+                                'Nessun turno in programma. Pianifica un turno per rendere disponibile il membro dello staff.',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              )
+                            else
+                              Column(
+                                children:
+                                    upcoming
+                                        .map(
+                                          (shift) => _ShiftTile(
+                                            shift: shift,
+                                            roomName: roomNames[shift.roomId],
+                                            onEdit:
+                                                () => _openShiftForm(
+                                                  context,
+                                                  ref,
+                                                  salons: salons,
+                                                  staff: staffMembers,
+                                                  initial: shift,
+                                                ),
+                                            onDelete:
+                                                () => _confirmDeleteShift(
+                                                  context,
+                                                  ref,
+                                                  shift,
+                                                ),
+                                          ),
+                                        )
+                                        .toList(),
+                              ),
+                            if (staffShifts.length > upcoming.length) ...[
+                              const SizedBox(height: 12),
+                              Text(
+                                'Sono presenti altri ${staffShifts.length - upcoming.length} turni futuri.',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _StaffSectionCard(
+                        title: 'Assenze e ferie',
+                        trailing: TextButton.icon(
                           onPressed:
-                              () => _openStaffForm(
+                              () => _openAbsenceForm(
                                 context,
                                 ref,
                                 salons: salons,
-                                roles: staffRoles,
-                                defaultSalonId: salonId,
-                                defaultRoleId: staff.primaryRoleId,
-                                existing: staff,
+                                staff: staffMembers,
+                                defaultSalonId: staff.salonId,
+                                defaultStaffId: staff.id,
                               ),
-                          icon: const Icon(Icons.edit_rounded),
+                          icon: const Icon(Icons.event_busy_rounded),
+                          label: const Text('Nuova assenza'),
                         ),
-                        IconButton(
-                          tooltip: 'Elimina membro',
-                          onPressed:
-                              () => _confirmDeleteStaff(
-                                context,
-                                ref,
-                                staff: staff,
-                                hasUpcomingShifts: futureShifts.isNotEmpty,
-                              ),
-                          icon: const Icon(Icons.delete_outline_rounded),
-                        ),
-                        if (staff.phone != null || staff.email != null)
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              if (staff.phone != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(Icons.phone, size: 16),
-                                      const SizedBox(width: 4),
-                                      Text(staff.phone!),
-                                    ],
-                                  ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _AllowanceChip(
+                                  label: 'Ferie',
+                                  usedLabel: 'Usate',
+                                  remainingLabel: 'Residue',
+                                  used: absenceSummary.vacationUsed,
+                                  remaining: absenceSummary.vacationRemaining,
+                                  total: staff.vacationAllowance.toDouble(),
                                 ),
-                              if (staff.email != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(Icons.email, size: 16),
-                                      const SizedBox(width: 4),
-                                      Text(staff.email!),
-                                    ],
-                                  ),
+                                _AllowanceChip(
+                                  label: 'Permessi',
+                                  usedLabel: 'Usati',
+                                  remainingLabel: 'Residui',
+                                  used: absenceSummary.permissionUsed,
+                                  remaining: absenceSummary.permissionRemaining,
+                                  total: staff.permissionAllowance.toDouble(),
                                 ),
-                            ],
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest
-                        .withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Turni programmati',
-                            style: Theme.of(context).textTheme.titleSmall,
-                          ),
-                          Wrap(
-                            spacing: 8,
-                            children: [
-                              TextButton.icon(
-                                onPressed:
-                                    () => _openShiftForm(
-                                      context,
-                                      ref,
-                                      salons: salons,
-                                      staff: staffMembers,
-                                      defaultSalonId: staff.salonId,
-                                      defaultStaffId: staff.id,
-                                    ),
-                                icon: const Icon(Icons.add_rounded),
-                                label: const Text('Nuovo turno'),
-                              ),
-                              if (futureShifts.isNotEmpty)
-                                TextButton.icon(
-                                  onPressed:
-                                      () => _openShiftBulkDelete(
-                                        context,
-                                        ref,
-                                        staff: staff,
-                                        shifts: futureShifts,
-                                        roomNames: roomNames,
-                                      ),
-                                  icon: const Icon(Icons.delete_sweep_rounded),
-                                  label: const Text('Elimina turni'),
-                                ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      if (upcoming.isEmpty)
-                        Text(
-                          'Nessun turno in programma. Pianifica un turno per rendere disponibile il membro dello staff.',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        )
-                      else
-                        Column(
-                          children:
-                              upcoming
-                                  .map(
-                                    (shift) => _ShiftTile(
-                                      shift: shift,
-                                      roomName: roomNames[shift.roomId],
-                                      onEdit:
-                                          () => _openShiftForm(
-                                            context,
-                                            ref,
-                                            salons: salons,
-                                            staff: staffMembers,
-                                            initial: shift,
-                                          ),
-                                      onDelete:
-                                          () => _confirmDeleteShift(
-                                            context,
-                                            ref,
-                                            shift,
-                                          ),
-                                    ),
-                                  )
-                                  .toList(),
-                        ),
-                      if (staffShifts.length > upcoming.length)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 12),
-                          child: Text(
-                            'Sono presenti altri ${staffShifts.length - upcoming.length} turni futuri.',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest
-                        .withValues(alpha: 0.35),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Assenze e ferie',
-                            style: Theme.of(context).textTheme.titleSmall,
-                          ),
-                          TextButton.icon(
-                            onPressed:
-                                () => _openAbsenceForm(
-                                  context,
-                                  ref,
-                                  salons: salons,
-                                  staff: staffMembers,
-                                  defaultSalonId: staff.salonId,
-                                  defaultStaffId: staff.id,
-                                ),
-                            icon: const Icon(Icons.event_busy_rounded),
-                            label: const Text('Nuova assenza'),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _AllowanceChip(
-                            label: 'Ferie',
-                            usedLabel: 'Usate',
-                            remainingLabel: 'Residue',
-                            used: absenceSummary.vacationUsed,
-                            remaining: absenceSummary.vacationRemaining,
-                            total: staff.vacationAllowance.toDouble(),
-                          ),
-                          _AllowanceChip(
-                            label: 'Permessi',
-                            usedLabel: 'Usati',
-                            remainingLabel: 'Residui',
-                            used: absenceSummary.permissionUsed,
-                            remaining: absenceSummary.permissionRemaining,
-                            total: staff.permissionAllowance.toDouble(),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Assenze in programma',
-                        style: Theme.of(context).textTheme.labelLarge,
-                      ),
-                      const SizedBox(height: 6),
-                      if (upcomingAbsences.isEmpty)
-                        Text(
-                          'Nessuna assenza pianificata. Usa "Nuova assenza" per registrare ferie, permessi o malattia.',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        )
-                      else
-                        Column(
-                          children:
-                              upcomingAbsences
-                                  .take(4)
-                                  .map(
-                                    (absence) => _AbsenceTile(
-                                      absence: absence,
-                                      onEdit:
-                                          () => _openAbsenceForm(
-                                            context,
-                                            ref,
-                                            salons: salons,
-                                            staff: staffMembers,
-                                            initial: absence,
-                                          ),
-                                      onDelete:
-                                          () => _confirmDeleteAbsence(
-                                            context,
-                                            ref,
-                                            absence,
-                                          ),
-                                    ),
-                                  )
-                                  .toList(),
-                        ),
-                      if (upcomingAbsences.length > 4)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 12),
-                          child: Text(
-                            'Sono presenti altre ${upcomingAbsences.length - 4} assenze pianificate.',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ),
-                      if (pastAbsences.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        Text(
-                          'Storico ${now.year}',
-                          style: Theme.of(context).textTheme.labelLarge,
-                        ),
-                        const SizedBox(height: 6),
-                        Column(
-                          children:
-                              pastAbsences
-                                  .take(3)
-                                  .map(
-                                    (absence) => _AbsenceTile(
-                                      absence: absence,
-                                      onEdit:
-                                          () => _openAbsenceForm(
-                                            context,
-                                            ref,
-                                            salons: salons,
-                                            staff: staffMembers,
-                                            initial: absence,
-                                          ),
-                                      onDelete:
-                                          () => _confirmDeleteAbsence(
-                                            context,
-                                            ref,
-                                            absence,
-                                          ),
-                                    ),
-                                  )
-                                  .toList(),
-                        ),
-                        if (pastAbsences.length > 3)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 12),
-                            child: Text(
-                              'Sono presenti altre ${pastAbsences.length - 3} assenze concluse.',
-                              style: Theme.of(context).textTheme.bodySmall,
+                              ],
                             ),
-                          ),
-                      ],
+                            const SizedBox(height: 12),
+                            Text(
+                              'Assenze in programma',
+                              style: Theme.of(context).textTheme.labelLarge,
+                            ),
+                            const SizedBox(height: 6),
+                            if (upcomingAbsences.isEmpty)
+                              Text(
+                                'Nessuna assenza pianificata. Usa "Nuova assenza" per registrare ferie, permessi o malattia.',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              )
+                            else
+                              Column(
+                                children:
+                                    upcomingAbsences
+                                        .take(4)
+                                        .map(
+                                          (absence) => _AbsenceTile(
+                                            absence: absence,
+                                            onEdit:
+                                                () => _openAbsenceForm(
+                                                  context,
+                                                  ref,
+                                                  salons: salons,
+                                                  staff: staffMembers,
+                                                  initial: absence,
+                                                ),
+                                            onDelete:
+                                                () => _confirmDeleteAbsence(
+                                                  context,
+                                                  ref,
+                                                  absence,
+                                                ),
+                                          ),
+                                        )
+                                        .toList(),
+                              ),
+                            if (upcomingAbsences.length > 4) ...[
+                              const SizedBox(height: 12),
+                              Text(
+                                'Sono presenti altre ${upcomingAbsences.length - 4} assenze pianificate.',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                            if (pastAbsences.isNotEmpty) ...[
+                              const SizedBox(height: 16),
+                              Text(
+                                'Storico ${now.year}',
+                                style: Theme.of(context).textTheme.labelLarge,
+                              ),
+                              const SizedBox(height: 6),
+                              Column(
+                                children:
+                                    pastAbsences
+                                        .take(3)
+                                        .map(
+                                          (absence) => _AbsenceTile(
+                                            absence: absence,
+                                            onEdit:
+                                                () => _openAbsenceForm(
+                                                  context,
+                                                  ref,
+                                                  salons: salons,
+                                                  staff: staffMembers,
+                                                  initial: absence,
+                                                ),
+                                            onDelete:
+                                                () => _confirmDeleteAbsence(
+                                                  context,
+                                                  ref,
+                                                  absence,
+                                                ),
+                                          ),
+                                        )
+                                        .toList(),
+                              ),
+                              if (pastAbsences.length > 3) ...[
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Sono presenti altre ${pastAbsences.length - 3} assenze concluse.',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            ],
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         );
       },
     );
+  }
+
+  static Color _softSurface(BuildContext context, {double blend = 0.1}) {
+    final scheme = Theme.of(context).colorScheme;
+    return Color.lerp(scheme.surface, Colors.white, blend) ?? scheme.surface;
   }
 
   Future<void> _openStaffForm(
@@ -915,6 +974,83 @@ class _AllowanceChip extends StatelessWidget {
     final text =
         '$label · $usedLabel ${_format(used)} · $remainingLabel ${_format(remaining)} / ${_format(total)}';
     return InputChip(label: Text(text, style: theme.textTheme.bodySmall));
+  }
+}
+
+class _StaffSectionCard extends StatelessWidget {
+  const _StaffSectionCard({
+    required this.title,
+    required this.child,
+    this.trailing,
+  });
+
+  final String title;
+  final Widget child;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      elevation: 1.5,
+      color: StaffModule._softSurface(context, blend: 0.22),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: Text(title, style: theme.textTheme.titleSmall)),
+                if (trailing != null) ...[
+                  const SizedBox(width: 12),
+                  Flexible(
+                    child: Align(
+                      alignment: Alignment.topRight,
+                      child: trailing!,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 12),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ContactInfo extends StatelessWidget {
+  const _ContactInfo({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: StaffModule._softSurface(context, blend: 0.28),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: theme.colorScheme.primary),
+            const SizedBox(width: 6),
+            Text(label, style: theme.textTheme.bodySmall),
+          ],
+        ),
+      ),
+    );
   }
 }
 

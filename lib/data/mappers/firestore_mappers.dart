@@ -1,4 +1,5 @@
 import 'package:civiapp/domain/entities/appointment.dart';
+import 'package:civiapp/domain/entities/appointment_day_checklist.dart';
 import 'package:civiapp/domain/entities/cash_flow_entry.dart';
 import 'package:civiapp/domain/entities/app_notification.dart';
 import 'package:civiapp/domain/entities/client.dart';
@@ -874,6 +875,7 @@ StaffMember staffFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final permissionAllowance =
       (data['permissionAllowance'] as num?)?.toInt() ??
       StaffMember.defaultPermissionAllowance;
+  final sortOrder = (data['sortOrder'] as num?)?.toInt() ?? 0;
   final avatarUrlRaw = (data['avatarUrl'] as String?)?.trim();
   final avatarStoragePathRaw = (data['avatarStoragePath'] as String?)?.trim();
 
@@ -889,6 +891,7 @@ StaffMember staffFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     isActive: data['isActive'] as bool? ?? true,
     vacationAllowance: vacationAllowance,
     permissionAllowance: permissionAllowance,
+    sortOrder: sortOrder,
     avatarUrl:
         avatarUrlRaw != null && avatarUrlRaw.isNotEmpty ? avatarUrlRaw : null,
     avatarStoragePath:
@@ -914,6 +917,7 @@ Map<String, dynamic> staffToMap(StaffMember staff) {
     'isActive': staff.isActive,
     'vacationAllowance': staff.vacationAllowance,
     'permissionAllowance': staff.permissionAllowance,
+    'sortOrder': staff.sortOrder,
     if (staff.avatarUrl != null && staff.avatarUrl!.isNotEmpty)
       'avatarUrl': staff.avatarUrl,
     if (staff.avatarStoragePath != null && staff.avatarStoragePath!.isNotEmpty)
@@ -1526,6 +1530,51 @@ Map<String, dynamic> appointmentToMap(Appointment appointment) {
   };
 }
 
+AppointmentDayChecklist appointmentDayChecklistFromDoc(
+  DocumentSnapshot<Map<String, dynamic>> doc,
+) {
+  final data = doc.data() ?? <String, dynamic>{};
+  final itemsRaw = data['items'] as List<dynamic>? ?? const <dynamic>[];
+  final items = itemsRaw
+      .map(_appointmentChecklistItemFromMap)
+      .whereType<AppointmentChecklistItem>()
+      .toList(growable: false);
+  return AppointmentDayChecklist(
+    id: doc.id,
+    salonId: data['salonId'] as String? ?? '',
+    date: _timestampToDate(data['date']) ?? DateTime.now(),
+    items: items,
+    createdAt: _timestampToDate(data['createdAt']),
+    updatedAt: _timestampToDate(data['updatedAt']),
+  );
+}
+
+Map<String, dynamic> appointmentDayChecklistToMap(
+  AppointmentDayChecklist checklist,
+) {
+  final now = DateTime.now();
+  return <String, dynamic>{
+    'salonId': checklist.salonId,
+    'date': Timestamp.fromDate(checklist.date),
+    'items': checklist.items
+        .map((item) {
+          final createdAt = item.createdAt;
+          final updatedAt = item.updatedAt;
+          return <String, dynamic>{
+            'id': item.id,
+            'label': item.label,
+            'position': item.position,
+            'isCompleted': item.isCompleted,
+            if (createdAt != null) 'createdAt': Timestamp.fromDate(createdAt),
+            if (updatedAt != null) 'updatedAt': Timestamp.fromDate(updatedAt),
+          };
+        })
+        .toList(growable: false),
+    'createdAt': Timestamp.fromDate(checklist.createdAt ?? now),
+    'updatedAt': Timestamp.fromDate(checklist.updatedAt ?? now),
+  };
+}
+
 Map<String, dynamic> publicAppointmentToMap(Appointment appointment) {
   return {
     'salonId': appointment.salonId,
@@ -2045,6 +2094,25 @@ bool _isSaleLoyaltySummaryEmpty(SaleLoyaltySummary summary) {
       summary.netPoints == 0 &&
       summary.processedMovementIds.isEmpty &&
       summary.computedAt == null;
+}
+
+AppointmentChecklistItem? _appointmentChecklistItemFromMap(dynamic raw) {
+  if (raw is! Map<String, dynamic>) {
+    return null;
+  }
+  final id = (raw['id'] as String?)?.trim();
+  if (id == null || id.isEmpty) {
+    return null;
+  }
+  final label = (raw['label'] as String?)?.trim() ?? '';
+  return AppointmentChecklistItem(
+    id: id,
+    label: label,
+    position: (raw['position'] as num?)?.toInt() ?? 0,
+    isCompleted: raw['isCompleted'] == true,
+    createdAt: _timestampToDate(raw['createdAt']),
+    updatedAt: _timestampToDate(raw['updatedAt']),
+  );
 }
 
 DateTime? _timestampToDate(dynamic value) {

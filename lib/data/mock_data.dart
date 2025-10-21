@@ -1,4 +1,5 @@
 import 'package:civiapp/domain/entities/appointment.dart';
+import 'package:civiapp/domain/entities/appointment_day_checklist.dart';
 import 'package:civiapp/domain/entities/cash_flow_entry.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/client_questionnaire.dart';
@@ -158,6 +159,48 @@ class MockData {
         payoutsEnabled: true,
         detailsSubmitted: true,
       ),
+    ),
+  ];
+
+  static final appointmentDayChecklists = <AppointmentDayChecklist>[
+    AppointmentDayChecklist(
+      id: 'chk-1',
+      salonId: 'salon-001',
+      date: DateTime(_now.year, _now.month, _now.day),
+      createdAt: _now.subtract(const Duration(days: 1)),
+      updatedAt: _now.subtract(const Duration(hours: 6)),
+      items: const [
+        AppointmentChecklistItem(
+          id: 'chk-1-itm-1',
+          label: 'Prepara cabina relax',
+          position: 0,
+          isCompleted: true,
+        ),
+        AppointmentChecklistItem(
+          id: 'chk-1-itm-2',
+          label: 'Verifica disponibilità prodotti viso',
+          position: 1,
+        ),
+        AppointmentChecklistItem(
+          id: 'chk-1-itm-3',
+          label: 'Aggiorna promo express in vetrina',
+          position: 2,
+        ),
+      ],
+    ),
+    AppointmentDayChecklist(
+      id: 'chk-2',
+      salonId: 'salon-001',
+      date: DateTime(_now.year, _now.month, _now.day + 1),
+      createdAt: _now,
+      updatedAt: _now,
+      items: const [
+        AppointmentChecklistItem(
+          id: 'chk-2-itm-1',
+          label: 'Controlla macchinari pressoterapia',
+          position: 0,
+        ),
+      ],
     ),
   ];
 
@@ -671,6 +714,7 @@ class MockData {
       dateOfBirth: DateTime(1990, 3, 14),
       vacationAllowance: 28,
       permissionAllowance: 15,
+      sortOrder: 10,
       avatarUrl:
           'https://images.unsplash.com/photo-1589578527966-74ee9689173f?auto=format&fit=facearea&w=160&h=160&q=80',
     ),
@@ -682,6 +726,7 @@ class MockData {
       roleIds: const ['estetista'],
       phone: '+39 333 444 5566',
       dateOfBirth: DateTime(1994, 8, 23),
+      sortOrder: 20,
     ),
     StaffMember(
       id: 'staff-003',
@@ -691,6 +736,7 @@ class MockData {
       roleIds: const ['massaggiatore'],
       phone: '+39 340 777 8899',
       dateOfBirth: DateTime(1988, 12, 2),
+      sortOrder: 10,
     ),
   ];
 

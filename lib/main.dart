@@ -4,8 +4,13 @@ import 'package:civiapp/app/app.dart';
 import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/services/notifications/notification_service.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_in_app_messaging/firebase_in_app_messaging.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
@@ -33,6 +38,14 @@ Future<void> main() async {
     );
     debugPrintStack(stackTrace: stackTrace);
     rethrow;
+  }
+
+  if (kDebugMode) {
+    final emulatorHost = Platform.isAndroid ? '10.0.2.2' : 'localhost';
+    await FirebaseAuth.instance.useAuthEmulator(emulatorHost, 9099);
+    FirebaseFirestore.instance.useFirestoreEmulator(emulatorHost, 8080);
+    FirebaseStorage.instance.useStorageEmulator(emulatorHost, 9199);
+    FirebaseFunctions.instance.useFunctionsEmulator(emulatorHost, 5001);
   }
 
   if (_stripePublishableKey.isNotEmpty) {

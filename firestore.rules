@@ -128,6 +128,18 @@ service cloud.firestore {
           : null;
     }
 
+    function isStaffSortOrderUpdate() {
+      return isStaff() &&
+          canManageSalonDocument(resourceSalonId()) &&
+          request.resource != null &&
+          request.resource.data != null &&
+          resource != null &&
+          resource.data != null &&
+          request.writeFields.hasOnly(['sortOrder']) &&
+          request.resource.data.sortOrder is int &&
+          request.resource.data.salonId == resourceSalonId();
+    }
+
     function requestQuoteStatus() {
       return request.resource != null && request.resource.data != null &&
           request.resource.data.status is string
@@ -215,6 +227,10 @@ service cloud.firestore {
           data.templateId is string && data.answers is map;
     }
 
+
+
+
+
     match /users/{userId} {
       allow get: if isSignedIn() && (
         request.auth.uid == userId ||
@@ -272,7 +288,11 @@ service cloud.firestore {
         (isAdmin() && canManageSalonDocument(requestSalonId())) ||
         (!isUserInitialized() && requestSalonId() is string)
       );
-      allow update, delete: if isSignedIn() && isAdmin() && canManageSalonDocument(resourceSalonId());
+      allow update: if isSignedIn() && (
+        (isAdmin() && canManageSalonDocument(resourceSalonId())) ||
+        isStaffSortOrderUpdate()
+      );
+      allow delete: if isSignedIn() && isAdmin() && canManageSalonDocument(resourceSalonId());
     }
 
     match /staff_roles/{roleId} {
@@ -462,6 +482,26 @@ service cloud.firestore {
               request.resource.data.salonId is string
               ? request.resource.data.salonId
               : resourceSalonId());
+    }
+
+    match /appointment_day_checklists/{checklistId} {
+      allow read: if isSignedIn() && (
+        (resourceSalonId() != null && canManageSalonDocument(resourceSalonId())) ||
+        isAdminOrStaff()
+      );
+
+      allow create: if isSignedIn() && isAdminOrStaff() &&
+          requestSalonId() != null &&
+          canManageSalonDocument(requestSalonId()) ;
+
+      allow update: if isSignedIn() && isAdminOrStaff() &&
+          resourceSalonId() != null &&
+          requestSalonId() == resourceSalonId() &&
+          canManageSalonDocument(resourceSalonId());
+
+      allow delete: if isSignedIn() && isAdminOrStaff() &&
+          resourceSalonId() != null &&
+          canManageSalonDocument(resourceSalonId());
     }
 
     match /quotes/{quoteId} {

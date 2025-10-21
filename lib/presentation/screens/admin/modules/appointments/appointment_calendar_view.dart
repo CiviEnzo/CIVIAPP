@@ -1,8 +1,10 @@
 import 'dart:math';
 
+import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/domain/availability/appointment_conflicts.dart';
 import 'package:civiapp/domain/availability/equipment_availability.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
+import 'package:civiapp/domain/entities/appointment_day_checklist.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/last_minute_slot.dart';
@@ -16,6 +18,7 @@ import 'package:civiapp/presentation/screens/admin/modules/appointments/appointm
 import 'package:collection/collection.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 const double _kStaffColumnWidth = 220.0;
@@ -105,6 +108,7 @@ class AppointmentCalendarView extends StatefulWidget {
     required this.roomsById,
     required this.salonsById,
     required this.lockedAppointmentReasons,
+    required this.dayChecklists,
     required this.onReschedule,
     required this.onEdit,
     required this.onCreate,
@@ -113,6 +117,10 @@ class AppointmentCalendarView extends StatefulWidget {
     this.slotMinutes = 15,
     this.onTapLastMinuteSlot,
     required this.lastMinuteSlots,
+    this.onAddChecklistItem,
+    this.onToggleChecklistItem,
+    this.onRenameChecklistItem,
+    this.onDeleteChecklistItem,
   });
 
   final DateTime anchorDate;
@@ -133,6 +141,7 @@ class AppointmentCalendarView extends StatefulWidget {
   final Map<String, String> roomsById;
   final Map<String, Salon> salonsById;
   final Map<String, String> lockedAppointmentReasons;
+  final Map<DateTime, AppointmentDayChecklist> dayChecklists;
   final AppointmentRescheduleCallback onReschedule;
   final AppointmentTapCallback onEdit;
   final AppointmentSlotSelectionCallback onCreate;
@@ -140,6 +149,17 @@ class AppointmentCalendarView extends StatefulWidget {
   final Color Function(AppointmentStatus status) statusColor;
   final int slotMinutes;
   final Future<void> Function(LastMinuteSlot slot)? onTapLastMinuteSlot;
+  final Future<void> Function(DateTime day, String label)? onAddChecklistItem;
+  final Future<void> Function(
+    String checklistId,
+    String itemId,
+    bool isCompleted,
+  )?
+  onToggleChecklistItem;
+  final Future<void> Function(String checklistId, String itemId, String label)?
+  onRenameChecklistItem;
+  final Future<void> Function(String checklistId, String itemId)?
+  onDeleteChecklistItem;
 
   @override
   State<AppointmentCalendarView> createState() =>
@@ -238,6 +258,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           statusColor: widget.statusColor,
           salonsById: widget.salonsById,
           lockedAppointmentReasons: widget.lockedAppointmentReasons,
+          dayChecklists: widget.dayChecklists,
           onReschedule: widget.onReschedule,
           onEdit: widget.onEdit,
           onCreate: widget.onCreate,
@@ -247,6 +268,10 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           horizontalBodyController: _horizontalBodyController,
           verticalController: _verticalController,
           slotMinutes: widget.slotMinutes,
+          onAddChecklistItem: widget.onAddChecklistItem,
+          onToggleChecklistItem: widget.onToggleChecklistItem,
+          onRenameChecklistItem: widget.onRenameChecklistItem,
+          onDeleteChecklistItem: widget.onDeleteChecklistItem,
         );
       case AppointmentCalendarScope.week:
         return _WeekSchedule(
@@ -269,6 +294,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           statusColor: widget.statusColor,
           salonsById: widget.salonsById,
           lockedAppointmentReasons: widget.lockedAppointmentReasons,
+          dayChecklists: widget.dayChecklists,
           onReschedule: widget.onReschedule,
           onEdit: widget.onEdit,
           onCreate: widget.onCreate,
@@ -278,6 +304,10 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           horizontalBodyController: _horizontalBodyController,
           verticalController: _verticalController,
           slotMinutes: widget.slotMinutes,
+          onAddChecklistItem: widget.onAddChecklistItem,
+          onToggleChecklistItem: widget.onToggleChecklistItem,
+          onRenameChecklistItem: widget.onRenameChecklistItem,
+          onDeleteChecklistItem: widget.onDeleteChecklistItem,
         );
     }
   }
@@ -319,6 +349,7 @@ class _DaySchedule extends StatelessWidget {
     required this.statusColor,
     required this.salonsById,
     required this.lockedAppointmentReasons,
+    required this.dayChecklists,
     required this.onReschedule,
     required this.onEdit,
     required this.onCreate,
@@ -328,6 +359,10 @@ class _DaySchedule extends StatelessWidget {
     required this.horizontalBodyController,
     required this.verticalController,
     required this.slotMinutes,
+    this.onAddChecklistItem,
+    this.onToggleChecklistItem,
+    this.onRenameChecklistItem,
+    this.onDeleteChecklistItem,
   });
 
   final DateTime anchorDate;
@@ -347,6 +382,7 @@ class _DaySchedule extends StatelessWidget {
   final Map<String, String> roomsById;
   final Map<String, Salon> salonsById;
   final Map<String, String> lockedAppointmentReasons;
+  final Map<DateTime, AppointmentDayChecklist> dayChecklists;
   final Color Function(AppointmentStatus status) statusColor;
   final AppointmentRescheduleCallback onReschedule;
   final AppointmentTapCallback onEdit;
@@ -357,6 +393,17 @@ class _DaySchedule extends StatelessWidget {
   final ScrollController horizontalBodyController;
   final ScrollController verticalController;
   final int slotMinutes;
+  final Future<void> Function(DateTime day, String label)? onAddChecklistItem;
+  final Future<void> Function(
+    String checklistId,
+    String itemId,
+    bool isCompleted,
+  )?
+  onToggleChecklistItem;
+  final Future<void> Function(String checklistId, String itemId, String label)?
+  onRenameChecklistItem;
+  final Future<void> Function(String checklistId, String itemId)?
+  onDeleteChecklistItem;
 
   static const _slotExtent = _AppointmentCalendarViewState._slotExtent;
   static const _timeScaleExtent =
@@ -445,6 +492,19 @@ class _DaySchedule extends StatelessWidget {
     final rolesById = {for (final role in roles) role.id: role};
 
     final dateLabel = DateFormat('EEEE dd MMMM', 'it_IT').format(dayStart);
+    final normalizedDay = DateTime(dayStart.year, dayStart.month, dayStart.day);
+    final dayChecklist = dayChecklists[normalizedDay];
+    final hasChecklistItems =
+        dayChecklist != null && dayChecklist.items.isNotEmpty;
+    final checklistTotal = dayChecklist?.items.length ?? 0;
+    final checklistCompleted =
+        dayChecklist?.items.where((item) => item.isCompleted).length ?? 0;
+    final showChecklistLauncher =
+        hasChecklistItems ||
+        onAddChecklistItem != null ||
+        onToggleChecklistItem != null ||
+        onRenameChecklistItem != null ||
+        onDeleteChecklistItem != null;
 
     final theme = Theme.of(context);
     final headerColor = theme.colorScheme.surfaceContainerHighest.withValues(
@@ -460,24 +520,6 @@ class _DaySchedule extends StatelessWidget {
       alpha: 0.08,
     );
     final timeFormat = DateFormat('HH:mm');
-    String openingInfo;
-    if (scheduleEntry == null) {
-      openingInfo = 'Orario non impostato';
-    } else if (!scheduleEntry.isOpen) {
-      openingInfo = 'Salone chiuso';
-    } else if (scheduleEntry.openMinuteOfDay != null &&
-        scheduleEntry.closeMinuteOfDay != null) {
-      final openLabel = timeFormat.format(
-        dayStart.add(Duration(minutes: scheduleEntry.openMinuteOfDay!)),
-      );
-      final closeLabel = timeFormat.format(
-        dayStart.add(Duration(minutes: scheduleEntry.closeMinuteOfDay!)),
-      );
-      openingInfo = 'Orario salone: $openLabel - $closeLabel';
-    } else {
-      openingInfo = 'Orario non impostato';
-    }
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -508,18 +550,32 @@ class _DaySchedule extends StatelessWidget {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        dateLabel,
-                        style: theme.textTheme.titleMedium,
-                        textAlign: TextAlign.center,
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              dateLabel,
+                              style: theme.textTheme.titleMedium,
+                            ),
+                          ),
+                          if (showChecklistLauncher) ...[
+                            const SizedBox(width: 12),
+                            _ChecklistDialogLauncher(
+                              day: normalizedDay,
+                              dateLabel: dateLabel,
+                              checklist: dayChecklist,
+                              total: checklistTotal,
+                              completed: checklistCompleted,
+                              salonId: dayChecklist?.salonId,
+                              onAdd: onAddChecklistItem,
+                              onToggle: onToggleChecklistItem,
+                              onRename: onRenameChecklistItem,
+                              onDelete: onDeleteChecklistItem,
+                            ),
+                          ],
+                        ],
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        openingInfo,
-                        style: theme.textTheme.bodySmall,
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 12),
                     ],
                   ),
                 ),
@@ -878,6 +934,7 @@ class _WeekSchedule extends StatelessWidget {
     required this.statusColor,
     required this.salonsById,
     required this.lockedAppointmentReasons,
+    required this.dayChecklists,
     required this.onReschedule,
     required this.onEdit,
     required this.onCreate,
@@ -887,6 +944,10 @@ class _WeekSchedule extends StatelessWidget {
     required this.verticalController,
     required this.anomalies,
     required this.slotMinutes,
+    this.onAddChecklistItem,
+    this.onToggleChecklistItem,
+    this.onRenameChecklistItem,
+    this.onDeleteChecklistItem,
   });
 
   final DateTime anchorDate;
@@ -917,6 +978,18 @@ class _WeekSchedule extends StatelessWidget {
   final ScrollController verticalController;
   final Map<String, Set<AppointmentAnomalyType>> anomalies;
   final int slotMinutes;
+  final Map<DateTime, AppointmentDayChecklist> dayChecklists;
+  final Future<void> Function(DateTime day, String label)? onAddChecklistItem;
+  final Future<void> Function(
+    String checklistId,
+    String itemId,
+    bool isCompleted,
+  )?
+  onToggleChecklistItem;
+  final Future<void> Function(String checklistId, String itemId, String label)?
+  onRenameChecklistItem;
+  final Future<void> Function(String checklistId, String itemId)?
+  onDeleteChecklistItem;
 
   static const _slotExtent = _AppointmentCalendarViewState._slotExtent;
   static const _timeScaleExtent =
@@ -1205,6 +1278,24 @@ class _WeekSchedule extends StatelessWidget {
                                           (running, list) =>
                                               running + list.length,
                                         );
+                                    final dayChecklist =
+                                        dayChecklists[data.date];
+                                    final hasChecklistItems =
+                                        dayChecklist != null &&
+                                        dayChecklist.items.isNotEmpty;
+                                    final checklistTotal =
+                                        dayChecklist?.items.length ?? 0;
+                                    final checklistCompleted =
+                                        dayChecklist?.items
+                                            .where((item) => item.isCompleted)
+                                            .length ??
+                                        0;
+                                    final showChecklistLauncher =
+                                        hasChecklistItems ||
+                                        onAddChecklistItem != null ||
+                                        onToggleChecklistItem != null ||
+                                        onRenameChecklistItem != null ||
+                                        onDeleteChecklistItem != null;
                                     final scheduledStaffIds = data
                                         .shiftsByStaff
                                         .entries
@@ -1359,26 +1450,54 @@ class _WeekSchedule extends StatelessWidget {
                                                   ),
                                                   const SizedBox(height: 8),
                                                 ],
-                                                Text(
-                                                  dayLabelFormat.format(
-                                                    data.date,
-                                                  ),
-                                                  style:
-                                                      theme
-                                                          .textTheme
-                                                          .titleMedium,
-                                                  textAlign: TextAlign.center,
+                                                Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.center,
+                                                  children: [
+                                                    Flexible(
+                                                      fit: FlexFit.loose,
+                                                      child: Text(
+                                                        dayLabelFormat.format(
+                                                          data.date,
+                                                        ),
+                                                        style:
+                                                            theme
+                                                                .textTheme
+                                                                .titleMedium,
+                                                      ),
+                                                    ),
+                                                    if (showChecklistLauncher) ...[
+                                                      const SizedBox(width: 8),
+                                                    _ChecklistDialogLauncher(
+                                                      day: data.date,
+                                                      dateLabel:
+                                                          dayLabelFormat
+                                                              .format(
+                                                                data.date,
+                                                              ),
+                                                      checklist: dayChecklist,
+                                                      total: checklistTotal,
+                                                      completed:
+                                                          checklistCompleted,
+                                                      salonId:
+                                                          dayChecklist
+                                                              ?.salonId,
+                                                      onAdd:
+                                                          onAddChecklistItem,
+                                                      onToggle:
+                                                          onToggleChecklistItem,
+                                                      onRename:
+                                                            onRenameChecklistItem,
+                                                        onDelete:
+                                                            onDeleteChecklistItem,
+                                                        compact: true,
+                                                      ),
+                                                    ],
+                                                  ],
                                                 ),
-                                                const SizedBox(height: 4),
-                                                Text(
-                                                  _openingLabel(
-                                                    data,
-                                                    timeFormat,
-                                                  ),
-                                                  style:
-                                                      theme.textTheme.bodySmall,
-                                                  textAlign: TextAlign.center,
-                                                ),
+                                                const SizedBox(height: 6),
                                                 if (summaryChips
                                                     .isNotEmpty) ...[
                                                   const SizedBox(height: 8),
@@ -1797,21 +1916,821 @@ class _WeekSchedule extends StatelessWidget {
       ],
     );
   }
+}
 
-  static String _openingLabel(_WeekDayData data, DateFormat timeFormat) {
-    final entry = data.scheduleEntry;
-    if (entry == null) {
-      return 'Orario non impostato';
+enum _ChecklistItemAction { rename, delete }
+
+class _ChecklistSection extends StatefulWidget {
+  const _ChecklistSection({
+    required this.day,
+    this.checklist,
+    this.onAdd,
+    this.onToggle,
+    this.onRename,
+    this.onDelete,
+    this.dense = false,
+    this.maxVisibleItems,
+    this.maxWidth,
+  });
+
+  final DateTime day;
+  final AppointmentDayChecklist? checklist;
+  final Future<void> Function(DateTime day, String label)? onAdd;
+  final Future<void> Function(
+    String checklistId,
+    String itemId,
+    bool isCompleted,
+  )?
+  onToggle;
+  final Future<void> Function(String checklistId, String itemId, String label)?
+  onRename;
+  final Future<void> Function(String checklistId, String itemId)? onDelete;
+  final bool dense;
+  final int? maxVisibleItems;
+  final double? maxWidth;
+
+  @override
+  State<_ChecklistSection> createState() => _ChecklistSectionState();
+}
+
+class _ChecklistSectionState extends State<_ChecklistSection> {
+  late final TextEditingController _inputController;
+  late final FocusNode _inputFocus;
+  bool _isSubmitting = false;
+  final Set<String> _pendingItemIds = <String>{};
+
+  bool get _canAdd => widget.onAdd != null;
+  bool get _hasChecklist => widget.checklist != null;
+  bool get _canToggle => widget.onToggle != null && _hasChecklist;
+  bool get _canRename => widget.onRename != null && _hasChecklist;
+  bool get _canDelete => widget.onDelete != null && _hasChecklist;
+
+  @override
+  void initState() {
+    super.initState();
+    _inputController = TextEditingController();
+    _inputFocus = FocusNode();
+  }
+
+  @override
+  void dispose() {
+    _inputController.dispose();
+    _inputFocus.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ChecklistSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.checklist?.id != oldWidget.checklist?.id) {
+      _pendingItemIds.clear();
+    } else if (widget.checklist != null) {
+      final validIds = widget.checklist!.items.map((item) => item.id).toSet();
+      _pendingItemIds.removeWhere((id) => !validIds.contains(id));
     }
-    if (!entry.isOpen) {
-      return 'Salone chiuso';
+    final previousCount = oldWidget.checklist?.items.length ?? 0;
+    final currentCount = widget.checklist?.items.length ?? 0;
+    if (_isSubmitting && currentCount > previousCount) {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      } else {
+        _isSubmitting = false;
+      }
     }
-    if (data.openStart == null || data.openEnd == null) {
-      return 'Orario non impostato';
+  }
+
+  Future<void> _submitNewItem() async {
+    if (!_canAdd || _isSubmitting) {
+      return;
     }
-    final open = timeFormat.format(data.openStart!);
-    final close = timeFormat.format(data.openEnd!);
-    return 'Orario salone: $open - $close';
+    final originalText = _inputController.text;
+    final text = originalText.trim();
+    if (text.isEmpty) {
+      return;
+    }
+    setState(() => _isSubmitting = true);
+    _inputController.clear();
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        FocusScope.of(context).requestFocus(_inputFocus);
+      });
+    }
+    try {
+      await widget.onAdd!(widget.day, text);
+      if (!mounted) {
+        return;
+      }
+      // Ensure the field is ready for a new entry after the Firestore update.
+      if (_inputController.text.isNotEmpty) {
+        _inputController.clear();
+      }
+      FocusScope.of(context).requestFocus(_inputFocus);
+    } catch (error) {
+      if (mounted) {
+        _inputController.text = originalText;
+        _inputController.selection = TextSelection.collapsed(
+          offset: originalText.length,
+        );
+        FocusScope.of(context).requestFocus(_inputFocus);
+      }
+      rethrow;
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      } else {
+        _isSubmitting = false;
+      }
+    }
+  }
+
+  Future<void> _runItemMutation(
+    String itemId,
+    Future<void> Function() task,
+  ) async {
+    if (mounted) {
+      setState(() {
+        _pendingItemIds.add(itemId);
+      });
+    } else {
+      _pendingItemIds.add(itemId);
+    }
+    try {
+      await task();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _pendingItemIds.remove(itemId);
+        });
+      } else {
+        _pendingItemIds.remove(itemId);
+      }
+    }
+  }
+
+  Future<void> _handleToggle(AppointmentChecklistItem item, bool value) async {
+    if (!_canToggle || widget.onToggle == null || widget.checklist == null) {
+      return;
+    }
+    if (item.isCompleted == value) {
+      return;
+    }
+    await _runItemMutation(
+      item.id,
+      () => widget.onToggle!(widget.checklist!.id, item.id, value),
+    );
+  }
+
+  Future<void> _handleItemAction(
+    _ChecklistItemAction action,
+    AppointmentChecklistItem item,
+  ) async {
+    switch (action) {
+      case _ChecklistItemAction.rename:
+        await _promptRename(item);
+        break;
+      case _ChecklistItemAction.delete:
+        await _confirmDelete(item);
+        break;
+    }
+  }
+
+  Future<void> _promptRename(AppointmentChecklistItem item) async {
+    if (!_canRename || widget.onRename == null || widget.checklist == null) {
+      return;
+    }
+    final controller = TextEditingController(text: item.label);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Modifica attività'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (value) => Navigator.of(context).pop(value),
+            decoration: const InputDecoration(hintText: 'Descrizione attività'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(null),
+              child: const Text('Annulla'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(controller.text),
+              child: const Text('Salva'),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    final trimmed = result?.trim();
+    if (trimmed == null) {
+      return;
+    }
+    if (trimmed.isEmpty) {
+      await _confirmDelete(item);
+      return;
+    }
+    if (trimmed == item.label.trim()) {
+      return;
+    }
+    await _runItemMutation(
+      item.id,
+      () => widget.onRename!(widget.checklist!.id, item.id, trimmed),
+    );
+  }
+
+  Future<void> _confirmDelete(AppointmentChecklistItem item) async {
+    if (!_canDelete || widget.onDelete == null || widget.checklist == null) {
+      return;
+    }
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder:
+              (context) => AlertDialog(
+                title: const Text('Elimina attività'),
+                content: Text(
+                  'Vuoi rimuovere "${item.label}" dalla checklist?',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text('Annulla'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.of(context).pop(true),
+                    child: const Text('Elimina'),
+                  ),
+                ],
+              ),
+        ) ??
+        false;
+    if (!confirmed) {
+      return;
+    }
+    await _runItemMutation(
+      item.id,
+      () => widget.onDelete!(widget.checklist!.id, item.id),
+    );
+  }
+
+  Widget _buildItemRow(ThemeData theme, AppointmentChecklistItem item) {
+    final isPending = _pendingItemIds.contains(item.id);
+    final canToggle = _canToggle && !isPending;
+    final canRename = _canRename && !isPending;
+    final canDelete = _canDelete && !isPending;
+    final baseStyle =
+        widget.dense ? theme.textTheme.bodySmall : theme.textTheme.bodyMedium;
+    final baseColor = baseStyle?.color ?? theme.colorScheme.onSurface;
+    final displayColor =
+        item.isCompleted ? baseColor.withValues(alpha: 0.6) : baseColor;
+    final textStyle = baseStyle?.copyWith(
+      decoration:
+          item.isCompleted ? TextDecoration.lineThrough : TextDecoration.none,
+      color: displayColor,
+    );
+
+    final rowChildren = <Widget>[
+      Checkbox(
+        visualDensity:
+            widget.dense
+                ? const VisualDensity(horizontal: -4, vertical: -4)
+                : null,
+        value: item.isCompleted,
+        onChanged:
+            canToggle ? (value) => _handleToggle(item, value ?? false) : null,
+      ),
+      const SizedBox(width: 6),
+      Expanded(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap:
+              canToggle
+                  ? () => _handleToggle(item, !item.isCompleted)
+                  : null,
+          onLongPress: canRename ? () => _promptRename(item) : null,
+          child: Text(
+            item.label,
+            style: textStyle,
+            maxLines: widget.dense ? 2 : 3,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ),
+    ];
+
+    if (canRename || canDelete) {
+      rowChildren.add(
+        PopupMenuButton<_ChecklistItemAction>(
+          tooltip: 'Azioni',
+          enabled: !isPending,
+          onSelected: (action) => _handleItemAction(action, item),
+          icon: Icon(Icons.more_vert_rounded, size: widget.dense ? 18 : 20),
+          itemBuilder:
+              (context) => [
+                if (canRename)
+                  const PopupMenuItem(
+                    value: _ChecklistItemAction.rename,
+                    child: Text('Rinomina'),
+                  ),
+                if (canDelete)
+                  const PopupMenuItem(
+                    value: _ChecklistItemAction.delete,
+                    child: Text('Elimina'),
+                  ),
+              ],
+        ),
+      );
+    }
+
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 150),
+      opacity: isPending ? 0.6 : 1,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: widget.dense ? 4 : 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: rowChildren,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final allItems =
+        widget.checklist?.items ?? const <AppointmentChecklistItem>[];
+    final maxItems = widget.maxVisibleItems;
+    final visibleItems =
+        maxItems != null && allItems.length > maxItems
+            ? allItems.take(maxItems).toList(growable: false)
+            : allItems;
+    final overflowCount = allItems.length - visibleItems.length;
+
+    final children = <Widget>[];
+
+    if (_canAdd) {
+      children.add(
+        TextField(
+          controller: _inputController,
+          focusNode: _inputFocus,
+          enabled: !_isSubmitting,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _submitNewItem(),
+          decoration: InputDecoration(
+            hintText: 'Aggiungi attività',
+            isDense: widget.dense,
+            contentPadding:
+                widget.dense
+                    ? const EdgeInsets.symmetric(horizontal: 12, vertical: 8)
+                    : const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            suffixIcon:
+                _isSubmitting
+                    ? Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: const CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                    : IconButton(
+                      tooltip: 'Aggiungi attività',
+                      icon: Icon(
+                        Icons.add_task_rounded,
+                        size: widget.dense ? 20 : 22,
+                      ),
+                      onPressed: _submitNewItem,
+                    ),
+          ),
+        ),
+      );
+    }
+
+    if (visibleItems.isEmpty) {
+      if (_canAdd) {
+        children.add(SizedBox(height: widget.dense ? 12 : 16));
+      }
+      children.add(
+        Text(
+          'Nessuna attività in elenco',
+          style: (widget.dense
+                  ? theme.textTheme.bodySmall
+                  : theme.textTheme.bodyMedium)
+              ?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant.withValues(
+                  alpha: 0.7,
+                ),
+              ),
+        ),
+      );
+    } else {
+      if (_canAdd) {
+        children.add(SizedBox(height: widget.dense ? 12 : 16));
+      }
+      for (final item in visibleItems) {
+        children.add(_buildItemRow(theme, item));
+      }
+      if (overflowCount > 0) {
+        children.add(
+          Padding(
+            padding: EdgeInsets.only(top: widget.dense ? 2 : 4),
+            child: Text(
+              '+$overflowCount attività nascoste',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant.withValues(
+                  alpha: 0.7,
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+    }
+
+    Widget content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: children,
+    );
+
+    final maxWidth = widget.maxWidth;
+    if (maxWidth != null) {
+      content = ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: content,
+      );
+    }
+
+    return content;
+  }
+}
+
+class _ChecklistDialogLauncher extends StatelessWidget {
+  const _ChecklistDialogLauncher({
+    required this.day,
+    required this.dateLabel,
+    required this.total,
+    required this.completed,
+    this.checklist,
+    this.salonId,
+    this.onAdd,
+    this.onToggle,
+    this.onRename,
+    this.onDelete,
+    this.compact = false,
+  });
+
+  final DateTime day;
+  final String dateLabel;
+  final int total;
+  final int completed;
+  final AppointmentDayChecklist? checklist;
+  final String? salonId;
+  final Future<void> Function(DateTime day, String label)? onAdd;
+  final Future<void> Function(
+    String checklistId,
+    String itemId,
+    bool isCompleted,
+  )?
+  onToggle;
+  final Future<void> Function(String checklistId, String itemId, String label)?
+  onRename;
+  final Future<void> Function(String checklistId, String itemId)? onDelete;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final pending = max(total - completed, 0);
+    final hasAccess =
+        total > 0 ||
+        onAdd != null ||
+        onToggle != null ||
+        onRename != null ||
+        onDelete != null;
+    if (!hasAccess) {
+      return const SizedBox.shrink();
+    }
+    final theme = Theme.of(context);
+    final iconData =
+        pending > 0 ? Icons.checklist_rounded : Icons.task_alt_rounded;
+    final iconColor =
+        pending > 0
+            ? theme.colorScheme.primary
+            : theme.colorScheme.onSurfaceVariant;
+    final tooltip =
+        total == 0
+            ? 'Checklist vuota'
+            : pending == 0
+            ? 'Checklist completata'
+            : '$pending attività da completare';
+    final splashRadius = compact ? 20.0 : 24.0;
+    final size = compact ? 28.0 : 32.0;
+    final iconSize = compact ? 22.0 : 26.0;
+
+    return Tooltip(
+      message: tooltip,
+      waitDuration: const Duration(milliseconds: 250),
+      child: IconButton(
+        onPressed: () => _openDialog(context),
+        splashRadius: splashRadius,
+        padding: EdgeInsets.zero,
+        constraints: BoxConstraints(
+          minWidth: compact ? 32 : 40,
+          minHeight: compact ? 32 : 40,
+        ),
+        icon: SizedBox(
+          width: size,
+          height: size,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Align(
+                alignment: Alignment.center,
+                child: Icon(iconData, color: iconColor, size: iconSize),
+              ),
+              Positioned(
+                right: -8,
+                top: -8,
+                child: _ChecklistCountBadge(
+                  label: pending > 99 ? '99+' : '$pending',
+                  highlight: pending > 0,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        final mediaQuery = MediaQuery.of(dialogContext);
+        final maxWidth = min(
+          mediaQuery.size.width * 0.9,
+          compact ? 440.0 : 520.0,
+        );
+        final maxHeight = min(mediaQuery.size.height * 0.85, 560.0);
+        final normalizedDay = DateTime(day.year, day.month, day.day);
+        final expectedSalonId = salonId ?? checklist?.salonId;
+
+        return Consumer(
+          builder: (context, ref, _) {
+            final latestChecklist = ref.watch(
+              appDataProvider.select((state) {
+                return state.appointmentDayChecklists.firstWhereOrNull(
+                  (entry) {
+                    final sameDay = entry.date.year == normalizedDay.year &&
+                        entry.date.month == normalizedDay.month &&
+                        entry.date.day == normalizedDay.day;
+                    if (!sameDay) {
+                      return false;
+                    }
+                    if (expectedSalonId != null &&
+                        expectedSalonId.isNotEmpty &&
+                        entry.salonId != expectedSalonId) {
+                      return false;
+                    }
+                    return true;
+                  },
+                );
+              }),
+            );
+            final effectiveChecklist = latestChecklist ?? checklist;
+            final currentTotal = effectiveChecklist?.items.length ?? total;
+            final currentCompleted =
+                effectiveChecklist?.items
+                        .where((item) => item.isCompleted)
+                        .length ??
+                    completed;
+            final currentPending = max(currentTotal - currentCompleted, 0);
+            final summaryText =
+                currentTotal == 0
+                    ? 'Nessuna attività ancora pianificata.'
+                    : currentPending == 0
+                    ? 'Tutte le $currentTotal attività sono completate.'
+                    : '$currentPending attività da completare su $currentTotal.';
+
+            return Dialog(
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 32,
+              ),
+              child: _ChecklistDialogContent(
+                day: day,
+                dateLabel: dateLabel,
+                summaryText: summaryText,
+                checklist: effectiveChecklist,
+                onAdd: onAdd,
+                onToggle: onToggle,
+                onRename: onRename,
+                onDelete: onDelete,
+                maxWidth: maxWidth,
+                maxHeight: maxHeight,
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _ChecklistDialogContent extends StatefulWidget {
+  const _ChecklistDialogContent({
+    required this.day,
+    required this.dateLabel,
+    required this.summaryText,
+    required this.maxWidth,
+    required this.maxHeight,
+    this.checklist,
+    this.onAdd,
+    this.onToggle,
+    this.onRename,
+    this.onDelete,
+  });
+
+  final DateTime day;
+  final String dateLabel;
+  final String summaryText;
+  final double maxWidth;
+  final double maxHeight;
+  final AppointmentDayChecklist? checklist;
+  final Future<void> Function(DateTime day, String label)? onAdd;
+  final Future<void> Function(
+    String checklistId,
+    String itemId,
+    bool isCompleted,
+  )?
+  onToggle;
+  final Future<void> Function(String checklistId, String itemId, String label)?
+  onRename;
+  final Future<void> Function(String checklistId, String itemId)? onDelete;
+
+  @override
+  State<_ChecklistDialogContent> createState() =>
+      _ChecklistDialogContentState();
+}
+
+class _ChecklistDialogContentState extends State<_ChecklistDialogContent> {
+  late final ScrollController _scrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: widget.maxWidth,
+        maxHeight: widget.maxHeight,
+      ),
+      child: SizedBox(
+        width: widget.maxWidth,
+        height: widget.maxHeight,
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Checklist giornaliera',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Chiudi',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+              Text(
+                widget.dateLabel,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                widget.summaryText,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant.withValues(
+                    alpha: 0.8,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: Scrollbar(
+                  controller: _scrollController,
+                  thumbVisibility: true,
+                  child: SingleChildScrollView(
+                    controller: _scrollController,
+                    primary: false,
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: _ChecklistSection(
+                        day: widget.day,
+                        checklist: widget.checklist,
+                        onAdd: widget.onAdd,
+                        onToggle: widget.onToggle,
+                        onRename: widget.onRename,
+                        onDelete: widget.onDelete,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Chiudi'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ChecklistCountBadge extends StatelessWidget {
+  const _ChecklistCountBadge({required this.label, required this.highlight});
+
+  final String label;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final background =
+        highlight
+            ? theme.colorScheme.primary
+            : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.9);
+    final foreground =
+        highlight
+            ? theme.colorScheme.onPrimary
+            : theme.colorScheme.onSurfaceVariant;
+    final border =
+        highlight
+            ? null
+            : Border.all(
+              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+            );
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+        border: border,
+        boxShadow: [
+          BoxShadow(
+            color: theme.colorScheme.shadow.withValues(alpha: 0.12),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: foreground,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.2,
+        ),
+      ),
+    );
   }
 }
 
@@ -2985,10 +3904,25 @@ class _AppointmentCard extends StatelessWidget {
       theme,
     );
     final baseColor = categoryColor ?? theme.colorScheme.primary;
-    final gradientStart = baseColor;
-    final gradientEnd = Colors.white.withValues(
+    Color gradientStart = baseColor;
+    Color gradientEnd = Colors.white.withValues(
       alpha: theme.brightness == Brightness.dark ? 0.2 : 0.95,
     );
+    final needsAttention = hasAnomalies;
+    if (needsAttention) {
+      final double startAlpha =
+          theme.brightness == Brightness.dark ? 0.45 : 0.25;
+      final double endAlpha =
+          theme.brightness == Brightness.dark ? 0.3 : 0.12;
+      gradientStart = Color.alphaBlend(
+        theme.colorScheme.error.withValues(alpha: startAlpha),
+        gradientStart,
+      );
+      gradientEnd = Color.alphaBlend(
+        theme.colorScheme.error.withValues(alpha: endAlpha),
+        gradientEnd,
+      );
+    }
 
     final baseBorder = Color.alphaBlend(
       baseColor.withValues(alpha: 0.35),
@@ -2996,13 +3930,16 @@ class _AppointmentCard extends StatelessWidget {
     );
     final borderColor =
         hasAnomalies
-            ? theme.colorScheme.error.withValues(alpha: 0.6)
+            ? theme.colorScheme.error.withValues(
+                alpha: theme.brightness == Brightness.dark ? 0.85 : 0.75,
+              )
             : isLocked
             ? theme.colorScheme.outline.withValues(alpha: 0.8)
             : isLastMinute
             ? theme.colorScheme.primary.withValues(alpha: 0.45)
             : baseBorder;
-    final borderWidth = hasAnomalies || isLocked ? 1.5 : 1.0;
+    final borderWidth =
+        hasAnomalies ? 2.0 : isLocked ? 1.5 : 1.0;
     final anomaliesTooltip =
         hasAnomalies
             ? (anomalies.toList()..sort((a, b) => a.index.compareTo(b.index)))
@@ -3185,10 +4122,26 @@ class _AppointmentCard extends StatelessWidget {
           child: Tooltip(
             message: anomaliesTooltip ?? 'Appuntamento da gestire',
             waitDuration: const Duration(milliseconds: 250),
-            child: Icon(
-              AppointmentAnomalyType.noShift.icon,
-              color: theme.colorScheme.error,
-              size: 20,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.error,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: theme.colorScheme.error.withValues(alpha: 0.45),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Icon(
+                  AppointmentAnomalyType.noShift.icon,
+                  color: theme.colorScheme.onError,
+                  size: 24,
+                ),
+              ),
             ),
           ),
         ),

@@ -38,43 +38,26 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     super.dispose();
   }
 
-  void _performSearch() {
+  void _performSearch({bool showErrorWhenEmpty = true}) {
     final general = _generalQueryController.text.trim();
     final clientNumber = _clientNumberController.text.trim();
-
-    if (general.isEmpty && clientNumber.isEmpty) {
-      setState(() {
-        _searchError = 'Inserisci almeno un criterio di ricerca';
-        _searchPerformed = false;
-      });
-      return;
-    }
+    final hasInput = general.isNotEmpty || clientNumber.isNotEmpty;
 
     setState(() {
       _generalQuery = general.toLowerCase();
       _clientNumberQuery = clientNumber.toLowerCase();
-      _searchPerformed = true;
-      _searchError = null;
+      _searchPerformed = hasInput;
+      _searchError =
+          showErrorWhenEmpty && !hasInput
+              ? 'Inserisci almeno un criterio di ricerca'
+              : null;
     });
   }
 
   void _clearSearch() {
-    setState(() {
-      _generalQueryController.clear();
-      _clientNumberController.clear();
-      _generalQuery = '';
-      _clientNumberQuery = '';
-      _searchPerformed = false;
-      _searchError = null;
-    });
-  }
-
-  void _resetSearchError() {
-    if (_searchError != null) {
-      setState(() {
-        _searchError = null;
-      });
-    }
+    _generalQueryController.clear();
+    _clientNumberController.clear();
+    _performSearch(showErrorWhenEmpty: false);
   }
 
   bool _matchesGeneralQuery(Client client) {
@@ -132,6 +115,10 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
   }) {
     final theme = Theme.of(context);
     return Card(
+      color: theme.colorScheme.surface,
+      elevation: 2,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -184,6 +171,10 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     }
 
     return Card(
+      color: theme.colorScheme.surface,
+      elevation: 2,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -391,6 +382,10 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
 
     final children = <Widget>[
       Card(
+        color: theme.colorScheme.surface,
+        elevation: 2,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -405,7 +400,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                   prefixIcon: Icon(Icons.search_rounded),
                 ),
                 textInputAction: TextInputAction.search,
-                onChanged: (_) => _resetSearchError(),
+                onChanged: (_) => _performSearch(showErrorWhenEmpty: false),
                 onSubmitted: (_) => _performSearch(),
               ),
               const SizedBox(height: 12),
@@ -416,7 +411,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                   prefixIcon: Icon(Icons.badge_outlined),
                 ),
                 textInputAction: TextInputAction.search,
-                onChanged: (_) => _resetSearchError(),
+                onChanged: (_) => _performSearch(showErrorWhenEmpty: false),
                 onSubmitted: (_) => _performSearch(),
               ),
               const SizedBox(height: 16),
@@ -510,8 +505,14 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
             data.sales.where((sale) => sale.clientId == client.id).length;
         children.add(
           Card(
+            color: theme.colorScheme.surface,
+            elevation: 2,
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
             child: InkWell(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(16),
               onTap: () => _openDetails(context, client.id),
               child: Padding(
                 padding: const EdgeInsets.all(16),

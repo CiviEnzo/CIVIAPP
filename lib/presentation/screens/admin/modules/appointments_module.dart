@@ -3,6 +3,7 @@ import 'package:civiapp/data/repositories/app_data_state.dart';
 import 'package:civiapp/domain/availability/appointment_conflicts.dart';
 import 'package:civiapp/domain/availability/equipment_availability.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
+import 'package:civiapp/domain/entities/appointment_day_checklist.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/last_minute_notification.dart';
 import 'package:civiapp/domain/entities/last_minute_slot.dart';
@@ -15,12 +16,14 @@ import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:civiapp/presentation/screens/admin/forms/appointment_form_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/modules/appointments/appointment_calendar_view.dart';
 import 'package:civiapp/presentation/screens/admin/modules/appointments/appointment_anomaly.dart';
-import 'package:collection/collection.dart';
+import 'package:civiapp/presentation/screens/admin/modules/appointments/express_slot_sheet.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:civiapp/presentation/screens/admin/modules/appointments/express_slot_sheet.dart';
+import 'package:uuid/uuid.dart';
 
 enum _AppointmentDisplayMode { calendar, list }
 
@@ -49,6 +52,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   static final _dayLabel = DateFormat('EEEE dd MMMM yyyy', 'it_IT');
   static final _weekStartLabel = DateFormat('dd MMM', 'it_IT');
   static final _timeLabel = DateFormat('HH:mm', 'it_IT');
+  static const Uuid _uuid = Uuid();
 
   _AppointmentDisplayMode _mode = _AppointmentDisplayMode.calendar;
   AppointmentCalendarScope _scope = AppointmentCalendarScope.week;
@@ -56,6 +60,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   Set<String> _selectedStaffIds = <String>{};
   bool _isRescheduling = false;
   int _calendarSlotMinutes = 15;
+  bool _checklistEditingEnabled = true;
   final Set<int> _visibleWeekdays = {
     DateTime.monday,
     DateTime.tuesday,
@@ -65,6 +70,18 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     DateTime.saturday,
     DateTime.sunday,
   };
+
+  String? get _effectiveSalonId {
+    final explicit = widget.salonId?.trim();
+    if (explicit != null && explicit.isNotEmpty) {
+      return explicit;
+    }
+    final sessionSalon = ref.read(currentSalonIdProvider);
+    if (sessionSalon != null && sessionSalon.isNotEmpty) {
+      return sessionSalon;
+    }
+    return null;
+  }
 
   @override
   void initState() {
@@ -250,6 +267,352 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     return sorted.join('-');
   }
 
+  AppointmentDayChecklist? _findChecklistById(
+    List<AppointmentDayChecklist> source,
+    String checklistId,
+  ) {
+    if (checklistId.isEmpty) {
+      return null;
+    }
+    return source.firstWhereOrNull((item) => item.id == checklistId);
+  }
+
+  AppointmentDayChecklist? _findChecklistForDay(
+    List<AppointmentDayChecklist> source,
+    String salonId,
+    DateTime day,
+  ) {
+    return source.firstWhereOrNull(
+      (item) => item.salonId == salonId && DateUtils.isSameDay(item.date, day),
+    );
+  }
+
+  int _nextChecklistPosition(AppointmentDayChecklist? checklist) {
+    if (checklist == null || checklist.items.isEmpty) {
+      return 0;
+    }
+    var maxPosition = checklist.items.first.position;
+    for (final item in checklist.items.skip(1)) {
+      if (item.position > maxPosition) {
+        maxPosition = item.position;
+      }
+    }
+    return maxPosition + 1;
+  }
+
+  void _handleChecklistError(Object error, StackTrace stackTrace) {
+    debugPrint(
+      '[Checklist] Handler invoked -> errorType=${error.runtimeType} error=$error',
+    );
+    debugPrintStack(stackTrace: stackTrace);
+    final currentUser = ref.read(appDataProvider.notifier).currentUser;
+    if (currentUser != null) {
+      debugPrint(
+        '[Checklist] Current user -> uid=${currentUser.uid} role=${currentUser.role?.name} '
+        'salonIds=${currentUser.salonIds}',
+      );
+    } else {
+      debugPrint('[Checklist] Current user -> null');
+    }
+    final firebaseError = error is FirebaseException ? error : null;
+    if (firebaseError != null) {
+      debugPrint(
+        '[Checklist] FirebaseException code=${firebaseError.code} plugin=${firebaseError.plugin} '
+        'message=${firebaseError.message}',
+      );
+    }
+    if (firebaseError?.code == 'permission-denied') {
+      if (_checklistEditingEnabled && mounted) {
+        setState(() => _checklistEditingEnabled = false);
+      } else {
+        _checklistEditingEnabled = false;
+      }
+      _showChecklistMessage(
+        'Non hai i permessi necessari per modificare la checklist.',
+      );
+      return;
+    }
+
+    FlutterError.reportError(
+      FlutterErrorDetails(
+        exception: error,
+        stack: stackTrace,
+        library: 'AppointmentsModule',
+        context: ErrorDescription(
+          'Aggiornamento checklist calendario appuntamenti',
+        ),
+      ),
+    );
+    _showChecklistMessage('Impossibile aggiornare la checklist. Riprova.');
+  }
+
+  void _showChecklistMessage(String message) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _addChecklistItem(DateTime day, String label) async {
+    final trimmed = label.trim();
+    if (trimmed.isEmpty) {
+      return;
+    }
+    final salonId = _effectiveSalonId;
+    if (salonId == null || salonId.isEmpty) {
+      _showChecklistMessage('Seleziona un salone per usare la checklist.');
+      return;
+    }
+    final normalizedDay = DateTime(day.year, day.month, day.day);
+    final state = ref.read(appDataProvider);
+    final existing = _findChecklistForDay(
+      state.appointmentDayChecklists,
+      salonId,
+      normalizedDay,
+    );
+    final now = DateTime.now();
+    final position = _nextChecklistPosition(existing);
+    final newItem = AppointmentChecklistItem(
+      id: _uuid.v4(),
+      label: trimmed,
+      position: position,
+      isCompleted: false,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final isNewChecklist = existing == null;
+    final checklist =
+        isNewChecklist
+            ? AppointmentDayChecklist(
+              id: _uuid.v4(),
+              salonId: salonId,
+              date: normalizedDay,
+              items: <AppointmentChecklistItem>[newItem],
+              createdAt: now,
+              updatedAt: now,
+            )
+            : existing.copyWith(
+              items: <AppointmentChecklistItem>[...existing.items, newItem],
+              updatedAt: now,
+            );
+    debugPrint(
+      '[Checklist] Insert request -> salonId=$salonId day=${normalizedDay.toIso8601String()} '
+      'checklistId=${checklist.id} newChecklist=$isNewChecklist itemId=${newItem.id} label="$trimmed"',
+    );
+    debugPrint(
+      '[Checklist] Debug -> salonId length=${salonId.length} chars, ascii=${salonId.codeUnits}',
+    );
+    try {
+      await ref
+          .read(appDataProvider.notifier)
+          .upsertAppointmentDayChecklist(checklist);
+      debugPrint(
+        '[Checklist] Insert success -> checklistId=${checklist.id} itemId=${newItem.id}',
+      );
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[Checklist] Insert failed -> checklistId=${checklist.id} itemId=${newItem.id} '
+        'errorType=${error.runtimeType} error=$error',
+      );
+      _handleChecklistError(error, stackTrace);
+    }
+  }
+
+  Future<void> _toggleChecklistItem(
+    String checklistId,
+    String itemId,
+    bool isCompleted,
+  ) async {
+    if (checklistId.isEmpty || itemId.isEmpty) {
+      return;
+    }
+    final state = ref.read(appDataProvider);
+    final checklist = _findChecklistById(
+      state.appointmentDayChecklists,
+      checklistId,
+    );
+    if (checklist == null) {
+      return;
+    }
+    var changed = false;
+    final now = DateTime.now();
+    final updatedItems = checklist.items
+        .map((item) {
+          if (item.id != itemId) {
+            return item;
+          }
+          if (item.isCompleted == isCompleted) {
+            return item;
+          }
+          changed = true;
+          return item.copyWith(isCompleted: isCompleted, updatedAt: now);
+        })
+        .toList(growable: false);
+    if (!changed) {
+      return;
+    }
+    final updatedChecklist = checklist.copyWith(
+      items: updatedItems,
+      updatedAt: now,
+    );
+    try {
+      await ref
+          .read(appDataProvider.notifier)
+          .upsertAppointmentDayChecklist(updatedChecklist);
+    } catch (error, stackTrace) {
+      _handleChecklistError(error, stackTrace);
+    }
+  }
+
+  Future<void> _renameChecklistItem(
+    String checklistId,
+    String itemId,
+    String label,
+  ) async {
+    if (checklistId.isEmpty || itemId.isEmpty) {
+      return;
+    }
+    final trimmed = label.trim();
+    final state = ref.read(appDataProvider);
+    final checklist = _findChecklistById(
+      state.appointmentDayChecklists,
+      checklistId,
+    );
+    if (checklist == null) {
+      return;
+    }
+    if (trimmed.isEmpty) {
+      await _deleteChecklistItem(checklistId, itemId);
+      return;
+    }
+    var changed = false;
+    final now = DateTime.now();
+    final updatedItems = checklist.items
+        .map((item) {
+          if (item.id != itemId) {
+            return item;
+          }
+          if (item.label == trimmed) {
+            return item;
+          }
+          changed = true;
+          return item.copyWith(label: trimmed, updatedAt: now);
+        })
+        .toList(growable: false);
+    if (!changed) {
+      return;
+    }
+    final updatedChecklist = checklist.copyWith(
+      items: updatedItems,
+      updatedAt: now,
+    );
+    try {
+      await ref
+          .read(appDataProvider.notifier)
+          .upsertAppointmentDayChecklist(updatedChecklist);
+    } catch (error, stackTrace) {
+      _handleChecklistError(error, stackTrace);
+    }
+  }
+
+  Future<void> _deleteChecklistItem(String checklistId, String itemId) async {
+    if (checklistId.isEmpty || itemId.isEmpty) {
+      return;
+    }
+    final store = ref.read(appDataProvider.notifier);
+    final state = ref.read(appDataProvider);
+    final checklist = _findChecklistById(
+      state.appointmentDayChecklists,
+      checklistId,
+    );
+    if (checklist == null) {
+      return;
+    }
+    final remaining = checklist.items
+        .where((item) => item.id != itemId)
+        .toList(growable: false);
+    if (remaining.length == checklist.items.length) {
+      return;
+    }
+    if (remaining.isEmpty) {
+      try {
+        await store.deleteAppointmentDayChecklist(checklist.id);
+      } catch (error, stackTrace) {
+        _handleChecklistError(error, stackTrace);
+      }
+      return;
+    }
+    final normalizedItems = <AppointmentChecklistItem>[];
+    for (var index = 0; index < remaining.length; index++) {
+      final current = remaining[index];
+      if (current.position == index) {
+        normalizedItems.add(current);
+      } else {
+        normalizedItems.add(current.copyWith(position: index));
+      }
+    }
+    final updatedChecklist = checklist.copyWith(
+      items: normalizedItems,
+      updatedAt: DateTime.now(),
+    );
+    try {
+      await store.upsertAppointmentDayChecklist(updatedChecklist);
+    } catch (error, stackTrace) {
+      _handleChecklistError(error, stackTrace);
+    }
+  }
+
+  Map<DateTime, AppointmentDayChecklist> _dayChecklistsInRange({
+    required Iterable<AppointmentDayChecklist> source,
+    required String? salonId,
+    required DateTime rangeStart,
+    required DateTime rangeEnd,
+  }) {
+    final result = <DateTime, AppointmentDayChecklist>{};
+    final lowerBound = DateTime(
+      rangeStart.year,
+      rangeStart.month,
+      rangeStart.day,
+    );
+    final upperBound = DateTime(rangeEnd.year, rangeEnd.month, rangeEnd.day);
+
+    for (final checklist in source) {
+      if (salonId != null && checklist.salonId != salonId) {
+        continue;
+      }
+      final day = DateTime(
+        checklist.date.year,
+        checklist.date.month,
+        checklist.date.day,
+      );
+      if (day.isBefore(lowerBound) || !day.isBefore(upperBound)) {
+        continue;
+      }
+      final existing = result[day];
+      if (existing == null) {
+        result[day] = checklist;
+        continue;
+      }
+      final existingTimestamp = existing.updatedAt ?? existing.createdAt;
+      final candidateTimestamp = checklist.updatedAt ?? checklist.createdAt;
+      if (existingTimestamp == null && candidateTimestamp == null) {
+        continue;
+      }
+      if (existingTimestamp == null && candidateTimestamp != null) {
+        result[day] = checklist;
+        continue;
+      }
+      if (existingTimestamp != null && candidateTimestamp != null) {
+        if (candidateTimestamp.isAfter(existingTimestamp)) {
+          result[day] = checklist;
+        }
+      }
+    }
+    return result;
+  }
+
   @override
   Widget build(BuildContext context) {
     final data = ref.watch(appDataProvider);
@@ -267,6 +630,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         widget.salonId != null
             ? salons.firstWhereOrNull((salon) => salon.id == widget.salonId)
             : null;
+    final effectiveSalonId = _effectiveSalonId;
 
     final sanitizedSelectedIds =
         _selectedStaffIds
@@ -313,6 +677,14 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
 
     final rangeStart = _rangeStart(_anchorDate, _scope);
     final rangeEnd = _rangeEnd(rangeStart, _scope);
+    final dayChecklists = Map<DateTime, AppointmentDayChecklist>.unmodifiable(
+      _dayChecklistsInRange(
+        source: data.appointmentDayChecklists,
+        salonId: effectiveSalonId,
+        rangeStart: rangeStart,
+        rangeEnd: rangeEnd,
+      ),
+    );
 
     final anomalies = _detectAppointmentAnomalies(
       appointments: relevantAppointments,
@@ -513,6 +885,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                       lockedAppointmentReasons: lockedAppointmentReasons,
                       anomalies: anomalies,
                       statusColor: (status) => _colorForStatus(context, status),
+                      dayChecklists: dayChecklists,
                       onTapLastMinuteSlot:
                           (slot) => _onTapLastMinuteSlot(
                             context,
@@ -542,6 +915,20 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                             services,
                           ),
                       slotMinutes: _calendarSlotMinutes,
+                      onAddChecklistItem:
+                          _checklistEditingEnabled ? _addChecklistItem : null,
+                      onToggleChecklistItem:
+                          _checklistEditingEnabled
+                              ? _toggleChecklistItem
+                              : null,
+                      onRenameChecklistItem:
+                          _checklistEditingEnabled
+                              ? _renameChecklistItem
+                              : null,
+                      onDeleteChecklistItem:
+                          _checklistEditingEnabled
+                              ? _deleteChecklistItem
+                              : null,
                     )
                     : _ListAppointmentsView(
                       key: ValueKey(
@@ -718,29 +1105,6 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
             ],
           ),
         ),
-        if (_mode == _AppointmentDisplayMode.calendar)
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: Row(
-              children: [
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.tertiaryContainer.withValues(
-                      alpha: 0.6,
-                    ),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Disponibilità staff (turni) evidenziata all’interno della griglia',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
-            ),
-          ),
       ],
     );
   }

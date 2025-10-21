@@ -1,5 +1,6 @@
 import 'package:civiapp/data/models/app_user.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
+import 'package:civiapp/domain/entities/appointment_day_checklist.dart';
 import 'package:civiapp/domain/entities/cash_flow_entry.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/client_questionnaire.dart';
@@ -54,6 +55,7 @@ class AppDataState {
     required this.lastMinuteSlots,
     required this.salonAccessRequests,
     required this.setupProgress,
+    required this.appointmentDayChecklists,
   });
 
   factory AppDataState.initial() {
@@ -86,6 +88,7 @@ class AppDataState {
       lastMinuteSlots: [],
       salonAccessRequests: [],
       setupProgress: [],
+      appointmentDayChecklists: [],
     );
   }
 
@@ -117,6 +120,7 @@ class AppDataState {
   final List<LastMinuteSlot> lastMinuteSlots;
   final List<SalonAccessRequest> salonAccessRequests;
   final List<AdminSetupProgress> setupProgress;
+  final List<AppointmentDayChecklist> appointmentDayChecklists;
 
   AppDataState copyWith({
     List<Salon>? salons,
@@ -147,6 +151,7 @@ class AppDataState {
     List<LastMinuteSlot>? lastMinuteSlots,
     List<SalonAccessRequest>? salonAccessRequests,
     List<AdminSetupProgress>? setupProgress,
+    List<AppointmentDayChecklist>? appointmentDayChecklists,
   }) {
     return AppDataState(
       salons: salons ?? this.salons,
@@ -178,6 +183,8 @@ class AppDataState {
       lastMinuteSlots: lastMinuteSlots ?? this.lastMinuteSlots,
       salonAccessRequests: salonAccessRequests ?? this.salonAccessRequests,
       setupProgress: setupProgress ?? this.setupProgress,
+      appointmentDayChecklists:
+          appointmentDayChecklists ?? this.appointmentDayChecklists,
     );
   }
 }

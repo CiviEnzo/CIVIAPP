@@ -63,10 +63,60 @@ class ServicesModule extends ConsumerWidget {
             .where((pkg) => salonId == null || pkg.salonId == salonId)
             .toList()
           ..sort((a, b) => a.name.compareTo(b.name));
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final moduleBackground = _surfaceLayerColor(
+      context,
+      lightColor: Colors.white,
+      lightAlpha: 0.26,
+      darkElevation: 2,
+    );
+    final sectionBackground = _surfaceLayerColor(
+      context,
+      lightColor: Colors.white,
+      lightAlpha: 0.2,
+      darkElevation: 4,
+    );
+    final groupCardBackground = _surfaceLayerColor(
+      context,
+      lightColor: Colors.white,
+      lightAlpha: 0.18,
+      darkElevation: 3,
+    );
+    final serviceCardBackground = _surfaceLayerColor(
+      context,
+      lightColor: Colors.white,
+      lightAlpha: 0.16,
+      darkElevation: 2,
+    );
+    final packageCardBackground = _surfaceLayerColor(
+      context,
+      lightColor: Colors.white,
+      lightAlpha: 0.18,
+      darkElevation: 6,
+    );
+    final strongShadowColor =
+        isDark
+            ? Colors.black.withValues(alpha: 0.6)
+            : Colors.black.withValues(alpha: 0.18);
+    final mediumShadowColor =
+        isDark
+            ? Colors.black.withValues(alpha: 0.45)
+            : Colors.black.withValues(alpha: 0.14);
+    final sectionShadowColor = mediumShadowColor;
+    final groupShadowColor = mediumShadowColor;
+    final serviceShadowColor = mediumShadowColor;
+    final packageShadowColor = strongShadowColor;
+    final double tabElevation = isDark ? 6 : 4;
+    final double sectionElevation = isDark ? 6 : 4;
+    final double groupElevation = isDark ? 8 : 6;
+    final double serviceElevation = isDark ? 6 : 5;
+    final double packageElevation = isDark ? 14 : 8;
 
     return DefaultTabController(
       length: 2,
-      child: Padding(
+      child: Container(
+        color: moduleBackground,
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -87,13 +137,22 @@ class ServicesModule extends ConsumerWidget {
               secondaryAction: categoriesAction,
             ),
             const SizedBox(height: 12),
-            TabBar(
-              labelColor: Theme.of(context).colorScheme.primary,
-              indicatorColor: Theme.of(context).colorScheme.primary,
-              tabs: [
-                Tab(text: 'Attivi (${activeServices.length})'),
-                Tab(text: 'Disattivati (${inactiveServices.length})'),
-              ],
+            Material(
+              color: sectionBackground,
+              elevation: tabElevation,
+              shadowColor: sectionShadowColor,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: TabBar(
+                labelColor: Theme.of(context).colorScheme.primary,
+                indicatorColor: Theme.of(context).colorScheme.primary,
+                tabs: [
+                  Tab(text: 'Attivi (${activeServices.length})'),
+                  Tab(text: 'Disattivati (${inactiveServices.length})'),
+                ],
+              ),
             ),
             const SizedBox(height: 12),
             Expanded(
@@ -103,8 +162,14 @@ class ServicesModule extends ConsumerWidget {
                     padding: EdgeInsets.zero,
                     children: [
                       if (activeServices.isEmpty)
-                        const Card(
-                          child: ListTile(
+                        Card(
+                          color: sectionBackground,
+                          elevation: sectionElevation,
+                          shadowColor: sectionShadowColor,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: const ListTile(
                             title: Text('Nessun servizio attivo disponibile'),
                           ),
                         )
@@ -114,6 +179,12 @@ class ServicesModule extends ConsumerWidget {
                           salons: salons,
                           categories: filteredCategories,
                           selectedSalonId: salonId,
+                          groupCardColor: groupCardBackground,
+                          groupCardElevation: groupElevation,
+                          groupShadowColor: groupShadowColor,
+                          serviceCardColor: serviceCardBackground,
+                          serviceCardElevation: serviceElevation,
+                          serviceShadowColor: serviceShadowColor,
                           onEdit:
                               (service) => _openServiceForm(
                                 context,
@@ -151,8 +222,14 @@ class ServicesModule extends ConsumerWidget {
                       ),
                       const SizedBox(height: 12),
                       if (packages.isEmpty)
-                        const Card(
-                          child: ListTile(
+                        Card(
+                          color: sectionBackground,
+                          elevation: sectionElevation,
+                          shadowColor: sectionShadowColor,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: const ListTile(
                             title: Text('Nessun pacchetto configurato'),
                           ),
                         )
@@ -160,6 +237,9 @@ class ServicesModule extends ConsumerWidget {
                         _PackagesList(
                           packages: packages,
                           services: data.services,
+                          cardColor: packageCardBackground,
+                          cardElevation: packageElevation,
+                          shadowColor: packageShadowColor,
                           onEdit:
                               (pkg) => _openPackageForm(
                                 context,
@@ -179,6 +259,12 @@ class ServicesModule extends ConsumerWidget {
                     children: [
                       if (inactiveServices.isEmpty)
                         Card(
+                          color: sectionBackground,
+                          elevation: sectionElevation,
+                          shadowColor: sectionShadowColor,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
                           child: ListTile(
                             title: const Text('Nessun servizio disattivato'),
                             subtitle: const Text(
@@ -193,6 +279,12 @@ class ServicesModule extends ConsumerWidget {
                           salons: salons,
                           categories: filteredCategories,
                           selectedSalonId: salonId,
+                          groupCardColor: groupCardBackground,
+                          groupCardElevation: groupElevation,
+                          groupShadowColor: groupShadowColor,
+                          serviceCardColor: serviceCardBackground,
+                          serviceCardElevation: serviceElevation,
+                          serviceShadowColor: serviceShadowColor,
                           onEdit:
                               (service) => _openServiceForm(
                                 context,
@@ -541,6 +633,12 @@ class _ServicesList extends StatefulWidget {
     required this.onEdit,
     required this.onDelete,
     required this.onToggleActive,
+    required this.groupCardColor,
+    required this.groupCardElevation,
+    required this.groupShadowColor,
+    required this.serviceCardColor,
+    required this.serviceCardElevation,
+    required this.serviceShadowColor,
     this.selectedSalonId,
   });
 
@@ -550,6 +648,12 @@ class _ServicesList extends StatefulWidget {
   final ValueChanged<Service> onEdit;
   final ValueChanged<Service> onDelete;
   final void Function(Service service, bool isActive) onToggleActive;
+  final Color groupCardColor;
+  final double groupCardElevation;
+  final Color groupShadowColor;
+  final Color serviceCardColor;
+  final double serviceCardElevation;
+  final Color serviceShadowColor;
   final String? selectedSalonId;
 
   @override
@@ -564,7 +668,6 @@ class _ServicesListState extends State<_ServicesList> {
     final groups = _buildGroups();
     final groupIds = groups.map((group) => group.id).toSet();
     _expandedGroupIds.retainAll(groupIds);
-    _expandedGroupIds.addAll(groupIds);
 
     final serviceSalonIds =
         widget.services.map((service) => service.salonId).toSet();
@@ -613,6 +716,12 @@ class _ServicesListState extends State<_ServicesList> {
         }
 
         return Card(
+          color: widget.groupCardColor,
+          elevation: widget.groupCardElevation,
+          shadowColor: widget.groupShadowColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           clipBehavior: Clip.antiAlias,
           child: Theme(
             data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
@@ -760,8 +869,13 @@ class _ServicesListState extends State<_ServicesList> {
     ]);
 
     return Card(
+      color: widget.serviceCardColor,
+      elevation: widget.serviceCardElevation,
+      shadowColor: widget.serviceShadowColor,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       margin: EdgeInsets.zero,
       child: ListTile(
+        contentPadding: const EdgeInsets.fromLTRB(16, 16, 12, 16),
         title: Text(service.name),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -845,117 +959,158 @@ class _PackagesList extends StatelessWidget {
     required this.services,
     required this.onEdit,
     required this.onDelete,
+    required this.cardColor,
+    required this.cardElevation,
+    required this.shadowColor,
   });
 
   final List<ServicePackage> packages;
   final List<Service> services;
   final ValueChanged<ServicePackage> onEdit;
   final ValueChanged<ServicePackage> onDelete;
+  final Color cardColor;
+  final double cardElevation;
+  final Color shadowColor;
 
   @override
   Widget build(BuildContext context) {
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
-    return ListView.separated(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: packages.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final pkg = packages[index];
-        final discount = _effectiveDiscount(pkg);
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth =
+            constraints.maxWidth.isFinite
+                ? constraints.maxWidth
+                : MediaQuery.of(context).size.width;
+        const spacing = 16.0;
+        const desiredTileWidth = 360.0;
+        var columns = (availableWidth / (desiredTileWidth + spacing)).floor();
+        if (columns < 1) {
+          columns = 1;
+        } else if (columns > 4) {
+          columns = 4;
+        }
+        final effectiveWidth =
+            columns == 1
+                ? availableWidth
+                : (availableWidth - spacing * (columns - 1)) / columns;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children:
+              packages.map((pkg) {
+                final discount = _effectiveDiscount(pkg);
+                return SizedBox(
+                  width: effectiveWidth,
+                  child: Card(
+                    color: cardColor,
+                    elevation: cardElevation,
+                    shadowColor: shadowColor,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            pkg.name,
-                            style: Theme.of(context).textTheme.titleMedium,
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      pkg.name,
+                                      style:
+                                          Theme.of(
+                                            context,
+                                          ).textTheme.titleMedium,
+                                    ),
+                                    if (pkg.description != null) ...[
+                                      const SizedBox(height: 4),
+                                      Text(pkg.description!),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    tooltip: 'Modifica pacchetto',
+                                    onPressed: () => onEdit(pkg),
+                                    icon: const Icon(Icons.edit_rounded),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Elimina pacchetto',
+                                    onPressed: () => onDelete(pkg),
+                                    icon: const Icon(
+                                      Icons.delete_outline_rounded,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
-                          if (pkg.description != null) ...[
-                            const SizedBox(height: 4),
-                            Text(pkg.description!),
-                          ],
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 6,
+                            children: [
+                              _PriceInfoChip(
+                                package: pkg,
+                                currency: currency,
+                                discountPercentage: discount,
+                              ),
+                              if (discount != null)
+                                _InfoChip(
+                                  icon: Icons.percent_rounded,
+                                  label: '-${_formatDiscount(discount)}%',
+                                ),
+                              if (pkg.sessionCount != null)
+                                _InfoChip(
+                                  icon: Icons.event_repeat,
+                                  label: '${pkg.sessionCount} sessioni',
+                                ),
+                              if (pkg.validDays != null)
+                                _InfoChip(
+                                  icon: Icons.calendar_month_rounded,
+                                  label: 'Validità ${pkg.validDays} gg',
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Servizi inclusi',
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 4),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children:
+                                pkg.serviceIds
+                                    .map(
+                                      (id) => Chip(
+                                        label: Text(
+                                          services
+                                                  .firstWhereOrNull(
+                                                    (s) => s.id == id,
+                                                  )
+                                                  ?.name ??
+                                              id,
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
+                          ),
                         ],
                       ),
                     ),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          tooltip: 'Modifica pacchetto',
-                          onPressed: () => onEdit(pkg),
-                          icon: const Icon(Icons.edit_rounded),
-                        ),
-                        IconButton(
-                          tooltip: 'Elimina pacchetto',
-                          onPressed: () => onDelete(pkg),
-                          icon: const Icon(Icons.delete_outline_rounded),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 6,
-                  children: [
-                    _PriceInfoChip(
-                      package: pkg,
-                      currency: currency,
-                      discountPercentage: discount,
-                    ),
-                    if (discount != null)
-                      _InfoChip(
-                        icon: Icons.percent_rounded,
-                        label: '-${_formatDiscount(discount)}%',
-                      ),
-                    if (pkg.sessionCount != null)
-                      _InfoChip(
-                        icon: Icons.event_repeat,
-                        label: '${pkg.sessionCount} sessioni',
-                      ),
-                    if (pkg.validDays != null)
-                      _InfoChip(
-                        icon: Icons.calendar_month_rounded,
-                        label: 'Validità ${pkg.validDays} gg',
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Servizi inclusi',
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-                const SizedBox(height: 4),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children:
-                      pkg.serviceIds
-                          .map(
-                            (id) => Chip(
-                              label: Text(
-                                services
-                                        .firstWhereOrNull((s) => s.id == id)
-                                        ?.name ??
-                                    id,
-                              ),
-                            ),
-                          )
-                          .toList(),
-                ),
-              ],
-            ),
-          ),
+                  ),
+                );
+              }).toList(),
         );
       },
     );
@@ -1046,4 +1201,26 @@ class _PriceInfoChip extends StatelessWidget {
             : Text(currency.format(package.price));
     return Chip(avatar: Icon(icon, size: 18), label: label);
   }
+}
+
+Color _surfaceLayerColor(
+  BuildContext context, {
+  Color lightColor = Colors.white,
+  double lightAlpha = 0.08,
+  double darkElevation = 1,
+}) {
+  final theme = Theme.of(context);
+  final baseSurface = theme.colorScheme.surface;
+  if (theme.brightness == Brightness.dark) {
+    return ElevationOverlay.applySurfaceTint(
+      baseSurface,
+      theme.colorScheme.surfaceTint,
+      darkElevation,
+    );
+  }
+  final normalizedAlpha = lightAlpha.clamp(0.0, 1.0);
+  return Color.alphaBlend(
+    lightColor.withValues(alpha: normalizedAlpha),
+    baseSurface,
+  );
 }

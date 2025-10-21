@@ -7,6 +7,7 @@ import 'package:civiapp/data/models/app_user.dart';
 import 'package:civiapp/data/repositories/app_data_state.dart';
 import 'package:civiapp/domain/availability/appointment_conflicts.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
+import 'package:civiapp/domain/entities/appointment_day_checklist.dart';
 import 'package:civiapp/domain/entities/app_notification.dart';
 import 'package:civiapp/domain/entities/cash_flow_entry.dart';
 import 'package:civiapp/domain/entities/client.dart';
@@ -59,7 +60,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
              ? AppDataState.initial()
              : AppDataState(
                salons: List.unmodifiable(MockData.salons),
-               staff: List.unmodifiable(MockData.staffMembers),
+               staff: List.unmodifiable(
+                 MockData.staffMembers.sortedByDisplayOrder(),
+               ),
                staffRoles: List.unmodifiable(MockData.staffRoles),
                clients: List.unmodifiable(MockData.clients),
                serviceCategories: List.unmodifiable(MockData.serviceCategories),
@@ -94,6 +97,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
                lastMinuteSlots: List.unmodifiable(MockData.lastMinuteSlots),
                salonAccessRequests: const [],
                setupProgress: const [],
+               appointmentDayChecklists: List.unmodifiable(
+                 MockData.appointmentDayChecklists,
+               ),
              ),
        ) {
     final firestore = _firestore;
@@ -129,6 +135,8 @@ class AppDataStore extends StateNotifier<AppDataState> {
   static const String _unknownStaffRoleId = 'staff-role-unknown';
   static const String _salonAccessRequestsCollection = 'salon_access_requests';
   static const String _salonSetupProgressCollection = 'salon_setup_progress';
+  static const String _appointmentDayChecklistsCollection =
+      'appointment_day_checklists';
 
   AppUser? get currentUser => _currentUser;
 
@@ -262,7 +270,11 @@ class AppDataStore extends StateNotifier<AppDataState> {
           collectionPath: 'staff',
           salonIds: salonIds,
           fromDoc: staffFromDoc,
-          onData: (items) => state = state.copyWith(staff: items),
+          onData:
+              (items) =>
+                  state = state.copyWith(
+                    staff: List.unmodifiable(items.sortedByDisplayOrder()),
+                  ),
         ),
       );
 
@@ -362,6 +374,32 @@ class AppDataStore extends StateNotifier<AppDataState> {
           salonIds: salonIds,
           fromDoc: lastMinuteSlotFromDoc,
           onData: _onLastMinuteSlotsData,
+        ),
+      );
+
+      addAll(
+        _listenCollectionBySalonIds<AppointmentDayChecklist>(
+          firestore: firestore,
+          collectionPath: _appointmentDayChecklistsCollection,
+          salonIds: salonIds,
+          fromDoc: appointmentDayChecklistFromDoc,
+          onData: (items) {
+            final sorted =
+                items.toList()..sort((a, b) {
+                  final dateCompare = a.date.compareTo(b.date);
+                  if (dateCompare != 0) {
+                    return dateCompare;
+                  }
+                  final salonCompare = a.salonId.compareTo(b.salonId);
+                  if (salonCompare != 0) {
+                    return salonCompare;
+                  }
+                  return a.id.compareTo(b.id);
+                });
+            state = state.copyWith(
+              appointmentDayChecklists: List.unmodifiable(sorted),
+            );
+          },
         ),
       );
 
@@ -586,7 +624,11 @@ class AppDataStore extends StateNotifier<AppDataState> {
             collectionPath: 'staff',
             salonIds: normalizedSalonIds,
             fromDoc: staffFromDoc,
-            onData: (items) => state = state.copyWith(staff: items),
+            onData:
+                (items) =>
+                    state = state.copyWith(
+                      staff: List.unmodifiable(items.sortedByDisplayOrder()),
+                    ),
           ),
         );
 
@@ -969,16 +1011,45 @@ class AppDataStore extends StateNotifier<AppDataState> {
     required T Function(DocumentSnapshot<Map<String, dynamic>>) fromDoc,
     required void Function(List<T>) onData,
   }) {
-    return _listenChunkedQueries<T>(
-      firestore: firestore,
-      values: documentIds,
-      queryBuilder:
-          (chunk) => firestore
-              .collection(collectionPath)
-              .where(FieldPath.documentId, whereIn: chunk),
-      fromDoc: fromDoc,
-      onData: onData,
-    );
+    final normalizedIds = LinkedHashSet<String>.from(
+      documentIds
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty),
+    ).toList(growable: false);
+    if (normalizedIds.isEmpty) {
+      onData(List.unmodifiable(<T>[]));
+      return <StreamSubscription>[];
+    }
+
+    final aggregated = <String, T>{};
+    final subscriptions = <StreamSubscription>[];
+
+    void emit() {
+      final orderedItems = <T>[];
+      for (final id in normalizedIds) {
+        final item = aggregated[id];
+        if (item != null) {
+          orderedItems.add(item);
+        }
+      }
+      onData(List.unmodifiable(orderedItems));
+    }
+
+    for (final docId in normalizedIds) {
+      final reference = firestore.collection(collectionPath).doc(docId);
+      final subscription = _listenDocument<T>(reference, fromDoc, (item) {
+        if (item == null) {
+          aggregated.remove(docId);
+        } else {
+          aggregated[docId] = item;
+        }
+        emit();
+      });
+      subscriptions.add(subscription);
+    }
+
+    emit();
+    return subscriptions;
   }
 
   List<StreamSubscription> _listenChunkedQueries<T>({
@@ -1740,6 +1811,12 @@ class AppDataStore extends StateNotifier<AppDataState> {
       salonId,
       batch: batch,
     );
+    await _deleteCollectionWhere(
+      _appointmentDayChecklistsCollection,
+      'salonId',
+      salonId,
+      batch: batch,
+    );
     await batch.commit();
   }
 
@@ -1867,6 +1944,79 @@ class AppDataStore extends StateNotifier<AppDataState> {
         .doc(normalizedStaff.id)
         .set(staffToMap(normalizedStaff));
     await _ensureStaffUser(normalizedStaff, previous: existingStaff);
+  }
+
+  Future<void> reorderStaff({
+    required String salonId,
+    required List<String> orderedIds,
+  }) async {
+    if (orderedIds.isEmpty) {
+      return;
+    }
+    final salonStaff =
+        state.staff
+            .where((member) => member.salonId == salonId)
+            .sortedByDisplayOrder();
+    if (salonStaff.isEmpty) {
+      return;
+    }
+    final existingById = {for (final member in salonStaff) member.id: member};
+    final updatedMembers = <StaffMember>[];
+    var nextOrder = 10;
+
+    for (final id in orderedIds) {
+      final member = existingById[id];
+      if (member == null) {
+        continue;
+      }
+      final updated =
+          member.sortOrder == nextOrder
+              ? member
+              : member.copyWith(sortOrder: nextOrder);
+      updatedMembers.add(updated);
+      nextOrder += 10;
+    }
+
+    final missingMembers = salonStaff.where(
+      (member) => !orderedIds.contains(member.id),
+    );
+    for (final member in missingMembers) {
+      final updated =
+          member.sortOrder == nextOrder
+              ? member
+              : member.copyWith(sortOrder: nextOrder);
+      updatedMembers.add(updated);
+      nextOrder += 10;
+    }
+
+    if (updatedMembers.isEmpty) {
+      return;
+    }
+
+    final firestore = _firestore;
+    if (firestore == null) {
+      _upsertLocal(staff: updatedMembers);
+      return;
+    }
+
+    final batch = firestore.batch();
+    var hasChanges = false;
+    for (final updated in updatedMembers) {
+      final previous = existingById[updated.id];
+      if (previous != null && previous.sortOrder != updated.sortOrder) {
+        hasChanges = true;
+        batch.update(firestore.collection('staff').doc(updated.id), {
+          'sortOrder': updated.sortOrder,
+        });
+      }
+    }
+
+    if (!hasChanges) {
+      return;
+    }
+
+    await batch.commit();
+    _upsertLocal(staff: updatedMembers);
   }
 
   Future<void> deleteStaff(String staffId) async {
@@ -2751,8 +2901,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
 
     final firestore = _firestore;
     final payload = lastMinuteSlotToMap(slot);
-    final existingSlot =
-        _cachedLastMinuteSlots.firstWhereOrNull((item) => item.id == slot.id);
+    final existingSlot = _cachedLastMinuteSlots.firstWhereOrNull(
+      (item) => item.id == slot.id,
+    );
     final hadImage =
         existingSlot != null && (existingSlot.imageUrl?.isNotEmpty ?? false);
     final hasImageNow = slot.imageUrl != null && slot.imageUrl!.isNotEmpty;
@@ -2838,6 +2989,60 @@ class AppDataStore extends StateNotifier<AppDataState> {
     _cachedLastMinuteSlots =
         _cachedLastMinuteSlots.where((item) => item.id != slotId).toList();
     _refreshFeatureFilteredCollections();
+  }
+
+  Future<void> upsertAppointmentDayChecklist(
+    AppointmentDayChecklist checklist,
+  ) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      _upsertLocal(
+        appointmentDayChecklists: <AppointmentDayChecklist>[checklist],
+      );
+      return;
+    }
+    final payload = appointmentDayChecklistToMap(checklist);
+    debugPrint(
+      '[AppDataStore] upsertAppointmentDayChecklist -> checklistId=${checklist.id} salonId=${checklist.salonId} '
+      'date=${checklist.date.toIso8601String()} itemCount=${checklist.items.length} payloadKeys=${payload.keys}',
+    );
+    debugPrint(
+      '[AppDataStore] upsertAppointmentDayChecklist payload=${payload.map((key, value) {
+        if (value is Timestamp) {
+          return MapEntry(key, 'Timestamp(${value.toDate().toIso8601String()})');
+        }
+        if (value is List) {
+          return MapEntry(key, value.map((item) {
+            if (item is Map) {
+              return item.map((itemKey, itemValue) {
+                if (itemValue is Timestamp) {
+                  return MapEntry(itemKey, 'Timestamp(${itemValue.toDate().toIso8601String()})');
+                }
+                return MapEntry(itemKey, itemValue);
+              });
+            }
+            return item;
+          }).toList());
+        }
+        return MapEntry(key, value);
+      })}',
+    );
+    await firestore
+        .collection(_appointmentDayChecklistsCollection)
+        .doc(checklist.id)
+        .set(payload);
+  }
+
+  Future<void> deleteAppointmentDayChecklist(String checklistId) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      _deleteAppointmentDayChecklistLocal(checklistId);
+      return;
+    }
+    await firestore
+        .collection(_appointmentDayChecklistsCollection)
+        .doc(checklistId)
+        .delete();
   }
 
   Future<_LastMinuteBookingResult> _bookLastMinuteAppointment(
@@ -4033,6 +4238,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
     for (final questionnaire in MockData.clientQuestionnaires) {
       await upsertClientQuestionnaire(questionnaire);
     }
+    for (final checklist in MockData.appointmentDayChecklists) {
+      await upsertAppointmentDayChecklist(checklist);
+    }
   }
 
   Future<void> _deleteCollectionWhere(
@@ -4088,6 +4296,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     List<Promotion>? promotions,
     List<LastMinuteSlot>? lastMinuteSlots,
     List<AdminSetupProgress>? setupProgress,
+    List<AppointmentDayChecklist>? appointmentDayChecklists,
   }) {
     state = state.copyWith(
       salons:
@@ -4095,7 +4304,11 @@ class AppDataStore extends StateNotifier<AppDataState> {
               ? _merge(state.salons, salons, (e) => e.id)
               : state.salons,
       staff:
-          staff != null ? _merge(state.staff, staff, (e) => e.id) : state.staff,
+          staff != null
+              ? List.unmodifiable(
+                _merge(state.staff, staff, (e) => e.id).sortedByDisplayOrder(),
+              )
+              : state.staff,
       staffRoles:
           staffRoles != null
               ? _merge(state.staffRoles, staffRoles, (e) => e.id)
@@ -4218,6 +4431,14 @@ class AppDataStore extends StateNotifier<AppDataState> {
           setupProgress != null
               ? _merge(state.setupProgress, setupProgress, (e) => e.id)
               : state.setupProgress,
+      appointmentDayChecklists:
+          appointmentDayChecklists != null
+              ? _merge(
+                state.appointmentDayChecklists,
+                appointmentDayChecklists,
+                (e) => e.id,
+              )
+              : state.appointmentDayChecklists,
     );
   }
 
@@ -4393,6 +4614,11 @@ class AppDataStore extends StateNotifier<AppDataState> {
       ),
       staffAbsences: List.unmodifiable(
         state.staffAbsences.where((element) => element.salonId != salonId),
+      ),
+      appointmentDayChecklists: List.unmodifiable(
+        state.appointmentDayChecklists.where(
+          (element) => element.salonId != salonId,
+        ),
       ),
     );
   }
@@ -4740,6 +4966,16 @@ class AppDataStore extends StateNotifier<AppDataState> {
     state = state.copyWith(
       lastMinuteSlots: List.unmodifiable(
         state.lastMinuteSlots.where((slot) => slot.id != slotId),
+      ),
+    );
+  }
+
+  void _deleteAppointmentDayChecklistLocal(String checklistId) {
+    state = state.copyWith(
+      appointmentDayChecklists: List.unmodifiable(
+        state.appointmentDayChecklists.where(
+          (checklist) => checklist.id != checklistId,
+        ),
       ),
     );
   }

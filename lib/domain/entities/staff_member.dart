@@ -11,6 +11,7 @@ class StaffMember {
     this.isActive = true,
     this.vacationAllowance = defaultVacationAllowance,
     this.permissionAllowance = defaultPermissionAllowance,
+    this.sortOrder = 0,
     this.avatarUrl,
     this.avatarStoragePath,
   }) : assert(roleIds.isNotEmpty);
@@ -31,6 +32,7 @@ class StaffMember {
   final bool isActive;
   final int vacationAllowance;
   final int permissionAllowance;
+  final int sortOrder;
   final String? avatarUrl;
   final String? avatarStoragePath;
 
@@ -58,6 +60,7 @@ class StaffMember {
     bool? isActive,
     int? vacationAllowance,
     int? permissionAllowance,
+    int? sortOrder,
     Object? avatarUrl = _unset,
     Object? avatarStoragePath = _unset,
   }) {
@@ -81,11 +84,24 @@ class StaffMember {
       isActive: isActive ?? this.isActive,
       vacationAllowance: vacationAllowance ?? this.vacationAllowance,
       permissionAllowance: permissionAllowance ?? this.permissionAllowance,
+      sortOrder: sortOrder ?? this.sortOrder,
       avatarUrl: avatarUrl == _unset ? this.avatarUrl : avatarUrl as String?,
       avatarStoragePath:
           avatarStoragePath == _unset
               ? this.avatarStoragePath
               : avatarStoragePath as String?,
     );
+  }
+}
+
+extension StaffMemberListX on Iterable<StaffMember> {
+  List<StaffMember> sortedByDisplayOrder() {
+    return toList()..sort((a, b) {
+      final orderCompare = a.sortOrder.compareTo(b.sortOrder);
+      if (orderCompare != 0) {
+        return orderCompare;
+      }
+      return a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase());
+    });
   }
 }
