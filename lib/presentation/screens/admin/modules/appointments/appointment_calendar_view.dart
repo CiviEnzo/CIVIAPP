@@ -1184,6 +1184,26 @@ class _WeekSchedule extends StatelessWidget {
           referenceTimelineStart.add(Duration(minutes: index * slotMinutes)),
     );
 
+    if (layout == AppointmentWeekLayoutMode.operatorBoard) {
+      return _WeekOperatorBoardView(
+        dayData: dayData,
+        staff: staff,
+        roles: roles,
+        clientsById: clientsById,
+        servicesById: servicesById,
+        roomsById: roomsById,
+        lockedAppointmentReasons: lockedAppointmentReasons,
+        anomalies: anomalies,
+        statusColor: statusColor,
+        slotMinutes: slotMinutes,
+        lastMinutePlaceholders: lastMinutePlaceholders,
+        onEdit: onEdit,
+        onCreate: onCreate,
+        minMinute: minMinute!,
+        verticalController: verticalController,
+      );
+    }
+
     if (layout == AppointmentWeekLayoutMode.compact) {
       final gridHeight = slotCount * compactSlotExtent;
       return _WeekCompactView(
@@ -2869,18 +2889,19 @@ class _WeekCompactView extends StatelessWidget {
   onDeleteChecklistItem;
 
   static const double _dayGap = 12;
-  static const double _staffGap = 8;
-  static const double _kDayHorizontalPadding = 12;
-  static const double _kDayHeaderVerticalPadding = 12;
-  static const double _kDayHeaderBottomPadding = 12;
+  static const double _staffGap = 6;
+  static const double _kDayHorizontalPadding = 8;
+  static const double _kDayHeaderVerticalPadding = 10;
+  static const double _kDayHeaderBottomPadding = 10;
   static const double _kDayBodyTopPadding = 0;
-  static const double _kDayBodyBottomPadding = 12;
-  static const double _kStaffHeaderHeight = 44;
+  static const double _kDayBodyBottomPadding = 10;
+  static const double _kStaffHeaderHeight = 40;
   static const double _kStaffHeaderSpacing = 4;
   static const double _kStaffGridTopInset =
       _kStaffHeaderHeight + _kStaffHeaderSpacing;
   static const double _kMaxDayWidth = 320;
-  static const double _kScrollVerticalPadding = 24;
+  static const double _kMinStaffColumnWidth = 44;
+  static const double _kScrollVerticalPadding = 20;
   static const double _kMinSlotExtent = 14;
 
   @override
@@ -3352,11 +3373,26 @@ class _WeekCompactView extends StatelessWidget {
         isToday
             ? theme.colorScheme.primary.withValues(alpha: 0.4)
             : theme.colorScheme.outlineVariant.withValues(alpha: 0.35);
-    final staffCount = max(1, staff.length);
-    final columnWidth = max(
-      96.0,
-      (dayInnerWidth - _staffGap * max(staffCount - 1, 0)) / staffCount,
-    );
+    final staffCount = staff.length;
+    double effectiveGap = _staffGap;
+    if (staffCount > 1) {
+      final maxAllowedGap = dayInnerWidth / (staffCount - 1);
+      if (effectiveGap > maxAllowedGap) {
+        effectiveGap = max(0.0, maxAllowedGap);
+      }
+    } else {
+      effectiveGap = 0.0;
+    }
+    final gapsWidth = effectiveGap * max(staffCount - 1, 0);
+    final availableForColumns = max(0.0, dayInnerWidth - gapsWidth);
+    double columnWidth =
+        staffCount == 0 ? 0.0 : availableForColumns / staffCount;
+    if (staffCount > 0) {
+      final minRequiredWidth = _kMinStaffColumnWidth * staffCount;
+      if (minRequiredWidth + gapsWidth <= dayInnerWidth) {
+        columnWidth = max(columnWidth, _kMinStaffColumnWidth);
+      }
+    }
 
     return Container(
       decoration: BoxDecoration(
@@ -3381,7 +3417,7 @@ class _WeekCompactView extends StatelessWidget {
         data: data,
         dayInnerWidth: dayInnerWidth,
         columnWidth: columnWidth,
-        columnGap: _staffGap,
+        columnGap: effectiveGap,
         gridHeight: gridHeight,
         slotExtent: slotExtent,
       ),
@@ -3417,6 +3453,9 @@ class _WeekCompactView extends StatelessWidget {
       final staffMember = staff[index];
       final initialsValue = _staffInitials(staffMember.fullName);
       final displayInitials = initialsValue.isEmpty ? '--' : initialsValue;
+      final avatarSize = columnWidth <= 0 ? 0.0 : min(columnWidth, 28.0);
+      final columnRadius =
+          columnWidth <= 0 ? 8.0 : min(12.0, max(columnWidth / 2, 6.0));
       return SizedBox(
         width: columnWidth,
         child: Column(
@@ -3424,37 +3463,43 @@ class _WeekCompactView extends StatelessWidget {
           children: [
             SizedBox(
               height: _kStaffHeaderHeight,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Tooltip(
-                    message: staffMember.fullName,
-                    waitDuration: const Duration(milliseconds: 250),
-                    child: Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withValues(
-                          alpha: 0.12,
-                        ),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: theme.colorScheme.primary.withValues(
-                            alpha: 0.35,
+              child: Center(
+                child:
+                    avatarSize <= 0
+                        ? const SizedBox.shrink()
+                        : Tooltip(
+                          message: staffMember.fullName,
+                          waitDuration: const Duration(milliseconds: 250),
+                          child: SizedBox(
+                            width: avatarSize,
+                            height: avatarSize,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.primary.withValues(
+                                  alpha: 0.12,
+                                ),
+                                borderRadius: BorderRadius.circular(
+                                  max(avatarSize / 2, 8.0),
+                                ),
+                                border: Border.all(
+                                  color: theme.colorScheme.primary.withValues(
+                                    alpha: 0.35,
+                                  ),
+                                ),
+                              ),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  displayInitials,
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.4,
+                                  ),
+                                ),
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        displayInitials,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.4,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
               ),
             ),
             const SizedBox(height: _kStaffHeaderSpacing),
@@ -3465,7 +3510,7 @@ class _WeekCompactView extends StatelessWidget {
                   color: theme.colorScheme.surface.withValues(
                     alpha: theme.brightness == Brightness.dark ? 0.25 : 0.85,
                   ),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(columnRadius),
                   border: Border.all(
                     color: theme.colorScheme.outlineVariant.withValues(
                       alpha: 0.4,
@@ -3518,10 +3563,7 @@ class _WeekCompactView extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             for (var index = 0; index < staffCount; index++) ...[
-              SizedBox(
-                width: columnWidth,
-                child: buildStaffColumn(index),
-              ),
+              SizedBox(width: columnWidth, child: buildStaffColumn(index)),
               if (index != staffCount - 1) SizedBox(width: columnGap),
             ],
           ],
@@ -3565,6 +3607,756 @@ class _WeekCompactView extends StatelessWidget {
                 ),
               );
             }),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WeekOperatorBoardView extends StatelessWidget {
+  const _WeekOperatorBoardView({
+    required this.dayData,
+    required this.staff,
+    required this.roles,
+    required this.clientsById,
+    required this.servicesById,
+    required this.roomsById,
+    required this.lockedAppointmentReasons,
+    required this.anomalies,
+    required this.statusColor,
+    required this.slotMinutes,
+    required this.lastMinutePlaceholders,
+    required this.onEdit,
+    required this.onCreate,
+    required this.minMinute,
+    required this.verticalController,
+  });
+
+  final List<_WeekDayData> dayData;
+  final List<StaffMember> staff;
+  final List<StaffRole> roles;
+  final Map<String, Client> clientsById;
+  final Map<String, Service> servicesById;
+  final Map<String, String> roomsById;
+  final Map<String, String> lockedAppointmentReasons;
+  final Map<String, Set<AppointmentAnomalyType>> anomalies;
+  final Color Function(AppointmentStatus status) statusColor;
+  final int slotMinutes;
+  final List<Appointment> lastMinutePlaceholders;
+  final AppointmentTapCallback onEdit;
+  final AppointmentSlotSelectionCallback onCreate;
+  final int minMinute;
+  final ScrollController verticalController;
+
+  static const double _kOperatorColumnMinWidth = 240;
+  static const double _kDayColumnMinWidth = 200;
+  static const double _kDayGap = 12;
+  static final DateFormat _dayHeaderFormat = DateFormat('EEE dd MMM', 'it_IT');
+  static final DateFormat _dayLabelFormat = DateFormat('EEEE dd MMMM', 'it_IT');
+  static final DateFormat _timeLabelFormat = DateFormat('HH:mm', 'it_IT');
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    if (dayData.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    if (staff.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'Nessun operatore disponibile per il periodo selezionato.',
+            style: theme.textTheme.bodyLarge,
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+    final placeholderIds =
+        lastMinutePlaceholders.map((appointment) => appointment.id).toSet();
+    final rolesById = {for (final role in roles) role.id: role};
+
+    return ScrollConfiguration(
+      behavior: const _CompactMacScrollBehavior(),
+      child: Scrollbar(
+        controller: verticalController,
+        thumbVisibility: true,
+        child: SingleChildScrollView(
+          controller: verticalController,
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final dayCount = dayData.length;
+              final availableWidth =
+                  constraints.maxWidth.isFinite
+                      ? constraints.maxWidth
+                      : MediaQuery.sizeOf(context).width;
+              final operatorWidth = _kOperatorColumnMinWidth;
+              final gapsWidth = max(0, dayCount - 1) * _kDayGap;
+              final minRequiredWidth =
+                  operatorWidth + (dayCount * _kDayColumnMinWidth) + gapsWidth;
+              final needsHorizontalScroll = minRequiredWidth > availableWidth;
+              final remainingWidth = max(
+                0.0,
+                availableWidth - operatorWidth - gapsWidth,
+              );
+              final dayWidth =
+                  needsHorizontalScroll || dayCount == 0
+                      ? _kDayColumnMinWidth
+                      : max(
+                        _kDayColumnMinWidth,
+                        remainingWidth / max(1, dayCount),
+                      );
+
+              final content = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildHeaderRow(theme, operatorWidth, dayWidth),
+                  const SizedBox(height: 12),
+                  ...staff.map(
+                    (member) => Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: _buildStaffRow(
+                        context,
+                        theme,
+                        member,
+                        rolesById,
+                        placeholderIds,
+                        operatorWidth,
+                        dayWidth,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+
+              if (!needsHorizontalScroll) {
+                return content;
+              }
+
+              final totalWidth =
+                  operatorWidth + (dayCount * dayWidth) + gapsWidth;
+              return SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.only(bottom: 8),
+                child: SizedBox(width: totalWidth, child: content),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeaderRow(
+    ThemeData theme,
+    double operatorWidth,
+    double dayWidth,
+  ) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        SizedBox(
+          width: operatorWidth,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              'Operatore',
+              style: theme.textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.4,
+              ),
+            ),
+          ),
+        ),
+        for (var index = 0; index < dayData.length; index++) ...[
+          SizedBox(
+            width: dayWidth,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text(
+                _dayHeaderFormat.format(dayData[index].date),
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ),
+          ),
+          if (index != dayData.length - 1) const SizedBox(width: _kDayGap),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildStaffRow(
+    BuildContext context,
+    ThemeData theme,
+    StaffMember member,
+    Map<String, StaffRole> rolesById,
+    Set<String> placeholderIds,
+    double operatorWidth,
+    double dayWidth,
+  ) {
+    final weekAppointments = <Appointment>[];
+    final placeholderAppointments = <Appointment>[];
+    for (final day in dayData) {
+      final appointmentsForDay = day.appointmentsByStaff[member.id] ?? const [];
+      weekAppointments.addAll(appointmentsForDay);
+      for (final placeholder in lastMinutePlaceholders) {
+        final sameStaff = placeholder.staffId == member.id;
+        final sameDay = DateUtils.isSameDay(placeholder.start, day.date);
+        if (sameStaff && sameDay) {
+          placeholderAppointments.add(placeholder);
+        }
+      }
+    }
+
+    final totalDurationMinutes = weekAppointments.fold<int>(
+      0,
+      (running, appointment) =>
+          running + appointment.end.difference(appointment.start).inMinutes,
+    );
+    final totalAppointments = weekAppointments.length;
+    final placeholderCount = placeholderAppointments.length;
+    final roleNames =
+        member.roleIds
+            .map((roleId) => rolesById[roleId]?.displayName)
+            .whereType<String>()
+            .toSet()
+            .toList();
+    final summaryChips = <Widget>[];
+    if (totalAppointments > 0) {
+      summaryChips.add(
+        _WeekSchedule._summaryChip(
+          theme: theme,
+          icon: Icons.event_available_rounded,
+          label: '$totalAppointments appuntamenti',
+        ),
+      );
+    }
+    if (placeholderCount > 0) {
+      summaryChips.add(
+        _WeekSchedule._summaryChip(
+          theme: theme,
+          icon: Icons.flash_on_rounded,
+          label: '$placeholderCount slot last-minute',
+          background: theme.colorScheme.primaryContainer.withValues(alpha: 0.6),
+          foreground: theme.colorScheme.onPrimaryContainer,
+        ),
+      );
+    }
+    if (totalDurationMinutes > 0) {
+      final totalHours = totalDurationMinutes / 60;
+      summaryChips.add(
+        _WeekSchedule._summaryChip(
+          theme: theme,
+          icon: Icons.schedule_rounded,
+          label:
+              totalHours >= 5
+                  ? '${totalHours.round()}h prenotate'
+                  : '${totalHours.toStringAsFixed(1)}h prenotate',
+        ),
+      );
+    }
+
+    final rowChildren = <Widget>[
+      SizedBox(
+        width: operatorWidth,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                member.fullName,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (roleNames.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  roleNames.join(', '),
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+              if (summaryChips.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Wrap(spacing: 6, runSpacing: 6, children: summaryChips),
+              ],
+            ],
+          ),
+        ),
+      ),
+    ];
+
+    for (var index = 0; index < dayData.length; index++) {
+      final day = dayData[index];
+      final appointmentsForDay = day.appointmentsByStaff[member.id] ?? const [];
+      final placeholdersForDay = lastMinutePlaceholders.where(
+        (placeholder) =>
+            placeholder.staffId == member.id &&
+            DateUtils.isSameDay(placeholder.start, day.date),
+      );
+      final shiftsForDay = day.shiftsByStaff[member.id] ?? const [];
+      final absencesForDay = day.absencesByStaff[member.id] ?? const [];
+
+      rowChildren..add(
+        SizedBox(
+          width: dayWidth,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: _OperatorDayCell(
+              staffMember: member,
+              day: day,
+              appointments: appointmentsForDay,
+              placeholderAppointments: placeholdersForDay.toList(),
+              shifts: shiftsForDay,
+              absences: absencesForDay,
+              clientsById: clientsById,
+              servicesById: servicesById,
+              roomsById: roomsById,
+              lockedAppointmentReasons: lockedAppointmentReasons,
+              anomalies: anomalies,
+              statusColor: statusColor,
+              slotMinutes: slotMinutes,
+              onEdit: onEdit,
+              onCreate: onCreate,
+              minMinute: minMinute,
+              placeholderIds: placeholderIds,
+            ),
+          ),
+        ),
+      );
+      if (index != dayData.length - 1) {
+        rowChildren.add(const SizedBox(width: _kDayGap));
+      }
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: rowChildren,
+    );
+  }
+}
+
+class _OperatorDayCell extends StatelessWidget {
+  const _OperatorDayCell({
+    required this.staffMember,
+    required this.day,
+    required this.appointments,
+    required this.placeholderAppointments,
+    required this.shifts,
+    required this.absences,
+    required this.clientsById,
+    required this.servicesById,
+    required this.roomsById,
+    required this.lockedAppointmentReasons,
+    required this.anomalies,
+    required this.statusColor,
+    required this.slotMinutes,
+    required this.onEdit,
+    required this.onCreate,
+    required this.minMinute,
+    required this.placeholderIds,
+  });
+
+  final StaffMember staffMember;
+  final _WeekDayData day;
+  final List<Appointment> appointments;
+  final List<Appointment> placeholderAppointments;
+  final List<Shift> shifts;
+  final List<StaffAbsence> absences;
+  final Map<String, Client> clientsById;
+  final Map<String, Service> servicesById;
+  final Map<String, String> roomsById;
+  final Map<String, String> lockedAppointmentReasons;
+  final Map<String, Set<AppointmentAnomalyType>> anomalies;
+  final Color Function(AppointmentStatus status) statusColor;
+  final int slotMinutes;
+  final AppointmentTapCallback onEdit;
+  final AppointmentSlotSelectionCallback onCreate;
+  final int minMinute;
+  final Set<String> placeholderIds;
+
+  static final DateFormat _dayLabelFormat =
+      _WeekOperatorBoardView._dayLabelFormat;
+  static final DateFormat _timeLabelFormat =
+      _WeekOperatorBoardView._timeLabelFormat;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final now = DateTime.now();
+    final normalizedDay = DateUtils.dateOnly(day.date);
+    final isToday = DateUtils.isSameDay(normalizedDay, now);
+    final placeholderIdSet =
+        placeholderAppointments.map((appointment) => appointment.id).toSet();
+
+    final combinedById = <String, Appointment>{};
+    for (final appointment in appointments) {
+      combinedById[appointment.id] = appointment;
+    }
+    for (final placeholder in placeholderAppointments) {
+      combinedById.putIfAbsent(placeholder.id, () => placeholder);
+    }
+    final combined =
+        combinedById.values.toList()
+          ..sort((a, b) => a.start.compareTo(b.start));
+
+    final slotDuration = Duration(minutes: slotMinutes);
+    final fallbackStart = day.date.add(Duration(minutes: minMinute));
+    final defaultStart = day.openStart ?? day.bounds.start;
+    final selectionStart =
+        defaultStart.isBefore(fallbackStart) ? fallbackStart : defaultStart;
+    final selectionEnd = selectionStart.add(slotDuration);
+
+    final infoChips = <Widget>[];
+    if (shifts.isNotEmpty) {
+      final tooltip = shifts
+          .map(
+            (shift) =>
+                '${_timeLabelFormat.format(shift.start)} - ${_timeLabelFormat.format(shift.end)}',
+          )
+          .join('\n');
+      final label =
+          shifts.length == 1 ? 'Turno attivo' : '${shifts.length} turni';
+      infoChips.add(
+        _WeekSchedule._summaryChip(
+          theme: theme,
+          icon: Icons.badge_rounded,
+          label: label,
+          tooltip: tooltip,
+        ),
+      );
+    }
+    if (absences.isNotEmpty) {
+      final tooltip = absences.map(_describeAbsence).join('\n\n');
+      final label =
+          absences.length == 1
+              ? absences.first.type.label
+              : '${absences.length} assenze';
+      infoChips.add(
+        _WeekSchedule._summaryChip(
+          theme: theme,
+          icon: Icons.event_busy_rounded,
+          label: label,
+          tooltip: tooltip,
+          background: theme.colorScheme.errorContainer.withValues(alpha: 0.45),
+          foreground: theme.colorScheme.onErrorContainer,
+        ),
+      );
+    }
+
+    final appointmentWidgets = <Widget>[];
+    for (var index = 0; index < combined.length; index++) {
+      final appointment = combined[index];
+      final isPlaceholder =
+          placeholderIdSet.contains(appointment.id) ||
+          placeholderIds.contains(appointment.id);
+      appointmentWidgets.add(
+        _OperatorAppointmentTile(
+          appointment: appointment,
+          client: clientsById[appointment.clientId],
+          serviceNames: _serviceNames(appointment),
+          roomName:
+              appointment.roomId != null
+                  ? roomsById[appointment.roomId!]
+                  : null,
+          isPlaceholder: isPlaceholder,
+          anomalies:
+              anomalies[appointment.id] ?? const <AppointmentAnomalyType>{},
+          lockReason: lockedAppointmentReasons[appointment.id],
+          statusColor: statusColor(appointment.status),
+          onTap: () => onEdit(appointment),
+        ),
+      );
+      if (index != combined.length - 1) {
+        appointmentWidgets.add(const SizedBox(height: 8));
+      }
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color:
+              isToday
+                  ? theme.colorScheme.primary.withValues(alpha: 0.55)
+                  : theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
+        ),
+        boxShadow:
+            isToday
+                ? [
+                  BoxShadow(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.14),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ]
+                : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _dayLabelFormat.format(day.date),
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (isToday)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          'Oggi',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Nuovo appuntamento',
+                onPressed:
+                    () => onCreate(
+                      AppointmentSlotSelection(
+                        start: selectionStart,
+                        end: selectionEnd,
+                        staffId: staffMember.id,
+                      ),
+                    ),
+                icon: const Icon(Icons.add_circle_outline_rounded),
+              ),
+            ],
+          ),
+          if (infoChips.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(spacing: 6, runSpacing: 6, children: infoChips),
+          ],
+          const SizedBox(height: 12),
+          if (appointmentWidgets.isEmpty)
+            _buildEmptyState(theme)
+          else
+            Column(children: appointmentWidgets),
+        ],
+      ),
+    );
+  }
+
+  static String _describeAbsence(StaffAbsence absence) {
+    final buffer = StringBuffer(absence.type.label);
+    if (!absence.isAllDay || !absence.isSingleDay) {
+      buffer.write(
+        ' • ${_timeLabelFormat.format(absence.start)} - ${_timeLabelFormat.format(absence.end)}',
+      );
+    }
+    if (absence.notes != null && absence.notes!.trim().isNotEmpty) {
+      buffer.write('\n${absence.notes!.trim()}');
+    }
+    return buffer.toString();
+  }
+
+  List<String> _serviceNames(Appointment appointment) {
+    final names = <String>[];
+    for (final serviceId in appointment.serviceIds) {
+      final service = servicesById[serviceId];
+      if (service != null && service.name.isNotEmpty) {
+        names.add(service.name);
+      }
+    }
+    return names;
+  }
+
+  Widget _buildEmptyState(ThemeData theme) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Center(
+        child: Text(
+          'Nessun appuntamento',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OperatorAppointmentTile extends StatelessWidget {
+  const _OperatorAppointmentTile({
+    required this.appointment,
+    required this.client,
+    required this.serviceNames,
+    required this.roomName,
+    required this.isPlaceholder,
+    required this.anomalies,
+    required this.lockReason,
+    required this.statusColor,
+    required this.onTap,
+  });
+
+  final Appointment appointment;
+  final Client? client;
+  final List<String> serviceNames;
+  final String? roomName;
+  final bool isPlaceholder;
+  final Set<AppointmentAnomalyType> anomalies;
+  final String? lockReason;
+  final Color statusColor;
+  final VoidCallback onTap;
+
+  static final DateFormat _timeFormat = DateFormat('HH:mm', 'it_IT');
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final timeLabel =
+        '${_timeFormat.format(appointment.start)} - ${_timeFormat.format(appointment.end)}';
+    final serviceLabel =
+        serviceNames.isNotEmpty ? serviceNames.join(', ') : null;
+    final subtitleColor = theme.colorScheme.onSurfaceVariant;
+    final issues =
+        anomalies.toList()..sort((a, b) => a.index.compareTo(b.index));
+
+    return Material(
+      color:
+          isPlaceholder
+              ? theme.colorScheme.primaryContainer.withValues(alpha: 0.35)
+              : theme.colorScheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      timeLabel,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.circle, size: 10, color: statusColor),
+                  if (isPlaceholder) ...[
+                    const SizedBox(width: 6),
+                    Tooltip(
+                      message: 'Slot last-minute disponibile',
+                      child: Icon(
+                        Icons.flash_on_rounded,
+                        size: 18,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                client?.fullName ?? 'Slot disponibile',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (serviceLabel != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  serviceLabel,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: subtitleColor,
+                  ),
+                ),
+              ],
+              if (roomName != null && roomName!.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Stanza: $roomName',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: subtitleColor,
+                  ),
+                ),
+              ],
+              if (issues.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children:
+                      issues
+                          .map(
+                            (issue) => _WeekSchedule._summaryChip(
+                              theme: theme,
+                              icon: issue.icon,
+                              label: issue.label,
+                              background: theme.colorScheme.errorContainer
+                                  .withValues(alpha: 0.45),
+                              foreground: theme.colorScheme.onErrorContainer,
+                              tooltip: issue.description,
+                            ),
+                          )
+                          .toList(),
+                ),
+              ],
+              if (lockReason != null && lockReason!.trim().isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.lock_rounded,
+                      size: 16,
+                      color: theme.colorScheme.outline,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        lockReason!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: subtitleColor,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
           ),
         ),
       ),
@@ -4202,27 +4994,43 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                                     ),
                                   ),
                                 ),
-                                padding: const EdgeInsets.all(6),
-                                alignment: Alignment.topLeft,
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.flash_on_rounded,
-                                      size: 14,
-                                      color: theme.colorScheme.primary,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      'Slot last-minute (prenotabile)',
-                                      style: theme.textTheme.labelSmall
-                                          ?.copyWith(
-                                            color: theme.colorScheme.primary,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                    ),
-                                  ],
-                                ),
+                                padding:
+                                    widget.compact
+                                        ? const EdgeInsets.all(4)
+                                        : const EdgeInsets.all(6),
+                                alignment:
+                                    widget.compact
+                                        ? Alignment.center
+                                        : Alignment.topLeft,
+                                child:
+                                    widget.compact
+                                        ? Icon(
+                                          Icons.flash_on_rounded,
+                                          size: 16,
+                                          color: theme.colorScheme.primary,
+                                        )
+                                        : Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              Icons.flash_on_rounded,
+                                              size: 14,
+                                              color: theme.colorScheme.primary,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'Slot last-minute (prenotabile)',
+                                              style: theme.textTheme.labelSmall
+                                                  ?.copyWith(
+                                                    color:
+                                                        theme
+                                                            .colorScheme
+                                                            .primary,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                            ),
+                                          ],
+                                        ),
                               ),
                             ),
                           ),
@@ -5053,32 +5861,42 @@ class _AppointmentCard extends StatelessWidget {
                         : 'Appuntamento last-minute',
                 waitDuration: const Duration(milliseconds: 250),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
+                  padding:
+                      hideContent
+                          ? const EdgeInsets.all(6)
+                          : const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                   decoration: BoxDecoration(
                     color: theme.colorScheme.primary.withValues(alpha: 0.18),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.flash_on_rounded,
-                        size: 14,
-                        color: theme.colorScheme.primary,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Last-minute',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.primary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
+                  child:
+                      hideContent
+                          ? Icon(
+                            Icons.flash_on_rounded,
+                            size: 16,
+                            color: theme.colorScheme.primary,
+                          )
+                          : Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.flash_on_rounded,
+                                size: 14,
+                                color: theme.colorScheme.primary,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Last-minute',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: theme.colorScheme.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
                 ),
               ),
             ),
