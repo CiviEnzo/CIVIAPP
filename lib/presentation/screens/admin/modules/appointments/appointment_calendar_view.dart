@@ -3393,6 +3393,33 @@ class _WeekCompactView extends StatelessWidget {
         columnWidth = max(columnWidth, _kMinStaffColumnWidth);
       }
     }
+    final columnWidths = List<double>.filled(
+      staffCount,
+      columnWidth,
+      growable: true,
+    );
+    if (staffCount > 0) {
+      final totalWidth = (columnWidth * staffCount) + gapsWidth;
+      final remainder = dayInnerWidth - totalWidth;
+      if (remainder.abs() > 0.001) {
+        final adjusted = max(0.0, columnWidths.last + remainder);
+        columnWidths[staffCount - 1] = adjusted;
+      }
+    }
+    final enforceMinWidth =
+        staffCount > 0 &&
+        (_kMinStaffColumnWidth * staffCount) + gapsWidth <= dayInnerWidth;
+    assert(() {
+      final totalColumnsWidth = columnWidths.fold<double>(
+        0,
+        (sum, value) => sum + value,
+      );
+      final composedWidth = totalColumnsWidth + gapsWidth;
+      debugPrint(
+        '[WeekCompact] staff=$staffCount inner=${dayInnerWidth.toStringAsFixed(2)} total=${composedWidth.toStringAsFixed(2)} gap=$gapsWidth remainder=${(dayInnerWidth - composedWidth).toStringAsFixed(2)} widths=${columnWidths.map((w) => w.toStringAsFixed(2)).join(',')}',
+      );
+      return true;
+    }());
 
     return Container(
       decoration: BoxDecoration(
@@ -3416,10 +3443,11 @@ class _WeekCompactView extends StatelessWidget {
         theme: theme,
         data: data,
         dayInnerWidth: dayInnerWidth,
-        columnWidth: columnWidth,
+        columnWidths: columnWidths,
         columnGap: effectiveGap,
         gridHeight: gridHeight,
         slotExtent: slotExtent,
+        enforceMinWidth: enforceMinWidth,
       ),
     );
   }
@@ -3428,10 +3456,11 @@ class _WeekCompactView extends StatelessWidget {
     required ThemeData theme,
     required _WeekDayData data,
     required double dayInnerWidth,
-    required double columnWidth,
+    required List<double> columnWidths,
     required double columnGap,
     required double gridHeight,
     required double slotExtent,
+    required bool enforceMinWidth,
   }) {
     final staffCount = staff.length;
     if (staffCount == 0) {
@@ -3453,103 +3482,111 @@ class _WeekCompactView extends StatelessWidget {
       final staffMember = staff[index];
       final initialsValue = _staffInitials(staffMember.fullName);
       final displayInitials = initialsValue.isEmpty ? '--' : initialsValue;
-      final avatarSize = columnWidth <= 0 ? 0.0 : min(columnWidth, 28.0);
-      final columnRadius =
-          columnWidth <= 0 ? 8.0 : min(12.0, max(columnWidth / 2, 6.0));
-      return SizedBox(
-        width: columnWidth,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SizedBox(
-              height: _kStaffHeaderHeight,
-              child: Center(
-                child:
-                    avatarSize <= 0
-                        ? const SizedBox.shrink()
-                        : Tooltip(
-                          message: staffMember.fullName,
-                          waitDuration: const Duration(milliseconds: 250),
-                          child: SizedBox(
-                            width: avatarSize,
-                            height: avatarSize,
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: theme.colorScheme.primary.withValues(
-                                  alpha: 0.12,
-                                ),
-                                borderRadius: BorderRadius.circular(
-                                  max(avatarSize / 2, 8.0),
-                                ),
-                                border: Border.all(
+      final width = index < columnWidths.length ? columnWidths[index] : 0.0;
+      final avatarSize = width <= 0 ? 0.0 : min(width, 28.0);
+      final columnRadius = width <= 0 ? 8.0 : min(12.0, max(width / 2, 6.0));
+      final flex = max(1, (width * 1000).round());
+      final minWidthConstraint = enforceMinWidth ? _kMinStaffColumnWidth : 0.0;
+      return Flexible(
+        flex: flex,
+        child: ConstrainedBox(
+          constraints:
+              minWidthConstraint > 0
+                  ? BoxConstraints(minWidth: minWidthConstraint)
+                  : const BoxConstraints(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: _kStaffHeaderHeight,
+                child: Center(
+                  child:
+                      avatarSize <= 0
+                          ? const SizedBox.shrink()
+                          : Tooltip(
+                            message: staffMember.fullName,
+                            waitDuration: const Duration(milliseconds: 250),
+                            child: SizedBox(
+                              width: avatarSize,
+                              height: avatarSize,
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
                                   color: theme.colorScheme.primary.withValues(
-                                    alpha: 0.35,
+                                    alpha: 0.12,
+                                  ),
+                                  borderRadius: BorderRadius.circular(
+                                    max(avatarSize / 2, 8.0),
+                                  ),
+                                  border: Border.all(
+                                    color: theme.colorScheme.primary.withValues(
+                                      alpha: 0.35,
+                                    ),
                                   ),
                                 ),
-                              ),
-                              child: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: Text(
-                                  displayInitials,
-                                  style: theme.textTheme.titleSmall?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 0.4,
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(
+                                    displayInitials,
+                                    style: theme.textTheme.titleSmall?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.4,
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
+                ),
               ),
-            ),
-            const SizedBox(height: _kStaffHeaderSpacing),
-            SizedBox(
-              height: gridHeight,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface.withValues(
-                    alpha: theme.brightness == Brightness.dark ? 0.25 : 0.85,
-                  ),
-                  borderRadius: BorderRadius.circular(columnRadius),
-                  border: Border.all(
-                    color: theme.colorScheme.outlineVariant.withValues(
-                      alpha: 0.4,
+              const SizedBox(height: _kStaffHeaderSpacing),
+              SizedBox(
+                height: gridHeight,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface.withValues(
+                      alpha: theme.brightness == Brightness.dark ? 0.25 : 0.85,
+                    ),
+                    borderRadius: BorderRadius.circular(columnRadius),
+                    border: Border.all(
+                      color: theme.colorScheme.outlineVariant.withValues(
+                        alpha: 0.4,
+                      ),
                     ),
                   ),
-                ),
-                child: _StaffDayColumn(
-                  staffMember: staffMember,
-                  appointments:
-                      data.appointmentsByStaff[staffMember.id] ?? const [],
-                  lastMinutePlaceholders: lastMinutePlaceholders,
-                  lastMinuteSlots: lastMinuteSlots,
-                  onTapLastMinuteSlot: onTapLastMinuteSlot,
-                  shifts: data.shiftsByStaff[staffMember.id] ?? const [],
-                  absences: data.absencesByStaff[staffMember.id] ?? const [],
-                  timelineStart: data.date.add(Duration(minutes: minMinute)),
-                  timelineEnd: data.date.add(Duration(minutes: maxMinute)),
-                  slotMinutes: slotMinutes,
-                  slotExtent: slotExtent,
-                  clientsById: clientsById,
-                  servicesById: servicesById,
-                  categoriesById: categoriesById,
-                  categoriesByName: categoriesByName,
-                  roomsById: roomsById,
-                  salonsById: salonsById,
-                  allAppointments: allAppointments,
-                  statusColor: statusColor,
-                  onReschedule: onReschedule,
-                  onEdit: onEdit,
-                  onCreate: onCreate,
-                  anomalies: anomalies,
-                  lockedAppointmentReasons: lockedAppointmentReasons,
-                  openStart: data.openStart,
-                  openEnd: data.openEnd,
-                  compact: true,
+                  child: _StaffDayColumn(
+                    staffMember: staffMember,
+                    appointments:
+                        data.appointmentsByStaff[staffMember.id] ?? const [],
+                    lastMinutePlaceholders: lastMinutePlaceholders,
+                    lastMinuteSlots: lastMinuteSlots,
+                    onTapLastMinuteSlot: onTapLastMinuteSlot,
+                    shifts: data.shiftsByStaff[staffMember.id] ?? const [],
+                    absences: data.absencesByStaff[staffMember.id] ?? const [],
+                    timelineStart: data.date.add(Duration(minutes: minMinute)),
+                    timelineEnd: data.date.add(Duration(minutes: maxMinute)),
+                    slotMinutes: slotMinutes,
+                    slotExtent: slotExtent,
+                    clientsById: clientsById,
+                    servicesById: servicesById,
+                    categoriesById: categoriesById,
+                    categoriesByName: categoriesByName,
+                    roomsById: roomsById,
+                    salonsById: salonsById,
+                    allAppointments: allAppointments,
+                    statusColor: statusColor,
+                    onReschedule: onReschedule,
+                    onEdit: onEdit,
+                    onCreate: onCreate,
+                    anomalies: anomalies,
+                    lockedAppointmentReasons: lockedAppointmentReasons,
+                    openStart: data.openStart,
+                    openEnd: data.openEnd,
+                    compact: true,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       );
     }
@@ -3560,10 +3597,10 @@ class _WeekCompactView extends StatelessWidget {
         width: dayInnerWidth,
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
+          mainAxisSize: MainAxisSize.max,
           children: [
             for (var index = 0; index < staffCount; index++) ...[
-              SizedBox(width: columnWidth, child: buildStaffColumn(index)),
+              buildStaffColumn(index),
               if (index != staffCount - 1) SizedBox(width: columnGap),
             ],
           ],
