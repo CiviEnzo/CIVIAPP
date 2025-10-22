@@ -4286,12 +4286,15 @@ class _OperatorAppointmentTile extends StatelessWidget {
     final subtitleColor = theme.colorScheme.onSurfaceVariant;
     final issues =
         anomalies.toList()..sort((a, b) => a.index.compareTo(b.index));
+    final isCancelled = appointment.status == AppointmentStatus.cancelled;
 
     return Material(
       color:
           isPlaceholder
               ? theme.colorScheme.primaryContainer.withValues(alpha: 0.35)
-              : theme.colorScheme.surfaceContainerHighest,
+              : isCancelled
+                  ? Colors.transparent
+                  : theme.colorScheme.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         onTap: onTap,
@@ -5616,13 +5619,20 @@ class _AppointmentCard extends StatelessWidget {
       categoryLabel,
       theme,
     );
-    final baseColor = categoryColor ?? theme.colorScheme.primary;
+    final isCancelled = status == AppointmentStatus.cancelled;
+    final baseColor =
+        isCancelled
+            ? Colors.transparent
+            : categoryColor ?? theme.colorScheme.primary;
     Color gradientStart = baseColor;
-    Color gradientEnd = Colors.white.withValues(
-      alpha: theme.brightness == Brightness.dark ? 0.2 : 0.95,
-    );
-    final needsAttention = hasAnomalies;
-    if (needsAttention) {
+    Color gradientEnd =
+        isCancelled
+            ? baseColor
+            : Colors.white.withValues(
+              alpha: theme.brightness == Brightness.dark ? 0.2 : 0.95,
+            );
+    final highlightAnomalies = hasAnomalies;
+    if (highlightAnomalies) {
       final double startAlpha =
           theme.brightness == Brightness.dark ? 0.45 : 0.25;
       final double endAlpha = theme.brightness == Brightness.dark ? 0.3 : 0.12;
@@ -5636,14 +5646,27 @@ class _AppointmentCard extends StatelessWidget {
       );
     }
 
-    final baseBorder = Color.alphaBlend(
-      baseColor.withValues(alpha: 0.35),
-      gradientEnd,
-    );
+    final baseBorder =
+        isCancelled
+            ? theme.colorScheme.outlineVariant.withValues(
+              alpha: theme.brightness == Brightness.dark ? 0.5 : 0.4,
+            )
+            : Color.alphaBlend(baseColor.withValues(alpha: 0.35), gradientEnd);
+    final List<String> issueDescriptions =
+        hasAnomalies
+            ? (anomalies.toList()..sort((a, b) => a.index.compareTo(b.index)))
+                .map((issue) => issue.description)
+                .toList()
+            : const <String>[];
+    final needsAttention = hasAnomalies || isCancelled;
     final borderColor =
         hasAnomalies
             ? theme.colorScheme.error.withValues(
               alpha: theme.brightness == Brightness.dark ? 0.85 : 0.75,
+            )
+            : isCancelled
+            ? theme.colorScheme.outlineVariant.withValues(
+              alpha: theme.brightness == Brightness.dark ? 0.7 : 0.6,
             )
             : isLocked
             ? theme.colorScheme.outline.withValues(alpha: 0.8)
@@ -5651,17 +5674,17 @@ class _AppointmentCard extends StatelessWidget {
             ? theme.colorScheme.primary.withValues(alpha: 0.45)
             : baseBorder;
     final borderWidth =
-        hasAnomalies
+        needsAttention
             ? 2.0
             : isLocked
             ? 1.5
             : 1.0;
-    final anomaliesTooltip =
-        hasAnomalies
-            ? (anomalies.toList()..sort((a, b) => a.index.compareTo(b.index)))
-                .map((issue) => issue.description)
-                .join('\n')
-            : null;
+    final attentionTooltipLines = <String>[
+      if (isCancelled) 'Appuntamento annullato',
+      ...issueDescriptions,
+    ];
+    final attentionTooltip =
+        attentionTooltipLines.isNotEmpty ? attentionTooltipLines.join('\n') : null;
     final double verticalPadding;
     if (height < 56) {
       verticalPadding = 4;
@@ -5835,21 +5858,39 @@ class _AppointmentCard extends StatelessWidget {
 
     final overlayWidgets = <Widget>[];
     if (!hideContent) {
-      if (hasAnomalies) {
+      if (needsAttention) {
+        final overlayColor =
+            hasAnomalies
+                ? theme.colorScheme.error
+                : theme.colorScheme.outlineVariant.withValues(
+                  alpha: theme.brightness == Brightness.dark ? 0.75 : 0.55,
+                );
+        final iconData =
+            hasAnomalies
+                ? AppointmentAnomalyType.noShift.icon
+                : Icons.cancel_rounded;
+        final iconColor =
+            hasAnomalies
+                ? theme.colorScheme.onError
+                : theme.colorScheme.onSurfaceVariant;
+        final shadowColor =
+            hasAnomalies
+                ? theme.colorScheme.error.withValues(alpha: 0.45)
+                : theme.colorScheme.outlineVariant.withValues(alpha: 0.25);
         overlayWidgets.add(
           Positioned(
             top: 8,
             right: 8,
             child: Tooltip(
-              message: anomaliesTooltip ?? 'Appuntamento da gestire',
+              message: attentionTooltip ?? 'Appuntamento da gestire',
               waitDuration: const Duration(milliseconds: 250),
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.error,
+                  color: overlayColor,
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: theme.colorScheme.error.withValues(alpha: 0.45),
+                      color: shadowColor,
                       blurRadius: 8,
                       offset: const Offset(0, 2),
                     ),
@@ -5857,11 +5898,7 @@ class _AppointmentCard extends StatelessWidget {
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(6),
-                  child: Icon(
-                    AppointmentAnomalyType.noShift.icon,
-                    color: theme.colorScheme.onError,
-                    size: 24,
-                  ),
+                  child: Icon(iconData, color: iconColor, size: 24),
                 ),
               ),
             ),

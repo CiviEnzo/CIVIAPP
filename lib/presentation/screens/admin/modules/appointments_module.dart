@@ -958,11 +958,17 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
 
     final attentionAppointments =
         relevantAppointments
-            .where(
-              (appointment) =>
-                  anomalies.containsKey(appointment.id) &&
-                  (staffIds.isEmpty || staffIds.contains(appointment.staffId)),
-            )
+            .where((appointment) {
+              final matchesStaff =
+                  staffIds.isEmpty || staffIds.contains(appointment.staffId);
+              if (!matchesStaff) {
+                return false;
+              }
+              final hasAnomalies = anomalies.containsKey(appointment.id);
+              final isCancelled =
+                  appointment.status == AppointmentStatus.cancelled;
+              return hasAnomalies || isCancelled;
+            })
             .toList();
 
     final allSalonAppointments = relevantAppointments
@@ -2632,7 +2638,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       case AppointmentStatus.completed:
         return 'Appuntamento completato: non è possibile modificarlo.';
       case AppointmentStatus.cancelled:
-        return 'Appuntamento annullato: non è possibile modificarlo.';
+        return null;
       case AppointmentStatus.noShow:
         return 'Appuntamento segnato come no show: non è possibile modificarlo.';
       case AppointmentStatus.scheduled:
@@ -2651,7 +2657,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       case AppointmentStatus.completed:
         return scheme.tertiary;
       case AppointmentStatus.cancelled:
-        return scheme.error;
+        return scheme.onSurfaceVariant;
       case AppointmentStatus.noShow:
         return scheme.error.withAlpha(180);
     }
@@ -2818,14 +2824,25 @@ class _ListAppointmentsView extends StatelessWidget {
                       anomalies[appointment.id] ??
                       const <AppointmentAnomalyType>{};
                   final hasIssues = issues.isNotEmpty;
+                  final isCancelled =
+                      appointment.status == AppointmentStatus.cancelled;
                   final List<AppointmentAnomalyType> issueSummary =
                       hasIssues
                           ? (issues.toList()
                             ..sort((a, b) => a.index.compareTo(b.index)))
                           : const <AppointmentAnomalyType>[];
+                  final attentionReasons = <String>[];
+                  if (isCancelled) {
+                    attentionReasons.add('Appuntamento annullato');
+                  }
+                  if (hasIssues) {
+                    attentionReasons.addAll(
+                      issueSummary.map((issue) => issue.label),
+                    );
+                  }
                   final attentionLine =
-                      hasIssues
-                          ? 'Attenzione: ${issueSummary.map((issue) => issue.label).join(', ')}'
+                      attentionReasons.isNotEmpty
+                          ? 'Attenzione: ${attentionReasons.join(', ')}'
                           : null;
                   final subtitleLines = <String>[
                     _buildSubtitle(appointment, data),
@@ -2838,22 +2855,27 @@ class _ListAppointmentsView extends StatelessWidget {
                     subtitleLines.add(lockReason);
                   }
                   final theme = Theme.of(context);
+                  final needsAttention = hasIssues || isCancelled;
                   final iconData =
-                      hasIssues
-                          ? AppointmentAnomalyType.noShift.icon
+                      needsAttention
+                          ? hasIssues
+                              ? AppointmentAnomalyType.noShift.icon
+                              : Icons.cancel_rounded
                           : lockReason != null
                           ? Icons.lock_rounded
                           : isPlaceholder
                           ? Icons.flash_on_rounded
                           : Icons.spa_rounded;
                   final iconColor =
-                      hasIssues
-                          ? theme.colorScheme.error
+                      needsAttention
+                          ? hasIssues
+                              ? theme.colorScheme.error
+                              : theme.colorScheme.outlineVariant
                           : lockReason != null
                           ? theme.colorScheme.outline
                           : isPlaceholder
                           ? theme.colorScheme.primary
-                          : theme.colorScheme.primary;
+                          : theme.colorScheme.outline;
                   return ListTile(
                     contentPadding: const EdgeInsets.symmetric(
                       horizontal: 16,
@@ -2981,6 +3003,18 @@ class _AttentionAppointmentsCard extends StatelessWidget {
                 issues.toList()..sort((a, b) => a.index.compareTo(b.index));
             final issueDescriptions =
                 issueList.map((issue) => issue.description).toList();
+            if (appointment.status == AppointmentStatus.cancelled) {
+              issueDescriptions.insert(0, 'Appuntamento annullato');
+            }
+            final isCancelled = appointment.status == AppointmentStatus.cancelled;
+            final leadingIcon =
+                isCancelled
+                    ? Icons.cancel_rounded
+                    : AppointmentAnomalyType.noShift.icon;
+            final leadingColor =
+                isCancelled
+                    ? theme.colorScheme.outlineVariant
+                    : theme.colorScheme.error;
             final dateLabel = DateFormat(
               'dd MMM yyyy',
               'it_IT',
@@ -3001,8 +3035,8 @@ class _AttentionAppointmentsCard extends StatelessWidget {
                 vertical: 12,
               ),
               leading: Icon(
-                AppointmentAnomalyType.noShift.icon,
-                color: theme.colorScheme.error,
+                leadingIcon,
+                color: leadingColor,
               ),
               title: Text(_ListAppointmentsView._buildTitle(appointment, data)),
               subtitle: Text(subtitleText),

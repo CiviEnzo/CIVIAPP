@@ -213,9 +213,6 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         selectedServices.length == 1 ? selectedServices.first : null;
     final filteredStaff =
         staffMembers.where((member) {
-          if (_salonId != null && member.salonId != _salonId) {
-            return false;
-          }
           if (selectedServices.isNotEmpty) {
             for (final service in selectedServices) {
               final allowedRoles = service.staffRoles;
@@ -483,31 +480,81 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
               ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
-              value: _salonId,
-              decoration: const InputDecoration(labelText: 'Salone'),
+              value: staffFieldValue,
+              decoration: const InputDecoration(labelText: 'Operatore'),
               items:
-                  salons
+                  filteredStaff
                       .map(
-                        (salon) => DropdownMenuItem(
-                          value: salon.id,
-                          child: Text(salon.name),
+                        (member) => DropdownMenuItem(
+                          value: member.id,
+                          child: Text(member.fullName),
                         ),
                       )
                       .toList(),
               onChanged: (value) {
+                final staffMember =
+                    value == null
+                        ? null
+                        : staffMembers.firstWhereOrNull(
+                          (member) => member.id == value,
+                        );
+                final previousSalonId = _salonId;
+                final newSalonId = staffMember?.salonId;
+                final salonChanged = previousSalonId != newSalonId;
+
                 setState(() {
-                  _salonId = value;
-                  _clientId = null;
-                  _staffId = null;
-                  _serviceIds = const [];
-                  _usePackageSession = false;
-                  _selectedPackageId = null;
-                  _packageSelectionManuallyChanged = false;
+                  _staffId = value;
+                  _salonId = newSalonId;
+
+                  if (salonChanged) {
+                    _clientId = null;
+                    _serviceIds = const [];
+                    _usePackageSession = false;
+                    _selectedPackageId = null;
+                    _packageSelectionManuallyChanged = false;
+                  }
+
+                  if (staffMember == null) {
+                    if (!salonChanged) {
+                      _serviceIds = const [];
+                      _usePackageSession = false;
+                      _selectedPackageId = null;
+                      _packageSelectionManuallyChanged = false;
+                    }
+                    return;
+                  }
+
+                  final allowedServiceIds =
+                      services
+                          .where((service) {
+                            final roles = service.staffRoles;
+                            if (roles.isEmpty) {
+                              return true;
+                            }
+                            return staffMember.roleIds.any(
+                              (roleId) => roles.contains(roleId),
+                            );
+                          })
+                          .map((service) => service.id)
+                          .toSet();
+                  final filteredSelections =
+                      _serviceIds.where(allowedServiceIds.contains).toList();
+                  if (filteredSelections.length != _serviceIds.length) {
+                    _serviceIds = filteredSelections;
+                    _usePackageSession = false;
+                    _selectedPackageId = null;
+                    _packageSelectionManuallyChanged = false;
+                  }
                 });
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _clientFieldKey.currentState?.didChange(_clientId);
-                });
+
+                if (salonChanged) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _clientFieldKey.currentState?.didChange(_clientId);
+                  });
+                }
               },
+              validator:
+                  (value) => value == null ? 'Scegli un operatore' : null,
             ),
             const SizedBox(height: 12),
             Row(
@@ -531,6 +578,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                             child: InputDecorator(
                               decoration: InputDecoration(
                                 labelText: 'Cliente',
+                                floatingLabelBehavior:
+                                    FloatingLabelBehavior.always,
                                 errorText: state.errorText,
                                 suffixIcon: const Icon(
                                   Icons.search_rounded,
@@ -565,61 +614,6 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                   icon: const Icon(Icons.person_add_alt_1_rounded),
                 ),
               ],
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: staffFieldValue,
-              decoration: const InputDecoration(labelText: 'Operatore'),
-              items:
-                  filteredStaff
-                      .map(
-                        (member) => DropdownMenuItem(
-                          value: member.id,
-                          child: Text(member.fullName),
-                        ),
-                      )
-                      .toList(),
-              onChanged: (value) {
-                setState(() {
-                  _staffId = value;
-                  if (value == null) {
-                    return;
-                  }
-                  final staffMember = staffMembers.firstWhereOrNull(
-                    (member) => member.id == value,
-                  );
-                  if (staffMember == null) {
-                    _serviceIds = const [];
-                    _usePackageSession = false;
-                    _selectedPackageId = null;
-                    _packageSelectionManuallyChanged = false;
-                    return;
-                  }
-                  final allowedServiceIds =
-                      services
-                          .where((service) {
-                            final roles = service.staffRoles;
-                            if (roles.isEmpty) {
-                              return true;
-                            }
-                            return staffMember.roleIds.any(
-                              (roleId) => roles.contains(roleId),
-                            );
-                          })
-                          .map((service) => service.id)
-                          .toSet();
-                  final filteredSelections =
-                      _serviceIds.where(allowedServiceIds.contains).toList();
-                  if (filteredSelections.length != _serviceIds.length) {
-                    _serviceIds = filteredSelections;
-                    _usePackageSession = false;
-                    _selectedPackageId = null;
-                    _packageSelectionManuallyChanged = false;
-                  }
-                });
-              },
-              validator:
-                  (value) => value == null ? 'Scegli un operatore' : null,
             ),
             const SizedBox(height: 12),
             FormField<List<String>>(
@@ -672,6 +666,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                       child: InputDecorator(
                         decoration: InputDecoration(
                           labelText: 'Servizi',
+                          floatingLabelBehavior:
+                              FloatingLabelBehavior.always,
                           errorText: state.errorText,
                           suffixIcon: const Icon(Icons.segment_rounded),
                         ),
@@ -913,7 +909,9 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     if (_salonId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Seleziona un salone prima di scegliere l\'orario.'),
+          content: Text(
+            'Seleziona un operatore associato a un salone prima di scegliere l\'orario.',
+          ),
         ),
       );
       return;
@@ -1778,7 +1776,13 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     if (_salonId == null) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Seleziona un salone')));
+      ).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Impossibile completare: seleziona un operatore collegato a un salone.',
+          ),
+        ),
+      );
       return null;
     }
 
@@ -2078,7 +2082,9 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     if (_salonId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Seleziona un salone prima di creare un cliente'),
+          content: Text(
+            'Seleziona un operatore per determinare il salone prima di creare un cliente',
+          ),
         ),
       );
       return;
