@@ -31,13 +31,14 @@ class _ClientSearchSheetState extends State<ClientSearchSheet> {
     super.dispose();
   }
 
-  void _performSearch() {
+  void _performSearch({bool autoTriggered = false}) {
     final general = _generalQueryController.text.trim();
     final clientNumber = _clientNumberController.text.trim();
 
     if (general.isEmpty && clientNumber.isEmpty) {
       setState(() {
-        _error = 'Inserisci almeno un criterio di ricerca';
+        _error =
+            autoTriggered ? null : 'Inserisci almeno un criterio di ricerca';
         _searchPerformed = false;
         _results = const <Client>[];
       });
@@ -133,7 +134,10 @@ class _ClientSearchSheetState extends State<ClientSearchSheet> {
                   prefixIcon: Icon(Icons.search_rounded),
                 ),
                 textInputAction: TextInputAction.search,
-                onChanged: (_) => _resetError(),
+                onChanged: (_) {
+                  _resetError();
+                  _performSearch(autoTriggered: true);
+                },
                 onSubmitted: (_) => _performSearch(),
               ),
               const SizedBox(height: 12),
@@ -144,7 +148,10 @@ class _ClientSearchSheetState extends State<ClientSearchSheet> {
                   prefixIcon: Icon(Icons.badge_outlined),
                 ),
                 textInputAction: TextInputAction.search,
-                onChanged: (_) => _resetError(),
+                onChanged: (_) {
+                  _resetError();
+                  _performSearch(autoTriggered: true);
+                },
                 onSubmitted: (_) => _performSearch(),
               ),
               const SizedBox(height: 16),
@@ -153,7 +160,7 @@ class _ClientSearchSheetState extends State<ClientSearchSheet> {
                 runSpacing: 12,
                 children: [
                   FilledButton.icon(
-                    onPressed: _performSearch,
+                    onPressed: () => _performSearch(),
                     icon: const Icon(Icons.manage_search_rounded),
                     label: const Text('Cerca'),
                   ),

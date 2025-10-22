@@ -2896,11 +2896,6 @@ class _AppointmentGroup extends StatelessWidget {
           label: const Text('Programmato'),
           backgroundColor: scheme.primaryContainer,
         );
-      case AppointmentStatus.confirmed:
-        return Chip(
-          label: const Text('Confermato'),
-          backgroundColor: scheme.secondaryContainer,
-        );
       case AppointmentStatus.completed:
         return Chip(
           label: const Text('Completato'),
@@ -6609,144 +6604,41 @@ class _PackageGroup extends StatelessWidget {
                 style: theme.textTheme.bodyMedium,
               )
             else
-              ...items.map((purchase) {
-                final expiry = purchase.expirationDate;
-                final sessionLabel = _sessionLabel(purchase);
-                final servicesLabel = purchase.serviceNames.join(', ');
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              purchase.package?.name ??
-                                  purchase.item.description,
-                              style: theme.textTheme.titleSmall,
-                            ),
-                          ),
-                          if (onEdit != null || onDelete != null)
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (onEdit != null)
-                                  IconButton(
-                                    tooltip: 'Modifica pacchetto',
-                                    icon: const Icon(Icons.edit_rounded),
-                                    onPressed: () => onEdit?.call(purchase),
-                                  ),
-                                if (onDelete != null)
-                                  IconButton(
-                                    tooltip: 'Elimina pacchetto',
-                                    icon: const Icon(Icons.delete_rounded),
-                                    onPressed: () => onDelete?.call(purchase),
-                                  ),
-                              ],
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 8,
-                        children: [
-                          _statusChip(context, purchase.status),
-                          _Chip(
-                            label: purchase.paymentStatus.label,
-                            icon:
-                                purchase.paymentStatus ==
-                                        PackagePaymentStatus.deposit
-                                    ? Icons.savings_rounded
-                                    : Icons.verified_rounded,
-                          ),
-                          if (purchase.depositAmount > 0)
-                            _Chip(
-                              label:
-                                  'Acconto: ${currency.format(purchase.depositAmount)}',
-                              icon: Icons.account_balance_wallet_rounded,
-                            ),
-                          if (purchase.outstandingAmount > 0)
-                            _Chip(
-                              label:
-                                  'Da saldare: ${currency.format(purchase.outstandingAmount)}',
-                              icon: Icons.pending_actions_rounded,
-                            ),
-                          _Chip(
-                            label: currency.format(purchase.totalAmount),
-                            icon: Icons.euro_rounded,
-                          ),
-                          _Chip(
-                            label: _paymentLabel(purchase.sale.paymentMethod),
-                            icon: Icons.payments_rounded,
-                          ),
-                          _Chip(
-                            label:
-                                'Acquisto: ${dateFormat.format(purchase.sale.createdAt)}',
-                            icon: Icons.calendar_today_rounded,
-                          ),
-                          _Chip(
-                            label:
-                                expiry == null
-                                    ? 'Senza scadenza'
-                                    : 'Scadenza: ${dateFormat.format(expiry)}',
-                            icon: Icons.timer_outlined,
-                          ),
-                          _Chip(
-                            label: sessionLabel,
-                            icon: Icons.event_repeat_rounded,
-                          ),
-                        ],
-                      ),
-                      if (servicesLabel.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text('Servizi inclusi: $servicesLabel'),
-                      ],
-                      if (purchase.deposits.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        Text('Acconti', style: theme.textTheme.titleSmall),
-                        const SizedBox(height: 4),
-                        Column(
-                          children:
-                              purchase.deposits.map((deposit) {
-                                final subtitleBuffer = StringBuffer(
-                                  '${DateFormat('dd/MM/yyyy HH:mm').format(deposit.date)} • ${_paymentLabel(deposit.paymentMethod)}',
-                                );
-                                if (deposit.note != null &&
-                                    deposit.note!.isNotEmpty) {
-                                  subtitleBuffer
-                                    ..write('\n')
-                                    ..write(deposit.note);
-                                }
-                                return ListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  dense: true,
-                                  title: Text(currency.format(deposit.amount)),
-                                  subtitle: Text(subtitleBuffer.toString()),
-                                  trailing:
-                                      onDeleteDeposit == null
-                                          ? null
-                                          : IconButton(
-                                            tooltip: 'Storna acconto',
-                                            icon: const Icon(
-                                              Icons.undo_rounded,
-                                            ),
-                                            onPressed:
-                                                () => onDeleteDeposit?.call(
-                                                  purchase,
-                                                  deposit,
-                                                ),
-                                          ),
-                                );
-                              }).toList(),
-                        ),
-                      ],
-                    ],
-                  ),
-                );
-              }),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  const spacing = 16.0;
+                  const minTileWidth = 320.0;
+                  final available = constraints.maxWidth;
+                  final estimatedColumns =
+                      ((available + spacing) / (minTileWidth + spacing))
+                          .floor();
+                  final columns = math.max(1, math.min(3, estimatedColumns));
+                  final tileWidth =
+                      (available - spacing * (columns - 1)) / columns;
+
+                  return Wrap(
+                    spacing: spacing,
+                    runSpacing: spacing,
+                    children:
+                        items
+                            .map(
+                              (purchase) => SizedBox(
+                                width: tileWidth,
+                                child: _PackageTile(
+                                  purchase: purchase,
+                                  currency: currency,
+                                  dateFormat: dateFormat,
+                                  onEdit: onEdit,
+                                  onDelete: onDelete,
+                                  onAddDeposit: onAddDeposit,
+                                  onDeleteDeposit: onDeleteDeposit,
+                                ),
+                              ),
+                            )
+                            .toList(),
+                  );
+                },
+              ),
           ],
         ),
       ),
@@ -6810,6 +6702,183 @@ class _PackageGroup extends StatelessWidget {
       avatar: Icon(icon, size: 18, color: foreground),
       label: Text(status.label, style: TextStyle(color: foreground)),
       backgroundColor: background,
+    );
+  }
+}
+
+class _PackageTile extends StatelessWidget {
+  const _PackageTile({
+    required this.purchase,
+    required this.currency,
+    required this.dateFormat,
+    this.onEdit,
+    this.onDelete,
+    this.onAddDeposit,
+    this.onDeleteDeposit,
+  });
+
+  final ClientPackagePurchase purchase;
+  final NumberFormat currency;
+  final DateFormat dateFormat;
+  final ValueChanged<ClientPackagePurchase>? onEdit;
+  final ValueChanged<ClientPackagePurchase>? onDelete;
+  final ValueChanged<ClientPackagePurchase>? onAddDeposit;
+  final void Function(ClientPackagePurchase, PackageDeposit)? onDeleteDeposit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final servicesLabel = purchase.serviceNames.join(', ');
+    final expiry = purchase.expirationDate;
+    final sessionLabel = _PackageGroup._sessionLabel(purchase);
+    final outstanding = double.parse(
+      purchase.outstandingAmount.toStringAsFixed(2),
+    );
+    final canAddDeposit = onAddDeposit != null && outstanding > 0;
+
+    return Card(
+      elevation: 0,
+      color: scheme.surfaceContainerLowest,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.4)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    purchase.package?.name ?? purchase.item.description,
+                    style: theme.textTheme.titleSmall,
+                  ),
+                ),
+                if (onEdit != null || onDelete != null)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (onEdit != null)
+                        IconButton(
+                          tooltip: 'Modifica pacchetto',
+                          icon: const Icon(Icons.edit_rounded),
+                          onPressed: () => onEdit?.call(purchase),
+                        ),
+                      if (onDelete != null)
+                        IconButton(
+                          tooltip: 'Elimina pacchetto',
+                          icon: const Icon(Icons.delete_rounded),
+                          onPressed: () => onDelete?.call(purchase),
+                        ),
+                    ],
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                _PackageGroup._statusChip(context, purchase.status),
+                _Chip(
+                  label: purchase.paymentStatus.label,
+                  icon:
+                      purchase.paymentStatus == PackagePaymentStatus.deposit
+                          ? Icons.savings_rounded
+                          : Icons.verified_rounded,
+                ),
+                if (purchase.depositAmount > 0)
+                  _Chip(
+                    label:
+                        'Acconto: ${currency.format(purchase.depositAmount)}',
+                    icon: Icons.account_balance_wallet_rounded,
+                  ),
+                if (purchase.outstandingAmount > 0)
+                  _Chip(
+                    label:
+                        'Da saldare: ${currency.format(purchase.outstandingAmount)}',
+                    icon: Icons.pending_actions_rounded,
+                  ),
+                _Chip(
+                  label: currency.format(purchase.totalAmount),
+                  icon: Icons.euro_rounded,
+                ),
+                _Chip(
+                  label: _PackageGroup._paymentLabel(
+                    purchase.sale.paymentMethod,
+                  ),
+                  icon: Icons.payments_rounded,
+                ),
+                _Chip(
+                  label:
+                      'Acquisto: ${dateFormat.format(purchase.sale.createdAt)}',
+                  icon: Icons.calendar_today_rounded,
+                ),
+                _Chip(
+                  label:
+                      expiry == null
+                          ? 'Senza scadenza'
+                          : 'Scadenza: ${dateFormat.format(expiry)}',
+                  icon: Icons.timer_outlined,
+                ),
+                _Chip(label: sessionLabel, icon: Icons.event_repeat_rounded),
+              ],
+            ),
+            if (servicesLabel.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text('Servizi inclusi: $servicesLabel'),
+            ],
+            if (canAddDeposit) ...[
+              const SizedBox(height: 12),
+              FilledButton.tonalIcon(
+                onPressed: () => onAddDeposit?.call(purchase),
+                icon: const Icon(Icons.add_card_rounded),
+                label: const Text('Registra acconto'),
+              ),
+            ],
+            if (purchase.deposits.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text('Acconti', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 4),
+              Column(
+                children:
+                    purchase.deposits.map((deposit) {
+                      final subtitleBuffer = StringBuffer(
+                        '${DateFormat('dd/MM/yyyy HH:mm').format(deposit.date)} • ${_PackageGroup._paymentLabel(deposit.paymentMethod)}',
+                      );
+                      if (deposit.note != null && deposit.note!.isNotEmpty) {
+                        subtitleBuffer
+                          ..write('\n')
+                          ..write(deposit.note);
+                      }
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: Text(currency.format(deposit.amount)),
+                        subtitle: Text(subtitleBuffer.toString()),
+                        trailing:
+                            onDeleteDeposit == null
+                                ? null
+                                : IconButton(
+                                  tooltip: 'Storna acconto',
+                                  icon: const Icon(Icons.undo_rounded),
+                                  onPressed:
+                                      () => onDeleteDeposit?.call(
+                                        purchase,
+                                        deposit,
+                                      ),
+                                ),
+                      );
+                    }).toList(),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

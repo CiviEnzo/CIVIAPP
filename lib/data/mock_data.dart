@@ -1163,7 +1163,7 @@ class MockData {
       serviceId: 'srv-massage',
       start: _now.add(const Duration(days: 1, hours: 2)),
       end: _now.add(const Duration(days: 1, hours: 3)),
-      status: AppointmentStatus.confirmed,
+      status: AppointmentStatus.scheduled,
       roomId: 'room-1',
     ),
     Appointment(

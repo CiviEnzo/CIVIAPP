@@ -93,26 +93,6 @@ class _StaffAbsenceFormSheetState extends State<StaffAbsenceFormSheet> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
-              value: _salonId,
-              items:
-                  widget.salons
-                      .map(
-                        (salon) => DropdownMenuItem(
-                          value: salon.id,
-                          child: Text(salon.name),
-                        ),
-                      )
-                      .toList(),
-              decoration: const InputDecoration(labelText: 'Salone'),
-              onChanged: (value) {
-                setState(() {
-                  _salonId = value;
-                  _staffId = null;
-                });
-              },
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
               value: _staffId,
               items:
                   filteredStaff

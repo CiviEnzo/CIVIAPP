@@ -32,7 +32,7 @@ const REMINDER_WINDOW_MINUTES = Number.parseInt(
   10,
 );
 
-const VALID_APPOINTMENT_STATUSES = ['scheduled', 'confirmed'];
+const VALID_APPOINTMENT_STATUSES = ['scheduled'];
 
 const appointmentDateFormatter = new Intl.DateTimeFormat('it-IT', {
   dateStyle: 'full',

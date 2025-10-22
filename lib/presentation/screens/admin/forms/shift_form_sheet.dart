@@ -154,10 +154,6 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
                 .toList();
     final rooms = _availableRooms();
     final hasRooms = rooms.isNotEmpty;
-    final salonLabel =
-        _salonId == null
-            ? 'Seleziona un salone dall\'appbar'
-            : selectedSalon?.name ?? 'Salone non disponibile';
     final hasActiveSalon = selectedSalon != null;
 
     final recurrenceItems = <DropdownMenuItem<ShiftRecurrenceFrequency?>>[
@@ -186,21 +182,6 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 16),
-            InputDecorator(
-              decoration: const InputDecoration(
-                labelText: 'Salone',
-                border: OutlineInputBorder(),
-              ),
-              child: Text(
-                salonLabel,
-                style:
-                    hasActiveSalon
-                        ? null
-                        : theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.error,
-                        ),
-              ),
-            ),
             if (!hasActiveSalon) ...[
               const SizedBox(height: 8),
               Text(

@@ -1730,7 +1730,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       serviceId: slot.serviceId,
       start: slot.start,
       end: slot.start.add(slot.duration),
-      status: AppointmentStatus.confirmed,
+      status: AppointmentStatus.scheduled,
       notes: 'Prenotazione last-minute ${slot.id} (Stripe)',
       roomId: slot.roomId,
       lastMinuteSlotId: slot.id,
@@ -7250,13 +7250,6 @@ class _AppointmentCard extends ConsumerWidget {
           icon: Icons.schedule_rounded,
           foreground: scheme.primary,
           background: scheme.primary.withOpacity(0.12),
-        );
-      case AppointmentStatus.confirmed:
-        return _AppointmentStatusVisual(
-          label: 'Confermato',
-          icon: Icons.verified_rounded,
-          foreground: scheme.secondary,
-          background: scheme.secondary.withOpacity(0.12),
         );
       case AppointmentStatus.completed:
         return _AppointmentStatusVisual(

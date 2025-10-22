@@ -1,6 +1,6 @@
 apertura ticket
 
-Obiettivo: Quando un appuntamento passa in stato “Confermato” si deve generare un “Ticket di pagamento”,
+Obiettivo: Quando un appuntamento passa in stato “Programmato” (lo stato “Confermato” è stato rimosso) si deve generare un “Ticket di pagamento”,
 visibile in una nuova lista “Ticket aperti” all’ interno della sezione “Vendite & Cassa”.
 Al click di un ticket si aprirà la modale di “Registra vendita”  con i dati già precompilati
 Aggiorniamo la modale di “Registra vendita” come segue:	

@@ -57,6 +57,14 @@ class _CashFlowFormSheetState extends State<CashFlowFormSheet> {
         widget.staff
             .where((member) => _salonId == null || member.salonId == _salonId)
             .toList();
+    if (_staffId != null && staff.every((member) => member.id != _staffId)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        setState(() => _staffId = null);
+      });
+    }
     final dateFormat = DateFormat('dd/MM/yyyy');
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -96,25 +104,6 @@ class _CashFlowFormSheetState extends State<CashFlowFormSheet> {
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: _salonId,
-              decoration: const InputDecoration(labelText: 'Salone'),
-              items:
-                  widget.salons
-                      .map(
-                        (salon) => DropdownMenuItem(
-                          value: salon.id,
-                          child: Text(salon.name),
-                        ),
-                      )
-                      .toList(),
-              onChanged:
-                  (value) => setState(() {
-                    _salonId = value;
-                    _staffId = null;
-                  }),
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -204,9 +193,13 @@ class _CashFlowFormSheetState extends State<CashFlowFormSheet> {
       return;
     }
     if (_salonId == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Seleziona un salone')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Nessun salone disponibile. Verifica la configurazione.',
+          ),
+        ),
+      );
       return;
     }
 

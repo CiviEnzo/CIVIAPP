@@ -7,7 +7,6 @@ import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/salon_setup_progress.dart';
 import 'package:civiapp/domain/entities/user_role.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
-import 'package:civiapp/presentation/screens/admin/admin_theme.dart';
 import 'package:civiapp/presentation/screens/admin/forms/salon_create_essential_dialog.dart';
 import 'package:civiapp/presentation/screens/admin/forms/salon_equipment_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/salon_profile_sheet.dart';
@@ -22,6 +21,36 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+Color _layerColor(ThemeData theme, int depth) {
+  final scheme = theme.colorScheme;
+  switch (depth) {
+    case 0:
+      return scheme.surfaceContainerLowest;
+    case 1:
+      return scheme.surfaceContainerLow;
+    case 2:
+      return scheme.surfaceContainer;
+    case 3:
+      return scheme.surfaceContainerHigh;
+    default:
+      return scheme.surfaceContainerHighest;
+  }
+}
+
+double _baseCardElevation(ThemeData theme) {
+  final brightness = theme.brightness;
+  return theme.cardTheme.elevation ?? (brightness == Brightness.dark ? 6 : 2);
+}
+
+Color _shadowColor(
+  ThemeData theme, {
+  required double lightOpacity,
+  required double darkOpacity,
+}) {
+  final isDark = theme.brightness == Brightness.dark;
+  return Colors.black.withOpacity(isDark ? darkOpacity : lightOpacity);
+}
 
 class SalonManagementModule extends ConsumerWidget {
   const SalonManagementModule({super.key, this.selectedSalonId});
@@ -413,7 +442,6 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final adminTheme = AdminTheme.of(context);
     final textTheme = theme.textTheme;
     final data = ref.watch(appDataProvider);
     final staffCount =
@@ -781,9 +809,13 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
 
     final prefs = salon.dashboardSections;
     final sectionWidgets = <Widget>[];
-    final highlightedCardColor = adminTheme.layer(2);
-    final highlightedShadowColor = adminTheme.mediumShadowColor;
-    final highlightedElevation = adminTheme.baseCardElevation + 2;
+    final highlightedCardColor = _layerColor(theme, 2);
+    final highlightedShadowColor = _shadowColor(
+      theme,
+      lightOpacity: 0.08,
+      darkOpacity: 0.48,
+    );
+    final highlightedElevation = _baseCardElevation(theme) + 2;
 
     if (prefs.showKpis) {
       sectionWidgets.add(
@@ -1213,8 +1245,8 @@ class _InfoBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final adminTheme = AdminTheme.of(context);
-    final accentColor = adminTheme.colorScheme.secondary;
+    final colorScheme = theme.colorScheme;
+    final accentColor = colorScheme.secondary;
     final background = accentColor.withOpacity(
       theme.brightness == Brightness.dark ? 0.28 : 0.12,
     );
@@ -1237,7 +1269,7 @@ class _InfoBadge extends StatelessWidget {
               label,
               style: theme.textTheme.bodyLarge?.copyWith(
                 fontWeight: FontWeight.w600,
-                color: adminTheme.colorScheme.onSecondaryContainer,
+                color: colorScheme.onSecondaryContainer,
               ),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,

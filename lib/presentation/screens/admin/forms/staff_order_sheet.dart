@@ -78,7 +78,7 @@ class _StaffOrderSheetState extends ConsumerState<StaffOrderSheet> {
       (salon) => salon.id == _selectedSalonId,
     );
 
-    final hasSalonSelection = _selectedSalonId != null;
+    final hasSalonSelection = selectedSalon != null;
     final canSave = _hasLocalChanges && _orderedStaff.isNotEmpty && !_isSaving;
     final listHeight = (_orderedStaff.length * 68).clamp(220, 480).toDouble();
 
@@ -111,28 +111,6 @@ class _StaffOrderSheetState extends ConsumerState<StaffOrderSheet> {
               ],
             ),
             const SizedBox(height: 12),
-            if (salons.length > 1)
-              DropdownButtonFormField<String>(
-                value: _selectedSalonId,
-                decoration: const InputDecoration(labelText: 'Salone'),
-                items:
-                    salons
-                        .map(
-                          (salon) => DropdownMenuItem(
-                            value: salon.id,
-                            child: Text(salon.name),
-                          ),
-                        )
-                        .toList(),
-                onChanged: _isSaving ? null : _onSalonChanged,
-              )
-            else if (selectedSalon != null)
-              TextFormField(
-                enabled: false,
-                initialValue: selectedSalon.name,
-                decoration: const InputDecoration(labelText: 'Salone'),
-              ),
-            const SizedBox(height: 16),
             if (!hasSalonSelection)
               Card(
                 color: _blendSurfaceTowardsWhite(context, 0.92),
@@ -144,7 +122,7 @@ class _StaffOrderSheetState extends ConsumerState<StaffOrderSheet> {
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Text(
-                    'Seleziona un salone per ordinare i membri del team.',
+                    'Non è possibile ordinare il team finché non è associato un salone.',
                     style: theme.textTheme.bodyMedium,
                   ),
                 ),
@@ -257,17 +235,6 @@ class _StaffOrderSheetState extends ConsumerState<StaffOrderSheet> {
         ),
       ),
     );
-  }
-
-  void _onSalonChanged(String? salonId) {
-    if (_selectedSalonId == salonId) {
-      return;
-    }
-    setState(() {
-      _selectedSalonId = salonId;
-      _hasLocalChanges = false;
-    });
-    _initializeFromState(ref.read(appDataProvider), force: true);
   }
 
   void _initializeFromState(AppDataState data, {bool force = false}) {

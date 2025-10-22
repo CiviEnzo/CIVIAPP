@@ -81,7 +81,6 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final canChangeSalon = widget.initial == null && widget.salons.length > 1;
     final theme = Theme.of(context);
     return DialogActionLayout(
       body: Form(
@@ -91,40 +90,10 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              widget.initial == null
-                  ? 'Nuova categoria'
-                  : 'Modifica categoria',
+              widget.initial == null ? 'Nuova categoria' : 'Modifica categoria',
               style: Theme.of(context).textTheme.titleLarge,
             ),
-            const SizedBox(height: 16),
-            if (widget.salons.length > 1)
-              DropdownButtonFormField<String>(
-                value: _salonId,
-                decoration: const InputDecoration(labelText: 'Salone'),
-                items:
-                    widget.salons
-                        .map(
-                          (salon) => DropdownMenuItem(
-                            value: salon.id,
-                            child: Text(salon.name),
-                          ),
-                        )
-                        .toList(),
-                onChanged:
-                    canChangeSalon
-                        ? (value) => setState(() => _salonId = value)
-                        : null,
-              )
-            else
-              TextFormField(
-                enabled: false,
-                initialValue:
-                    widget.salons.isNotEmpty
-                        ? widget.salons.first.name
-                        : 'Nessun salone',
-                decoration: const InputDecoration(labelText: 'Salone'),
-              ),
-            if (widget.salons.isNotEmpty) const SizedBox(height: 12),
+            const SizedBox(height: 12),
             TextFormField(
               controller: _name,
               decoration: const InputDecoration(labelText: 'Nome'),
@@ -158,12 +127,7 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
           ],
         ),
       ),
-      actions: [
-        FilledButton(
-          onPressed: _submit,
-          child: const Text('Salva'),
-        ),
-      ],
+      actions: [FilledButton(onPressed: _submit, child: const Text('Salva'))],
     );
   }
 
@@ -257,9 +221,13 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
       return;
     }
     if (_salonId == null || _salonId!.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Seleziona un salone.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Nessun salone disponibile. Verifica la configurazione.',
+          ),
+        ),
+      );
       return;
     }
 
@@ -330,8 +298,9 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
   }
 
   Color? _tryParseHexColor(String input) {
-    final match =
-        RegExp(r'^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$').firstMatch(input);
+    final match = RegExp(
+      r'^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$',
+    ).firstMatch(input);
     if (match == null) {
       return null;
     }

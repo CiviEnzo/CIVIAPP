@@ -15,7 +15,6 @@ import 'package:civiapp/domain/entities/staff_absence.dart';
 import 'package:civiapp/domain/entities/staff_member.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:civiapp/presentation/screens/admin/forms/appointment_form_sheet.dart';
-import 'package:civiapp/presentation/screens/admin/admin_theme.dart';
 import 'package:civiapp/presentation/screens/admin/modules/appointments/appointment_calendar_view.dart';
 import 'package:civiapp/presentation/screens/admin/modules/appointments/appointment_anomaly.dart';
 import 'package:civiapp/presentation/screens/admin/modules/appointments/express_slot_sheet.dart';
@@ -1097,10 +1096,11 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     final roomsById = _buildRoomsIndex(salons, widget.salonId);
     final rangeLabel = _buildRangeLabel(rangeStart, rangeEnd, _scope);
     final staffSelectionKey = _staffSelectionKey(selectedStaffIds);
-    final adminTheme = AdminTheme.of(context);
+    final theme = Theme.of(context);
+    final moduleBackground = theme.colorScheme.surfaceContainerLowest;
 
     return ColoredBox(
-      color: adminTheme.moduleBackground,
+      color: moduleBackground,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2430,8 +2430,6 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     switch (status) {
       case AppointmentStatus.scheduled:
         return 'Programmato';
-      case AppointmentStatus.confirmed:
-        return 'Confermato';
       case AppointmentStatus.completed:
         return 'Completato';
       case AppointmentStatus.cancelled:
@@ -2588,8 +2586,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
 
       final hasOutdatedStatus =
           appointment.end.isBefore(now) &&
-          (appointment.status == AppointmentStatus.scheduled ||
-              appointment.status == AppointmentStatus.confirmed);
+          appointment.status == AppointmentStatus.scheduled;
       if (hasOutdatedStatus) {
         issues.add(AppointmentAnomalyType.outdatedStatus);
       }
@@ -2642,7 +2639,6 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       case AppointmentStatus.noShow:
         return 'Appuntamento segnato come no show: non è possibile modificarlo.';
       case AppointmentStatus.scheduled:
-      case AppointmentStatus.confirmed:
         return null;
     }
   }
@@ -2652,8 +2648,6 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     switch (status) {
       case AppointmentStatus.scheduled:
         return scheme.primary;
-      case AppointmentStatus.confirmed:
-        return scheme.secondary;
       case AppointmentStatus.completed:
         return scheme.tertiary;
       case AppointmentStatus.cancelled:
@@ -3309,11 +3303,6 @@ class _StatusPill extends StatelessWidget {
         background = scheme.primaryContainer;
         foreground = scheme.onPrimaryContainer;
         label = 'Programmato';
-        break;
-      case AppointmentStatus.confirmed:
-        background = scheme.secondaryContainer;
-        foreground = scheme.onSecondaryContainer;
-        label = 'Confermato';
         break;
       case AppointmentStatus.completed:
         background = scheme.tertiaryContainer;

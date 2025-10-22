@@ -1186,11 +1186,6 @@ Widget _appointmentStatusChip(AppointmentStatus status, BuildContext context) {
         label: const Text('Programmato'),
         backgroundColor: scheme.primaryContainer,
       );
-    case AppointmentStatus.confirmed:
-      return Chip(
-        label: const Text('Confermato'),
-        backgroundColor: scheme.secondaryContainer,
-      );
     case AppointmentStatus.completed:
       return Chip(
         label: const Text('Completato'),

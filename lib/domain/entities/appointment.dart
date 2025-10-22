@@ -45,7 +45,7 @@ List<String> _resolveServiceIds({String? serviceId, List<String>? serviceIds}) {
   return const <String>[];
 }
 
-enum AppointmentStatus { scheduled, confirmed, completed, cancelled, noShow }
+enum AppointmentStatus { scheduled, completed, cancelled, noShow }
 
 extension AppointmentX on Appointment {
   Duration get duration => end.difference(start);

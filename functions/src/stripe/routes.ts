@@ -457,7 +457,7 @@ async function handlePaymentIntentSuccess(paymentIntent: Stripe.PaymentIntent): 
               serviceIds: serviceId ? [serviceId] : [],
               start: Timestamp.fromDate(slotStart),
               end: Timestamp.fromDate(slotEnd),
-              status: 'confirmed',
+              status: 'scheduled',
               notes: `Prenotazione last-minute ${lastMinuteSlotId} (Stripe)`,
               lastMinuteSlotId,
               roomId,

@@ -247,24 +247,26 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
                 decoration: const InputDecoration(
                   labelText: 'Nome slot *',
                   helperText: 'Mostrato ai clienti nella sezione last-minute',
+                ),
+                validator:
+                    (value) =>
+                        value == null || value.trim().isEmpty
+                            ? 'Inserisci un nome per lo slot'
+                            : null,
               ),
-              validator:
-                  (value) =>
-                      value == null || value.trim().isEmpty
-                          ? 'Inserisci un nome per lo slot'
-                          : null,
-            ),
-            const SizedBox(height: 12),
-            _SlotImageField(
-              imageUrl: _imageUrl,
-              isUploading: _isUploadingImage,
-              error: _imageUploadError,
-              onPickImage: _pickSlotImage,
-              onRemoveImage:
-                  _imageUrl != null && !_isUploadingImage ? _removeSlotImage : null,
-            ),
-            const SizedBox(height: 12),
-            Row(
+              const SizedBox(height: 12),
+              _SlotImageField(
+                imageUrl: _imageUrl,
+                isUploading: _isUploadingImage,
+                error: _imageUploadError,
+                onPickImage: _pickSlotImage,
+                onRemoveImage:
+                    _imageUrl != null && !_isUploadingImage
+                        ? _removeSlotImage
+                        : null,
+              ),
+              const SizedBox(height: 12),
+              Row(
                 children: [
                   Expanded(
                     child: TextFormField(
@@ -843,15 +845,13 @@ class _SlotImageField extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Immagine last-minute',
-          style: theme.textTheme.labelMedium,
-        ),
+        Text('Immagine last-minute', style: theme.textTheme.labelMedium),
         const SizedBox(height: 8),
         ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: AspectRatio(
-            aspectRatio: 4 / 3,
+          child: SizedBox(
+            height: 220,
+            width: double.infinity,
             child:
                 imageUrl != null
                     ? Image.network(

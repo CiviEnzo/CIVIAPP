@@ -69,21 +69,6 @@ class _MessageTemplateFormSheetState extends State<MessageTemplateFormSheet> {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              value: _salonId,
-              decoration: const InputDecoration(labelText: 'Salone'),
-              items:
-                  widget.salons
-                      .map(
-                        (salon) => DropdownMenuItem(
-                          value: salon.id,
-                          child: Text(salon.name),
-                        ),
-                      )
-                      .toList(),
-              onChanged: (value) => setState(() => _salonId = value),
-            ),
-            const SizedBox(height: 12),
             TextFormField(
               controller: _title,
               decoration: const InputDecoration(labelText: 'Titolo'),
@@ -165,9 +150,13 @@ class _MessageTemplateFormSheetState extends State<MessageTemplateFormSheet> {
       return;
     }
     if (_salonId == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Seleziona un salone')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Nessun salone disponibile. Verifica la configurazione.',
+          ),
+        ),
+      );
       return;
     }
 

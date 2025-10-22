@@ -91,21 +91,7 @@ class _InventoryFormSheetState extends State<InventoryFormSheet> {
                           : null,
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: _salonId,
-              decoration: const InputDecoration(labelText: 'Salone'),
-              items:
-                  widget.salons
-                      .map(
-                        (salon) => DropdownMenuItem(
-                          value: salon.id,
-                          child: Text(salon.name),
-                        ),
-                      )
-                      .toList(),
-              onChanged: (value) => setState(() => _salonId = value),
-            ),
-            const SizedBox(height: 12),
+
             TextFormField(
               controller: _category,
               decoration: const InputDecoration(labelText: 'Categoria'),

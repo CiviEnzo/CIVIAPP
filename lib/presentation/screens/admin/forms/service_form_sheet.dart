@@ -188,47 +188,6 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
                           : null,
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: _salonId,
-              decoration: const InputDecoration(labelText: 'Salone'),
-              items:
-                  widget.salons
-                      .map(
-                        (salon) => DropdownMenuItem(
-                          value: salon.id,
-                          child: Text(salon.name),
-                        ),
-                      )
-                      .toList(),
-              onChanged:
-                  (value) => setState(() {
-                    _salonId = value;
-                    _retainValidEquipment();
-                    final categoriesForNewSalon = _categoriesForSalon(_salonId);
-                    final matchedId = _matchCategoryId(
-                      salonId: _salonId,
-                      name: _category.text,
-                    );
-                    if (matchedId != null) {
-                      _categoryId = matchedId;
-                      final matched = categoriesForNewSalon.firstWhereOrNull(
-                        (category) => category.id == matchedId,
-                      );
-                      if (matched != null &&
-                          matched.name.trim() != _category.text.trim()) {
-                        _category.removeListener(_handleCategoryNameChanged);
-                        _category.text = matched.name;
-                        _category.addListener(_handleCategoryNameChanged);
-                      }
-                    } else if (_categoryId != null &&
-                        categoriesForNewSalon.every(
-                          (category) => category.id != _categoryId,
-                        )) {
-                      _categoryId = null;
-                    }
-                  }),
-            ),
-            const SizedBox(height: 12),
             DropdownButtonFormField<String?>(
               value: _categoryId,
               decoration: InputDecoration(
@@ -404,12 +363,7 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
           ],
         ),
       ),
-      actions: [
-        FilledButton(
-          onPressed: _submit,
-          child: const Text('Salva'),
-        ),
-      ],
+      actions: [FilledButton(onPressed: _submit, child: const Text('Salva'))],
     );
   }
 

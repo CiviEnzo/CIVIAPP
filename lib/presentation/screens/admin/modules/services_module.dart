@@ -8,12 +8,41 @@ import 'package:civiapp/domain/entities/user_role.dart';
 import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
 import 'package:civiapp/presentation/screens/admin/forms/package_form_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/service_form_sheet.dart';
-import 'package:civiapp/presentation/screens/admin/admin_theme.dart';
 import 'package:civiapp/presentation/screens/admin/modules/service_category_manager_sheet.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+
+Color _layerColor(ThemeData theme, int depth) {
+  final scheme = theme.colorScheme;
+  switch (depth) {
+    case 0:
+      return scheme.surfaceContainerLowest;
+    case 1:
+      return scheme.surfaceContainerLow;
+    case 2:
+      return scheme.surfaceContainer;
+    case 3:
+      return scheme.surfaceContainerHigh;
+    default:
+      return scheme.surfaceContainerHighest;
+  }
+}
+
+double _baseCardElevation(ThemeData theme) {
+  final brightness = theme.brightness;
+  return theme.cardTheme.elevation ?? (brightness == Brightness.dark ? 6 : 2);
+}
+
+Color _shadowColor(
+  ThemeData theme, {
+  required double lightOpacity,
+  required double darkOpacity,
+}) {
+  final isDark = theme.brightness == Brightness.dark;
+  return Colors.black.withOpacity(isDark ? darkOpacity : lightOpacity);
+}
 
 class ServicesModule extends ConsumerWidget {
   const ServicesModule({super.key, this.salonId});
@@ -65,27 +94,34 @@ class ServicesModule extends ConsumerWidget {
             .toList()
           ..sort((a, b) => a.name.compareTo(b.name));
     final theme = Theme.of(context);
-    final adminTheme = AdminTheme.of(context);
-    final accentColor = adminTheme.colorScheme.secondary;
+    final colorScheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
-    final moduleBackground = adminTheme.moduleBackground;
-    final sectionBackground = adminTheme.layer(1);
-    final groupCardBackground = adminTheme.layer(2);
-    final serviceCardBackground = adminTheme.layer(2);
-    final packageCardBackground = adminTheme.layer(2);
-    final strongShadowColor = adminTheme.strongShadowColor;
-    final mediumShadowColor = adminTheme.mediumShadowColor;
+    final accentColor = colorScheme.secondary;
+    final moduleBackground = colorScheme.surfaceContainerLowest;
+    final sectionBackground = _layerColor(theme, 1);
+    final groupCardBackground = _layerColor(theme, 2);
+    final serviceCardBackground = _layerColor(theme, 2);
+    final packageCardBackground = _layerColor(theme, 2);
+    final strongShadowColor = _shadowColor(
+      theme,
+      lightOpacity: 0.12,
+      darkOpacity: 0.65,
+    );
+    final mediumShadowColor = _shadowColor(
+      theme,
+      lightOpacity: 0.08,
+      darkOpacity: 0.48,
+    );
     final sectionShadowColor = mediumShadowColor;
     final groupShadowColor = mediumShadowColor;
     final serviceShadowColor = mediumShadowColor;
     final packageShadowColor = strongShadowColor;
-    final double tabElevation = adminTheme.baseCardElevation;
-    final double sectionElevation = adminTheme.baseCardElevation;
-    final double groupElevation = adminTheme.baseCardElevation + 2;
-    final double serviceElevation =
-        adminTheme.baseCardElevation + (isDark ? 0 : 1);
-    final double packageElevation =
-        adminTheme.baseCardElevation + (isDark ? 8 : 4);
+    final baseElevation = _baseCardElevation(theme);
+    final double tabElevation = baseElevation;
+    final double sectionElevation = baseElevation;
+    final double groupElevation = baseElevation + 2;
+    final double serviceElevation = baseElevation + (isDark ? 0 : 1);
+    final double packageElevation = baseElevation + (isDark ? 8 : 4);
 
     return DefaultTabController(
       length: 2,
@@ -645,8 +681,8 @@ class _ServicesListState extends State<_ServicesList> {
 
   @override
   Widget build(BuildContext context) {
-    final adminTheme = AdminTheme.of(context);
-    final accentColor = adminTheme.colorScheme.secondary;
+    final theme = Theme.of(context);
+    final accentColor = theme.colorScheme.secondary;
     final groups = _buildGroups();
     final groupIds = groups.map((group) => group.id).toSet();
     _expandedGroupIds.retainAll(groupIds);
@@ -675,7 +711,7 @@ class _ServicesListState extends State<_ServicesList> {
     if (visibleGroups.isEmpty) {
       children.add(
         Card(
-          color: adminTheme.layer(1),
+          color: _layerColor(theme, 1),
           elevation: widget.groupCardElevation,
           shadowColor: widget.groupShadowColor,
           shape: RoundedRectangleBorder(
@@ -783,7 +819,6 @@ class _ServicesListState extends State<_ServicesList> {
     List<_ServiceGroup> groups,
     Color accentColor,
   ) {
-    final adminTheme = AdminTheme.of(context);
     final theme = Theme.of(context);
     final descriptionStyle = theme.textTheme.bodySmall?.copyWith(
       color: theme.colorScheme.onSurfaceVariant,
@@ -791,7 +826,7 @@ class _ServicesListState extends State<_ServicesList> {
     final chips = _buildCategoryFilterChips(context, groups, accentColor);
 
     return Card(
-      color: adminTheme.layer(1),
+      color: _layerColor(theme, 1),
       elevation: widget.groupCardElevation,
       shadowColor: widget.groupShadowColor,
       shape: RoundedRectangleBorder(
@@ -829,7 +864,6 @@ class _ServicesListState extends State<_ServicesList> {
     Color accentColor,
   ) {
     final theme = Theme.of(context);
-    final adminTheme = AdminTheme.of(context);
     final brightness = theme.brightness;
     final baseOpacity = brightness == Brightness.dark ? 0.22 : 0.08;
     final selectedOpacity = brightness == Brightness.dark ? 0.36 : 0.2;
@@ -863,7 +897,7 @@ class _ServicesListState extends State<_ServicesList> {
           entry.count == 0 ? entry.label : '${entry.label} (${entry.count})';
       final textColor =
           isSelected
-              ? adminTheme.colorScheme.onSecondaryContainer
+              ? theme.colorScheme.onSecondaryContainer
               : theme.colorScheme.onSurface;
 
       return FilterChip(
@@ -1028,8 +1062,8 @@ class _ServicesListState extends State<_ServicesList> {
       ),
     ]);
 
-    final adminTheme = AdminTheme.of(context);
-    final accentColor = adminTheme.colorScheme.secondary;
+    final theme = Theme.of(context);
+    final accentColor = theme.colorScheme.secondary;
 
     return Card(
       color: widget.serviceCardColor,
@@ -1173,8 +1207,8 @@ class _PackagesListState extends State<_PackagesList> {
   @override
   Widget build(BuildContext context) {
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
-    final adminTheme = AdminTheme.of(context);
-    final accentColor = adminTheme.colorScheme.secondary;
+    final theme = Theme.of(context);
+    final accentColor = theme.colorScheme.secondary;
     final salonsById = {for (final salon in widget.salons) salon.id: salon};
     final salonIdsInPackages =
         widget.packages.map((pkg) => pkg.salonId).toSet();
@@ -1202,7 +1236,7 @@ class _PackagesListState extends State<_PackagesList> {
     if (filteredPackages.isEmpty) {
       children.add(
         Card(
-          color: adminTheme.layer(1),
+          color: _layerColor(theme, 1),
           elevation: widget.cardElevation,
           shadowColor: widget.shadowColor,
           shape: RoundedRectangleBorder(
@@ -1403,7 +1437,6 @@ class _PackagesListState extends State<_PackagesList> {
     }
 
     final theme = Theme.of(context);
-    final adminTheme = AdminTheme.of(context);
     final brightness = theme.brightness;
     final baseOpacity = brightness == Brightness.dark ? 0.22 : 0.08;
     final selectedOpacity = brightness == Brightness.dark ? 0.36 : 0.2;
@@ -1443,7 +1476,7 @@ class _PackagesListState extends State<_PackagesList> {
             style: theme.textTheme.bodyMedium?.copyWith(
               color:
                   isSelected
-                      ? adminTheme.colorScheme.onSecondaryContainer
+                      ? theme.colorScheme.onSecondaryContainer
                       : theme.colorScheme.onSurface,
               fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
             ),
@@ -1495,7 +1528,7 @@ class _PackagesListState extends State<_PackagesList> {
             style: theme.textTheme.bodyMedium?.copyWith(
               color:
                   isSelected
-                      ? adminTheme.colorScheme.onSecondaryContainer
+                      ? theme.colorScheme.onSecondaryContainer
                       : theme.colorScheme.onSurface,
               fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
             ),
@@ -1505,7 +1538,7 @@ class _PackagesListState extends State<_PackagesList> {
     }
 
     return Card(
-      color: adminTheme.layer(1),
+      color: _layerColor(theme, 1),
       elevation: widget.cardElevation,
       shadowColor: widget.shadowColor,
       shape: RoundedRectangleBorder(
@@ -1580,17 +1613,18 @@ class _InfoChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final adminTheme = AdminTheme.of(context);
-    final accentColor = adminTheme.colorScheme.secondary;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final accentColor = colorScheme.secondary;
     return Chip(
       backgroundColor: accentColor.withOpacity(
-        Theme.of(context).brightness == Brightness.dark ? 0.28 : 0.14,
+        theme.brightness == Brightness.dark ? 0.28 : 0.14,
       ),
       side: BorderSide(color: accentColor.withOpacity(0.16)),
       avatar: Icon(icon, size: 18, color: accentColor),
       label: Text(
         label,
-        style: TextStyle(color: adminTheme.colorScheme.onSecondaryContainer),
+        style: TextStyle(color: colorScheme.onSecondaryContainer),
       ),
     );
   }
@@ -1623,10 +1657,11 @@ class _PriceInfoChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasDiscount = _hasDiscount;
-    final adminTheme = AdminTheme.of(context);
-    final accentColor = adminTheme.colorScheme.secondary;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final accentColor = colorScheme.secondary;
     final labelStyle = TextStyle(
-      color: adminTheme.colorScheme.onSecondaryContainer,
+      color: colorScheme.onSecondaryContainer,
       fontWeight: FontWeight.w600,
     );
     final icon = hasDiscount ? Icons.local_offer_rounded : Icons.euro_rounded;

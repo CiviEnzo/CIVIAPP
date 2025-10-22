@@ -107,33 +107,11 @@ class _ServiceCategoryManagerSheetState
               ],
             ),
             const SizedBox(height: 12),
-            if (widget.salons.length > 1)
-              DropdownButtonFormField<String>(
-                value: _selectedSalonId,
-                decoration: const InputDecoration(labelText: 'Salone'),
-                items:
-                    widget.salons
-                        .map(
-                          (salon) => DropdownMenuItem(
-                            value: salon.id,
-                            child: Text(salon.name),
-                          ),
-                        )
-                        .toList(),
-                onChanged: (value) => setState(() => _selectedSalonId = value),
-              )
-            else if (salonName != null)
-              TextFormField(
-                enabled: false,
-                initialValue: salonName,
-                decoration: const InputDecoration(labelText: 'Salone'),
-              ),
-            if (widget.salons.isNotEmpty) const SizedBox(height: 16),
-            if (_selectedSalonId == null)
+            if (_selectedSalonId == null || salonName == null)
               const Padding(
                 padding: EdgeInsets.only(bottom: 16),
                 child: Text(
-                  'Seleziona un salone per gestire le sue categorie.',
+                  'Nessun salone associato. Apri questa schermata dal salone che vuoi gestire.',
                 ),
               )
             else if (categories.isEmpty)

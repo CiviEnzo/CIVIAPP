@@ -53,7 +53,7 @@ Questa guida allinea la componente messaggistica con l'implementazione Flutter/F
   serviceId: string
   start: Timestamp
   end: Timestamp
-  status: "scheduled" | "confirmed" | "completed" | "cancelled" | "noShow"
+  status: "scheduled" | "completed" | "cancelled" | "noShow"
 
 /message_outbox/{messageId}   // da introdurre
   salonId: string

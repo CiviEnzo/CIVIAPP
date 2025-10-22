@@ -83,7 +83,7 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
     _sessionCount.addListener(_handleSessionCountChanged);
     _price.addListener(_handlePriceChanged);
     _discountPercentage.addListener(_handleDiscountChanged);
-    _recalculateSessionCountFromServices();
+    _syncSalonDependencies();
     _recalculateFullPrice(notify: false);
   }
 
@@ -135,21 +135,6 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
                       value == null || value.trim().isEmpty
                           ? 'Inserisci il nome del pacchetto'
                           : null,
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: _salonId,
-              decoration: const InputDecoration(labelText: 'Salone'),
-              items:
-                  widget.salons
-                      .map(
-                        (salon) => DropdownMenuItem(
-                          value: salon.id,
-                          child: Text(salon.name),
-                        ),
-                      )
-                      .toList(),
-              onChanged: _handleSalonChanged,
             ),
             const SizedBox(height: 12),
             Text(
@@ -215,25 +200,22 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
     );
   }
 
-  void _handleSalonChanged(String? value) {
-    if (value == null) {
-      return;
-    }
-    setState(() {
-      _salonId = value;
-      final allowedIds =
-          widget.services
-              .where((service) => service.salonId == value)
-              .map((service) => service.id)
-              .toSet();
-      _selectedServices.removeWhere((id) => !allowedIds.contains(id));
-      _serviceSessions.removeWhere((id, _) => !allowedIds.contains(id));
-      for (final entry in _serviceControllers.entries) {
-        if (!allowedIds.contains(entry.key)) {
-          entry.value.clear();
-        }
+  void _syncSalonDependencies() {
+    final salonId = _salonId;
+    final allowedIds =
+        salonId == null
+            ? <String>{}
+            : widget.services
+                .where((service) => service.salonId == salonId)
+                .map((service) => service.id)
+                .toSet();
+    _selectedServices.removeWhere((id) => !allowedIds.contains(id));
+    _serviceSessions.removeWhere((id, _) => !allowedIds.contains(id));
+    for (final entry in _serviceControllers.entries) {
+      if (!allowedIds.contains(entry.key)) {
+        entry.value.clear();
       }
-    });
+    }
     _recalculateSessionCountFromServices();
   }
 
@@ -244,7 +226,7 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
     if (_salonId == null) {
       return [
         Text(
-          'Seleziona un salone per vedere i servizi disponibili.',
+          'Nessun salone associato. Impossibile mostrare i servizi disponibili.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
       ];

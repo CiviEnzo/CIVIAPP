@@ -18,7 +18,7 @@ Modifica e Drag & drop segueno le stesse regole
 
 Tipo di anomalia 3:
 
-- un appuntamento che si trova in una data passata in stato "Programmato" e/o "Confermato" è da segnalare come "Da gestire"
+- un appuntamento che si trova in una data passata in stato "Programmato" è da segnalare come "Da gestire"
 
 
 VISUALIZZAZIONE APPUNTAMENTI "Da Gestire"
@@ -65,6 +65,5 @@ La modale di creazione utilizza ora gli stessi controlli di disponibilità della
 - Scegli il servizio: al cambio servizio la durata proposta dell'appuntamento viene aggiornata.
 - Sezione data/ora: il pulsante "Data e ora di inizio" apre prima il date picker e, per la data scelta, mostra un elenco di slot liberi calcolati in base a turni, ferie/assenze, appuntamenti già registrati e disponibilità macchinari. Basta toccare lo slot desiderato per compilare in automatico inizio/fine dell'appuntamento.
 - Se non esistono slot per la combinazione selezionata viene mostrato un messaggio e occorre scegliere un altro giorno/operatore/servizio.
-
 
 

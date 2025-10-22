@@ -281,7 +281,6 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                     onTap: () => _selectClient(filteredClients),
                     child: InputDecorator(
                       decoration: InputDecoration(
-                        labelText: 'Cliente',
                         errorText: state.errorText,
                         suffixIcon: const Icon(Icons.search_rounded, size: 20),
                         helperText:

@@ -132,7 +132,6 @@ class EquipmentAvailabilityChecker {
       case AppointmentStatus.cancelled:
       case AppointmentStatus.noShow:
         return false;
-      case AppointmentStatus.confirmed:
       case AppointmentStatus.completed:
       case AppointmentStatus.scheduled:
         return true;

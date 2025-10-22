@@ -6,7 +6,7 @@ import { db, FieldValue } from '../utils/firestore';
 const LAST_MINUTE_SLOTS_COLLECTION = 'last_minute_slots';
 const APPOINTMENTS_COLLECTION = 'appointments';
 const CLIENTS_COLLECTION = 'clients';
-const ACTIVE_APPOINTMENT_STATUSES = new Set(['scheduled', 'confirmed']);
+const ACTIVE_APPOINTMENT_STATUSES = new Set(['scheduled']);
 
 function extractSlotId(data: FirebaseFirestore.DocumentData | null): string | null {
   if (!data) {

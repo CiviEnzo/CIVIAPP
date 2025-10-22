@@ -69,15 +69,15 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     _phone = TextEditingController(text: initial?.phone ?? '');
     _email = TextEditingController(text: initial?.email ?? '');
     _notes = TextEditingController(text: initial?.notes ?? '');
+    _salonId =
+        initial?.salonId ??
+        widget.defaultSalonId ??
+        (widget.salons.isNotEmpty ? widget.salons.first.id : null);
     final defaultInitial =
         initial?.loyaltyInitialPoints ?? _initialBalanceForSalon(_salonId);
     _loyaltyInitialPoints = TextEditingController(
       text: defaultInitial.toString(),
     );
-    _salonId =
-        initial?.salonId ??
-        widget.defaultSalonId ??
-        (widget.salons.isNotEmpty ? widget.salons.first.id : null);
     final startingLoyalty = initial?.loyaltyPoints ?? defaultInitial;
     _loyaltyPoints = TextEditingController(text: startingLoyalty.toString());
     _loyaltyPoints.addListener(() {
@@ -87,12 +87,14 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
       _loyaltyDirty = true;
     });
     _loyaltyDirty = initial != null;
+    _applyInitialLoyaltyForSalon(_salonId);
     _clientNumber = TextEditingController(
       text: _resolveInitialClientNumber(initial),
     );
     if (!_hasPersistedClientNumber && _clientNumber.text.isEmpty) {
       _clientNumber.text = _pendingClientNumberDisplay;
     }
+    _refreshClientNumberForSalon(_salonId);
     _address = TextEditingController(text: initial?.address ?? '');
     _profession = TextEditingController(text: initial?.profession ?? '');
     _referralSource = initial?.referralSource;
@@ -202,6 +204,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Form(
@@ -233,27 +236,6 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
                       value == null || value.trim().isEmpty
                           ? 'Inserisci il cognome'
                           : null,
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: _salonId,
-              decoration: const InputDecoration(labelText: 'Salone'),
-              items:
-                  widget.salons
-                      .map(
-                        (salon) => DropdownMenuItem(
-                          value: salon.id,
-                          child: Text(salon.name),
-                        ),
-                      )
-                      .toList(),
-              onChanged: (value) {
-                setState(() {
-                  _salonId = value;
-                  _refreshClientNumberForSalon(value);
-                });
-                _applyInitialLoyaltyForSalon(value);
-              },
             ),
             const SizedBox(height: 12),
             TextFormField(

@@ -141,8 +141,9 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     final bookingDateFormat = DateFormat('EEEE d MMMM yyyy', 'it_IT');
     final timeFormat = DateFormat('HH:mm', 'it_IT');
     final formattedBookingDate = bookingDateFormat.format(_start);
-    final String? bookingDateRaw =
-        toBeginningOfSentenceCase(formattedBookingDate);
+    final String? bookingDateRaw = toBeginningOfSentenceCase(
+      formattedBookingDate,
+    );
     final String bookingDateLabel = bookingDateRaw ?? formattedBookingDate;
     final startTimeLabel = timeFormat.format(_start);
     final endTimeLabel = timeFormat.format(_end);
@@ -242,6 +243,32 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       (client) => client.id == _clientId,
     );
 
+    final clientPackagePurchases =
+        selectedClient != null
+            ? resolveClientPackagePurchases(
+              sales: data.sales,
+              packages: data.packages,
+              appointments: data.appointments,
+              services: allServices,
+              clientId: selectedClient.id,
+              salonId: selectedClient.salonId,
+            )
+            : const <ClientPackagePurchase>[];
+    final clientPackagesPreview = _dedupePurchasesByReferenceId(
+      clientPackagePurchases
+          .where((purchase) => purchase.effectiveRemainingSessions > 0)
+          .toList(),
+    );
+    clientPackagesPreview.sort((a, b) {
+      final aExpiration = a.expirationDate ?? DateTime(9999, 1, 1);
+      final bExpiration = b.expirationDate ?? DateTime(9999, 1, 1);
+      final expirationCompare = aExpiration.compareTo(bExpiration);
+      if (expirationCompare != 0) {
+        return expirationCompare;
+      }
+      return a.sale.createdAt.compareTo(b.sale.createdAt);
+    });
+
     var packagesForService = <ClientPackagePurchase>[];
     ClientPackagePurchase? selectedPackage;
     String? packageSubtitle;
@@ -256,21 +283,22 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             : null;
 
     final now = DateTime.now();
-    final isFutureStart = _start.isAfter(now);
+    final startDateOnly = DateTime(_start.year, _start.month, _start.day);
+    final today = DateTime(now.year, now.month, now.day);
+    final isFutureStart = startDateOnly.isAfter(today);
     final statusItems =
-        AppointmentStatus.values.map((status) {
-          final isDisabled =
-              isFutureStart && status == AppointmentStatus.completed;
-          final label =
-              isDisabled
-                  ? '${_statusLabel(status)} (non disponibile per appuntamenti futuri)'
-                  : _statusLabel(status);
-          return DropdownMenuItem<AppointmentStatus>(
-            value: status,
-            enabled: !isDisabled,
-            child: Text(label),
-          );
-        }).toList();
+        AppointmentStatus.values
+            .where(
+              (status) =>
+                  !(isFutureStart && status == AppointmentStatus.completed),
+            )
+            .map(
+              (status) => DropdownMenuItem<AppointmentStatus>(
+                value: status,
+                child: Text(_statusLabel(status)),
+              ),
+            )
+            .toList();
 
     if (selectedClient == null || singleSelectedService == null) {
       if (_usePackageSession || _selectedPackageId != null) {
@@ -284,14 +312,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         });
       }
     } else {
-      final packagePurchases = resolveClientPackagePurchases(
-        sales: data.sales,
-        packages: data.packages,
-        appointments: data.appointments,
-        services: allServices,
-        clientId: selectedClient.id,
-        salonId: selectedClient.salonId,
-      );
+      final packagePurchases = clientPackagePurchases;
       packagesForService = _dedupePurchasesByReferenceId(
         packagePurchases
             .where(
@@ -463,14 +484,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                 runSpacing: 4,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Text(
-                    'Nuovo appuntamento',
-                    style: theme.textTheme.titleLarge,
-                  ),
-                  Text(
-                    '$bookingDateLabel (non modificabile)',
-                    style: theme.textTheme.bodyMedium,
-                  ),
+                  Text('Nuovo appuntamento', style: theme.textTheme.titleLarge),
+                  Text(bookingDateLabel, style: theme.textTheme.bodyMedium),
                 ],
               )
             else
@@ -483,10 +498,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                     'Modifica appuntamento',
                     style: theme.textTheme.titleLarge,
                   ),
-                  Text(
-                    bookingDateLabel,
-                    style: theme.textTheme.bodyMedium,
-                  ),
+                  Text(bookingDateLabel, style: theme.textTheme.bodyMedium),
                 ],
               ),
             const SizedBox(height: 16),
@@ -627,6 +639,10 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
               ],
             ),
             const SizedBox(height: 12),
+            if (clientPackagesPreview.isNotEmpty) ...[
+              _ClientPackagesPreview(packages: clientPackagesPreview),
+              const SizedBox(height: 12),
+            ],
             FormField<List<String>>(
               validator:
                   (_) =>
@@ -677,8 +693,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                       child: InputDecorator(
                         decoration: InputDecoration(
                           labelText: 'Servizi',
-                          floatingLabelBehavior:
-                              FloatingLabelBehavior.always,
+                          floatingLabelBehavior: FloatingLabelBehavior.always,
                           errorText: state.errorText,
                           suffixIcon: const Icon(Icons.segment_rounded),
                         ),
@@ -776,10 +791,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Orario appuntamento',
-                  style: theme.textTheme.titleMedium,
-                ),
+                Text('Orario appuntamento', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 8),
                 Row(
                   children: [
@@ -801,10 +813,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
               ],
             ),
             const SizedBox(height: 12),
-            Text(
-              'Durata appuntamento',
-              style: theme.textTheme.titleMedium,
-            ),
+            Text('Durata appuntamento', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             Wrap(
               spacing: 12,
@@ -1630,7 +1639,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                     },
                                   ),
                         ),
-                        onChanged: (value) => setModalState(() => query = value),
+                        onChanged:
+                            (value) => setModalState(() => query = value),
                       ),
                       const SizedBox(height: 16),
                       if (filtered.isEmpty)
@@ -1785,9 +1795,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       return null;
     }
     if (_salonId == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
             'Impossibile completare: seleziona un operatore collegato a un salone.',
@@ -1956,9 +1964,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             equipmentLabel.isEmpty
                 ? 'Macchinario non disponibile per questo orario.'
                 : 'Macchinario non disponibile per questo orario: $equipmentLabel.';
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('$message Scegli un altro slot.')),
         );
         return null;
@@ -1989,10 +1995,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     }
     final copied = appointment.copyWith(id: _uuid.v4());
     ref.read(appointmentClipboardProvider.notifier).state =
-        AppointmentClipboard(
-          appointment: copied,
-          copiedAt: DateTime.now(),
-        );
+        AppointmentClipboard(appointment: copied, copiedAt: DateTime.now());
     setState(() {
       _copyJustCompleted = true;
     });
@@ -2164,8 +2167,6 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     switch (status) {
       case AppointmentStatus.scheduled:
         return 'Programmato';
-      case AppointmentStatus.confirmed:
-        return 'Confermato';
       case AppointmentStatus.completed:
         return 'Completato';
       case AppointmentStatus.cancelled:
@@ -2173,6 +2174,75 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       case AppointmentStatus.noShow:
         return 'No show';
     }
+  }
+}
+
+class _ClientPackagesPreview extends StatelessWidget {
+  const _ClientPackagesPreview({required this.packages});
+
+  final List<ClientPackagePurchase> packages;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Pacchetti disponibili', style: theme.textTheme.titleMedium),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children:
+              packages
+                  .map((purchase) => _ClientPackageSummary(purchase: purchase))
+                  .toList(),
+        ),
+      ],
+    );
+  }
+}
+
+class _ClientPackageSummary extends StatelessWidget {
+  const _ClientPackageSummary({required this.purchase});
+
+  final ClientPackagePurchase purchase;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final remaining = purchase.effectiveRemainingSessions;
+    final remainingLabel =
+        remaining > 0 ? '$remaining sessioni' : 'Nessuna sessione disponibile';
+    return SizedBox(
+      width: 220,
+      child: Card(
+        elevation: 0,
+        color: theme.colorScheme.surfaceContainerLowest,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                purchase.displayName,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(remainingLabel, style: theme.textTheme.bodyMedium),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -2195,15 +2265,9 @@ class _TimelineInfoBox extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: theme.textTheme.labelSmall,
-          ),
+          Text(label, style: theme.textTheme.labelSmall),
           const SizedBox(height: 4),
-          Text(
-            value,
-            style: theme.textTheme.titleMedium,
-          ),
+          Text(value, style: theme.textTheme.titleMedium),
         ],
       ),
     );

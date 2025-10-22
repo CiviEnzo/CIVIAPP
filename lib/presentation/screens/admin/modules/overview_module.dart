@@ -198,11 +198,6 @@ class AdminOverviewModule extends ConsumerWidget {
         foreground = theme.colorScheme.onPrimaryContainer;
         label = 'Programmato';
         break;
-      case AppointmentStatus.confirmed:
-        background = theme.colorScheme.secondaryContainer;
-        foreground = theme.colorScheme.onSecondaryContainer;
-        label = 'Confermato';
-        break;
       case AppointmentStatus.completed:
         background = theme.colorScheme.tertiaryContainer;
         foreground = theme.colorScheme.onTertiaryContainer;

@@ -446,17 +446,6 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
         _dateOfBirth != null
             ? dateFormatter.format(_dateOfBirth!)
             : 'Seleziona data';
-    final lockedSalon = widget.salons.firstWhereOrNull(
-      (salon) => salon.id == _salonId,
-    );
-    final hasLockedSalon = lockedSalon != null;
-    final salonLabel =
-        hasLockedSalon
-            ? lockedSalon!.name
-            : (_salonId == null
-                ? 'Seleziona un salone dall\'appbar'
-                : 'Salone non disponibile');
-
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Form(
@@ -699,23 +688,6 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
                     'Seleziona un salone dall\'appbar per assegnare il membro dello staff.',
                     style: theme.textTheme.bodyMedium,
                   ),
-                ),
-              ),
-              const SizedBox(height: 12),
-            ] else ...[
-              InputDecorator(
-                decoration: const InputDecoration(
-                  labelText: 'Salone di riferimento',
-                  border: OutlineInputBorder(),
-                ),
-                child: Text(
-                  salonLabel,
-                  style:
-                      hasLockedSalon
-                          ? null
-                          : theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.error,
-                          ),
                 ),
               ),
               const SizedBox(height: 12),

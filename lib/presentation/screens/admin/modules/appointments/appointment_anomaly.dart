@@ -30,7 +30,7 @@ extension AppointmentAnomalyTypeX on AppointmentAnomalyType {
       case AppointmentAnomalyType.absenceOverlap:
         return 'Operatore assente (ferie, permesso o malattia).';
       case AppointmentAnomalyType.outdatedStatus:
-        return 'Appuntamento nel passato con stato "Programmato" o "Confermato".';
+        return 'Appuntamento nel passato con stato "Programmato".';
     }
   }
 
