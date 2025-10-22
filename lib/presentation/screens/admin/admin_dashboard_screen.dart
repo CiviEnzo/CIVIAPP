@@ -48,8 +48,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   int _selectedIndex = 0;
 
   static const AdminPalette _adminPalette = AdminPalette(
-    primary: Color.fromARGB(255, 255, 255, 255),
-    accent: Color.fromARGB(255, 0, 0, 0),
+    primary: Color(0xFFCFF3FF),
+    accent: Color(0xFFCFF3FF),
   );
 
   static final _modules = <AdminModuleDefinition>[

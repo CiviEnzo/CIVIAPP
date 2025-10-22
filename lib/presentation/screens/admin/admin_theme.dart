@@ -7,8 +7,8 @@ class AdminPalette {
   final Color accent;
 
   static const AdminPalette defaults = AdminPalette(
-    primary: Color.fromARGB(255, 255, 255, 255),
-    accent: Color.fromARGB(255, 104, 38, 38),
+    primary: Color.fromARGB(255, 0, 0, 0),
+    accent: Color.fromARGB(255, 255, 255, 255),
   );
 }
 
@@ -91,7 +91,8 @@ class AdminTheme extends StatelessWidget {
       tertiary: palette.accent,
     );
 
-    const lightSectionBackground = Color(0xFFF4F5F7);
+    const lightSectionBackground = Color.fromARGB(255, 239, 236, 233);
+    const lightSectionAccent = Color(0xFFE7F3EA);
     final isLight = brightness == Brightness.light;
 
     ColorScheme tintForDark(ColorScheme scheme) {
@@ -121,14 +122,15 @@ class AdminTheme extends StatelessWidget {
     final adminSchemeBase = seedScheme.copyWith(
       surface: isLight ? Colors.white : seedScheme.surface,
       background: isLight ? Colors.white : seedScheme.background,
+      primaryContainer: const Color(0xFFBEECD3),
       surfaceContainerLowest:
           isLight ? Colors.white : seedScheme.surfaceContainerLowest,
       surfaceContainerLow:
-          isLight ? lightSectionBackground : seedScheme.surfaceContainerLow,
+          isLight ? lightSectionAccent : seedScheme.surfaceContainerLow,
       surfaceContainer:
           isLight ? lightSectionBackground : seedScheme.surfaceContainer,
       surfaceContainerHigh:
-          isLight ? Colors.white : seedScheme.surfaceContainerHigh,
+          isLight ? const Color(0xFFFDFBF6) : seedScheme.surfaceContainerHigh,
       surfaceContainerHighest:
           isLight ? Colors.white : seedScheme.surfaceContainerHighest,
       surfaceTint: isLight ? Colors.transparent : seedScheme.surfaceTint,
@@ -162,6 +164,24 @@ class AdminTheme extends StatelessWidget {
 
     final adminTheme = baseTheme.copyWith(
       colorScheme: adminScheme,
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: adminScheme.primary,
+          foregroundColor: adminScheme.onPrimary,
+          disabledBackgroundColor: adminScheme.onSurface.withOpacity(
+            isLight ? 0.12 : 0.24,
+          ),
+          disabledForegroundColor: adminScheme.onSurface.withOpacity(
+            isLight ? 0.38 : 0.3,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          textStyle: baseTheme.textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
       scaffoldBackgroundColor: scaffoldBackground,
       canvasColor: canvasColor,
       cardTheme: baseTheme.cardTheme.copyWith(

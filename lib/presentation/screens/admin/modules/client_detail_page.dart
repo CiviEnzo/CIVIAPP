@@ -230,7 +230,6 @@ class _ProfileTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
     final dateFormat = DateFormat('dd/MM/yyyy');
     final dateTimeFormat = DateFormat('dd/MM/yyyy HH:mm');
     final data = ref.watch(appDataProvider);
@@ -241,8 +240,9 @@ class _ProfileTab extends ConsumerWidget {
 
     final children = <Widget>[];
 
-    final extraInfoCard = _ClientExtraDetailsCard(
+    final overviewSection = _ClientOverviewSection(
       client: client,
+      salon: salon,
       dateFormat: dateFormat,
       dateTimeFormat: dateTimeFormat,
     );
@@ -253,10 +253,7 @@ class _ProfileTab extends ConsumerWidget {
           builder: (context, constraints) {
             final isWide = constraints.maxWidth >= 980;
             final content = <Widget>[
-              Expanded(
-                flex: 3,
-                child: _AnamnesisInfoCard(client: client, salon: salon),
-              ),
+              Expanded(flex: 3, child: overviewSection),
               SizedBox(width: isWide ? 16 : 0),
               Expanded(flex: 2, child: const _BodyMapCard()),
             ];
@@ -274,75 +271,9 @@ class _ProfileTab extends ConsumerWidget {
         ),
       );
       children.add(const SizedBox(height: 16));
-      children.add(extraInfoCard);
-      children.add(const SizedBox(height: 16));
       children.add(_ClientQuestionnaireCard(client: client));
     } else {
-      children.add(
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Dati anagrafici', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 12),
-                _InfoTile(
-                  icon: Icons.badge_outlined,
-                  label: 'Numero cliente',
-                  value: client.clientNumber ?? 'Non assegnato',
-                ),
-                _InfoTile(
-                  icon: Icons.cake_outlined,
-                  label: 'Data di nascita',
-                  value:
-                      client.dateOfBirth == null
-                          ? '—'
-                          : dateFormat.format(client.dateOfBirth!),
-                ),
-                _InfoTile(
-                  icon: Icons.phone,
-                  label: 'Telefono',
-                  value: client.phone,
-                ),
-                _InfoTile(
-                  icon: Icons.email_outlined,
-                  label: 'Email',
-                  value: client.email ?? '—',
-                ),
-                _InfoTile(
-                  icon: Icons.home_outlined,
-                  label: 'Indirizzo',
-                  value: client.address ?? '—',
-                ),
-                _InfoTile(
-                  icon: Icons.work_outline,
-                  label: 'Professione',
-                  value: client.profession ?? '—',
-                ),
-                _InfoTile(
-                  icon: Icons.campaign_outlined,
-                  label: 'Come ci ha conosciuto',
-                  value: client.referralSource ?? '—',
-                ),
-                _InfoTile(
-                  icon: Icons.loyalty_rounded,
-                  label: 'Punti fedeltà',
-                  value: client.loyaltyPoints.toString(),
-                ),
-                if (salon != null)
-                  _InfoTile(
-                    icon: Icons.apartment_rounded,
-                    label: 'Salone associato',
-                    value: salon!.name,
-                  ),
-              ],
-            ),
-          ),
-        ),
-      );
-      children.add(const SizedBox(height: 16));
-      children.add(extraInfoCard);
+      children.add(overviewSection);
       children.add(const SizedBox(height: 16));
       children.add(_ClientQuestionnaireCard(client: client));
     }
@@ -362,108 +293,6 @@ class _ProfileTab extends ConsumerWidget {
       case ConsentType.profilazione:
         return 'Profilazione';
     }
-  }
-}
-
-class _AnamnesisInfoCard extends StatelessWidget {
-  const _AnamnesisInfoCard({required this.client, required this.salon});
-
-  final Client client;
-  final Salon? salon;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final dateFormat = DateFormat('dd/MM/yyyy');
-    final birthDate = client.dateOfBirth;
-    final formattedBirthDate =
-        birthDate == null ? '—' : dateFormat.format(birthDate);
-    final age = _formatClientAge(birthDate);
-
-    final fields = <_InfoFieldData>[
-      _InfoFieldData(label: 'Nome e cognome', value: client.fullName),
-      _InfoFieldData(label: 'Data di nascita', value: formattedBirthDate),
-      _InfoFieldData(label: 'Età', value: age),
-      _InfoFieldData(
-        label: 'Numero cliente',
-        value: client.clientNumber ?? '—',
-      ),
-      _InfoFieldData(label: 'Contatto', value: client.phone),
-      _InfoFieldData(label: 'Email', value: client.email ?? '—'),
-      _InfoFieldData(label: 'Indirizzo', value: client.address ?? '—'),
-      _InfoFieldData(label: 'Professione', value: client.profession ?? '—'),
-      _InfoFieldData(
-        label: 'Come ci ha conosciuto',
-        value: client.referralSource ?? '—',
-      ),
-      if (salon != null)
-        _InfoFieldData(label: 'Salone associato', value: salon!.name),
-    ];
-
-    final notes = client.notes?.trim() ?? '';
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Dati anagrafici',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 16),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final isWide = constraints.maxWidth >= 520;
-                final fieldWidth =
-                    isWide
-                        ? (constraints.maxWidth - 12) / 2
-                        : constraints.maxWidth;
-                return Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: fields
-                      .map(
-                        (field) => SizedBox(
-                          width: fieldWidth,
-                          child: _ReadonlyField(
-                            label: field.label,
-                            value: field.value,
-                          ),
-                        ),
-                      )
-                      .toList(growable: false),
-                );
-              },
-            ),
-            const SizedBox(height: 16),
-            _ReadonlyField(
-              label: 'Note cliente',
-              value: notes.isEmpty ? '—' : notes,
-              minLines: 3,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _formatClientAge(DateTime? birthDate) {
-    if (birthDate == null) {
-      return '—';
-    }
-    final now = DateTime.now();
-    var age = now.year - birthDate.year;
-    final hasHadBirthday =
-        now.month > birthDate.month ||
-        (now.month == birthDate.month && now.day >= birthDate.day);
-    if (!hasHadBirthday) {
-      age -= 1;
-    }
-    return age.toString();
   }
 }
 
@@ -520,129 +349,263 @@ class _BodyMapCard extends StatelessWidget {
   }
 }
 
-class _ClientExtraDetailsCard extends StatelessWidget {
-  const _ClientExtraDetailsCard({
+class _ClientOverviewSection extends StatelessWidget {
+  const _ClientOverviewSection({
     required this.client,
+    required this.salon,
     required this.dateFormat,
     required this.dateTimeFormat,
   });
 
   final Client client;
+  final Salon? salon;
   final DateFormat dateFormat;
   final DateFormat dateTimeFormat;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final birthDate = client.dateOfBirth;
+    final formattedBirthDate =
+        birthDate == null ? '—' : dateFormat.format(birthDate);
+    final age = _formatClientAge(birthDate);
     final channelPrefs = client.channelPreferences;
     final chips = _buildPreferenceChips(context, channelPrefs);
     final notes = client.notes?.trim() ?? '';
     final hasNotes = notes.isNotEmpty;
     final hasConsents = client.marketedConsents.isNotEmpty;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    final personalFields = <_InfoFieldData>[
+      _InfoFieldData(label: 'Nome e cognome', value: client.fullName),
+      _InfoFieldData(label: 'Data di nascita', value: formattedBirthDate),
+      _InfoFieldData(label: 'Età', value: age),
+      _InfoFieldData(
+        label: 'Numero cliente',
+        value: client.clientNumber ?? '—',
+      ),
+      _InfoFieldData(label: 'Professione', value: client.profession ?? '—'),
+      _InfoFieldData(
+        label: 'Come ci ha conosciuto',
+        value: client.referralSource ?? '—',
+      ),
+      _InfoFieldData(
+        label: 'Punti fedeltà',
+        value: client.loyaltyPoints.toString(),
+      ),
+      if (salon != null)
+        _InfoFieldData(label: 'Salone associato', value: salon!.name),
+    ];
+
+    final contactFields = <_InfoFieldData>[
+      _InfoFieldData(label: 'Telefono', value: client.phone),
+      _InfoFieldData(label: 'Email', value: client.email ?? '—'),
+      _InfoFieldData(label: 'Indirizzo', value: client.address ?? '—'),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useTwoColumns = constraints.maxWidth >= 960;
+        final cardWidth =
+            useTwoColumns
+                ? (constraints.maxWidth - 16) / 2
+                : constraints.maxWidth;
+
+        return Wrap(
+          spacing: 16,
+          runSpacing: 16,
           children: [
-            Text(
-              'Preferenze contatto',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (chips.isNotEmpty)
-              Wrap(spacing: 8, runSpacing: 8, children: chips)
-            else
-              Text(
-                'Nessuna preferenza registrata.',
-                style: theme.textTheme.bodyMedium,
-              ),
-            const SizedBox(height: 12),
-            Text(
-              channelPrefs.updatedAt != null
-                  ? 'Ultimo aggiornamento: ${dateTimeFormat.format(channelPrefs.updatedAt!)}'
-                  : 'Preferenze non ancora registrate.',
-              style: theme.textTheme.bodySmall,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Note cliente',
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              hasNotes ? notes : 'Nessuna nota presente per questo cliente.',
-              style: theme.textTheme.bodyMedium,
-            ),
-            if (hasConsents) ...[
-              const SizedBox(height: 16),
-              Text(
-                'Consensi marketing',
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
+            SizedBox(
+              width: cardWidth,
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Dati anagrafici',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _InfoFieldsWrap(fields: personalFields),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children:
-                    client.marketedConsents
-                        .map(
-                          (consent) => Chip(
-                            avatar: const Icon(Icons.check_rounded, size: 16),
-                            label: Text(
-                              '${_ProfileTab._consentLabel(consent.type)} · ${dateFormat.format(consent.acceptedAt)}',
-                            ),
+            ),
+            SizedBox(
+              width: cardWidth,
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Contatti e preferenze',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _InfoFieldsWrap(fields: contactFields),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Preferenze contatto',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (chips.isNotEmpty)
+                        Wrap(spacing: 8, runSpacing: 8, children: chips)
+                      else
+                        Text(
+                          'Nessuna preferenza registrata.',
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      const SizedBox(height: 12),
+                      Text(
+                        channelPrefs.updatedAt != null
+                            ? 'Ultimo aggiornamento: ${dateTimeFormat.format(channelPrefs.updatedAt!)}'
+                            : 'Preferenze non ancora registrate.',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Note cliente',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        hasNotes
+                            ? notes
+                            : 'Nessuna nota presente per questo cliente.',
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                      if (hasConsents) ...[
+                        const SizedBox(height: 16),
+                        Text(
+                          'Consensi marketing',
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
                           ),
-                        )
-                        .toList(),
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children:
+                              client.marketedConsents
+                                  .map(
+                                    (consent) => Chip(
+                                      avatar: const Icon(
+                                        Icons.check_rounded,
+                                        size: 16,
+                                      ),
+                                      label: Text(
+                                        '${_ProfileTab._consentLabel(consent.type)} · ${dateFormat.format(consent.acceptedAt)}',
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
-            ],
+            ),
           ],
+        );
+      },
+    );
+  }
+}
+
+class _InfoFieldsWrap extends StatelessWidget {
+  const _InfoFieldsWrap({required this.fields});
+
+  final List<_InfoFieldData> fields;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (fields.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        final isWide = constraints.maxWidth >= 520;
+        final fieldWidth =
+            isWide ? (constraints.maxWidth - 12) / 2 : constraints.maxWidth;
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: fields
+              .map(
+                (field) => SizedBox(
+                  width: fieldWidth,
+                  child: _ReadonlyField(label: field.label, value: field.value),
+                ),
+              )
+              .toList(growable: false),
+        );
+      },
+    );
+  }
+}
+
+String _formatClientAge(DateTime? birthDate) {
+  if (birthDate == null) {
+    return '—';
+  }
+  final now = DateTime.now();
+  var age = now.year - birthDate.year;
+  final hasHadBirthday =
+      now.month > birthDate.month ||
+      (now.month == birthDate.month && now.day >= birthDate.day);
+  if (!hasHadBirthday) {
+    age -= 1;
+  }
+  return age.toString();
+}
+
+List<Widget> _buildPreferenceChips(
+  BuildContext context,
+  ChannelPreferences preferences,
+) {
+  Widget buildChip(bool enabled, String label, IconData icon) {
+    final theme = Theme.of(context);
+    final selectedBackground = theme.colorScheme.secondaryContainer;
+    final selectedForeground = theme.colorScheme.onSecondaryContainer;
+    final disabledBackground = theme.colorScheme.surfaceContainerHighest;
+    final disabledForeground = theme.colorScheme.onSurfaceVariant;
+    return Chip(
+      avatar: Icon(
+        icon,
+        size: 16,
+        color: enabled ? selectedForeground : disabledForeground,
+      ),
+      label: Text(
+        label,
+        style: TextStyle(
+          color: enabled ? selectedForeground : disabledForeground,
         ),
       ),
+      backgroundColor: enabled ? selectedBackground : disabledBackground,
     );
   }
 
-  List<Widget> _buildPreferenceChips(
-    BuildContext context,
-    ChannelPreferences preferences,
-  ) {
-    Widget buildChip(bool enabled, String label, IconData icon) {
-      final theme = Theme.of(context);
-      final selectedBackground = theme.colorScheme.secondaryContainer;
-      final selectedForeground = theme.colorScheme.onSecondaryContainer;
-      final disabledBackground = theme.colorScheme.surfaceContainerHighest;
-      final disabledForeground = theme.colorScheme.onSurfaceVariant;
-      return Chip(
-        avatar: Icon(
-          icon,
-          size: 16,
-          color: enabled ? selectedForeground : disabledForeground,
-        ),
-        label: Text(
-          label,
-          style: TextStyle(
-            color: enabled ? selectedForeground : disabledForeground,
-          ),
-        ),
-        backgroundColor: enabled ? selectedBackground : disabledBackground,
-      );
-    }
-
-    return [
-      buildChip(preferences.push, 'Push', Icons.notifications_active_rounded),
-      buildChip(preferences.email, 'Email', Icons.email_rounded),
-      buildChip(preferences.whatsapp, 'WhatsApp', Icons.chat_rounded),
-      buildChip(preferences.sms, 'SMS', Icons.sms_rounded),
-    ];
-  }
+  return [
+    buildChip(preferences.push, 'Push', Icons.notifications_active_rounded),
+    buildChip(preferences.email, 'Email', Icons.email_rounded),
+    buildChip(preferences.whatsapp, 'WhatsApp', Icons.chat_rounded),
+    buildChip(preferences.sms, 'SMS', Icons.sms_rounded),
+  ];
 }
 
 class _InfoFieldData {
@@ -2512,11 +2475,12 @@ class _AppointmentsTab extends ConsumerWidget {
         return;
       }
       if (result.action == AppointmentFormAction.copy) {
-        ref.read(appointmentClipboardProvider.notifier).state =
-            AppointmentClipboard(
-              appointment: result.appointment,
-              copiedAt: DateTime.now(),
-            );
+        ref
+            .read(appointmentClipboardProvider.notifier)
+            .state = AppointmentClipboard(
+          appointment: result.appointment,
+          copiedAt: DateTime.now(),
+        );
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Appuntamento copiato. Seleziona uno slot libero.'),
@@ -6863,42 +6827,6 @@ class _Chip extends StatelessWidget {
       backgroundColor: scheme.surfaceContainerHighest,
       avatar: Icon(icon, size: 18, color: scheme.onSurfaceVariant),
       label: Text(label),
-    );
-  }
-}
-
-class _InfoTile extends StatelessWidget {
-  const _InfoTile({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 20, color: theme.colorScheme.primary),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: theme.textTheme.bodySmall),
-                Text(value, style: theme.textTheme.bodyMedium),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

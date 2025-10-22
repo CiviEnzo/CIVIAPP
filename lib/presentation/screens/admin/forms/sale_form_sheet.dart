@@ -69,6 +69,8 @@ class SaleFormSheet extends StatefulWidget {
 }
 
 class _SaleFormSheetState extends State<SaleFormSheet> {
+  static const _associateSalonHint =
+      'Collega la vendita a un salone selezionando un cliente o un membro dello staff.';
   final _formKey = GlobalKey<FormState>();
   final _clientFieldKey = GlobalKey<FormFieldState<String>>();
   final _uuid = const Uuid();
@@ -209,15 +211,23 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     final currentClient = _currentClient;
 
     final filteredClients =
-        widget.clients
-            .where((client) => _salonId == null || client.salonId == _salonId)
-            .toList()
-          ..sort((a, b) => a.fullName.compareTo(b.fullName));
+        widget.clients.toList()..sort((a, b) {
+          final aMatches = a.salonId == _salonId;
+          final bMatches = b.salonId == _salonId;
+          if (aMatches != bMatches) {
+            return aMatches ? -1 : 1;
+          }
+          return a.fullName.compareTo(b.fullName);
+        });
     final staff =
-        widget.staff
-            .where((member) => _salonId == null || member.salonId == _salonId)
-            .toList()
-          ..sort((a, b) => a.fullName.compareTo(b.fullName));
+        widget.staff.toList()..sort((a, b) {
+          final aMatches = a.salonId == _salonId;
+          final bMatches = b.salonId == _salonId;
+          if (aMatches != bMatches) {
+            return aMatches ? -1 : 1;
+          }
+          return a.fullName.compareTo(b.fullName);
+        });
 
     return Material(
       color: Colors.transparent,
@@ -228,36 +238,36 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Registra vendita', style: theme.textTheme.titleLarge),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: _salonId,
-                decoration: const InputDecoration(labelText: 'Salone'),
-                items:
-                    widget.salons
-                        .map(
-                          (salon) => DropdownMenuItem(
-                            value: salon.id,
-                            child: Text(salon.name),
-                          ),
-                        )
-                        .toList(),
-                onChanged: (value) {
-                  if (value == _salonId) {
-                    return;
-                  }
-                  setState(() {
-                    _salonId = value;
-                    _clientId = null;
-                    _staffId = null;
-                    _resetLines();
-                  });
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    _clientFieldKey.currentState?.didChange(_clientId);
-                  });
-                  _syncDiscountControllers(force: true);
-                  _recalculateLoyalty(autoSuggest: true);
-                },
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Registra vendita',
+                      style: theme.textTheme.titleLarge,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Flexible(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 320),
+                      child: _buildDateTimeField(dateFormat),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              _buildSectionHeader(
+                icon: Icons.store_outlined,
+                title: 'Cliente e salone',
+                subtitle:
+                    'Seleziona il cliente per associare automaticamente il salone',
+              ),
+              const SizedBox(height: 12),
+              _buildReadOnlyInfoField(
+                label: 'Salone associato',
+                value: salon?.name ?? 'Nessun salone assegnato',
+                isPlaceholder: salon == null,
               ),
               const SizedBox(height: 12),
               FormField<String>(
@@ -274,10 +284,12 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                         labelText: 'Cliente',
                         errorText: state.errorText,
                         suffixIcon: const Icon(Icons.search_rounded, size: 20),
+                        helperText:
+                            'Tocca per cercare e selezionare un cliente',
                       ),
                       isEmpty: selectedClient == null,
                       child: Text(
-                        selectedClient?.fullName ?? 'Seleziona cliente',
+                        selectedClient?.fullName ?? 'Seleziona o cerca cliente',
                         style:
                             selectedClient == null
                                 ? Theme.of(
@@ -290,6 +302,12 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                     ),
                   );
                 },
+              ),
+              const SizedBox(height: 24),
+              _buildSectionHeader(
+                icon: Icons.event_available_outlined,
+                title: 'Team e pianificazione',
+                subtitle: 'Collega lo staff incaricato alla vendita',
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
@@ -306,11 +324,17 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                           ),
                         )
                         .toList(),
-                onChanged: (value) => setState(() => _staffId = value),
+                onChanged: _onStaffChanged,
               ),
-              const SizedBox(height: 20),
-              Text('Elementi vendita', style: theme.textTheme.titleMedium),
-              const SizedBox(height: 8),
+              const SizedBox(height: 24),
+              _buildSectionHeader(
+                icon: Icons.receipt_long,
+                title: 'Elementi vendita',
+                subtitle: 'Aggiungi servizi, pacchetti o prodotti',
+              ),
+              const SizedBox(height: 12),
+              _buildSaleLinesSection(theme, currency),
+              const SizedBox(height: 16),
               Wrap(
                 spacing: 12,
                 runSpacing: 8,
@@ -342,27 +366,21 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
-              if (_lines.isEmpty)
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      'Aggiungi almeno un servizio, pacchetto o prodotto per registrare la vendita.',
-                      style: theme.textTheme.bodyMedium,
-                    ),
-                  ),
-                )
-              else
-                Column(
-                  children: [
-                    for (var i = 0; i < _lines.length; i++) ...[
-                      _buildLineCard(_lines[i], i, currency),
-                      if (i < _lines.length - 1) const SizedBox(height: 12),
-                    ],
-                  ],
-                ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 24),
+              _buildSectionHeader(
+                icon: Icons.loyalty,
+                title: 'Programma fedeltà',
+                subtitle: 'Gestisci punti e riscatto prima del totale',
+              ),
+              const SizedBox(height: 12),
+              _buildLoyaltySection(currency, salon, currentClient),
+              const SizedBox(height: 24),
+              _buildSectionHeader(
+                icon: Icons.calculate,
+                title: 'Totali e sconti',
+                subtitle: 'Rivedi importi e riepilogo finale',
+              ),
+              const SizedBox(height: 12),
               _buildSummarySection(
                 currency,
                 subtotal,
@@ -370,9 +388,13 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                 loyaltyDiscount,
                 total,
               ),
-              const SizedBox(height: 16),
-              _buildLoyaltySection(currency, salon, currentClient),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
+              _buildSectionHeader(
+                icon: Icons.credit_card,
+                title: 'Pagamenti',
+                subtitle: 'Definisci metodo, stato e incassi',
+              ),
+              const SizedBox(height: 12),
               DropdownButtonFormField<PaymentMethod>(
                 value: _payment,
                 decoration: const InputDecoration(
@@ -456,15 +478,12 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                   style: theme.textTheme.bodyMedium,
                 ),
               ],
-              const SizedBox(height: 12),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Data e ora vendita'),
-                subtitle: Text(dateFormat.format(_date)),
-                trailing: const Icon(Icons.calendar_month_rounded),
-                onTap: _pickDateTime,
+              const SizedBox(height: 24),
+              _buildSectionHeader(
+                icon: Icons.notes,
+                title: 'Note e documenti',
+                subtitle: 'Aggiungi informazioni utili per il team',
               ),
-
               const SizedBox(height: 12),
               TextFormField(
                 controller: _notesController,
@@ -483,6 +502,121 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildSectionHeader({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+  }) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final textTheme = theme.textTheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceVariant,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment:
+            subtitle == null
+                ? CrossAxisAlignment.center
+                : CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: colorScheme.onSurfaceVariant),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (subtitle != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      subtitle,
+                      style: textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant.withOpacity(0.8),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReadOnlyInfoField({
+    required String label,
+    required String value,
+    bool isPlaceholder = false,
+  }) {
+    final theme = Theme.of(context);
+    final effectiveValue = value.isEmpty ? '-' : value;
+    final style =
+        isPlaceholder
+            ? theme.textTheme.bodyMedium?.copyWith(color: theme.hintColor)
+            : theme.textTheme.bodyMedium;
+    return InputDecorator(
+      decoration: InputDecoration(
+        labelText: label,
+        helperText:
+            isPlaceholder
+                ? 'Seleziona un cliente o uno staff per impostarlo'
+                : null,
+      ),
+      isEmpty: effectiveValue.trim().isEmpty,
+      child: Text(effectiveValue, style: style),
+    );
+  }
+
+  Widget _buildDateTimeField(DateFormat dateFormat) {
+    final theme = Theme.of(context);
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: _pickDateTime,
+      child: InputDecorator(
+        decoration: const InputDecoration(
+          labelText: 'Data e ora vendita',
+          suffixIcon: Icon(Icons.calendar_month_rounded, size: 20),
+        ),
+        child: Text(
+          dateFormat.format(_date),
+          style: theme.textTheme.bodyMedium,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSaleLinesSection(ThemeData theme, NumberFormat currency) {
+    if (_lines.isEmpty) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            'Aggiungi almeno un servizio, pacchetto o prodotto per registrare la vendita.',
+            style: theme.textTheme.bodyMedium,
+          ),
+        ),
+      );
+    }
+    return Column(
+      children: [
+        for (var i = 0; i < _lines.length; i++) ...[
+          _buildLineCard(_lines[i], i, currency),
+          if (i < _lines.length - 1) const SizedBox(height: 12),
+        ],
+      ],
     );
   }
 
@@ -769,7 +903,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     }
 
     if (salon == null) {
-      return buildInfo('Seleziona un salone per gestire il programma punti.');
+      return buildInfo(_associateSalonHint);
     }
     if (client == null) {
       return buildInfo('Seleziona un cliente per utilizzare i punti fedeltà.');
@@ -778,7 +912,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     final settings = salon.loyaltySettings;
     if (!settings.enabled) {
       return buildInfo(
-        'Il programma fedeltà non è attivo per il salone selezionato.',
+        'Il programma fedeltà non è attivo per il salone associato.',
       );
     }
 
@@ -1060,23 +1194,75 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     );
 
     if (selected != null) {
+      final newSalonId = selected.salonId;
+      final salonChanged =
+          newSalonId != null && newSalonId.isNotEmpty && newSalonId != _salonId;
       setState(() {
         _clientId = selected.id;
+        if (salonChanged) {
+          _salonId = newSalonId;
+          _staffId = null;
+          _resetLines();
+        }
       });
       _clientFieldKey.currentState?.didChange(selected.id);
-      _recalculateLoyalty(autoSuggest: true);
+      if (salonChanged) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _syncDiscountControllers(force: true);
+          _recalculateLoyalty(autoSuggest: true);
+        });
+      } else {
+        _recalculateLoyalty(autoSuggest: true);
+      }
+    }
+  }
+
+  void _onStaffChanged(String? staffId) {
+    if (staffId == _staffId) {
+      return;
+    }
+    final selectedStaff =
+        staffId == null
+            ? null
+            : widget.staff.firstWhereOrNull((member) => member.id == staffId);
+    final newSalonId = selectedStaff?.salonId;
+    final salonChanged =
+        newSalonId != null && newSalonId.isNotEmpty && newSalonId != _salonId;
+    setState(() {
+      _staffId = staffId;
+      if (salonChanged) {
+        _salonId = newSalonId;
+        if (_clientId != null) {
+          final currentClient = widget.clients.firstWhereOrNull(
+            (client) => client.id == _clientId,
+          );
+          if (currentClient?.salonId != newSalonId) {
+            _clientId = null;
+            _clientFieldKey.currentState?.reset();
+          }
+        }
+        _resetLines();
+      }
+    });
+    if (salonChanged) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _syncDiscountControllers(force: true);
+        _recalculateLoyalty(autoSuggest: true);
+      });
+    } else {
+      _recalculateLoyalty();
     }
   }
 
   Future<void> _onAddService() async {
     final salonId = _salonId;
     if (salonId == null) {
-      _showSnackBar('Seleziona prima un salone.');
+      _showSnackBar(_associateSalonHint);
       return;
     }
     final services = _servicesForSalon(salonId);
     if (services.isEmpty) {
-      _showSnackBar('Nessun servizio disponibile per il salone selezionato.');
+      _showSnackBar('Nessun servizio disponibile per il salone associato.');
       return;
     }
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
@@ -1105,12 +1291,12 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   Future<void> _onAddPackage() async {
     final salonId = _salonId;
     if (salonId == null) {
-      _showSnackBar('Seleziona prima un salone.');
+      _showSnackBar(_associateSalonHint);
       return;
     }
     final packages = _packagesForSalon(salonId);
     if (packages.isEmpty) {
-      _showSnackBar('Nessun pacchetto disponibile per il salone selezionato.');
+      _showSnackBar('Nessun pacchetto disponibile per il salone associato.');
       return;
     }
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
@@ -1131,12 +1317,12 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   Future<void> _onAddInventoryItem() async {
     final salonId = _salonId;
     if (salonId == null) {
-      _showSnackBar('Seleziona prima un salone.');
+      _showSnackBar(_associateSalonHint);
       return;
     }
     final items = _inventoryForSalon(salonId);
     if (items.isEmpty) {
-      _showSnackBar('Nessun prodotto disponibile per il salone selezionato.');
+      _showSnackBar('Nessun prodotto disponibile per il salone associato.');
       return;
     }
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
@@ -1179,7 +1365,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   Future<void> _onAddCustomPackage() async {
     final salonId = _salonId;
     if (salonId == null) {
-      _showSnackBar('Seleziona prima un salone.');
+      _showSnackBar(_associateSalonHint);
       return;
     }
 
@@ -1704,7 +1890,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       return;
     }
     if (_salonId == null) {
-      _showSnackBar('Seleziona il salone della vendita.');
+      _showSnackBar(_associateSalonHint);
       return;
     }
     if (_clientId == null) {

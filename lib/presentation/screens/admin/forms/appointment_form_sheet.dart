@@ -474,9 +474,20 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                 ],
               )
             else
-              Text(
-                'Modifica appuntamento',
-                style: theme.textTheme.titleLarge,
+              Wrap(
+                spacing: 12,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(
+                    'Modifica appuntamento',
+                    style: theme.textTheme.titleLarge,
+                  ),
+                  Text(
+                    bookingDateLabel,
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ],
               ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
