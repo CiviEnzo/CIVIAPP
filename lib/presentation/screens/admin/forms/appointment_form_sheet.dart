@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/data/repositories/app_data_state.dart';
 import 'package:civiapp/domain/availability/appointment_conflicts.dart';
 import 'package:civiapp/domain/availability/equipment_availability.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
+import 'package:civiapp/domain/entities/appointment_clipboard.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
@@ -20,7 +23,7 @@ import 'package:collection/collection.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
-enum AppointmentFormAction { save, copy }
+enum AppointmentFormAction { save, copy, delete }
 
 class AppointmentFormResult {
   const AppointmentFormResult({
@@ -82,6 +85,9 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
   String? _selectedPackageId;
   bool _packageSelectionManuallyChanged = false;
   bool _isDeleting = false;
+  bool _copyJustCompleted = false;
+  Timer? _copyFeedbackTimer;
+  static const Duration _copyFeedbackDuration = Duration(seconds: 2);
 
   @override
   void initState() {
@@ -124,6 +130,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
 
   @override
   void dispose() {
+    _copyFeedbackTimer?.cancel();
     _notes.dispose();
     super.dispose();
   }
@@ -856,7 +863,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             const SizedBox(height: 24),
             Row(
               children: [
-                if (widget.enableDelete && widget.initial != null) ...[
+                if (widget.enableDelete && widget.initial != null)
                   TextButton.icon(
                     onPressed: _isDeleting ? null : _confirmDelete,
                     icon:
@@ -871,17 +878,25 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                     style: TextButton.styleFrom(
                       foregroundColor: Theme.of(context).colorScheme.error,
                     ),
-                  ),
-                  const Spacer(),
-                ] else
-                  const Spacer(),
-                if (widget.initial == null) ...[
-                  FilledButton.tonal(
-                    onPressed: _isDeleting ? null : _copy,
-                    child: const Text('Copia'),
-                  ),
-                  const SizedBox(width: 12),
-                ],
+                  )
+                else
+                  const SizedBox.shrink(),
+                const Spacer(),
+                FilledButton.tonal(
+                  onPressed: _isDeleting ? null : _copy,
+                  child:
+                      _copyJustCompleted
+                          ? Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: const [
+                              Icon(Icons.check_rounded),
+                              SizedBox(width: 8),
+                              Text('Copiato!'),
+                            ],
+                          )
+                          : const Text('Copia'),
+                ),
+                const SizedBox(width: 12),
                 FilledButton(
                   onPressed: _isDeleting ? null : _submit,
                   child: const Text('Salva'),
@@ -1957,15 +1972,24 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     if (appointment == null) {
       return;
     }
-
-    Navigator.of(context).pop(
-      AppointmentFormResult(
-        action: AppointmentFormAction.copy,
-        appointment: appointment.copyWith(
-          id: _uuid.v4(),
-        ),
-      ),
-    );
+    final copied = appointment.copyWith(id: _uuid.v4());
+    ref.read(appointmentClipboardProvider.notifier).state =
+        AppointmentClipboard(
+          appointment: copied,
+          copiedAt: DateTime.now(),
+        );
+    setState(() {
+      _copyJustCompleted = true;
+    });
+    _copyFeedbackTimer?.cancel();
+    _copyFeedbackTimer = Timer(_copyFeedbackDuration, () {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _copyJustCompleted = false;
+      });
+    });
   }
 
   Future<void> _confirmDelete() async {
@@ -2021,7 +2045,12 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           content: Text('Appuntamento del $appointmentLabel eliminato.'),
         ),
       );
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(
+        AppointmentFormResult(
+          action: AppointmentFormAction.delete,
+          appointment: appointment,
+        ),
+      );
     } on FirebaseException catch (error) {
       if (!mounted) return;
       final message =

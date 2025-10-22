@@ -2502,7 +2502,7 @@ class _ChecklistDialogLauncher extends StatelessWidget {
     }
     final theme = Theme.of(context);
     final iconData =
-        pending > 0 ? Icons.checklist_rounded : Icons.task_alt_rounded;
+        pending > 0 ? Icons.checklist_rounded : Icons.checklist_rounded;
     final iconColor =
         pending > 0
             ? theme.colorScheme.primary
@@ -5595,8 +5595,9 @@ class _AppointmentCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final status = appointment.status;
-    final timeLabel =
-        '${DateFormat('HH:mm').format(appointment.start)} - ${DateFormat('HH:mm').format(appointment.end)}';
+    final startTimeLabel = DateFormat('HH:mm').format(appointment.start);
+    final endTimeLabel = DateFormat('HH:mm').format(appointment.end);
+    final timeLabel = '$startTimeLabel - $endTimeLabel';
     final statusColorValue = statusColor(status);
     final hasAnomalies = anomalies.isNotEmpty;
     final isLocked = lockReason != null;
@@ -5948,6 +5949,9 @@ class _AppointmentCard extends StatelessWidget {
             : Stack(children: [card, ...overlayWidgets]);
 
     final hoverLines = <String>[];
+    hoverLines
+      ..add('Inizio: $startTimeLabel')
+      ..add('Fine: $endTimeLabel');
     final clientName = client?.fullName;
     final normalizedClientName = clientName?.trim();
     final normalizedServiceName = serviceLabel?.trim();

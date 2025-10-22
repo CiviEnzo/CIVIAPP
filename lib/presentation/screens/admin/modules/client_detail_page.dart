@@ -2524,6 +2524,9 @@ class _AppointmentsTab extends ConsumerWidget {
         );
         return;
       }
+      if (result.action == AppointmentFormAction.delete) {
+        return;
+      }
       await _validateAndSaveAppointment(
         context,
         ref,

@@ -1687,6 +1687,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     required List<StaffMember> staff,
     required List<Service> services,
   }) async {
+    final messenger = ScaffoldMessenger.of(context);
     final clipboard = ref.read(appointmentClipboardProvider);
     if (clipboard == null) {
       return;
@@ -1695,13 +1696,116 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     final staffMember = staff.firstWhereOrNull(
       (member) => member.id == selection.staffId,
     );
-    final salonId = staffMember?.salonId ?? template.salonId;
+    final appointmentServices =
+        template.serviceIds
+            .map(
+              (id) => services.firstWhereOrNull((service) => service.id == id),
+            )
+            .whereType<Service>()
+            .toList(growable: false);
+    if (staffMember == null) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Impossibile copiare l\'appuntamento: operatore non valido.',
+          ),
+        ),
+      );
+      return;
+    }
+    final incompatibleService = appointmentServices.firstWhereOrNull((service) {
+      if (service.staffRoles.isEmpty) {
+        return false;
+      }
+      return !staffMember.roleIds.any(service.staffRoles.contains);
+    });
+    if (incompatibleService != null) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'L\'operatore selezionato non può erogare '
+            '"${incompatibleService.name}".',
+          ),
+        ),
+      );
+      return;
+    }
+    final duration = template.duration;
+    if (duration <= Duration.zero) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Durata appuntamento non valida.'),
+        ),
+      );
+      return;
+    }
+    final computedEnd = selection.start.add(duration);
+    final data = ref.read(appDataProvider);
+    final nowReference = DateTime.now();
+    final expressPlaceholders =
+        data.lastMinuteSlots
+            .where((slot) {
+              if (slot.salonId != staffMember.salonId) {
+                return false;
+              }
+              if (slot.operatorId != staffMember.id) {
+                return false;
+              }
+              if (!slot.isAvailable) {
+                return false;
+              }
+              if (!slot.end.isAfter(nowReference)) {
+                return false;
+              }
+              return true;
+            })
+            .map(
+              (slot) => Appointment(
+                id: 'last-minute-${slot.id}',
+                salonId: slot.salonId,
+                clientId: 'last-minute-${slot.id}',
+                staffId: slot.operatorId ?? staffMember.id,
+                serviceIds:
+                    slot.serviceId != null && slot.serviceId!.isNotEmpty
+                        ? <String>[slot.serviceId!]
+                        : const <String>[],
+                start: slot.start,
+                end: slot.end,
+                status: AppointmentStatus.scheduled,
+                roomId: slot.roomId,
+              ),
+            )
+            .toList();
+    final combinedAppointments = <Appointment>[
+      ...data.appointments,
+      ...expressPlaceholders,
+    ];
+    final hasInsufficientSpace = hasStaffBookingConflict(
+      appointments: combinedAppointments,
+      staffId: staffMember.id,
+      start: selection.start,
+      end: computedEnd,
+    );
+    if (hasInsufficientSpace) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'La durata del trattamento supera lo slot selezionato. '
+            'Scegli uno slot più lungo.',
+          ),
+        ),
+      );
+      return;
+    }
+    final staffSalonId = staffMember.salonId.trim();
+    final salonId =
+        staffSalonId.isNotEmpty ? staffSalonId : template.salonId;
     final appointment = template.copyWith(
       id: _uuid.v4(),
       salonId: salonId,
       staffId: selection.staffId,
       start: selection.start,
-      end: selection.end,
+      end: computedEnd,
     );
     final saved = await _validateAndSaveAppointment(
       context,
@@ -1713,7 +1817,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     if (!saved || !mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
+    messenger.showSnackBar(
       const SnackBar(
         content: Text('Appuntamento copiato sullo slot selezionato.'),
       ),
@@ -2999,6 +3103,9 @@ Future<void> _openForm(
         content: Text('Appuntamento copiato. Seleziona uno slot libero.'),
       ),
     );
+    return;
+  }
+  if (result.action == AppointmentFormAction.delete) {
     return;
   }
   await _validateAndSaveAppointment(

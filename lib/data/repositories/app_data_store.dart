@@ -3572,18 +3572,37 @@ class AppDataStore extends StateNotifier<AppDataState> {
 
   Future<void> deleteAppointment(String appointmentId) async {
     final firestore = _firestore;
+    AppointmentStatus? status;
+    final existing = state.appointments.firstWhereOrNull(
+      (item) => item.id == appointmentId,
+    );
+    status = existing?.status;
+    if (status == null && firestore != null) {
+      try {
+        final snapshot =
+            await firestore.collection('appointments').doc(appointmentId).get();
+        if (snapshot.exists) {
+          status = appointmentFromDoc(snapshot).status;
+        }
+      } on FirebaseException {
+        // Ignore read errors: fall back to local status, deletion will surface
+        // permission issues when attempting the write.
+      }
+    }
+    if (status == AppointmentStatus.completed) {
+      throw StateError('Non puoi eliminare un appuntamento completato.');
+    }
     if (firestore == null) {
       _deleteAppointmentLocal(appointmentId);
-      await deletePaymentTicket(appointmentId);
       return;
     }
-    await firestore.collection('appointments').doc(appointmentId).delete();
+    // Delete mirror first so Firestore rules can still resolve the original.
     await firestore
         .collection('public_appointments')
         .doc(appointmentId)
         .delete();
+    await firestore.collection('appointments').doc(appointmentId).delete();
     _deleteAppointmentLocal(appointmentId);
-    await deletePaymentTicket(appointmentId);
   }
 
   Future<void> upsertQuote(Quote quote) async {
