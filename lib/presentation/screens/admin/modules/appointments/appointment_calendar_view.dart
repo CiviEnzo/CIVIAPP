@@ -4293,8 +4293,8 @@ class _OperatorAppointmentTile extends StatelessWidget {
           isPlaceholder
               ? theme.colorScheme.primaryContainer.withValues(alpha: 0.35)
               : isCancelled
-                  ? Colors.transparent
-                  : theme.colorScheme.surfaceContainerHighest,
+              ? Colors.transparent
+              : theme.colorScheme.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         onTap: onTap,
@@ -5598,6 +5598,7 @@ class _AppointmentCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final status = appointment.status;
+
     final startTimeLabel = DateFormat('HH:mm').format(appointment.start);
     final endTimeLabel = DateFormat('HH:mm').format(appointment.end);
     final timeLabel = '$startTimeLabel - $endTimeLabel';
@@ -5684,7 +5685,9 @@ class _AppointmentCard extends StatelessWidget {
       ...issueDescriptions,
     ];
     final attentionTooltip =
-        attentionTooltipLines.isNotEmpty ? attentionTooltipLines.join('\n') : null;
+        attentionTooltipLines.isNotEmpty
+            ? attentionTooltipLines.join('\n')
+            : null;
     final double verticalPadding;
     if (height < 56) {
       verticalPadding = 4;

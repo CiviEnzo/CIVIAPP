@@ -1927,7 +1927,7 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
     return Card(
       child: ExpansionTile(
         key: ValueKey('photos-${widget.client.id}'),
-        initiallyExpanded: true,
+        initiallyExpanded: false,
         title: Text('Archivio fotografico', style: theme.textTheme.titleMedium),
         subtitle: Text(subtitle, style: theme.textTheme.bodySmall),
         childrenPadding: const EdgeInsets.all(16),
@@ -2769,121 +2769,135 @@ class _AppointmentGroup extends StatelessWidget {
         enableActions &&
         (onEditAppointment != null || onDeleteAppointment != null);
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: theme.textTheme.titleMedium),
-            const SizedBox(height: 12),
-            if (appointments.isEmpty)
-              Text(emptyMessage, style: theme.textTheme.bodyMedium)
-            else
-              ...appointments.map((appointment) {
-                final appointmentServices =
-                    appointment.serviceIds
-                        .map(
-                          (id) => services.firstWhereOrNull(
-                            (element) => element.id == id,
-                          ),
-                        )
-                        .whereType<Service>()
-                        .toList();
-                final operator = staff.firstWhereOrNull(
-                  (element) => element.id == appointment.staffId,
-                );
-                final statusChip = _statusChip(context, appointment.status);
-                final amount =
-                    appointmentServices.isNotEmpty
-                        ? appointmentServices
-                            .map((service) => service.price)
-                            .fold<double>(0, (value, price) => value + price)
-                        : null;
-                final packageLabel =
-                    appointment.packageId == null
-                        ? null
-                        : 'Pacchetto #${appointment.packageId}';
-                final serviceLabel =
-                    appointmentServices.isNotEmpty
-                        ? appointmentServices
-                            .map((service) => service.name)
-                            .join(' + ')
-                        : 'Servizio';
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    // Allow enough vertical space when actions are visible.
-                    isThreeLine: packageLabel != null || showActions,
-                    leading: const Icon(Icons.calendar_month_rounded),
-                    title: Text(serviceLabel),
-                    subtitle: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(dateFormat.format(appointment.start)),
-                        Text(
-                          'Operatore: ${operator?.fullName ?? 'Da assegnare'}',
-                        ),
-                        if (packageLabel != null) Text(packageLabel),
-                      ],
-                    ),
-                    trailing: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        if (amount != null) ...[
-                          Text(
-                            currency.format(amount),
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 6),
-                        ],
-                        Wrap(
-                          spacing: 4,
-                          runSpacing: 4,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          alignment: WrapAlignment.end,
+      child: ExpansionTile(
+        title: Text(title, style: theme.textTheme.titleMedium),
+        initiallyExpanded: title.contains('futuri'),
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // The SizedBox and content go here as before, but inside the ExpansionTile.
+                const SizedBox(height: 12),
+                if (appointments.isEmpty)
+                  Text(emptyMessage, style: theme.textTheme.bodyMedium)
+                else
+                  ...appointments.map((appointment) {
+                    final appointmentServices =
+                        appointment.serviceIds
+                            .map(
+                              (id) => services.firstWhereOrNull(
+                                (element) => element.id == id,
+                              ),
+                            )
+                            .whereType<Service>()
+                            .toList();
+                    final operator = staff.firstWhereOrNull(
+                      (element) => element.id == appointment.staffId,
+                    );
+                    final statusChip = _statusChip(context, appointment.status);
+                    final amount =
+                        appointmentServices.isNotEmpty
+                            ? appointmentServices
+                                .map((service) => service.price)
+                                .fold<double>(
+                                  0,
+                                  (value, price) => value + price,
+                                )
+                            : null;
+                    final packageLabel =
+                        appointment.packageId == null
+                            ? null
+                            : 'Pacchetto #${appointment.packageId}';
+                    final serviceLabel =
+                        appointmentServices.isNotEmpty
+                            ? appointmentServices
+                                .map((service) => service.name)
+                                .join(' + ')
+                            : 'Servizio';
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        // Allow enough vertical space when actions are visible.
+                        isThreeLine: packageLabel != null || showActions,
+                        leading: const Icon(Icons.calendar_month_rounded),
+                        title: Text(serviceLabel),
+                        subtitle: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            statusChip,
-                            if (showActions && onEditAppointment != null)
-                              IconButton(
-                                tooltip: 'Modifica appuntamento',
-                                visualDensity: VisualDensity.compact,
-                                constraints: const BoxConstraints.tightFor(
-                                  width: 36,
-                                  height: 36,
-                                ),
-                                icon: const Icon(Icons.edit_rounded, size: 20),
-                                onPressed: () async {
-                                  await onEditAppointment!(appointment);
-                                },
-                              ),
-                            if (showActions && onDeleteAppointment != null)
-                              IconButton(
-                                tooltip: 'Elimina appuntamento',
-                                visualDensity: VisualDensity.compact,
-                                constraints: const BoxConstraints.tightFor(
-                                  width: 36,
-                                  height: 36,
-                                ),
-                                icon: const Icon(
-                                  Icons.delete_outline_rounded,
-                                  size: 20,
-                                ),
-                                onPressed: () async {
-                                  await onDeleteAppointment!(appointment);
-                                },
-                              ),
+                            Text(dateFormat.format(appointment.start)),
+                            Text(
+                              'Operatore: ${operator?.fullName ?? 'Da assegnare'}',
+                            ),
+                            if (packageLabel != null) Text(packageLabel),
                           ],
                         ),
-                      ],
-                    ),
-                  ),
-                );
-              }),
-          ],
-        ),
+                        trailing: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            if (amount != null) ...[
+                              Text(
+                                currency.format(amount),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                            ],
+                            Wrap(
+                              spacing: 4,
+                              runSpacing: 4,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              alignment: WrapAlignment.end,
+                              children: [
+                                statusChip,
+                                if (showActions && onEditAppointment != null)
+                                  IconButton(
+                                    tooltip: 'Modifica appuntamento',
+                                    visualDensity: VisualDensity.compact,
+                                    constraints: const BoxConstraints.tightFor(
+                                      width: 36,
+                                      height: 36,
+                                    ),
+                                    icon: const Icon(
+                                      Icons.edit_rounded,
+                                      size: 20,
+                                    ),
+                                    onPressed: () async {
+                                      await onEditAppointment!(appointment);
+                                    },
+                                  ),
+                                if (showActions && onDeleteAppointment != null)
+                                  IconButton(
+                                    tooltip: 'Elimina appuntamento',
+                                    visualDensity: VisualDensity.compact,
+                                    constraints: const BoxConstraints.tightFor(
+                                      width: 36,
+                                      height: 36,
+                                    ),
+                                    icon: const Icon(
+                                      Icons.delete_outline_rounded,
+                                      size: 20,
+                                    ),
+                                    onPressed: () async {
+                                      await onDeleteAppointment!(appointment);
+                                    },
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -6589,58 +6603,66 @@ class _PackageGroup extends StatelessWidget {
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
     final dateFormat = DateFormat('dd/MM/yyyy');
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: theme.textTheme.titleMedium),
-            const SizedBox(height: 12),
-            if (items.isEmpty)
-              Text(
-                title.contains('corso')
-                    ? 'Nessun pacchetto attivo per il cliente.'
-                    : 'Non risultano pacchetti passati registrati.',
-                style: theme.textTheme.bodyMedium,
-              )
-            else
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  const spacing = 16.0;
-                  const minTileWidth = 320.0;
-                  final available = constraints.maxWidth;
-                  final estimatedColumns =
-                      ((available + spacing) / (minTileWidth + spacing))
-                          .floor();
-                  final columns = math.max(1, math.min(3, estimatedColumns));
-                  final tileWidth =
-                      (available - spacing * (columns - 1)) / columns;
+      child: ExpansionTile(
+        title: Text(title, style: theme.textTheme.titleMedium),
+        initiallyExpanded: title.contains('in corso'),
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 12),
+                if (items.isEmpty)
+                  Text(
+                    title.contains('corso')
+                        ? 'Nessun pacchetto attivo per il cliente.'
+                        : 'Non risultano pacchetti passati registrati.',
+                    style: theme.textTheme.bodyMedium,
+                  )
+                else
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      const spacing = 16.0;
+                      const minTileWidth = 320.0;
+                      final available = constraints.maxWidth;
+                      final estimatedColumns =
+                          ((available + spacing) / (minTileWidth + spacing))
+                              .floor();
+                      final columns = math.max(
+                        1,
+                        math.min(3, estimatedColumns),
+                      );
+                      final tileWidth =
+                          (available - spacing * (columns - 1)) / columns;
 
-                  return Wrap(
-                    spacing: spacing,
-                    runSpacing: spacing,
-                    children:
-                        items
-                            .map(
-                              (purchase) => SizedBox(
-                                width: tileWidth,
-                                child: _PackageTile(
-                                  purchase: purchase,
-                                  currency: currency,
-                                  dateFormat: dateFormat,
-                                  onEdit: onEdit,
-                                  onDelete: onDelete,
-                                  onAddDeposit: onAddDeposit,
-                                  onDeleteDeposit: onDeleteDeposit,
-                                ),
-                              ),
-                            )
-                            .toList(),
-                  );
-                },
-              ),
-          ],
-        ),
+                      return Wrap(
+                        spacing: spacing,
+                        runSpacing: spacing,
+                        children:
+                            items
+                                .map(
+                                  (purchase) => SizedBox(
+                                    width: tileWidth,
+                                    child: _PackageTile(
+                                      purchase: purchase,
+                                      currency: currency,
+                                      dateFormat: dateFormat,
+                                      onEdit: onEdit,
+                                      onDelete: onDelete,
+                                      onAddDeposit: onAddDeposit,
+                                      onDeleteDeposit: onDeleteDeposit,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                      );
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

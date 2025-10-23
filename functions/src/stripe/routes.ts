@@ -78,6 +78,7 @@ const updateSalonAccountSnapshot = async (account: Stripe.Account): Promise<void
         chargesEnabled: account.charges_enabled ?? false,
         payoutsEnabled: account.payouts_enabled ?? false,
         detailsSubmitted: account.details_submitted ?? false,
+        email: account.email ?? null,
         requirements: {
           currentlyDue: account.requirements?.currently_due ?? [],
           pastDue: account.requirements?.past_due ?? [],
@@ -143,6 +144,7 @@ export const createStripeConnectAccount = onRequest(
                 chargesEnabled: account.charges_enabled ?? false,
                 payoutsEnabled: account.payouts_enabled ?? false,
                 detailsSubmitted: account.details_submitted ?? false,
+                email: account.email ?? email,
               },
             },
             { merge: true },
@@ -154,6 +156,7 @@ export const createStripeConnectAccount = onRequest(
         chargesEnabled: account.charges_enabled ?? false,
         payoutsEnabled: account.payouts_enabled ?? false,
         detailsSubmitted: account.details_submitted ?? false,
+        email: account.email ?? email,
       });
     } catch (error) {
       if (error instanceof Stripe.errors.StripeError) {
