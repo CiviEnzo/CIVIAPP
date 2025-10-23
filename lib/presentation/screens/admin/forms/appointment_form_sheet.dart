@@ -254,12 +254,10 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
               salonId: selectedClient.salonId,
             )
             : const <ClientPackagePurchase>[];
-    final clientPackagesPreview = _dedupePurchasesByReferenceId(
-      clientPackagePurchases
-          .where((purchase) => purchase.effectiveRemainingSessions > 0)
-          .toList(),
+    final allClientPackages = _dedupePurchasesByReferenceId(
+      List<ClientPackagePurchase>.from(clientPackagePurchases),
     );
-    clientPackagesPreview.sort((a, b) {
+    allClientPackages.sort((a, b) {
       final aExpiration = a.expirationDate ?? DateTime(9999, 1, 1);
       final bExpiration = b.expirationDate ?? DateTime(9999, 1, 1);
       final expirationCompare = aExpiration.compareTo(bExpiration);
@@ -268,14 +266,11 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       }
       return a.sale.createdAt.compareTo(b.sale.createdAt);
     });
-
     var packagesForService = <ClientPackagePurchase>[];
     ClientPackagePurchase? selectedPackage;
-    String? packageSubtitle;
+    String? packageHelperText;
     bool canEnablePackage = false;
     String? fallbackPackageId;
-    var eligiblePackages = <ClientPackagePurchase>[];
-    var dropdownPackages = <ClientPackagePurchase>[];
 
     final staffFieldValue =
         _staffId != null && filteredStaff.any((member) => member.id == _staffId)
@@ -333,12 +328,6 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           }),
       );
 
-      eligiblePackages = _dedupePurchasesByReferenceId(
-        packagesForService
-            .where((purchase) => purchase.effectiveRemainingSessions > 0)
-            .toList(),
-      );
-
       final assignedPackage =
           _selectedPackageId != null
               ? packagePurchases.firstWhereOrNull(
@@ -392,38 +381,6 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           ) ??
           (packagesForService.isNotEmpty ? packagesForService.first : null);
 
-      dropdownPackages = _dedupePurchasesByReferenceId(
-        List<ClientPackagePurchase>.from(eligiblePackages),
-      );
-      if (selectedPackage != null) {
-        final activeSelection = selectedPackage;
-        if (dropdownPackages.every(
-          (purchase) =>
-              purchase.item.referenceId != activeSelection.item.referenceId,
-        )) {
-          dropdownPackages.insert(0, activeSelection);
-        }
-      }
-
-      if (packagesForService.isNotEmpty) {
-        if (_usePackageSession) {
-          final activePackage = selectedPackage;
-          if (activePackage != null) {
-            packageSubtitle =
-                '${activePackage.displayName} • ${activePackage.effectiveRemainingSessions} sessioni disponibili';
-          }
-        } else {
-          if (packagesForService.length == 1) {
-            final preview = packagesForService.first;
-            packageSubtitle =
-                '${preview.displayName} • ${preview.effectiveRemainingSessions} sessioni disponibili';
-          } else {
-            packageSubtitle =
-                '${packagesForService.length} pacchetti disponibili per questo servizio';
-          }
-        }
-      }
-
       canEnablePackage = packagesForService.any(
         (purchase) => purchase.effectiveRemainingSessions > 0,
       );
@@ -456,10 +413,37 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       }
     }
 
-    final showPackageSection =
-        selectedClient != null &&
-        singleSelectedService != null &&
-        packagesForService.isNotEmpty;
+    final selectablePackageIds =
+        packagesForService
+            .where((purchase) => purchase.effectiveRemainingSessions > 0)
+            .map((purchase) => purchase.item.referenceId)
+            .toSet();
+
+    if (allClientPackages.isEmpty) {
+      packageHelperText = null;
+    } else if (selectablePackageIds.isEmpty) {
+      packageHelperText =
+          singleSelectedService == null
+              ? 'Seleziona un servizio compatibile per scalare un pacchetto.'
+              : 'Nessun pacchetto compatibile con i servizi selezionati.';
+    } else if (_usePackageSession) {
+      final activePackage = selectedPackage;
+      if (activePackage != null) {
+        packageHelperText =
+            '${activePackage.displayName} • ${activePackage.effectiveRemainingSessions} sessioni disponibili';
+      }
+    } else if (packagesForService.isNotEmpty) {
+      if (packagesForService.length == 1) {
+        final preview = packagesForService.first;
+        packageHelperText =
+            '${preview.displayName} • ${preview.effectiveRemainingSessions} sessioni disponibili';
+      } else {
+        packageHelperText =
+            '${packagesForService.length} pacchetti disponibili per questo servizio';
+      }
+    }
+
+    final showPackageSection = selectedClient != null;
 
     final closureConflicts =
         selectedSalon == null
@@ -478,30 +462,32 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (widget.initial == null)
-              Wrap(
-                spacing: 12,
-                runSpacing: 4,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Text('Nuovo appuntamento', style: theme.textTheme.titleLarge),
-                  Text(bookingDateLabel, style: theme.textTheme.bodyMedium),
-                ],
-              )
-            else
-              Wrap(
-                spacing: 12,
-                runSpacing: 4,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Text(
-                    'Modifica appuntamento',
-                    style: theme.textTheme.titleLarge,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.initial == null
+                      ? 'Nuovo appuntamento'
+                      : 'Modifica appuntamento',
+                  style: theme.textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  bookingDateLabel,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
-                  Text(bookingDateLabel, style: theme.textTheme.bodyMedium),
-                ],
-              ),
-            const SizedBox(height: 16),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            _buildSectionHeader(
+              icon: Icons.group_add_rounded,
+              title: 'Operatore e cliente',
+              subtitle:
+                  "Seleziona l'operatore e collega il cliente per l'appuntamento",
+            ),
+            const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               value: staffFieldValue,
               decoration: const InputDecoration(labelText: 'Operatore'),
@@ -638,11 +624,14 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                 ),
               ],
             ),
+            const SizedBox(height: 24),
+            _buildSectionHeader(
+              icon: Icons.design_services_rounded,
+              title: 'Servizi e pacchetti',
+              subtitle:
+                  'Scegli i trattamenti e decidi se scalare sessioni da un pacchetto',
+            ),
             const SizedBox(height: 12),
-            if (clientPackagesPreview.isNotEmpty) ...[
-              _ClientPackagesPreview(packages: clientPackagesPreview),
-              const SizedBox(height: 12),
-            ],
             FormField<List<String>>(
               validator:
                   (_) =>
@@ -723,96 +712,53 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                 );
               },
             ),
-            const SizedBox(height: 12),
             if (showPackageSection) ...[
-              Text(
-                'Sessioni pacchetto disponibili',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
+              const SizedBox(height: 16),
+              Text('Pacchetti disponibili', style: theme.textTheme.titleMedium),
               const SizedBox(height: 8),
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                value: _usePackageSession,
-                onChanged:
-                    canEnablePackage
-                        ? (checked) {
-                          setState(() {
-                            _packageSelectionManuallyChanged = true;
-                            _usePackageSession = checked ?? false;
-                            if (_usePackageSession) {
-                              final fallback =
-                                  fallbackPackageId ??
-                                  (eligiblePackages.isNotEmpty
-                                      ? eligiblePackages.first.item.referenceId
-                                      : null);
-                              if (fallback == null) {
-                                _usePackageSession = false;
-                                _selectedPackageId = null;
-                                _packageSelectionManuallyChanged = false;
-                              } else {
-                                _selectedPackageId = fallback;
-                              }
-                            } else {
-                              _selectedPackageId = null;
-                            }
-                          });
-                        }
-                        : null,
-                title: const Text('Scala una sessione da un pacchetto'),
-                subtitle:
-                    packageSubtitle != null ? Text(packageSubtitle) : null,
+              _PackageSelectionList(
+                packages: allClientPackages,
+                enabledPackageIds: selectablePackageIds,
+                selectedPackageId:
+                    _usePackageSession ? _selectedPackageId : null,
+                onSelect: (value) {
+                  setState(() {
+                    _packageSelectionManuallyChanged = true;
+                    if (value == null) {
+                      _usePackageSession = false;
+                      _selectedPackageId = null;
+                    } else {
+                      _usePackageSession = true;
+                      _selectedPackageId = value;
+                    }
+                  });
+                },
               ),
-              if (_usePackageSession && dropdownPackages.length > 1) ...[
+              if (packageHelperText != null) ...[
                 const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: _selectedPackageId,
-                  decoration: const InputDecoration(
-                    labelText: 'Seleziona il pacchetto da utilizzare',
+                Text(
+                  packageHelperText,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant.withValues(
+                      alpha: 0.7,
+                    ),
                   ),
-                  items:
-                      dropdownPackages
-                          .map(
-                            (purchase) => DropdownMenuItem(
-                              value: purchase.item.referenceId,
-                              child: Text(
-                                '${purchase.displayName} • ${purchase.effectiveRemainingSessions} sessioni',
-                              ),
-                            ),
-                          )
-                          .toList(),
-                  onChanged:
-                      (value) => setState(() {
-                        _selectedPackageId = value;
-                      }),
                 ),
               ],
-              const SizedBox(height: 12),
             ],
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Orario appuntamento', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _TimelineInfoBox(
-                        label: 'Ora di inizio',
-                        value: startTimeLabel,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _TimelineInfoBox(
-                        label: 'Ora di fine',
-                        value: endTimeLabel,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+            const SizedBox(height: 24),
+            _buildSectionHeader(
+              icon: Icons.schedule_rounded,
+              title: 'Pianificazione',
+              subtitle: 'Rivedi e modifica data, orario e durata',
             ),
             const SizedBox(height: 12),
+            _buildScheduleCard(
+              bookingDateLabel: bookingDateLabel,
+              startTimeLabel: startTimeLabel,
+              endTimeLabel: endTimeLabel,
+            ),
+            const SizedBox(height: 16),
             Text('Durata appuntamento', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             Wrap(
@@ -840,7 +786,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
               ],
             ),
             if (closureConflicts.isNotEmpty) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               ...closureConflicts.map(
                 (closure) => _buildClosureNotice(
                   context: context,
@@ -848,6 +794,12 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                 ),
               ),
             ],
+            const SizedBox(height: 24),
+            _buildSectionHeader(
+              icon: Icons.info_outline_rounded,
+              title: 'Dettagli finali',
+              subtitle: 'Aggiorna stato e note dell\'appuntamento',
+            ),
             const SizedBox(height: 12),
             DropdownButtonFormField<AppointmentStatus>(
               value: _status,
@@ -920,6 +872,134 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+  }) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final textTheme = theme.textTheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment:
+            subtitle == null
+                ? CrossAxisAlignment.center
+                : CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: colorScheme.onSurfaceVariant),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (subtitle != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      subtitle,
+                      style: textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.8,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScheduleCard({
+    required String bookingDateLabel,
+    required String startTimeLabel,
+    required String endTimeLabel,
+  }) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: _pickStart,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+            ),
+            color: colorScheme.surfaceContainerLowest,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                bookingDateLabel,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _TimelineInfoBox(
+                      label: 'Ora di inizio',
+                      value: startTimeLabel,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _TimelineInfoBox(
+                      label: 'Ora di fine',
+                      value: endTimeLabel,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Icon(
+                    Icons.touch_app_rounded,
+                    size: 18,
+                    color: colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Tocca per scegliere un altro slot disponibile',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.primary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -2177,67 +2257,153 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
   }
 }
 
-class _ClientPackagesPreview extends StatelessWidget {
-  const _ClientPackagesPreview({required this.packages});
+class _PackageSelectionList extends StatelessWidget {
+  const _PackageSelectionList({
+    required this.packages,
+    required this.enabledPackageIds,
+    required this.selectedPackageId,
+    required this.onSelect,
+  });
 
   final List<ClientPackagePurchase> packages;
+  final Set<String> enabledPackageIds;
+  final String? selectedPackageId;
+  final ValueChanged<String?> onSelect;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    if (packages.isEmpty) {
+      return Text(
+        'Nessun pacchetto disponibile per questo cliente.',
+        style: theme.textTheme.bodyMedium,
+      );
+    }
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
       children: [
-        Text('Pacchetti disponibili', style: theme.textTheme.titleMedium),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children:
-              packages
-                  .map((purchase) => _ClientPackageSummary(purchase: purchase))
-                  .toList(),
+        _PackageSelectionCard(
+          title: 'Non scalare pacchetto',
+          subtitle: 'L\'appuntamento non consumerà sessioni prepagate.',
+          selected: selectedPackageId == null,
+          enabled: true,
+          onTap: () => onSelect(null),
         ),
+        ...packages.map((purchase) {
+          final id = purchase.item.referenceId;
+          final hasSessions = purchase.effectiveRemainingSessions > 0;
+          final isSelected = selectedPackageId == id;
+          final isEnabled = enabledPackageIds.contains(id) && hasSessions;
+          final expiration = purchase.expirationDate;
+          final expirationLabel =
+              expiration != null
+                  ? 'Scade il ${DateFormat('dd/MM/yyyy').format(expiration)}'
+                  : null;
+          final remainingLabel =
+              hasSessions
+                  ? '${purchase.effectiveRemainingSessions} sessioni disponibili'
+                  : 'Nessuna sessione disponibile';
+          final details =
+              expirationLabel != null
+                  ? '$remainingLabel • $expirationLabel'
+                  : remainingLabel;
+          final enabled = isEnabled || isSelected;
+          return _PackageSelectionCard(
+            title: purchase.displayName,
+            subtitle: details,
+            selected: isSelected,
+            enabled: enabled,
+            onTap: enabled ? () => onSelect(id) : null,
+          );
+        }),
       ],
     );
   }
 }
 
-class _ClientPackageSummary extends StatelessWidget {
-  const _ClientPackageSummary({required this.purchase});
+class _PackageSelectionCard extends StatelessWidget {
+  const _PackageSelectionCard({
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.enabled,
+    required this.onTap,
+  });
 
-  final ClientPackagePurchase purchase;
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final remaining = purchase.effectiveRemainingSessions;
-    final remainingLabel =
-        remaining > 0 ? '$remaining sessioni' : 'Nessuna sessione disponibile';
-    return SizedBox(
-      width: 220,
-      child: Card(
-        elevation: 0,
-        color: theme.colorScheme.surfaceContainerLowest,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(
-            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-          ),
-        ),
-        child: Padding(
+    final colorScheme = theme.colorScheme;
+    final borderColor =
+        selected
+            ? colorScheme.primary
+            : colorScheme.outlineVariant.withValues(alpha: 0.4);
+    final backgroundColor =
+        selected
+            ? colorScheme.primary.withValues(alpha: 0.08)
+            : colorScheme.surfaceContainerLowest;
+    final foregroundColor =
+        enabled
+            ? colorScheme.onSurface
+            : colorScheme.onSurfaceVariant.withValues(alpha: 0.5);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          width: 240,
           padding: const EdgeInsets.all(16),
-          child: Column(
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: borderColor, width: selected ? 2 : 1),
+          ),
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                purchase.displayName,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
+              Icon(
+                selected
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                color:
+                    enabled
+                        ? (selected
+                            ? colorScheme.primary
+                            : colorScheme.onSurfaceVariant)
+                        : colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: foregroundColor,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: foregroundColor,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 6),
-              Text(remainingLabel, style: theme.textTheme.bodyMedium),
             ],
           ),
         ),

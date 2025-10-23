@@ -5598,6 +5598,12 @@ class _AppointmentCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final status = appointment.status;
+    final now = DateTime.now();
+    final bool hasEnded = !appointment.end.isAfter(now);
+    final bool isCompleted = status == AppointmentStatus.completed;
+    final bool isNoShow = status == AppointmentStatus.noShow;
+    final bool hidePastCompletedContent = hasEnded && (isCompleted || isNoShow);
+    final bool hideNoShowColor = hidePastCompletedContent && isNoShow;
 
     final startTimeLabel = DateFormat('HH:mm').format(appointment.start);
     final endTimeLabel = DateFormat('HH:mm').format(appointment.end);
@@ -5622,17 +5628,17 @@ class _AppointmentCard extends StatelessWidget {
     );
     final isCancelled = status == AppointmentStatus.cancelled;
     final baseColor =
-        isCancelled
+        (isCancelled || hideNoShowColor)
             ? Colors.transparent
             : categoryColor ?? theme.colorScheme.primary;
     Color gradientStart = baseColor;
     Color gradientEnd =
-        isCancelled
+        (isCancelled || hideNoShowColor)
             ? baseColor
             : Colors.white.withValues(
               alpha: theme.brightness == Brightness.dark ? 0.2 : 0.95,
             );
-    final highlightAnomalies = hasAnomalies;
+    final highlightAnomalies = hasAnomalies && !hideNoShowColor;
     if (highlightAnomalies) {
       final double startAlpha =
           theme.brightness == Brightness.dark ? 0.45 : 0.25;
@@ -5652,7 +5658,11 @@ class _AppointmentCard extends StatelessWidget {
             ? theme.colorScheme.outlineVariant.withValues(
               alpha: theme.brightness == Brightness.dark ? 0.5 : 0.4,
             )
-            : Color.alphaBlend(baseColor.withValues(alpha: 0.35), gradientEnd);
+            : hideNoShowColor
+                ? theme.colorScheme.outlineVariant.withValues(
+                  alpha: theme.brightness == Brightness.dark ? 0.35 : 0.25,
+                )
+                : Color.alphaBlend(baseColor.withValues(alpha: 0.35), gradientEnd);
     final List<String> issueDescriptions =
         hasAnomalies
             ? (anomalies.toList()..sort((a, b) => a.index.compareTo(b.index)))
@@ -5729,6 +5739,37 @@ class _AppointmentCard extends StatelessWidget {
 
           if (hideContent) {
             return const SizedBox.shrink();
+          }
+
+          if (hidePastCompletedContent) {
+            final IconData iconData;
+            final Color iconColor;
+            if (isNoShow) {
+              iconData = Icons.close_rounded;
+              iconColor = theme.colorScheme.error;
+            } else {
+              iconData = Icons.task_alt_rounded;
+              final Color brightnessSample =
+                  baseColor == Colors.transparent
+                      ? theme.colorScheme.surface
+                      : baseColor;
+              final brightness = ThemeData.estimateBrightnessForColor(
+                brightnessSample.withAlpha(0xFF),
+              );
+              iconColor =
+                  brightness == Brightness.dark
+                      ? Colors.white
+                      : theme.colorScheme.onSurfaceVariant;
+            }
+            final double iconSize =
+                availableHeight < 48
+                    ? 20
+                    : availableHeight < 80
+                    ? 26
+                    : 32;
+            return Center(
+              child: Icon(iconData, color: iconColor, size: iconSize),
+            );
           }
 
           if (availableHeight < 36) {
@@ -5908,23 +5949,6 @@ class _AppointmentCard extends StatelessWidget {
           ),
         );
       }
-      if (isLocked) {
-        overlayWidgets.add(
-          Positioned(
-            top: 8,
-            left: 8,
-            child: Tooltip(
-              message: lockReason ?? 'Appuntamento non modificabile',
-              waitDuration: const Duration(milliseconds: 250),
-              child: Icon(
-                Icons.lock_rounded,
-                color: theme.colorScheme.outline,
-                size: 18,
-              ),
-            ),
-          ),
-        );
-      }
       if (isLastMinute) {
         final slot = lastMinuteSlot;
         if (slot != null) {
@@ -5989,24 +6013,26 @@ class _AppointmentCard extends StatelessWidget {
             : Stack(children: [card, ...overlayWidgets]);
 
     final hoverLines = <String>[];
-    hoverLines
-      ..add('Inizio: $startTimeLabel')
-      ..add('Fine: $endTimeLabel');
-    final clientName = client?.fullName;
-    final normalizedClientName = clientName?.trim();
-    final normalizedServiceName = serviceLabel?.trim();
-    final notes = appointment.notes?.trim();
-    if (normalizedClientName != null && normalizedClientName.isNotEmpty) {
-      hoverLines.add('Cliente: $normalizedClientName');
-    }
-    if (normalizedServiceName != null && normalizedServiceName.isNotEmpty) {
-      hoverLines.add('Servizio: $normalizedServiceName');
-    }
-    if (appointment.packageId != null) {
-      hoverLines.add('Scalato da sessione');
-    }
-    if (notes != null && notes.isNotEmpty) {
-      hoverLines.add('Note: $notes');
+    if (!hidePastCompletedContent) {
+      hoverLines
+        ..add('Inizio: $startTimeLabel')
+        ..add('Fine: $endTimeLabel');
+      final clientName = client?.fullName;
+      final normalizedClientName = clientName?.trim();
+      final normalizedServiceName = serviceLabel?.trim();
+      final notes = appointment.notes?.trim();
+      if (normalizedClientName != null && normalizedClientName.isNotEmpty) {
+        hoverLines.add('Cliente: $normalizedClientName');
+      }
+      if (normalizedServiceName != null && normalizedServiceName.isNotEmpty) {
+        hoverLines.add('Servizio: $normalizedServiceName');
+      }
+      if (appointment.packageId != null) {
+        hoverLines.add('Scalato da sessione');
+      }
+      if (notes != null && notes.isNotEmpty) {
+        hoverLines.add('Note: $notes');
+      }
     }
     final hoverTooltip = hoverLines.isEmpty ? null : hoverLines.join('\n');
 
