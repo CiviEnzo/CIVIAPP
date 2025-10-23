@@ -8,6 +8,7 @@ import 'package:civiapp/data/repositories/app_data_state.dart';
 import 'package:civiapp/domain/availability/appointment_conflicts.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/appointment_day_checklist.dart';
+import 'package:civiapp/domain/entities/appointment_service_allocation.dart';
 import 'package:civiapp/domain/entities/app_notification.dart';
 import 'package:civiapp/domain/entities/cash_flow_entry.dart';
 import 'package:civiapp/domain/entities/client.dart';
@@ -3197,22 +3198,31 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
     await _ensureNoRemoteStaffConflict(resolvedAppointment);
     final shouldConsumeSession =
-        resolvedAppointment.packageId != null &&
+        (resolvedAppointment.hasPackageConsumptions ||
+            resolvedAppointment.packageId != null) &&
         resolvedAppointment.status == AppointmentStatus.completed &&
         (previous == null || previous.status != AppointmentStatus.completed);
     if (shouldConsumeSession) {
       await _consumePackageSession(resolvedAppointment);
     }
 
+    final uncoveredTotals = _calculateUncoveredTotals(resolvedAppointment);
     final shouldCreateTicket = _shouldCreatePaymentTicket(
       appointment: resolvedAppointment,
       previous: previous,
+      uncoveredAmount: uncoveredTotals.amountDue,
     );
     final shouldRemoveTicket =
         previous?.status == AppointmentStatus.completed &&
         resolvedAppointment.status != AppointmentStatus.completed;
     final ticket =
-        shouldCreateTicket ? _buildPaymentTicket(resolvedAppointment) : null;
+        shouldCreateTicket
+            ? _buildPaymentTicket(
+              resolvedAppointment,
+              uncoveredTotals.amountDue,
+              uncoveredTotals.uncoveredByService,
+            )
+            : null;
 
     final firestore = _firestore;
     if (firestore == null) {
@@ -3269,7 +3279,19 @@ class AppDataStore extends StateNotifier<AppDataState> {
   }
 
   Appointment _publicViewOfAppointment(Appointment appointment) {
-    return appointment.copyWith(clientId: '', notes: null, packageId: null);
+    final sanitizedAllocations = appointment.serviceAllocations
+        .map(
+          (allocation) => allocation.copyWith(
+            packageConsumptions: const <AppointmentPackageConsumption>[],
+          ),
+        )
+        .toList(growable: false);
+    return appointment.copyWith(
+      clientId: '',
+      notes: null,
+      packageId: null,
+      serviceAllocations: sanitizedAllocations,
+    );
   }
 
   Future<void> _ensureNoRemoteStaffConflict(Appointment appointment) async {
@@ -3308,11 +3330,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
   bool _shouldCreatePaymentTicket({
     required Appointment appointment,
     Appointment? previous,
+    required double uncoveredAmount,
   }) {
     if (appointment.status != AppointmentStatus.completed) {
-      return false;
-    }
-    if (appointment.packageId != null) {
       return false;
     }
     if (previous?.status == AppointmentStatus.completed) {
@@ -3322,6 +3342,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
       (ticket) => ticket.appointmentId == appointment.id,
     );
     if (existingTicket != null) {
+      return false;
+    }
+    if (uncoveredAmount <= 0.01) {
       return false;
     }
     return true;
@@ -3358,51 +3381,172 @@ class AppDataStore extends StateNotifier<AppDataState> {
     );
   }
 
-  PaymentTicket _buildPaymentTicket(Appointment appointment) {
-    final services =
-        appointment.serviceIds
-            .map(
-              (serviceId) => state.services.firstWhereOrNull(
-                (item) => item.id == serviceId,
-              ),
-            )
-            .whereType<Service>()
-            .toList();
-    final service = services.isNotEmpty ? services.first : null;
+  PaymentTicket _buildPaymentTicket(
+    Appointment appointment,
+    double amountDue,
+    Map<String, int> uncoveredByService,
+  ) {
+    final servicesById = {
+      for (final service in state.services) service.id: service,
+    };
+    final uncoveredEntries =
+        uncoveredByService.entries.toList()
+          ..sort((a, b) => a.key.compareTo(b.key));
+    final names = <String>[];
+    String? primaryServiceId;
+    for (final entry in uncoveredEntries) {
+      final service = servicesById[entry.key];
+      if (service == null) {
+        continue;
+      }
+      final quantity = entry.value;
+      if (quantity <= 0) {
+        continue;
+      }
+      final name = quantity > 1 ? '${service.name} x$quantity' : service.name;
+      names.add(name);
+      primaryServiceId ??= service.id;
+    }
+    if (names.isEmpty) {
+      for (final serviceId in appointment.serviceIds) {
+        final service = servicesById[serviceId];
+        if (service == null) {
+          continue;
+        }
+        names.add(service.name);
+        primaryServiceId ??= service.id;
+      }
+    }
     final aggregatedName =
-        services.isEmpty
-            ? service?.name
-            : services.map((s) => s.name).join(' + ');
-    final aggregatedPrice =
-        services.isEmpty
-            ? service?.price
-            : services.fold<double>(0, (sum, srv) => sum + srv.price);
+        names.isEmpty ? 'Saldo appuntamento' : names.join(' + ');
+    final referenceServiceId = primaryServiceId ?? appointment.serviceId;
     return PaymentTicket(
       id: appointment.id,
       salonId: appointment.salonId,
       appointmentId: appointment.id,
       clientId: appointment.clientId,
-      serviceId: appointment.serviceId,
+      serviceId: referenceServiceId,
       staffId: appointment.staffId,
       appointmentStart: appointment.start,
       appointmentEnd: appointment.end,
       createdAt: DateTime.now(),
-      expectedTotal: aggregatedPrice,
+      expectedTotal: amountDue,
       serviceName: aggregatedName,
       notes: appointment.notes,
     );
   }
 
+  _UncoveredTotals _calculateUncoveredTotals(Appointment appointment) {
+    final servicesById = {
+      for (final service in state.services) service.id: service,
+    };
+    final allocations =
+        appointment.serviceAllocations.isNotEmpty
+            ? appointment.serviceAllocations
+            : _legacyAllocationsForAppointment(appointment);
+    final uncoveredByService = <String, int>{};
+    double total = 0;
+    for (final allocation in allocations) {
+      final service = servicesById[allocation.serviceId];
+      if (service == null) {
+        continue;
+      }
+      var uncoveredQuantity = allocation.quantity;
+      for (final consumption in allocation.packageConsumptions) {
+        uncoveredQuantity -= consumption.quantity;
+      }
+      if (uncoveredQuantity > 0) {
+        uncoveredByService.update(
+          allocation.serviceId,
+          (value) => value + uncoveredQuantity,
+          ifAbsent: () => uncoveredQuantity,
+        );
+        total += service.price * uncoveredQuantity;
+      }
+    }
+    return _UncoveredTotals(
+      amountDue: total,
+      uncoveredByService: uncoveredByService,
+    );
+  }
+
+  List<AppointmentServiceAllocation> _legacyAllocationsForAppointment(
+    Appointment appointment,
+  ) {
+    if (appointment.serviceIds.isEmpty) {
+      return const <AppointmentServiceAllocation>[];
+    }
+    final allocations = <AppointmentServiceAllocation>[];
+    var legacyCoverRemaining = appointment.packageId != null ? 1 : 0;
+    for (final serviceId in appointment.serviceIds) {
+      final consumptions = <AppointmentPackageConsumption>[];
+      if (legacyCoverRemaining > 0 && appointment.packageId != null) {
+        consumptions.add(
+          AppointmentPackageConsumption(
+            packageReferenceId: appointment.packageId!,
+            quantity: 1,
+          ),
+        );
+        legacyCoverRemaining -= 1;
+      }
+      allocations.add(
+        AppointmentServiceAllocation(
+          serviceId: serviceId,
+          quantity: 1,
+          packageConsumptions: consumptions,
+        ),
+      );
+    }
+    return allocations;
+  }
+
   Future<void> _consumePackageSession(Appointment appointment) async {
-    final packageId = appointment.packageId;
-    if (packageId == null) {
+    final plans = <_PlannedPackageConsumption>[];
+    if (appointment.hasPackageConsumptions) {
+      for (final allocation in appointment.serviceAllocations) {
+        if (allocation.serviceId.isEmpty) continue;
+        for (final consumption in allocation.packageConsumptions) {
+          final packageId = consumption.packageReferenceId;
+          if (packageId.isEmpty) {
+            continue;
+          }
+          final quantity = consumption.quantity <= 0 ? 1 : consumption.quantity;
+          if (quantity <= 0) {
+            continue;
+          }
+          plans.add(
+            _PlannedPackageConsumption(
+              packageId: packageId,
+              serviceId: allocation.serviceId,
+              quantity: quantity,
+            ),
+          );
+        }
+      }
+    } else {
+      final legacyPackageId = appointment.packageId;
+      if (legacyPackageId != null && appointment.serviceIds.length == 1) {
+        plans.add(
+          _PlannedPackageConsumption(
+            packageId: legacyPackageId,
+            serviceId: appointment.serviceId,
+            quantity: 1,
+          ),
+        );
+      }
+    }
+
+    if (plans.isEmpty) {
       return;
     }
 
-    if (appointment.serviceIds.length != 1) {
-      return;
-    }
+    await _applyPackageConsumptionPlans(appointment: appointment, plans: plans);
+  }
 
+  Future<void> _applyPackageConsumptionPlans({
+    required Appointment appointment,
+    required List<_PlannedPackageConsumption> plans,
+  }) async {
     final relevantSales = state.sales.where(
       (sale) =>
           sale.clientId == appointment.clientId &&
@@ -3414,9 +3558,74 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
 
     final packageIndex = {for (final pkg in state.packages) pkg.id: pkg};
+    final salesById = {for (final sale in relevantSales) sale.id: sale};
+    final updatedSales = <String, Sale>{};
 
+    for (final plan in plans) {
+      var remaining = plan.quantity;
+      while (remaining > 0) {
+        final candidate = _findPackageConsumptionCandidate(
+          packageId: plan.packageId,
+          serviceId: plan.serviceId,
+          salesById: salesById,
+          overrides: updatedSales,
+          packageIndex: packageIndex,
+        );
+        if (candidate == null) {
+          break;
+        }
+        final available = candidate.remainingSessions;
+        if (available <= 0) {
+          break;
+        }
+        final sessionsToConsume = remaining < available ? remaining : available;
+        final updatedRemaining = available - sessionsToConsume;
+        final clampedRemaining = updatedRemaining < 0 ? 0 : updatedRemaining;
+        final currentStatus = candidate.item.packageStatus;
+        PackagePurchaseStatus? nextStatus;
+        if (currentStatus == PackagePurchaseStatus.cancelled) {
+          nextStatus = PackagePurchaseStatus.cancelled;
+        } else if (clampedRemaining <= 0) {
+          nextStatus = PackagePurchaseStatus.completed;
+        } else if (currentStatus == null) {
+          nextStatus = PackagePurchaseStatus.active;
+        }
+
+        final updatedItem = candidate.item.copyWith(
+          remainingSessions: clampedRemaining,
+          packageStatus: nextStatus ?? currentStatus,
+        );
+
+        final baseSale = updatedSales[candidate.sale.id] ?? candidate.sale;
+        final updatedItems = baseSale.items.toList(growable: true);
+        updatedItems[candidate.itemIndex] = updatedItem;
+        final refreshedSale = baseSale.copyWith(items: updatedItems);
+        updatedSales[candidate.sale.id] = refreshedSale;
+        salesById[candidate.sale.id] = refreshedSale;
+
+        remaining -= sessionsToConsume;
+      }
+    }
+
+    if (updatedSales.isEmpty) {
+      return;
+    }
+
+    for (final sale in updatedSales.values) {
+      await upsertSale(sale);
+    }
+  }
+
+  _PackageConsumptionCandidate? _findPackageConsumptionCandidate({
+    required String packageId,
+    required String serviceId,
+    required Map<String, Sale> salesById,
+    required Map<String, Sale> overrides,
+    required Map<String, ServicePackage> packageIndex,
+  }) {
     final candidates = <_PackageConsumptionCandidate>[];
-    for (final sale in relevantSales) {
+    for (final entry in salesById.entries) {
+      final sale = overrides[entry.key] ?? entry.value;
       for (var index = 0; index < sale.items.length; index++) {
         final item = sale.items[index];
         if (item.referenceType != SaleReferenceType.package) {
@@ -3427,11 +3636,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
         }
 
         final matchedPackage = packageIndex[item.referenceId];
-        if (!_packageSupportsService(
-          item,
-          matchedPackage,
-          appointment.serviceId,
-        )) {
+        if (!_packageSupportsService(item, matchedPackage, serviceId)) {
           continue;
         }
 
@@ -3469,7 +3674,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
 
     if (candidates.isEmpty) {
-      return;
+      return null;
     }
 
     candidates.sort((a, b) {
@@ -3481,30 +3686,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
       }
       return a.sale.createdAt.compareTo(b.sale.createdAt);
     });
-
-    final bestCandidate = candidates.first;
-    final updatedRemaining = bestCandidate.remainingSessions - 1;
-    final clampedRemaining = updatedRemaining < 0 ? 0 : updatedRemaining;
-    final currentStatus = bestCandidate.item.packageStatus;
-    PackagePurchaseStatus? nextStatus;
-    if (currentStatus == PackagePurchaseStatus.cancelled) {
-      nextStatus = PackagePurchaseStatus.cancelled;
-    } else if (clampedRemaining <= 0) {
-      nextStatus = PackagePurchaseStatus.completed;
-    } else if (currentStatus == null) {
-      nextStatus = PackagePurchaseStatus.active;
-    }
-
-    final updatedItem = bestCandidate.item.copyWith(
-      remainingSessions: clampedRemaining,
-      packageStatus: nextStatus ?? currentStatus,
-    );
-
-    final updatedItems = bestCandidate.sale.items.toList(growable: true);
-    updatedItems[bestCandidate.itemIndex] = updatedItem;
-    final updatedSale = bestCandidate.sale.copyWith(items: updatedItems);
-
-    await upsertSale(updatedSale);
+    return candidates.first;
   }
 
   int? _computePackageTotalSessions(
@@ -5132,6 +5314,12 @@ class AppDataStore extends StateNotifier<AppDataState> {
         serviceIdRaw is String && serviceIdRaw.trim().isNotEmpty
             ? serviceIdRaw.trim()
             : null;
+    final allocationsRaw =
+        data['serviceAllocations'] as List<dynamic>? ?? const [];
+    final allocations = allocationsRaw
+        .whereType<Map<String, dynamic>>()
+        .map(AppointmentServiceAllocation.fromMap)
+        .toList(growable: false);
 
     return Appointment(
       id: data['id'] as String,
@@ -5140,6 +5328,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
       staffId: data['staffId'] as String,
       serviceId: serviceId,
       serviceIds: serviceIds,
+      serviceAllocations: allocations,
       start: start,
       end: end,
       status: _statusFromName(data['status'] as String? ?? 'scheduled'),
@@ -5483,6 +5672,28 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
     return List.unmodifiable(map.values);
   }
+}
+
+class _PlannedPackageConsumption {
+  const _PlannedPackageConsumption({
+    required this.packageId,
+    required this.serviceId,
+    required this.quantity,
+  }) : assert(quantity >= 0, 'quantity must be non-negative');
+
+  final String packageId;
+  final String serviceId;
+  final int quantity;
+}
+
+class _UncoveredTotals {
+  const _UncoveredTotals({
+    required this.amountDue,
+    required this.uncoveredByService,
+  });
+
+  final double amountDue;
+  final Map<String, int> uncoveredByService;
 }
 
 class _PackageConsumptionCandidate {

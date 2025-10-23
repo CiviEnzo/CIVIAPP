@@ -1,4 +1,5 @@
 import 'package:civiapp/domain/entities/appointment.dart';
+import 'package:civiapp/domain/entities/appointment_service_allocation.dart';
 import 'package:civiapp/domain/entities/appointment_day_checklist.dart';
 import 'package:civiapp/domain/entities/cash_flow_entry.dart';
 import 'package:civiapp/domain/entities/app_notification.dart';
@@ -1490,6 +1491,12 @@ Map<String, dynamic> packageToMap(ServicePackage pkg) {
 
 Appointment appointmentFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final data = doc.data() ?? <String, dynamic>{};
+  final allocationsRaw =
+      data['serviceAllocations'] as List<dynamic>? ?? const [];
+  final allocations = allocationsRaw
+      .whereType<Map<String, dynamic>>()
+      .map(AppointmentServiceAllocation.fromMap)
+      .toList(growable: false);
   return Appointment(
     id: doc.id,
     salonId: data['salonId'] as String? ?? '',
@@ -1498,6 +1505,7 @@ Appointment appointmentFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     serviceId: data['serviceId'] as String? ?? '',
     serviceIds:
         (data['serviceIds'] as List<dynamic>?)?.whereType<String>().toList(),
+    serviceAllocations: allocations,
     start: ((data['start'] as Timestamp?) ?? Timestamp.now()).toDate(),
     end: ((data['end'] as Timestamp?) ?? Timestamp.now()).toDate(),
     status: _stringToAppointmentStatus(data['status'] as String?),
@@ -1510,12 +1518,16 @@ Appointment appointmentFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
 }
 
 Map<String, dynamic> appointmentToMap(Appointment appointment) {
+  final allocations = appointment.serviceAllocations;
   return {
     'salonId': appointment.salonId,
     'clientId': appointment.clientId,
     'staffId': appointment.staffId,
     'serviceId': appointment.serviceId,
     'serviceIds': appointment.serviceIds,
+    if (allocations.isNotEmpty)
+      'serviceAllocations':
+          allocations.map((allocation) => allocation.toMap()).toList(),
     'start': Timestamp.fromDate(appointment.start),
     'end': Timestamp.fromDate(appointment.end),
     'status': appointment.status.name,

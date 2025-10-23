@@ -2955,6 +2955,10 @@ class _PackagesTabState extends ConsumerState<_PackagesTab> {
       services: data.services,
       clientId: client.id,
     );
+    final servicesById = {
+      for (final service in data.services) service.id: service,
+    };
+
     final active = purchases.where((item) => item.isActive).toList();
     final expired = purchases.where((item) => !item.isActive).toList();
 
@@ -2985,6 +2989,7 @@ class _PackagesTabState extends ConsumerState<_PackagesTab> {
         _PackageGroup(
           title: 'Pacchetti in corso',
           items: active,
+          servicesById: servicesById,
           onEdit: (purchase) => _editPackage(client, purchase),
           onDelete: (purchase) => _deletePackage(client, purchase),
           onAddDeposit: (purchase) => _addDeposit(client, purchase),
@@ -2995,6 +3000,7 @@ class _PackagesTabState extends ConsumerState<_PackagesTab> {
         _PackageGroup(
           title: 'Pacchetti passati',
           items: expired,
+          servicesById: servicesById,
           onEdit: (purchase) => _editPackage(client, purchase),
           onAddDeposit: null,
           onDeleteDeposit: null,
@@ -6584,6 +6590,7 @@ class _PackageGroup extends StatelessWidget {
   const _PackageGroup({
     required this.title,
     required this.items,
+    required this.servicesById,
     this.onEdit,
     this.onDelete,
     this.onAddDeposit,
@@ -6592,6 +6599,7 @@ class _PackageGroup extends StatelessWidget {
 
   final String title;
   final List<ClientPackagePurchase> items;
+  final Map<String, Service> servicesById;
   final ValueChanged<ClientPackagePurchase>? onEdit;
   final ValueChanged<ClientPackagePurchase>? onDelete;
   final ValueChanged<ClientPackagePurchase>? onAddDeposit;
@@ -6648,6 +6656,7 @@ class _PackageGroup extends StatelessWidget {
                                       purchase: purchase,
                                       currency: currency,
                                       dateFormat: dateFormat,
+                                      servicesById: servicesById,
                                       onEdit: onEdit,
                                       onDelete: onDelete,
                                       onAddDeposit: onAddDeposit,
@@ -6728,11 +6737,35 @@ class _PackageGroup extends StatelessWidget {
   }
 }
 
+class _ServiceUsageSummary {
+  const _ServiceUsageSummary({
+    required this.serviceId,
+    required this.name,
+    required this.total,
+    required this.used,
+    required this.remaining,
+  });
+
+  final String serviceId;
+  final String name;
+  final int? total;
+  final int used;
+  final int remaining;
+
+  String get usageLabel {
+    if (total == null) {
+      return 'Rimanenti $remaining • Usate $used';
+    }
+    return '$remaining / $total rimanenti • Usate $used';
+  }
+}
+
 class _PackageTile extends StatelessWidget {
   const _PackageTile({
     required this.purchase,
     required this.currency,
     required this.dateFormat,
+    required this.servicesById,
     this.onEdit,
     this.onDelete,
     this.onAddDeposit,
@@ -6742,6 +6775,7 @@ class _PackageTile extends StatelessWidget {
   final ClientPackagePurchase purchase;
   final NumberFormat currency;
   final DateFormat dateFormat;
+  final Map<String, Service> servicesById;
   final ValueChanged<ClientPackagePurchase>? onEdit;
   final ValueChanged<ClientPackagePurchase>? onDelete;
   final ValueChanged<ClientPackagePurchase>? onAddDeposit;
@@ -6754,6 +6788,7 @@ class _PackageTile extends StatelessWidget {
     final servicesLabel = purchase.serviceNames.join(', ');
     final expiry = purchase.expirationDate;
     final sessionLabel = _PackageGroup._sessionLabel(purchase);
+    final serviceUsage = _resolveServiceUsage();
     final outstanding = double.parse(
       purchase.outstandingAmount.toStringAsFixed(2),
     );
@@ -6854,6 +6889,41 @@ class _PackageTile extends StatelessWidget {
               const SizedBox(height: 4),
               Text('Servizi inclusi: $servicesLabel'),
             ],
+            if (serviceUsage.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('Utilizzo sessioni', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 4),
+              Column(
+                children:
+                    serviceUsage
+                        .map(
+                          (usage) => Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    usage.name,
+                                    style: theme.textTheme.bodyMedium,
+                                  ),
+                                ),
+                                Text(
+                                  usage.usageLabel,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color:
+                                        usage.remaining > 0
+                                            ? null
+                                            : theme.colorScheme.error,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                        .toList(),
+              ),
+            ],
             if (canAddDeposit) ...[
               const SizedBox(height: 12),
               FilledButton.tonalIcon(
@@ -6902,6 +6972,45 @@ class _PackageTile extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  List<_ServiceUsageSummary> _resolveServiceUsage() {
+    final serviceIds = <String>{
+      ...purchase.item.packageServiceSessions.keys,
+      ...purchase.package?.serviceSessionCounts?.keys ?? const <String>{},
+      ...purchase.package?.serviceIds ?? const <String>[],
+      ...purchase.usedSessionsByService.keys,
+    }..removeWhere((id) => id.isEmpty);
+
+    if (serviceIds.isEmpty) {
+      return const <_ServiceUsageSummary>[];
+    }
+
+    final usage = <_ServiceUsageSummary>[];
+    for (final serviceId in serviceIds) {
+      final service = servicesById[serviceId];
+      final total = purchase.totalSessionsForService(serviceId);
+      final remaining = math.max(
+        0,
+        purchase.remainingSessionsForService(serviceId),
+      );
+      final usedFromMap = purchase.usedSessionsByService[serviceId] ?? 0;
+      final computedUsed =
+          total != null ? math.max(0, total - remaining) : usedFromMap;
+      final used = math.max(usedFromMap, computedUsed);
+      usage.add(
+        _ServiceUsageSummary(
+          serviceId: serviceId,
+          name: service?.name ?? serviceId,
+          total: total,
+          used: used,
+          remaining: remaining,
+        ),
+      );
+    }
+
+    usage.sort((a, b) => a.name.compareTo(b.name));
+    return usage;
   }
 }
 

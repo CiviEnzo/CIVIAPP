@@ -11,6 +11,7 @@ class ClientPackagePurchase {
     required this.itemIndex,
     required this.package,
     required this.usedSessions,
+    required this.usedSessionsByService,
     required this.serviceNames,
   });
 
@@ -19,6 +20,7 @@ class ClientPackagePurchase {
   final int itemIndex;
   final ServicePackage? package;
   final int usedSessions;
+  final Map<String, int> usedSessionsByService;
   final List<String> serviceNames;
 
   /// Prefer the package name from catalog, fallback to the sale item description.
@@ -64,6 +66,33 @@ class ClientPackagePurchase {
     }
     final remaining = total - usedSessions;
     return remaining <= 0 ? 0 : remaining;
+  }
+
+  int remainingSessionsForService(String serviceId) {
+    final total = totalSessionsForService(serviceId);
+    if (total == null) {
+      return effectiveRemainingSessions;
+    }
+    final used = usedSessionsByService[serviceId] ?? 0;
+    final remaining = total - used;
+    return remaining <= 0 ? 0 : remaining;
+  }
+
+  int? totalSessionsForService(String serviceId) {
+    if (item.packageServiceSessions.isNotEmpty) {
+      final configured = item.packageServiceSessions[serviceId];
+      if (configured != null) {
+        return (configured * item.quantity).round();
+      }
+    }
+    final packageSessions = package?.serviceSessionCounts;
+    if (packageSessions != null && packageSessions.isNotEmpty) {
+      final configured = packageSessions[serviceId];
+      if (configured != null) {
+        return (configured * item.quantity).round();
+      }
+    }
+    return null;
   }
 
   DateTime? get expirationDate {
@@ -125,16 +154,55 @@ List<ClientPackagePurchase> resolveClientPackagePurchases({
   required String clientId,
   String? salonId,
 }) {
-  final usageByPackage = <String, int>{};
+  final totalUsageByPackage = <String, int>{};
+  final usageByPackageAndService = <String, Map<String, int>>{};
   for (final appointment in appointments.where(
     (appt) =>
         appt.clientId == clientId &&
         (salonId == null || appt.salonId == salonId) &&
         appt.status == AppointmentStatus.completed,
   )) {
-    final packageId = appointment.packageId;
-    if (packageId == null) continue;
-    usageByPackage.update(packageId, (value) => value + 1, ifAbsent: () => 1);
+    if (appointment.hasPackageConsumptions) {
+      for (final allocation in appointment.serviceAllocations) {
+        final serviceId = allocation.serviceId;
+        if (serviceId.isEmpty) continue;
+        for (final consumption in allocation.packageConsumptions) {
+          final packageId = consumption.packageReferenceId;
+          if (packageId.isEmpty) continue;
+          final quantity = consumption.quantity <= 0 ? 1 : consumption.quantity;
+          totalUsageByPackage.update(
+            packageId,
+            (value) => value + quantity,
+            ifAbsent: () => quantity,
+          );
+          final serviceUsage = usageByPackageAndService.putIfAbsent(
+            packageId,
+            () => <String, int>{},
+          );
+          serviceUsage.update(
+            serviceId,
+            (value) => value + quantity,
+            ifAbsent: () => quantity,
+          );
+        }
+      }
+      continue;
+    }
+    final legacyPackageId = appointment.packageId;
+    if (legacyPackageId == null) continue;
+    totalUsageByPackage.update(
+      legacyPackageId,
+      (value) => value + 1,
+      ifAbsent: () => 1,
+    );
+    final serviceUsage = usageByPackageAndService.putIfAbsent(
+      legacyPackageId,
+      () => <String, int>{},
+    );
+    final serviceId = appointment.serviceId;
+    if (serviceId.isNotEmpty) {
+      serviceUsage.update(serviceId, (value) => value + 1, ifAbsent: () => 1);
+    }
   }
 
   final purchases = <ClientPackagePurchase>[];
@@ -151,7 +219,9 @@ List<ClientPackagePurchase> resolveClientPackagePurchases({
       final package = packages.firstWhereOrNull(
         (element) => element.id == item.referenceId,
       );
-      final consumedSessions = usageByPackage[item.referenceId] ?? 0;
+      final consumedSessions = totalUsageByPackage[item.referenceId] ?? 0;
+      final consumedByService =
+          usageByPackageAndService[item.referenceId] ?? const <String, int>{};
       final sessionSource =
           item.packageServiceSessions.isNotEmpty
               ? item.packageServiceSessions
@@ -186,6 +256,7 @@ List<ClientPackagePurchase> resolveClientPackagePurchases({
           itemIndex: index,
           package: package,
           usedSessions: consumedSessions,
+          usedSessionsByService: consumedByService,
           serviceNames: serviceNames,
         ),
       );

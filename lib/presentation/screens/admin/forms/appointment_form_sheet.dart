@@ -4,8 +4,10 @@ import 'package:civiapp/app/providers.dart';
 import 'package:civiapp/data/repositories/app_data_state.dart';
 import 'package:civiapp/domain/availability/appointment_conflicts.dart';
 import 'package:civiapp/domain/availability/equipment_availability.dart';
+import 'package:civiapp/domain/availability/package_session_allocator.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
 import 'package:civiapp/domain/entities/appointment_clipboard.dart';
+import 'package:civiapp/domain/entities/appointment_service_allocation.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/salon.dart';
 import 'package:civiapp/domain/entities/service.dart';
@@ -79,11 +81,15 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
   String? _clientId;
   String? _staffId;
   late List<String> _serviceIds;
+  final Map<String, int> _serviceQuantities = {};
+  final Map<String, String?> _servicePackageSelections = {};
+  final Set<String> _manualPackageSelections = {};
+  PackageSessionAllocationSuggestion? _latestSuggestion;
+  String _lastSuggestionKey = '';
+  final PackageSessionAllocator _sessionAllocator =
+      const PackageSessionAllocator();
   AppointmentStatus _status = AppointmentStatus.scheduled;
   late TextEditingController _notes;
-  bool _usePackageSession = false;
-  String? _selectedPackageId;
-  bool _packageSelectionManuallyChanged = false;
   bool _isDeleting = false;
   bool _copyJustCompleted = false;
   Timer? _copyFeedbackTimer;
@@ -109,8 +115,6 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                 fallbackServiceId,
             ];
     _status = initial?.status ?? AppointmentStatus.scheduled;
-    _selectedPackageId = initial?.packageId;
-    _usePackageSession = _selectedPackageId != null;
     final fallbackStart = DateTime.now().add(const Duration(hours: 1));
     _start = initial?.start ?? widget.suggestedStart ?? fallbackStart;
     var end =
@@ -126,6 +130,30 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         _status == AppointmentStatus.completed) {
       _status = AppointmentStatus.scheduled;
     }
+
+    if (initial != null && initial.serviceAllocations.isNotEmpty) {
+      for (final allocation in initial.serviceAllocations) {
+        if (allocation.serviceId.isEmpty) continue;
+        _serviceQuantities[allocation.serviceId] = allocation.quantity;
+        final firstConsumption =
+            allocation.packageConsumptions.isNotEmpty
+                ? allocation.packageConsumptions.first
+                : null;
+        final packageId = firstConsumption?.packageReferenceId;
+        _servicePackageSelections[allocation.serviceId] =
+            packageId != null && packageId.isNotEmpty ? packageId : null;
+        if (packageId != null && packageId.isNotEmpty) {
+          _manualPackageSelections.add(allocation.serviceId);
+        }
+      }
+    } else if (initial?.packageId != null &&
+        initial!.packageId!.isNotEmpty &&
+        _serviceIds.isNotEmpty) {
+      _servicePackageSelections[_serviceIds.first] = initial.packageId;
+      _manualPackageSelections.add(_serviceIds.first);
+    }
+
+    _ensureServiceState(_serviceIds);
   }
 
   @override
@@ -202,16 +230,22 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           _serviceIds = _serviceIds
               .where(filteredServiceIds.contains)
               .toList(growable: false);
-          _usePackageSession = false;
-          _selectedPackageId = null;
-          _packageSelectionManuallyChanged = false;
+          _ensureServiceState(_serviceIds);
+          _manualPackageSelections.removeWhere(
+            (serviceId) => !_serviceIds.contains(serviceId),
+          );
+          if (_serviceIds.isEmpty) {
+            _serviceQuantities.clear();
+            _clearAllPackageSelections();
+          } else {
+            _lastSuggestionKey = '';
+            _latestSuggestion = null;
+          }
         });
       });
     }
     final selectedServices =
         services.where((service) => _serviceIds.contains(service.id)).toList();
-    final singleSelectedService =
-        selectedServices.length == 1 ? selectedServices.first : null;
     final filteredStaff =
         staffMembers.where((member) {
           if (selectedServices.isNotEmpty) {
@@ -255,7 +289,9 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             )
             : const <ClientPackagePurchase>[];
     final allClientPackages = _dedupePurchasesByReferenceId(
-      List<ClientPackagePurchase>.from(clientPackagePurchases),
+      List<ClientPackagePurchase>.from(
+        clientPackagePurchases.where((purchase) => purchase.isActive),
+      ),
     );
     allClientPackages.sort((a, b) {
       final aExpiration = a.expirationDate ?? DateTime(9999, 1, 1);
@@ -266,11 +302,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       }
       return a.sale.createdAt.compareTo(b.sale.createdAt);
     });
-    var packagesForService = <ClientPackagePurchase>[];
-    ClientPackagePurchase? selectedPackage;
-    String? packageHelperText;
-    bool canEnablePackage = false;
-    String? fallbackPackageId;
+    final packagesByService = <String, List<ClientPackagePurchase>>{};
 
     final staffFieldValue =
         _staffId != null && filteredStaff.any((member) => member.id == _staffId)
@@ -295,152 +327,28 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             )
             .toList();
 
-    if (selectedClient == null || singleSelectedService == null) {
-      if (_usePackageSession || _selectedPackageId != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          setState(() {
-            _usePackageSession = false;
-            _selectedPackageId = null;
-            _packageSelectionManuallyChanged = false;
-          });
-        });
+    if (selectedClient != null) {
+      for (final service in selectedServices) {
+        final matching =
+            allClientPackages
+                .where((purchase) => purchase.supportsService(service.id))
+                .toList()
+              ..sort((a, b) {
+                final aExpiration = a.expirationDate ?? DateTime(9999, 1, 1);
+                final bExpiration = b.expirationDate ?? DateTime(9999, 1, 1);
+                final expirationCompare = aExpiration.compareTo(bExpiration);
+                if (expirationCompare != 0) {
+                  return expirationCompare;
+                }
+                return a.sale.createdAt.compareTo(b.sale.createdAt);
+              });
+        packagesByService[service.id] = _dedupePurchasesByReferenceId(matching);
       }
-    } else {
-      final packagePurchases = clientPackagePurchases;
-      packagesForService = _dedupePurchasesByReferenceId(
-        packagePurchases
-            .where(
-              (purchase) =>
-                  purchase.supportsService(singleSelectedService.id) &&
-                  (purchase.effectiveRemainingSessions > 0 ||
-                      purchase.item.referenceId == _selectedPackageId),
-            )
-            .toList()
-          ..sort((a, b) {
-            final aExpiration = a.expirationDate ?? DateTime(9999, 1, 1);
-            final bExpiration = b.expirationDate ?? DateTime(9999, 1, 1);
-            final expirationCompare = aExpiration.compareTo(bExpiration);
-            if (expirationCompare != 0) {
-              return expirationCompare;
-            }
-            return a.sale.createdAt.compareTo(b.sale.createdAt);
-          }),
+      _ensureServiceState(_serviceIds);
+      _scheduleAllocatorUpdate(
+        selectedServices: selectedServices,
+        packages: allClientPackages,
       );
-
-      final assignedPackage =
-          _selectedPackageId != null
-              ? packagePurchases.firstWhereOrNull(
-                (purchase) => purchase.item.referenceId == _selectedPackageId,
-              )
-              : null;
-      if (assignedPackage != null &&
-          packagesForService.every(
-            (purchase) =>
-                purchase.item.referenceId != assignedPackage.item.referenceId,
-          )) {
-        packagesForService.insert(0, assignedPackage);
-      }
-
-      fallbackPackageId =
-          packagesForService
-              .firstWhereOrNull(
-                (purchase) => purchase.effectiveRemainingSessions > 0,
-              )
-              ?.item
-              .referenceId ??
-          (packagesForService.isNotEmpty
-              ? packagesForService.first.item.referenceId
-              : null);
-
-      if (_usePackageSession) {
-        final availableIds =
-            packagesForService
-                .map((purchase) => purchase.item.referenceId)
-                .toSet();
-        if (packagesForService.isEmpty ||
-            !availableIds.contains(_selectedPackageId)) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            setState(() {
-              if (fallbackPackageId == null) {
-                _usePackageSession = false;
-                _selectedPackageId = null;
-                _packageSelectionManuallyChanged = false;
-              } else {
-                _selectedPackageId = fallbackPackageId;
-              }
-            });
-          });
-        }
-      }
-
-      selectedPackage =
-          packagesForService.firstWhereOrNull(
-            (purchase) => purchase.item.referenceId == _selectedPackageId,
-          ) ??
-          (packagesForService.isNotEmpty ? packagesForService.first : null);
-
-      canEnablePackage = packagesForService.any(
-        (purchase) => purchase.effectiveRemainingSessions > 0,
-      );
-
-      // Prefer consuming a package session by default when one is available
-      // unless the operator explicitly disables it.
-      if (canEnablePackage &&
-          !_usePackageSession &&
-          !_packageSelectionManuallyChanged) {
-        final autoPackageId = fallbackPackageId;
-        if (autoPackageId != null) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            setState(() {
-              _usePackageSession = true;
-              _selectedPackageId = autoPackageId;
-            });
-          });
-        }
-      }
-
-      if (!canEnablePackage && _usePackageSession) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          setState(() {
-            _usePackageSession = false;
-            _packageSelectionManuallyChanged = false;
-          });
-        });
-      }
-    }
-
-    final selectablePackageIds =
-        packagesForService
-            .where((purchase) => purchase.effectiveRemainingSessions > 0)
-            .map((purchase) => purchase.item.referenceId)
-            .toSet();
-
-    if (allClientPackages.isEmpty) {
-      packageHelperText = null;
-    } else if (selectablePackageIds.isEmpty) {
-      packageHelperText =
-          singleSelectedService == null
-              ? 'Seleziona un servizio compatibile per scalare un pacchetto.'
-              : 'Nessun pacchetto compatibile con i servizi selezionati.';
-    } else if (_usePackageSession) {
-      final activePackage = selectedPackage;
-      if (activePackage != null) {
-        packageHelperText =
-            '${activePackage.displayName} • ${activePackage.effectiveRemainingSessions} sessioni disponibili';
-      }
-    } else if (packagesForService.isNotEmpty) {
-      if (packagesForService.length == 1) {
-        final preview = packagesForService.first;
-        packageHelperText =
-            '${preview.displayName} • ${preview.effectiveRemainingSessions} sessioni disponibili';
-      } else {
-        packageHelperText =
-            '${packagesForService.length} pacchetti disponibili per questo servizio';
-      }
     }
 
     final showPackageSection = selectedClient != null;
@@ -518,18 +426,19 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                   if (salonChanged) {
                     _clientId = null;
                     _serviceIds = const [];
-                    _usePackageSession = false;
-                    _selectedPackageId = null;
-                    _packageSelectionManuallyChanged = false;
+                    _serviceQuantities.clear();
+                    _clearAllPackageSelections();
                   }
 
                   if (staffMember == null) {
                     if (!salonChanged) {
                       _serviceIds = const [];
-                      _usePackageSession = false;
-                      _selectedPackageId = null;
-                      _packageSelectionManuallyChanged = false;
+                      _serviceQuantities.clear();
+                      _clearAllPackageSelections();
                     }
+                    _ensureServiceState(_serviceIds);
+                    _lastSuggestionKey = '';
+                    _latestSuggestion = null;
                     return;
                   }
 
@@ -550,9 +459,12 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                       _serviceIds.where(allowedServiceIds.contains).toList();
                   if (filteredSelections.length != _serviceIds.length) {
                     _serviceIds = filteredSelections;
-                    _usePackageSession = false;
-                    _selectedPackageId = null;
-                    _packageSelectionManuallyChanged = false;
+                    _ensureServiceState(_serviceIds);
+                    _manualPackageSelections.removeWhere(
+                      (serviceId) => !_serviceIds.contains(serviceId),
+                    );
+                    _lastSuggestionKey = '';
+                    _latestSuggestion = null;
                   }
                 });
 
@@ -656,10 +568,15 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                         if (selection != null) {
                           setState(() {
                             _serviceIds = selection;
-                            _usePackageSession = false;
-                            _selectedPackageId = null;
-                            _packageSelectionManuallyChanged = false;
-                            if (_serviceIds.isNotEmpty) {
+                            _ensureServiceState(_serviceIds);
+                            _manualPackageSelections.removeWhere(
+                              (serviceId) => !_serviceIds.contains(serviceId),
+                            );
+                            if (_serviceIds.isEmpty) {
+                              _clearAllPackageSelections();
+                            } else {
+                              _lastSuggestionKey = '';
+                              _latestSuggestion = null;
                               final durations = services
                                   .where(
                                     (service) =>
@@ -716,35 +633,46 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
               const SizedBox(height: 16),
               Text('Pacchetti disponibili', style: theme.textTheme.titleMedium),
               const SizedBox(height: 8),
-              _PackageSelectionList(
-                packages: allClientPackages,
-                enabledPackageIds: selectablePackageIds,
-                selectedPackageId:
-                    _usePackageSession ? _selectedPackageId : null,
-                onSelect: (value) {
-                  setState(() {
-                    _packageSelectionManuallyChanged = true;
-                    if (value == null) {
-                      _usePackageSession = false;
-                      _selectedPackageId = null;
-                    } else {
-                      _usePackageSession = true;
-                      _selectedPackageId = value;
-                    }
-                  });
-                },
-              ),
-              if (packageHelperText != null) ...[
-                const SizedBox(height: 12),
+              if (selectedServices.isEmpty)
                 Text(
-                  packageHelperText,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant.withValues(
-                      alpha: 0.7,
+                  'Seleziona almeno un servizio per abbinare i pacchetti.',
+                  style: theme.textTheme.bodyMedium,
+                )
+              else if (allClientPackages.isEmpty)
+                Text(
+                  'Il cliente non ha pacchetti attivi.',
+                  style: theme.textTheme.bodyMedium,
+                )
+              else
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ...selectedServices.map(
+                      (service) => Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: _ServicePackageSelector(
+                          service: service,
+                          packages: packagesByService[service.id] ?? const [],
+                          selectedPackageId:
+                              _servicePackageSelections[service.id],
+                          suggestedPackageId: _suggestedPackageForService(
+                            service.id,
+                          ),
+                          uncoveredQuantity:
+                              _latestSuggestion?.uncoveredServices[service
+                                  .id] ??
+                              0,
+                          onSelect: (value) {
+                            setState(() {
+                              _manualPackageSelections.add(service.id);
+                              _servicePackageSelections[service.id] = value;
+                            });
+                          },
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
             ],
             const SizedBox(height: 24),
             _buildSectionHeader(
@@ -1885,13 +1813,6 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       return null;
     }
 
-    if (_usePackageSession && _selectedPackageId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Seleziona il pacchetto da utilizzare')),
-      );
-      return null;
-    }
-
     final data = ref.read(appDataProvider);
     final salons = data.salons.isNotEmpty ? data.salons : widget.salons;
     final allServices =
@@ -1965,11 +1886,12 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       clientId: _clientId!,
       staffId: _staffId!,
       serviceIds: _serviceIds,
+      serviceAllocations: _buildServiceAllocations(),
       start: _start,
       end: _end,
       status: _status,
       notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
-      packageId: _usePackageSession ? _selectedPackageId : null,
+      packageId: null,
       roomId: widget.initial?.roomId,
     );
 
@@ -2203,9 +2125,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       if (!mounted) return;
       setState(() {
         _clientId = newClient.id;
-        _usePackageSession = false;
-        _selectedPackageId = null;
-        _packageSelectionManuallyChanged = false;
+        _clearAllPackageSelections();
+        _ensureServiceState(_serviceIds);
       });
       _clientFieldKey.currentState?.didChange(newClient.id);
     }
@@ -2221,12 +2142,156 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       if (!mounted) return;
       setState(() {
         _clientId = selected.id;
-        _usePackageSession = false;
-        _selectedPackageId = null;
-        _packageSelectionManuallyChanged = false;
+        _clearAllPackageSelections();
+        _ensureServiceState(_serviceIds);
       });
       _clientFieldKey.currentState?.didChange(selected.id);
     }
+  }
+
+  void _clearAllPackageSelections() {
+    _servicePackageSelections.clear();
+    _manualPackageSelections.clear();
+    _latestSuggestion = null;
+    _lastSuggestionKey = '';
+  }
+
+  void _ensureServiceState(List<String> serviceIds) {
+    final expected = serviceIds.toSet();
+    for (final id in serviceIds) {
+      _serviceQuantities.putIfAbsent(id, () => 1);
+      _servicePackageSelections.putIfAbsent(id, () => null);
+    }
+    final existing = _servicePackageSelections.keys.toList(growable: false);
+    for (final id in existing) {
+      if (!expected.contains(id)) {
+        _servicePackageSelections.remove(id);
+        _serviceQuantities.remove(id);
+        _manualPackageSelections.remove(id);
+      }
+    }
+  }
+
+  void _scheduleAllocatorUpdate({
+    required List<Service> selectedServices,
+    required List<ClientPackagePurchase> packages,
+  }) {
+    if (_clientId == null ||
+        selectedServices.isEmpty ||
+        packages.isEmpty ||
+        !mounted) {
+      return;
+    }
+    final key = _buildAllocatorKey(
+      selectedServices: selectedServices,
+      packages: packages,
+    );
+    if (key == _lastSuggestionKey) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final requested = <String, int>{};
+      for (final service in selectedServices) {
+        requested[service.id] = _serviceQuantities[service.id] ?? 1;
+      }
+      final suggestion = _sessionAllocator.suggest(
+        requestedServices: requested,
+        availablePackages: packages,
+      );
+      setState(() {
+        _latestSuggestion = suggestion;
+        for (final allocation in suggestion.allocations) {
+          if (_manualPackageSelections.contains(allocation.serviceId)) {
+            continue;
+          }
+          final consumption =
+              allocation.packageConsumptions.isNotEmpty
+                  ? allocation.packageConsumptions.first
+                  : null;
+          final packageId = consumption?.packageReferenceId;
+          _servicePackageSelections[allocation.serviceId] =
+              packageId != null && packageId.isNotEmpty ? packageId : null;
+        }
+        _lastSuggestionKey = key;
+      });
+    });
+  }
+
+  String _buildAllocatorKey({
+    required List<Service> selectedServices,
+    required List<ClientPackagePurchase> packages,
+  }) {
+    final servicePart =
+        selectedServices
+            .map(
+              (service) =>
+                  '${service.id}:${_serviceQuantities[service.id] ?? 1}',
+            )
+            .toList()
+          ..sort();
+    final packagePart =
+        packages.map((purchase) {
+            final buffer =
+                StringBuffer(purchase.item.referenceId)
+                  ..write(':')
+                  ..write(purchase.effectiveRemainingSessions);
+            for (final service in selectedServices) {
+              buffer
+                ..write(':')
+                ..write(service.id)
+                ..write('=')
+                ..write(purchase.remainingSessionsForService(service.id));
+            }
+            return buffer.toString();
+          }).toList()
+          ..sort();
+    return [
+      _clientId ?? '',
+      servicePart.join(','),
+      packagePart.join(','),
+    ].join('|');
+  }
+
+  String? _suggestedPackageForService(String serviceId) {
+    final suggestion = _latestSuggestion;
+    if (suggestion == null) {
+      return null;
+    }
+    final allocation = suggestion.allocations.firstWhereOrNull(
+      (item) => item.serviceId == serviceId,
+    );
+    if (allocation == null || allocation.packageConsumptions.isEmpty) {
+      return null;
+    }
+    final consumption = allocation.packageConsumptions.first;
+    final packageId = consumption.packageReferenceId;
+    return packageId.isNotEmpty ? packageId : null;
+  }
+
+  List<AppointmentServiceAllocation> _buildServiceAllocations() {
+    final allocations = <AppointmentServiceAllocation>[];
+    for (final serviceId in _serviceIds) {
+      final quantity = _serviceQuantities[serviceId] ?? 1;
+      final packageId = _servicePackageSelections[serviceId];
+      final consumptions = <AppointmentPackageConsumption>[];
+      if (packageId != null && packageId.isNotEmpty) {
+        consumptions.add(
+          AppointmentPackageConsumption(
+            packageReferenceId: packageId,
+            quantity: quantity,
+          ),
+        );
+      }
+      allocations.add(
+        AppointmentServiceAllocation(
+          serviceId: serviceId,
+          quantity: quantity,
+          packageConsumptions: consumptions,
+        ),
+      );
+    }
+    return allocations;
   }
 
   List<ClientPackagePurchase> _dedupePurchasesByReferenceId(
@@ -2257,67 +2322,98 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
   }
 }
 
-class _PackageSelectionList extends StatelessWidget {
-  const _PackageSelectionList({
+class _ServicePackageSelector extends StatelessWidget {
+  const _ServicePackageSelector({
+    required this.service,
     required this.packages,
-    required this.enabledPackageIds,
     required this.selectedPackageId,
+    required this.suggestedPackageId,
+    required this.uncoveredQuantity,
     required this.onSelect,
   });
 
+  final Service service;
   final List<ClientPackagePurchase> packages;
-  final Set<String> enabledPackageIds;
   final String? selectedPackageId;
+  final String? suggestedPackageId;
+  final int uncoveredQuantity;
   final ValueChanged<String?> onSelect;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    if (packages.isEmpty) {
-      return Text(
-        'Nessun pacchetto disponibile per questo cliente.',
-        style: theme.textTheme.bodyMedium,
-      );
-    }
-
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
+    final colorScheme = theme.colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _PackageSelectionCard(
-          title: 'Non scalare pacchetto',
-          subtitle: 'L\'appuntamento non consumerà sessioni prepagate.',
-          selected: selectedPackageId == null,
-          enabled: true,
-          onTap: () => onSelect(null),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                service.name,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            if (uncoveredQuantity > 0)
+              Chip(
+                label: Text('$uncoveredQuantity fuori pacchetto'),
+                backgroundColor: colorScheme.errorContainer,
+                labelStyle: theme.textTheme.labelMedium?.copyWith(
+                  color: colorScheme.onErrorContainer,
+                ),
+              ),
+          ],
         ),
-        ...packages.map((purchase) {
-          final id = purchase.item.referenceId;
-          final hasSessions = purchase.effectiveRemainingSessions > 0;
-          final isSelected = selectedPackageId == id;
-          final isEnabled = enabledPackageIds.contains(id) && hasSessions;
-          final expiration = purchase.expirationDate;
-          final expirationLabel =
-              expiration != null
-                  ? 'Scade il ${DateFormat('dd/MM/yyyy').format(expiration)}'
-                  : null;
-          final remainingLabel =
-              hasSessions
-                  ? '${purchase.effectiveRemainingSessions} sessioni disponibili'
-                  : 'Nessuna sessione disponibile';
-          final details =
-              expirationLabel != null
-                  ? '$remainingLabel • $expirationLabel'
-                  : remainingLabel;
-          final enabled = isEnabled || isSelected;
-          return _PackageSelectionCard(
-            title: purchase.displayName,
-            subtitle: details,
-            selected: isSelected,
-            enabled: enabled,
-            onTap: enabled ? () => onSelect(id) : null,
-          );
-        }),
+        const SizedBox(height: 8),
+        if (packages.isEmpty)
+          Text(
+            'Nessun pacchetto compatibile.',
+            style: theme.textTheme.bodyMedium,
+          )
+        else
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _PackageSelectionCard(
+                title: 'Non scalare pacchetto',
+                subtitle: 'Il servizio resterà fuori pacchetto.',
+                selected: selectedPackageId == null,
+                enabled: true,
+                recommended: suggestedPackageId == null,
+                onTap: () => onSelect(null),
+              ),
+              ...packages.map((purchase) {
+                final packageId = purchase.item.referenceId;
+                final remaining = purchase.remainingSessionsForService(
+                  service.id,
+                );
+                final enabled = remaining > 0;
+                final isSelected = selectedPackageId == packageId;
+                final isSuggested = suggestedPackageId == packageId;
+                final expiration = purchase.expirationDate;
+                final detailsBuffer = StringBuffer(
+                  '$remaining sessioni disponibili',
+                );
+                if (expiration != null) {
+                  detailsBuffer
+                    ..write(' • Scade il ')
+                    ..write(DateFormat('dd/MM/yyyy').format(expiration));
+                }
+                return _PackageSelectionCard(
+                  title: purchase.displayName,
+                  subtitle: detailsBuffer.toString(),
+                  selected: isSelected,
+                  enabled: enabled || isSelected,
+                  recommended: isSuggested,
+                  onTap:
+                      enabled || isSelected ? () => onSelect(packageId) : null,
+                );
+              }),
+            ],
+          ),
       ],
     );
   }
@@ -2330,6 +2426,7 @@ class _PackageSelectionCard extends StatelessWidget {
     required this.selected,
     required this.enabled,
     required this.onTap,
+    this.recommended = false,
   });
 
   final String title;
@@ -2337,6 +2434,7 @@ class _PackageSelectionCard extends StatelessWidget {
   final bool selected;
   final bool enabled;
   final VoidCallback? onTap;
+  final bool recommended;
 
   @override
   Widget build(BuildContext context) {
@@ -2401,6 +2499,16 @@ class _PackageSelectionCard extends StatelessWidget {
                         color: foregroundColor,
                       ),
                     ),
+                    if (recommended && !selected)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          'Suggerito',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: colorScheme.primary,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
