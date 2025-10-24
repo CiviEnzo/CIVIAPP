@@ -70,24 +70,26 @@ class DialogActionLayout extends StatelessWidget {
               child: body,
             ),
           ),
-          const Divider(height: 1),
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: resolvedActionsPadding.copyWith(
-                bottom: resolvedActionsPadding.bottom + bottomInset,
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  for (int i = 0; i < actions.length; i++) ...[
-                    if (i > 0) SizedBox(width: actionsSpacing),
-                    actions[i],
+          if (actions.isNotEmpty) ...[
+            const Divider(height: 1),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: resolvedActionsPadding.copyWith(
+                  bottom: resolvedActionsPadding.bottom + bottomInset,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    for (int i = 0; i < actions.length; i++) ...[
+                      if (i > 0) SizedBox(width: actionsSpacing),
+                      actions[i],
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );

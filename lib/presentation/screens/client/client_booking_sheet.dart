@@ -33,6 +33,8 @@ class ClientBookingSheet extends ConsumerStatefulWidget {
     this.lastMinuteSlot,
     this.onCompleted,
     this.onDismiss,
+    this.showCloseButton = false,
+    this.overrideTitle,
   });
 
   final Client client;
@@ -41,6 +43,8 @@ class ClientBookingSheet extends ConsumerStatefulWidget {
   final LastMinuteSlot? lastMinuteSlot;
   final ValueChanged<Appointment>? onCompleted;
   final VoidCallback? onDismiss;
+  final bool showCloseButton;
+  final String? overrideTitle;
 
   static Future<Appointment?> show(
     BuildContext context, {
@@ -49,6 +53,43 @@ class ClientBookingSheet extends ConsumerStatefulWidget {
     Appointment? existingAppointment,
     LastMinuteSlot? lastMinuteSlot,
   }) {
+    if (existingAppointment != null) {
+      return showModalBottomSheet<Appointment>(
+        context: context,
+        isScrollControlled: true,
+        enableDrag: true,
+        backgroundColor: Colors.transparent,
+        builder: (sheetContext) {
+          final viewInsets = MediaQuery.of(sheetContext).viewInsets.bottom;
+          final theme = Theme.of(sheetContext);
+          return AnimatedPadding(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            padding: EdgeInsets.only(bottom: viewInsets),
+            child: FractionallySizedBox(
+              heightFactor: 0.92,
+              alignment: Alignment.bottomCenter,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(28),
+                ),
+                child: Material(
+                  color: theme.colorScheme.surface,
+                  child: ClientBookingSheet(
+                    client: client,
+                    initialServiceId: preselectedService?.id,
+                    initialAppointment: existingAppointment,
+                    lastMinuteSlot: lastMinuteSlot,
+                    showCloseButton: true,
+                    overrideTitle: null,
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    }
     return showAppModalSheet<Appointment>(
       context: context,
       builder:
@@ -213,6 +254,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
   LastMinuteSlot? _expressSlot;
   bool _showSuccess = false;
   Appointment? _completedAppointment;
+  String? _headerTitleOverride;
 
   bool get _isLastMinuteExpress => _expressSlot != null;
   bool get _isCountdownExpired =>
@@ -221,6 +263,8 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
   @override
   void initState() {
     super.initState();
+    _headerTitleOverride =
+        widget.overrideTitle ?? (widget.showCloseButton ? 'Ripianifica' : null);
     final slot = widget.lastMinuteSlot;
     if (slot != null) {
       _expressSlot = slot;
@@ -571,9 +615,6 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       child: Builder(
         builder: (themeContext) {
           final theme = Theme.of(themeContext);
-          final mediaQuery = MediaQuery.of(themeContext);
-          final viewInsets = mediaQuery.viewInsets.bottom;
-          const fabReservedSpace = 96.0;
 
           final stepContent = _buildStepContent(
             theme: theme,
@@ -604,57 +645,81 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             isSubmitting: _isSubmitting,
           );
 
-          return SafeArea(
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: SingleChildScrollView(
-                    padding: EdgeInsets.fromLTRB(
-                      24,
-                      24,
-                      24,
-                      24 + viewInsets + fabReservedSpace,
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (_showSuccess) ...[
-                          const SizedBox(height: 12),
-                        ] else ...[
-                          _buildBookingFlowIndicator(theme),
-                          const SizedBox(height: 16),
-                        ],
-                        Text(
-                          _headlineForCurrentStep(),
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            color: theme.colorScheme.onSurface.withOpacity(0.7),
-                            fontWeight: FontWeight.w500,
-                            letterSpacing: 0.2,
+          final hideActions =
+              !navConfig.showBackButton && navConfig.onNext == null;
+          final actions =
+              hideActions
+                  ? const <Widget>[]
+                  : [Expanded(child: _buildFloatingButtons(theme, navConfig))];
+
+          return DialogActionLayout(
+            body: SafeArea(
+              top: !widget.showCloseButton,
+              bottom: false,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (widget.showCloseButton) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.edit_calendar_rounded,
+                            color: theme.colorScheme.primary,
                           ),
-                        ),
-                        const SizedBox(height: 24),
-                        if (showSelectionNavigator) ...[
-                          _buildSelectionNavigator(
-                            theme: theme,
-                            serviceById: serviceById,
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _showSuccess
+                                  ? 'Modifica confermata'
+                                  : (_headerTitleOverride ?? 'Ripianifica'),
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
-                          const SizedBox(height: 24),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            splashRadius: 20,
+                            icon: const Icon(Icons.close_rounded),
+                            tooltip: 'Chiudi',
+                            onPressed: () => Navigator.of(context).maybePop(),
+                          ),
                         ],
-                        stepContent,
-                        SizedBox(height: fabReservedSpace),
-                      ],
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    if (_showSuccess) ...[
+                      const SizedBox(height: 12),
+                    ] else ...[
+                      _buildBookingFlowIndicator(theme),
+                      const SizedBox(height: 16),
+                    ],
+                    Text(
+                      _headlineForCurrentStep(),
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: theme.colorScheme.onSurface.withOpacity(0.7),
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: 0.2,
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 24),
+                    if (showSelectionNavigator) ...[
+                      _buildSelectionNavigator(
+                        theme: theme,
+                        serviceById: serviceById,
+                      ),
+                      const SizedBox(height: 24),
+                    ],
+                    stepContent,
+                  ],
                 ),
-                Positioned(
-                  left: 24,
-                  right: 24,
-                  bottom: 16 + viewInsets,
-                  child: _buildFloatingButtons(theme, navConfig),
-                ),
-              ],
+              ),
             ),
+            actions: actions,
           );
         },
       ),
@@ -923,6 +988,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       _activeSelectionIndex = 0;
       _applySelectionToForm(newSelection);
       _currentStep = _BookingStep.category;
+      _headerTitleOverride = 'Nuova prenotazione';
     });
   }
 
@@ -938,27 +1004,30 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             ? _staffFilterId == null || _staffFilterId!.isEmpty
             : _staffFilterId == staffId;
 
+    final avatarRadius = 32.0;
     final avatar =
         staffId == null
-            ? Icon(
-              Icons.people_alt_rounded,
-              size: 18,
-              color: theme.colorScheme.primary,
+            ? CircleAvatar(
+              radius: avatarRadius,
+              backgroundColor: theme.colorScheme.primary.withOpacity(0.12),
+              child: Icon(
+                Icons.people_alt_rounded,
+                size: avatarRadius,
+                color: theme.colorScheme.primary,
+              ),
             )
             : _staffAvatar(
               theme: theme,
               initials: initials,
               staffMember: staffMember,
+              radius: avatarRadius,
             );
 
-    return ChoiceChip(
-      avatar: avatar,
-      label: Text(label, overflow: TextOverflow.ellipsis),
-      selected: isSelected,
-      showCheckmark: false,
-      onSelected: (selected) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () {
         setState(() {
-          if (!selected) {
+          if (isSelected) {
             _staffFilterId = null;
             _selectedStaffId = null;
             _selectedSlotStart = null;
@@ -973,6 +1042,28 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
           _selectedSlotStart = null;
         });
       },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: 96,
+
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            avatar,
+            const SizedBox(height: 8),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: isSelected ? theme.colorScheme.primary : null,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1076,8 +1167,13 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     required ThemeData theme,
     required String? initials,
     StaffMember? staffMember,
+    double radius = 32,
   }) {
-    final fallback = _staffInitialsAvatar(theme, initials ?? '?');
+    final fallback = _staffInitialsAvatar(
+      theme,
+      initials ?? '?',
+      radius: radius,
+    );
     if (staffMember == null) {
       return fallback;
     }
@@ -1086,13 +1182,14 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       return fallback;
     }
     return CircleAvatar(
-      radius: 14,
+      radius: radius,
       backgroundColor: theme.colorScheme.primary.withOpacity(0.08),
+
       child: ClipOval(
         child: Image.network(
           avatarUrl,
-          width: 28,
-          height: 28,
+          width: radius * 2,
+          height: radius * 2,
           fit: BoxFit.cover,
           errorBuilder: (_, __, ___) => fallback,
         ),
@@ -1100,31 +1197,22 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     );
   }
 
-  Widget _staffInitialsAvatar(ThemeData theme, String initials) {
+  Widget _staffInitialsAvatar(
+    ThemeData theme,
+    String initials, {
+    double radius = 32,
+  }) {
     return CircleAvatar(
-      radius: 14,
+      radius: radius,
       backgroundColor: theme.colorScheme.primary.withOpacity(0.12),
       foregroundColor: theme.colorScheme.primary,
       child: Text(
         initials,
-        style: theme.textTheme.labelMedium?.copyWith(
+        style: theme.textTheme.titleSmall?.copyWith(
           fontWeight: FontWeight.w700,
         ),
       ),
     );
-  }
-
-  Color? _categoryCardBackground(
-    ColorScheme scheme,
-    Color? color,
-    bool selected,
-  ) {
-    if (color == null) {
-      return null;
-    }
-    final overlayOpacity = selected ? 0.22 : 0.1;
-    final overlay = color.withOpacity(overlayOpacity);
-    return Color.alphaBlend(overlay, scheme.surface);
   }
 
   _StepNavigationConfig _resolveNavigationConfig({
@@ -1458,25 +1546,19 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
                 bookingCategories.map((category) {
                   final isSelected = category.id == _selectedCategoryId;
                   final servicesCount = category.services.length;
-                  final categoryColor = category.color;
-                  final backgroundColor = _categoryCardBackground(
-                    theme.colorScheme,
-                    categoryColor,
-                    isSelected,
-                  );
+                  final backgroundColor =
+                      isSelected
+                          ? theme.colorScheme.primary.withOpacity(0.08)
+                          : theme.colorScheme.surface;
                   final subtitle =
                       servicesCount > 0
                           ? '$servicesCount '
                               '${servicesCount == 1 ? 'servizio' : 'servizi'} disponibili'
                           : 'Nessun servizio disponibile';
                   final borderColor =
-                      categoryColor != null
-                          ? (isSelected
-                              ? categoryColor
-                              : categoryColor.withOpacity(0.55))
-                          : (isSelected
-                              ? theme.colorScheme.primary
-                              : theme.colorScheme.outlineVariant);
+                      isSelected
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.outlineVariant;
                   final borderSide = BorderSide(
                     color: borderColor,
                     width: isSelected ? 1.8 : 1,
@@ -1489,43 +1571,18 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
                       side: borderSide,
                     ),
                     elevation: isSelected ? 2 : 0,
-                    shadowColor:
-                        categoryColor != null
-                            ? categoryColor.withOpacity(0.35)
-                            : null,
                     child: RadioListTile<String>(
                       value: category.id,
                       groupValue: _selectedCategoryId,
                       onChanged: (_) => _selectCategory(category.id),
-                      title: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (categoryColor != null)
-                            Container(
-                              width: 18,
-                              height: 18,
-                              margin: const EdgeInsets.only(right: 12),
-                              decoration: BoxDecoration(
-                                color: categoryColor,
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: theme.colorScheme.onSurface
-                                      .withOpacity(0.14),
-                                ),
-                              ),
-                            ),
-                          Flexible(
-                            child: Text(
-                              category.label,
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
+                      title: Text(
+                        category.label,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       subtitle: Text(subtitle),
-                      activeColor: categoryColor ?? theme.colorScheme.primary,
+                      activeColor: theme.colorScheme.primary,
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 12,
@@ -1789,7 +1846,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
                 (member) => _buildOperatorChoiceChip(
                   theme: theme,
                   staffId: member.id,
-                  label: member.fullName,
+                  label: member.firstName,
                   initials: _staffInitials(member.fullName),
                   staffMember: member,
                 ),
