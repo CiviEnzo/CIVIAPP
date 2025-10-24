@@ -31,6 +31,7 @@ import 'package:civiapp/presentation/screens/admin/forms/package_purchase_edit_s
 import 'package:civiapp/presentation/screens/admin/forms/package_sale_form_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/quote_form_sheet.dart';
 import 'package:civiapp/presentation/screens/admin/forms/sale_form_sheet.dart';
+import 'package:civiapp/presentation/screens/admin/widgets/client_overview_section.dart';
 import 'package:civiapp/presentation/shared/client_package_purchase.dart';
 import 'package:collection/collection.dart';
 import 'package:file_picker/file_picker.dart';
@@ -137,16 +138,34 @@ bool _canUseAnamnesisLayout(ClientQuestionnaireTemplate template) {
   return _anamnesisRequiredGroupIds.every(groupIds.contains);
 }
 
-class ClientDetailPage extends ConsumerStatefulWidget {
+class ClientDetailPage extends ConsumerWidget {
   const ClientDetailPage({super.key, required this.clientId});
 
   final String clientId;
 
   @override
-  ConsumerState<ClientDetailPage> createState() => _ClientDetailPageState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ClientDetailView(clientId: clientId);
+  }
 }
 
-class _ClientDetailPageState extends ConsumerState<ClientDetailPage> {
+class ClientDetailView extends ConsumerStatefulWidget {
+  const ClientDetailView({
+    super.key,
+    required this.clientId,
+    this.showAppBar = true,
+    this.onClose,
+  });
+
+  final String clientId;
+  final bool showAppBar;
+  final VoidCallback? onClose;
+
+  @override
+  ConsumerState<ClientDetailView> createState() => _ClientDetailViewState();
+}
+
+class _ClientDetailViewState extends ConsumerState<ClientDetailView> {
   @override
   Widget build(BuildContext context) {
     final data = ref.watch(appDataProvider);
@@ -155,10 +174,22 @@ class _ClientDetailPageState extends ConsumerState<ClientDetailPage> {
     );
 
     if (client == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Dettaglio cliente')),
-        body: const Center(
-          child: Text('Cliente non trovato. Aggiorna l\'elenco e riprova.'),
+      const notFound = Text(
+        'Cliente non trovato. Aggiorna l\'elenco e riprova.',
+        textAlign: TextAlign.center,
+      );
+      if (widget.showAppBar) {
+        return Scaffold(
+          appBar: AppBar(title: const Text('Dettaglio cliente')),
+          body: const Center(child: notFound),
+        );
+      }
+      return Card(
+        elevation: 2,
+        surfaceTintColor: Colors.transparent,
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Center(child: notFound),
         ),
       );
     }
@@ -166,37 +197,89 @@ class _ClientDetailPageState extends ConsumerState<ClientDetailPage> {
     final salon = data.salons.firstWhereOrNull(
       (element) => element.id == client.salonId,
     );
+    final salonName = salon?.name;
 
-    return DefaultTabController(
-      length: 5,
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(client.fullName),
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Scheda'),
-              Tab(text: 'Appuntamenti'),
-              Tab(text: 'Pacchetti'),
-              Tab(text: 'Preventivi'),
-              Tab(text: 'Fatturazione'),
+    final tabs = _buildTabs();
+    final tabViews = [
+      _ProfileTab(client: client, salon: salon),
+      _AppointmentsTab(clientId: client.id),
+      _PackagesTab(clientId: client.id),
+      _QuotesTab(clientId: client.id),
+      _BillingTab(clientId: client.id),
+    ];
+
+    if (widget.showAppBar) {
+      return DefaultTabController(
+        length: tabs.length,
+        child: Scaffold(
+          appBar: AppBar(
+            title: Text(client.fullName),
+            bottom: TabBar(tabs: tabs),
+            actions: [
+              IconButton(
+                tooltip: 'Modifica scheda',
+                icon: const Icon(Icons.edit_rounded),
+                onPressed: () => _editClient(context, client),
+              ),
             ],
           ),
-          actions: [
-            IconButton(
-              tooltip: 'Modifica scheda',
-              icon: const Icon(Icons.edit_rounded),
-              onPressed: () => _editClient(context, client),
-            ),
-          ],
+          body: TabBarView(children: tabViews),
         ),
-        body: TabBarView(
-          children: [
-            _ProfileTab(client: client, salon: salon),
-            _AppointmentsTab(clientId: client.id),
-            _PackagesTab(clientId: client.id),
-            _QuotesTab(clientId: client.id),
-            _BillingTab(clientId: client.id),
-          ],
+      );
+    }
+
+    final theme = Theme.of(context);
+    final embeddedHeight = math.max(
+      420.0,
+      MediaQuery.of(context).size.height * 0.6,
+    );
+
+    return DefaultTabController(
+      length: tabs.length,
+      child: Card(
+        color: theme.colorScheme.surface,
+        elevation: 2,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      client.fullName,
+                      style: theme.textTheme.titleLarge,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Modifica scheda',
+                    icon: const Icon(Icons.edit_rounded),
+                    onPressed: () => _editClient(context, client),
+                  ),
+                  if (widget.onClose != null)
+                    IconButton(
+                      tooltip: 'Chiudi scheda',
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: widget.onClose,
+                    ),
+                ],
+              ),
+              if (salonName != null) ...[
+                const SizedBox(height: 4),
+                Text(salonName, style: theme.textTheme.bodyMedium),
+              ],
+              const SizedBox(height: 16),
+              TabBar(isScrollable: true, tabs: tabs),
+              const SizedBox(height: 16),
+              SizedBox(
+                height: embeddedHeight,
+                child: TabBarView(children: tabViews),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -220,6 +303,14 @@ class _ClientDetailPageState extends ConsumerState<ClientDetailPage> {
       await ref.read(appDataProvider.notifier).upsertClient(updated);
     }
   }
+
+  List<Tab> _buildTabs() => const [
+    Tab(text: 'Scheda'),
+    Tab(text: 'Appuntamenti'),
+    Tab(text: 'Pacchetti'),
+    Tab(text: 'Preventivi'),
+    Tab(text: 'Fatturazione'),
+  ];
 }
 
 class _ProfileTab extends ConsumerWidget {
@@ -240,7 +331,7 @@ class _ProfileTab extends ConsumerWidget {
 
     final children = <Widget>[];
 
-    final overviewSection = _ClientOverviewSection(
+    final overviewSection = ClientOverviewSection(
       client: client,
       salon: salon,
       dateFormat: dateFormat,
@@ -282,17 +373,6 @@ class _ProfileTab extends ConsumerWidget {
     children.add(_ClientPhotosCard(client: client));
 
     return ListView(padding: const EdgeInsets.all(16), children: children);
-  }
-
-  static String _consentLabel(ConsentType type) {
-    switch (type) {
-      case ConsentType.marketing:
-        return 'Marketing';
-      case ConsentType.privacy:
-        return 'Privacy';
-      case ConsentType.profilazione:
-        return 'Profilazione';
-    }
   }
 }
 
@@ -344,299 +424,6 @@ class _BodyMapCard extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _ClientOverviewSection extends StatelessWidget {
-  const _ClientOverviewSection({
-    required this.client,
-    required this.salon,
-    required this.dateFormat,
-    required this.dateTimeFormat,
-  });
-
-  final Client client;
-  final Salon? salon;
-  final DateFormat dateFormat;
-  final DateFormat dateTimeFormat;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final birthDate = client.dateOfBirth;
-    final formattedBirthDate =
-        birthDate == null ? '—' : dateFormat.format(birthDate);
-    final age = _formatClientAge(birthDate);
-    final channelPrefs = client.channelPreferences;
-    final chips = _buildPreferenceChips(context, channelPrefs);
-    final notes = client.notes?.trim() ?? '';
-    final hasNotes = notes.isNotEmpty;
-    final hasConsents = client.marketedConsents.isNotEmpty;
-
-    final personalFields = <_InfoFieldData>[
-      _InfoFieldData(label: 'Nome e cognome', value: client.fullName),
-      _InfoFieldData(label: 'Data di nascita', value: formattedBirthDate),
-      _InfoFieldData(label: 'Età', value: age),
-      _InfoFieldData(
-        label: 'Numero cliente',
-        value: client.clientNumber ?? '—',
-      ),
-      _InfoFieldData(label: 'Professione', value: client.profession ?? '—'),
-      _InfoFieldData(
-        label: 'Come ci ha conosciuto',
-        value: client.referralSource ?? '—',
-      ),
-      _InfoFieldData(
-        label: 'Punti fedeltà',
-        value: client.loyaltyPoints.toString(),
-      ),
-      if (salon != null)
-        _InfoFieldData(label: 'Salone associato', value: salon!.name),
-    ];
-
-    final contactFields = <_InfoFieldData>[
-      _InfoFieldData(label: 'Telefono', value: client.phone),
-      _InfoFieldData(label: 'Email', value: client.email ?? '—'),
-      _InfoFieldData(label: 'Indirizzo', value: client.address ?? '—'),
-    ];
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final useTwoColumns = constraints.maxWidth >= 960;
-        final cardWidth =
-            useTwoColumns
-                ? (constraints.maxWidth - 16) / 2
-                : constraints.maxWidth;
-
-        return Wrap(
-          spacing: 16,
-          runSpacing: 16,
-          children: [
-            SizedBox(
-              width: cardWidth,
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Dati anagrafici',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      _InfoFieldsWrap(fields: personalFields),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            SizedBox(
-              width: cardWidth,
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Contatti e preferenze',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      _InfoFieldsWrap(fields: contactFields),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Preferenze contatto',
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      if (chips.isNotEmpty)
-                        Wrap(spacing: 8, runSpacing: 8, children: chips)
-                      else
-                        Text(
-                          'Nessuna preferenza registrata.',
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                      const SizedBox(height: 12),
-                      Text(
-                        channelPrefs.updatedAt != null
-                            ? 'Ultimo aggiornamento: ${dateTimeFormat.format(channelPrefs.updatedAt!)}'
-                            : 'Preferenze non ancora registrate.',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Note cliente',
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        hasNotes
-                            ? notes
-                            : 'Nessuna nota presente per questo cliente.',
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                      if (hasConsents) ...[
-                        const SizedBox(height: 16),
-                        Text(
-                          'Consensi marketing',
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children:
-                              client.marketedConsents
-                                  .map(
-                                    (consent) => Chip(
-                                      avatar: const Icon(
-                                        Icons.check_rounded,
-                                        size: 16,
-                                      ),
-                                      label: Text(
-                                        '${_ProfileTab._consentLabel(consent.type)} · ${dateFormat.format(consent.acceptedAt)}',
-                                      ),
-                                    ),
-                                  )
-                                  .toList(),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _InfoFieldsWrap extends StatelessWidget {
-  const _InfoFieldsWrap({required this.fields});
-
-  final List<_InfoFieldData> fields;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (fields.isEmpty) {
-          return const SizedBox.shrink();
-        }
-        final isWide = constraints.maxWidth >= 520;
-        final fieldWidth =
-            isWide ? (constraints.maxWidth - 12) / 2 : constraints.maxWidth;
-        return Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: fields
-              .map(
-                (field) => SizedBox(
-                  width: fieldWidth,
-                  child: _ReadonlyField(label: field.label, value: field.value),
-                ),
-              )
-              .toList(growable: false),
-        );
-      },
-    );
-  }
-}
-
-String _formatClientAge(DateTime? birthDate) {
-  if (birthDate == null) {
-    return '—';
-  }
-  final now = DateTime.now();
-  var age = now.year - birthDate.year;
-  final hasHadBirthday =
-      now.month > birthDate.month ||
-      (now.month == birthDate.month && now.day >= birthDate.day);
-  if (!hasHadBirthday) {
-    age -= 1;
-  }
-  return age.toString();
-}
-
-List<Widget> _buildPreferenceChips(
-  BuildContext context,
-  ChannelPreferences preferences,
-) {
-  Widget buildChip(bool enabled, String label, IconData icon) {
-    final theme = Theme.of(context);
-    final selectedBackground = theme.colorScheme.secondaryContainer;
-    final selectedForeground = theme.colorScheme.onSecondaryContainer;
-    final disabledBackground = theme.colorScheme.surfaceContainerHighest;
-    final disabledForeground = theme.colorScheme.onSurfaceVariant;
-    return Chip(
-      avatar: Icon(
-        icon,
-        size: 16,
-        color: enabled ? selectedForeground : disabledForeground,
-      ),
-      label: Text(
-        label,
-        style: TextStyle(
-          color: enabled ? selectedForeground : disabledForeground,
-        ),
-      ),
-      backgroundColor: enabled ? selectedBackground : disabledBackground,
-    );
-  }
-
-  return [
-    buildChip(preferences.push, 'Push', Icons.notifications_active_rounded),
-    buildChip(preferences.email, 'Email', Icons.email_rounded),
-    buildChip(preferences.whatsapp, 'WhatsApp', Icons.chat_rounded),
-    buildChip(preferences.sms, 'SMS', Icons.sms_rounded),
-  ];
-}
-
-class _InfoFieldData {
-  const _InfoFieldData({required this.label, required this.value});
-
-  final String label;
-  final String value;
-}
-
-class _ReadonlyField extends StatelessWidget {
-  const _ReadonlyField({
-    required this.label,
-    required this.value,
-    this.minLines = 1,
-  });
-
-  final String label;
-  final String value;
-  final int minLines;
-
-  @override
-  Widget build(BuildContext context) {
-    return TextFormField(
-      readOnly: true,
-      initialValue: value,
-      minLines: minLines,
-      maxLines: minLines == 1 ? 1 : null,
-      decoration: InputDecoration(
-        labelText: label,
-        border: const OutlineInputBorder(),
-        isDense: true,
       ),
     );
   }
@@ -799,7 +586,7 @@ class _ClientQuestionnaireCardState
     return Card(
       child: ExpansionTile(
         key: ValueKey('questionnaire-${widget.client.id}'),
-        initiallyExpanded: true,
+        initiallyExpanded: false,
         title: Text('Questionario cliente', style: theme.textTheme.titleMedium),
         subtitle: subtitle,
         childrenPadding: const EdgeInsets.all(16),

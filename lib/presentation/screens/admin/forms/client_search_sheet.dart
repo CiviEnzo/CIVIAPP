@@ -1,6 +1,8 @@
 import 'package:civiapp/domain/entities/client.dart';
-import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
+import 'package:collection/collection.dart';
+
+import 'client_search_utils.dart';
 
 class ClientSearchSheet extends StatefulWidget {
   const ClientSearchSheet({
@@ -45,37 +47,11 @@ class _ClientSearchSheetState extends State<ClientSearchSheet> {
       return;
     }
 
-    final lowerGeneral = general.toLowerCase();
-    final lowerNumber = clientNumber.toLowerCase();
-
-    bool matchesGeneral(Client client) {
-      if (lowerGeneral.isEmpty) {
-        return true;
-      }
-      bool contains(String? value) =>
-          value != null && value.toLowerCase().contains(lowerGeneral);
-      return contains(client.firstName) ||
-          contains(client.lastName) ||
-          contains(client.phone) ||
-          contains(client.email);
-    }
-
-    bool matchesNumber(Client client) {
-      if (lowerNumber.isEmpty) {
-        return true;
-      }
-      final number = client.clientNumber;
-      if (number == null) {
-        return false;
-      }
-      return number.toLowerCase() == lowerNumber;
-    }
-
-    final filtered =
-        widget.clients
-            .where((client) => matchesGeneral(client) && matchesNumber(client))
-            .toList()
-          ..sort((a, b) => a.lastName.compareTo(b.lastName));
+    final filtered = ClientSearchUtils.filterClients(
+      clients: widget.clients,
+      generalQuery: general,
+      clientNumberQuery: clientNumber,
+    )..sort((a, b) => a.lastName.compareTo(b.lastName));
 
     setState(() {
       _results = filtered;

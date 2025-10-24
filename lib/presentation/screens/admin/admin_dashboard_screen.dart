@@ -45,6 +45,7 @@ class AdminModuleDefinition {
 class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   int _selectedIndex = 0;
+  ProviderSubscription<AdminDashboardIntent?>? _intentSubscription;
 
   static final _modules = <AdminModuleDefinition>[
     AdminModuleDefinition(
@@ -131,6 +132,56 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _intentSubscription = ref.listenManual<AdminDashboardIntent?>(
+      adminDashboardIntentProvider,
+      (previous, next) {
+        final intent = next;
+        if (intent == null) {
+          return;
+        }
+        _handleAdminIntent(intent);
+        ref.read(adminDashboardIntentProvider.notifier).state = null;
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _intentSubscription?.close();
+    super.dispose();
+  }
+
+  void _handleAdminIntent(AdminDashboardIntent intent) {
+    final targetIndex = _modules.indexWhere(
+      (module) => module.id == intent.moduleId,
+    );
+    if (targetIndex == -1) {
+      return;
+    }
+
+    if (_selectedIndex != targetIndex) {
+      if (mounted) {
+        setState(() => _selectedIndex = targetIndex);
+      } else {
+        _selectedIndex = targetIndex;
+      }
+    }
+
+    if (intent.moduleId == 'clients') {
+      final payload = intent.payload;
+      ref
+          .read(clientsModuleIntentProvider.notifier)
+          .state = ClientsModuleIntent(
+        generalQuery: payload['generalQuery'] as String?,
+        clientNumber: payload['clientNumber'] as String?,
+        clientId: payload['clientId'] as String?,
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final data = ref.watch(appDataProvider);
     final session = ref.watch(sessionControllerProvider);
@@ -211,10 +262,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                   onSelect: (index) => setState(() => _selectedIndex = index),
                 ),
               Expanded(
-                child: ColoredBox(
-                  color: moduleBackground,
-                  child: content,
-                ),
+                child: ColoredBox(color: moduleBackground, child: content),
               ),
             ],
           ),

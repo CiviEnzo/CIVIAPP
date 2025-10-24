@@ -40,7 +40,9 @@ final appDataProvider = StateNotifierProvider<AppDataStore, AppDataState>((
   );
   final user = sessionUser ?? fallbackUser;
   final storage =
-      Firebase.apps.isNotEmpty ? ref.read(firebaseStorageServiceProvider) : null;
+      Firebase.apps.isNotEmpty
+          ? ref.read(firebaseStorageServiceProvider)
+          : null;
   return AppDataStore(currentUser: user, storage: storage);
 });
 
@@ -135,7 +137,37 @@ class ClientDashboardIntent {
   final Map<String, Object?> payload;
 }
 
+class AdminDashboardIntent {
+  const AdminDashboardIntent({
+    required this.moduleId,
+    Map<String, Object?>? payload,
+  }) : payload = payload ?? const <String, Object?>{};
+
+  final String moduleId;
+  final Map<String, Object?> payload;
+}
+
+class ClientsModuleIntent {
+  const ClientsModuleIntent({
+    this.generalQuery,
+    this.clientNumber,
+    this.clientId,
+  });
+
+  final String? generalQuery;
+  final String? clientNumber;
+  final String? clientId;
+}
+
 final clientDashboardIntentProvider = StateProvider<ClientDashboardIntent?>(
+  (ref) => null,
+);
+
+final adminDashboardIntentProvider = StateProvider<AdminDashboardIntent?>(
+  (ref) => null,
+);
+
+final clientsModuleIntentProvider = StateProvider<ClientsModuleIntent?>(
   (ref) => null,
 );
 
@@ -187,8 +219,9 @@ final clientRegistrationDraftProvider = StateNotifierProvider<
   ClientRegistrationDraft?
 >((ref) => ClientRegistrationDraftController());
 
-final appointmentClipboardProvider =
-    StateProvider<AppointmentClipboard?>((ref) => null);
+final appointmentClipboardProvider = StateProvider<AppointmentClipboard?>(
+  (ref) => null,
+);
 
 class SessionState {
   const SessionState({this.user, this.selectedSalonId, this.selectedEntityId});
