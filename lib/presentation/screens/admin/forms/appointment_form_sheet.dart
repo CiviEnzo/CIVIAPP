@@ -327,12 +327,12 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
               (status) =>
                   !(isFutureStart && status == AppointmentStatus.completed),
             )
-            .map(
-              (status) => DropdownMenuItem<AppointmentStatus>(
+            .map((status) {
+              return DropdownMenuItem<AppointmentStatus>(
                 value: status,
-                child: Text(_statusLabel(status)),
-              ),
-            )
+                child: Row(children: [Text(_statusLabel(status))]),
+              );
+            })
             .toList();
 
     if (selectedClient != null) {
@@ -370,507 +370,781 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
               end: _end,
             );
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Form(
-        key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Column(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  widget.initial == null
-                      ? 'Nuovo appuntamento'
-                      : 'Modifica appuntamento',
-                  style: theme.textTheme.titleLarge,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  bookingDateLabel,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            _buildSectionHeader(
-              icon: Icons.group_add_rounded,
-              title: 'Operatore e cliente',
-              subtitle:
-                  "Seleziona l'operatore e collega il cliente per l'appuntamento",
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: staffFieldValue,
-              decoration: const InputDecoration(labelText: 'Operatore'),
-              items:
-                  filteredStaff
-                      .map(
-                        (member) => DropdownMenuItem(
-                          value: member.id,
-                          child: Text(member.fullName),
-                        ),
-                      )
-                      .toList(),
-              onChanged: (value) {
-                final staffMember =
-                    value == null
-                        ? null
-                        : staffMembers.firstWhereOrNull(
-                          (member) => member.id == value,
-                        );
-                final previousSalonId = _salonId;
-                final newSalonId = staffMember?.salonId;
-                final salonChanged = previousSalonId != newSalonId;
-
-                setState(() {
-                  _staffId = value;
-                  _salonId = newSalonId;
-
-                  if (salonChanged) {
-                    _clientId = null;
-                    _clientSearchController.clear();
-                    _clientSuggestions = const <Client>[];
-                    _serviceIds = const [];
-                    _serviceQuantities.clear();
-                    _clearAllPackageSelections();
-                  }
-
-                  if (staffMember == null) {
-                    if (!salonChanged) {
-                      _serviceIds = const [];
-                      _serviceQuantities.clear();
-                      _clearAllPackageSelections();
-                    }
-                    _ensureServiceState(_serviceIds);
-                    _lastSuggestionKey = '';
-                    _latestSuggestion = null;
-                    return;
-                  }
-
-                  final allowedServiceIds =
-                      services
-                          .where((service) {
-                            final roles = service.staffRoles;
-                            if (roles.isEmpty) {
-                              return true;
-                            }
-                            return staffMember.roleIds.any(
-                              (roleId) => roles.contains(roleId),
-                            );
-                          })
-                          .map((service) => service.id)
-                          .toSet();
-                  final filteredSelections =
-                      _serviceIds.where(allowedServiceIds.contains).toList();
-                  if (filteredSelections.length != _serviceIds.length) {
-                    _serviceIds = filteredSelections;
-                    _ensureServiceState(_serviceIds);
-                    _manualPackageSelections.removeWhere(
-                      (serviceId) => !_serviceIds.contains(serviceId),
-                    );
-                    _lastSuggestionKey = '';
-                    _latestSuggestion = null;
-                  }
-                });
-
-                if (salonChanged) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    _clientFieldKey.currentState?.didChange(_clientId);
-                  });
-                }
-              },
-              validator:
-                  (value) => value == null ? 'Scegli un operatore' : null,
-            ),
-            const SizedBox(height: 12),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
                 Expanded(
-                  child: FormField<String>(
-                    key: _clientFieldKey,
-                    validator:
-                        (_) => _clientId == null ? 'Scegli un cliente' : null,
-                    builder: (state) {
-                      final selectedClient = clients.firstWhereOrNull(
-                        (client) => client.id == _clientId,
-                      );
-                      if (selectedClient != null &&
-                          _clientSearchController.text !=
-                              selectedClient.fullName) {
-                        _clientSearchController.text = selectedClient.fullName;
-                      }
-                      final hasSelection = selectedClient != null;
-                      final suggestions =
-                          hasSelection ? const <Client>[] : _clientSuggestions;
-                      final searchHint =
-                          _clientSearchMode == _ClientSearchMode.general
-                              ? 'Nome, cognome, telefono o email'
-                              : 'Numero cliente';
-                      return Column(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (!hasSelection)
-                            ToggleButtons(
-                              borderRadius: BorderRadius.circular(20),
-                              isSelected: [
-                                _clientSearchMode == _ClientSearchMode.general,
-                                _clientSearchMode == _ClientSearchMode.number,
-                              ],
-                              onPressed: (index) {
-                                _setClientSearchMode(
-                                  index == 0
-                                      ? _ClientSearchMode.general
-                                      : _ClientSearchMode.number,
-                                );
-                              },
-                              children: const [
-                                Padding(
-                                  padding: EdgeInsets.symmetric(horizontal: 12),
-                                  child: Text('Nome'),
-                                ),
-                                Padding(
-                                  padding: EdgeInsets.symmetric(horizontal: 12),
-                                  child: Text('Numero'),
-                                ),
-                              ],
-                            ),
-                          if (!hasSelection) const SizedBox(height: 8),
-                          TextField(
-                            controller: _clientSearchController,
-                            focusNode: _clientSearchFocusNode,
-                            readOnly: hasSelection,
-                            decoration: InputDecoration(
-                              labelText: 'Cliente',
-                              floatingLabelBehavior:
-                                  FloatingLabelBehavior.always,
-                              hintText: hasSelection ? null : searchHint,
-                              errorText: state.errorText,
-                              suffixIcon:
-                                  hasSelection
-                                      ? const Icon(Icons.open_in_new_rounded)
-                                      : _clientSearchController.text.isEmpty
-                                      ? const Icon(
-                                        Icons.search_rounded,
-                                        size: 20,
-                                      )
-                                      : IconButton(
-                                        tooltip: 'Pulisci ricerca',
-                                        icon: const Icon(Icons.clear_rounded),
-                                        onPressed: _clearClientSearch,
-                                      ),
-                            ),
-                            keyboardType:
-                                _clientSearchMode == _ClientSearchMode.general
-                                    ? TextInputType.text
-                                    : TextInputType.number,
-                            textInputAction: TextInputAction.search,
-                            onChanged:
-                                hasSelection
-                                    ? null
-                                    : (value) => _onClientSearchChanged(
-                                      value,
-                                      filteredClients,
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      widget.initial == null
+                                          ? 'Nuovo appuntamento'
+                                          : 'Modifica appuntamento',
+                                      style: theme.textTheme.titleLarge,
                                     ),
-                            onTap:
-                                hasSelection && selectedClient != null
-                                    ? () => _openClientDetails(selectedClient)
-                                    : null,
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      bookingDateLabel,
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            color:
+                                                theme
+                                                    .colorScheme
+                                                    .onSurfaceVariant,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              SizedBox(
+                                width: 220,
+                                child: DropdownButtonFormField<
+                                  AppointmentStatus
+                                >(
+                                  value: _status,
+                                  decoration: InputDecoration(
+                                    labelText: 'Stato',
+                                    prefixIcon: Icon(
+                                      _statusIcon(_status),
+                                      color: _statusColor(
+                                        theme.colorScheme,
+                                        _status,
+                                      ),
+                                    ),
+                                  ),
+                                  items: statusItems,
+                                  onChanged: (value) {
+                                    if (value == null) {
+                                      return;
+                                    }
+                                    if (isFutureStart &&
+                                        value == AppointmentStatus.completed) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Non puoi impostare lo stato "Completato" per un appuntamento futuro.',
+                                          ),
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                    setState(() => _status = value);
+                                  },
+                                ),
+                              ),
+                            ],
                           ),
-                          if (!hasSelection) ...[
+                          const SizedBox(height: 24),
+                          _buildSectionHeader(
+                            icon: Icons.group_add_rounded,
+                            title: 'Operatore e cliente',
+                            subtitle:
+                                "Seleziona l'operatore e collega il cliente per l'appuntamento",
+                          ),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            value: staffFieldValue,
+                            decoration: const InputDecoration(
+                              labelText: 'Operatore',
+                            ),
+                            items:
+                                filteredStaff
+                                    .map(
+                                      (member) => DropdownMenuItem(
+                                        value: member.id,
+                                        child: Text(member.fullName),
+                                      ),
+                                    )
+                                    .toList(),
+                            onChanged: (value) {
+                              final staffMember =
+                                  value == null
+                                      ? null
+                                      : staffMembers.firstWhereOrNull(
+                                        (member) => member.id == value,
+                                      );
+                              final previousSalonId = _salonId;
+                              final newSalonId = staffMember?.salonId;
+                              final salonChanged =
+                                  previousSalonId != newSalonId;
+
+                              setState(() {
+                                _staffId = value;
+                                _salonId = newSalonId;
+
+                                if (salonChanged) {
+                                  _clientId = null;
+                                  _clientSearchController.clear();
+                                  _clientSuggestions = const <Client>[];
+                                  _serviceIds = const [];
+                                  _serviceQuantities.clear();
+                                  _clearAllPackageSelections();
+                                }
+
+                                if (staffMember == null) {
+                                  if (!salonChanged) {
+                                    _serviceIds = const [];
+                                    _serviceQuantities.clear();
+                                    _clearAllPackageSelections();
+                                  }
+                                  _ensureServiceState(_serviceIds);
+                                  _lastSuggestionKey = '';
+                                  _latestSuggestion = null;
+                                  return;
+                                }
+
+                                final allowedServiceIds =
+                                    services
+                                        .where((service) {
+                                          final roles = service.staffRoles;
+                                          if (roles.isEmpty) {
+                                            return true;
+                                          }
+                                          return staffMember.roleIds.any(
+                                            (roleId) => roles.contains(roleId),
+                                          );
+                                        })
+                                        .map((service) => service.id)
+                                        .toSet();
+                                final filteredSelections =
+                                    _serviceIds
+                                        .where(allowedServiceIds.contains)
+                                        .toList();
+                                if (filteredSelections.length !=
+                                    _serviceIds.length) {
+                                  _serviceIds = filteredSelections;
+                                  _ensureServiceState(_serviceIds);
+                                  _manualPackageSelections.removeWhere(
+                                    (serviceId) =>
+                                        !_serviceIds.contains(serviceId),
+                                  );
+                                  _lastSuggestionKey = '';
+                                  _latestSuggestion = null;
+                                }
+                              });
+
+                              if (salonChanged) {
+                                WidgetsBinding.instance.addPostFrameCallback((
+                                  _,
+                                ) {
+                                  _clientFieldKey.currentState?.didChange(
+                                    _clientId,
+                                  );
+                                });
+                              }
+                            },
+                            validator:
+                                (value) =>
+                                    value == null
+                                        ? 'Scegli un operatore'
+                                        : null,
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Expanded(
+                                child: FormField<String>(
+                                  key: _clientFieldKey,
+                                  validator:
+                                      (_) =>
+                                          _clientId == null
+                                              ? 'Scegli un cliente'
+                                              : null,
+                                  builder: (state) {
+                                    final selectedClient = clients
+                                        .firstWhereOrNull(
+                                          (client) => client.id == _clientId,
+                                        );
+                                    if (selectedClient != null &&
+                                        _clientSearchController.text !=
+                                            selectedClient.fullName) {
+                                      _clientSearchController.text =
+                                          selectedClient.fullName;
+                                    }
+                                    final hasSelection = selectedClient != null;
+                                    final suggestions =
+                                        hasSelection
+                                            ? const <Client>[]
+                                            : _clientSuggestions;
+                                    final searchHint =
+                                        _clientSearchMode ==
+                                                _ClientSearchMode.general
+                                            ? 'Nome, cognome, telefono o email'
+                                            : 'Numero cliente';
+                                    return Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        if (!hasSelection)
+                                          ToggleButtons(
+                                            borderRadius: BorderRadius.circular(
+                                              20,
+                                            ),
+                                            isSelected: [
+                                              _clientSearchMode ==
+                                                  _ClientSearchMode.general,
+                                              _clientSearchMode ==
+                                                  _ClientSearchMode.number,
+                                            ],
+                                            onPressed: (index) {
+                                              _setClientSearchMode(
+                                                index == 0
+                                                    ? _ClientSearchMode.general
+                                                    : _ClientSearchMode.number,
+                                              );
+                                            },
+                                            children: const [
+                                              Padding(
+                                                padding: EdgeInsets.symmetric(
+                                                  horizontal: 12,
+                                                ),
+                                                child: Text('Nome'),
+                                              ),
+                                              Padding(
+                                                padding: EdgeInsets.symmetric(
+                                                  horizontal: 12,
+                                                ),
+                                                child: Text('Numero'),
+                                              ),
+                                            ],
+                                          ),
+                                        if (!hasSelection)
+                                          const SizedBox(height: 8),
+                                        TextField(
+                                          controller: _clientSearchController,
+                                          focusNode: _clientSearchFocusNode,
+                                          readOnly: hasSelection,
+                                          decoration: InputDecoration(
+                                            labelText: 'Cliente',
+                                            floatingLabelBehavior:
+                                                FloatingLabelBehavior.always,
+                                            hintText:
+                                                hasSelection
+                                                    ? null
+                                                    : searchHint,
+                                            errorText: state.errorText,
+                                            suffixIcon:
+                                                hasSelection
+                                                    ? const Icon(
+                                                      Icons.open_in_new_rounded,
+                                                    )
+                                                    : _clientSearchController
+                                                        .text
+                                                        .isEmpty
+                                                    ? const Icon(
+                                                      Icons.search_rounded,
+                                                      size: 20,
+                                                    )
+                                                    : IconButton(
+                                                      tooltip:
+                                                          'Pulisci ricerca',
+                                                      icon: const Icon(
+                                                        Icons.clear_rounded,
+                                                      ),
+                                                      onPressed:
+                                                          _clearClientSearch,
+                                                    ),
+                                          ),
+                                          keyboardType:
+                                              _clientSearchMode ==
+                                                      _ClientSearchMode.general
+                                                  ? TextInputType.text
+                                                  : TextInputType.number,
+                                          textInputAction:
+                                              TextInputAction.search,
+                                          onChanged:
+                                              hasSelection
+                                                  ? null
+                                                  : (value) =>
+                                                      _onClientSearchChanged(
+                                                        value,
+                                                        filteredClients,
+                                                      ),
+                                          onTap:
+                                              hasSelection &&
+                                                      selectedClient != null
+                                                  ? () => _openClientDetails(
+                                                    selectedClient,
+                                                  )
+                                                  : null,
+                                        ),
+                                        if (!hasSelection) ...[
+                                          const SizedBox(height: 8),
+                                          _buildClientSuggestions(suggestions),
+                                        ],
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              IconButton(
+                                onPressed:
+                                    _clientId == null
+                                        ? _createClient
+                                        : _clearClientSelection,
+                                tooltip:
+                                    _clientId == null
+                                        ? 'Nuovo cliente'
+                                        : 'Rimuovi cliente',
+                                icon:
+                                    _clientId == null
+                                        ? const Icon(
+                                          Icons.person_add_alt_1_rounded,
+                                        )
+                                        : const Icon(Icons.close_rounded),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 24),
+                          _buildSectionHeader(
+                            icon: Icons.design_services_rounded,
+                            title: 'Servizi e pacchetti',
+                            subtitle:
+                                'Scegli i trattamenti e decidi se scalare sessioni da un pacchetto',
+                          ),
+                          const SizedBox(height: 12),
+                          FormField<List<String>>(
+                            validator:
+                                (_) =>
+                                    _serviceIds.isEmpty
+                                        ? 'Scegli almeno un servizio'
+                                        : null,
+                            builder: (state) {
+                              final theme = Theme.of(context);
+                              final selectedNames =
+                                  selectedServices
+                                      .map((service) => service.name)
+                                      .toList();
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  InkWell(
+                                    borderRadius: BorderRadius.circular(8),
+                                    onTap: () async {
+                                      final selection =
+                                          await _openServicePicker(
+                                            context,
+                                            services: filteredServices,
+                                            selectedStaff: staffMembers
+                                                .firstWhereOrNull(
+                                                  (member) =>
+                                                      member.id == _staffId,
+                                                ),
+                                          );
+                                      if (selection != null) {
+                                        setState(() {
+                                          _serviceIds = selection;
+                                          _ensureServiceState(_serviceIds);
+                                          _manualPackageSelections.removeWhere(
+                                            (serviceId) =>
+                                                !_serviceIds.contains(
+                                                  serviceId,
+                                                ),
+                                          );
+                                          if (_serviceIds.isEmpty) {
+                                            _clearAllPackageSelections();
+                                          } else {
+                                            _lastSuggestionKey = '';
+                                            _latestSuggestion = null;
+                                            final durations = services
+                                                .where(
+                                                  (service) => _serviceIds
+                                                      .contains(service.id),
+                                                )
+                                                .map(
+                                                  (service) =>
+                                                      service.totalDuration,
+                                                )
+                                                .fold(
+                                                  Duration.zero,
+                                                  (acc, value) => acc + value,
+                                                );
+                                            if (!durations.isNegative &&
+                                                durations > Duration.zero) {
+                                              _end = _start.add(durations);
+                                            }
+                                          }
+                                        });
+                                        state.didChange(_serviceIds);
+                                      }
+                                    },
+                                    child: InputDecorator(
+                                      decoration: InputDecoration(
+                                        labelText: 'Servizi',
+                                        floatingLabelBehavior:
+                                            FloatingLabelBehavior.always,
+                                        errorText: state.errorText,
+                                        suffixIcon: const Icon(
+                                          Icons.segment_rounded,
+                                        ),
+                                      ),
+                                      isEmpty: selectedNames.isEmpty,
+                                      child:
+                                          selectedNames.isEmpty
+                                              ? Text(
+                                                'Seleziona uno o più servizi',
+                                                style: theme
+                                                    .textTheme
+                                                    .bodyMedium
+                                                    ?.copyWith(
+                                                      color: theme.hintColor,
+                                                    ),
+                                              )
+                                              : Wrap(
+                                                spacing: 8,
+                                                runSpacing: 8,
+                                                children:
+                                                    selectedServices
+                                                        .map(
+                                                          (service) => Chip(
+                                                            label: Text(
+                                                              service.name,
+                                                            ),
+                                                          ),
+                                                        )
+                                                        .toList(),
+                                              ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                          if (showPackageSection) ...[
+                            const SizedBox(height: 16),
+                            Text(
+                              'Pacchetti disponibili',
+                              style: theme.textTheme.titleMedium,
+                            ),
                             const SizedBox(height: 8),
-                            _buildClientSuggestions(suggestions),
+                            if (selectedServices.isEmpty)
+                              Text(
+                                'Seleziona almeno un servizio per abbinare i pacchetti.',
+                                style: theme.textTheme.bodyMedium,
+                              )
+                            else if (allClientPackages.isEmpty)
+                              Text(
+                                'Il cliente non ha pacchetti attivi.',
+                                style: theme.textTheme.bodyMedium,
+                              )
+                            else
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  ...selectedServices.map(
+                                    (service) => Padding(
+                                      padding: const EdgeInsets.only(
+                                        bottom: 16,
+                                      ),
+                                      child: _ServicePackageSelector(
+                                        service: service,
+                                        packages:
+                                            packagesByService[service.id] ??
+                                            const [],
+                                        selectedPackageId:
+                                            _servicePackageSelections[service
+                                                .id],
+                                        suggestedPackageId:
+                                            _suggestedPackageForService(
+                                              service.id,
+                                            ),
+                                        uncoveredQuantity:
+                                            _latestSuggestion
+                                                ?.uncoveredServices[service
+                                                .id] ??
+                                            0,
+                                        onSelect: (value) {
+                                          setState(() {
+                                            _manualPackageSelections.add(
+                                              service.id,
+                                            );
+                                            _servicePackageSelections[service
+                                                    .id] =
+                                                value;
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                           ],
+                          const SizedBox(height: 24),
+                          _buildSectionHeader(
+                            icon: Icons.schedule_rounded,
+                            title: 'Pianificazione',
+                            subtitle: 'Rivedi e modifica data, orario e durata',
+                          ),
+                          const SizedBox(height: 12),
+                          _buildScheduleCard(
+                            bookingDateLabel: bookingDateLabel,
+                            startTimeLabel: startTimeLabel,
+                            endTimeLabel: endTimeLabel,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Durata appuntamento',
+                            style: theme.textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed:
+                                    durationMinutes > _slotIntervalMinutes
+                                        ? () => _adjustDuration(
+                                          -_slotIntervalMinutes,
+                                        )
+                                        : null,
+                                icon: const Icon(Icons.remove_rounded),
+                                label: Text('-$_slotIntervalMinutes min'),
+                              ),
+                              Text(
+                                '$durationMinutes min',
+                                style: theme.textTheme.titleMedium,
+                              ),
+                              FilledButton.icon(
+                                onPressed:
+                                    () => _adjustDuration(_slotIntervalMinutes),
+                                icon: const Icon(Icons.add_rounded),
+                                label: Text('+$_slotIntervalMinutes min'),
+                              ),
+                            ],
+                          ),
+                          if (closureConflicts.isNotEmpty) ...[
+                            const SizedBox(height: 16),
+                            ...closureConflicts.map(
+                              (closure) => _buildClosureNotice(
+                                context: context,
+                                message: _describeClosure(closure),
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 24),
+                          _buildSectionHeader(
+                            icon: Icons.info_outline_rounded,
+                            title: 'Dettagli finali',
+                            subtitle: 'Aggiungi note all\'appuntamento',
+                          ),
+                          const SizedBox(height: 12),
+                          ValueListenableBuilder<TextEditingValue>(
+                            valueListenable: _notes,
+                            builder: (context, value, _) {
+                              final note = value.text.trim();
+                              if (note.isEmpty) {
+                                return Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: theme.colorScheme.outlineVariant
+                                          .withOpacity(0.5),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.note_add_outlined,
+                                        color:
+                                            theme.colorScheme.onSurfaceVariant,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          'Nessuna nota aggiunta.',
+                                          style: theme.textTheme.bodyMedium
+                                              ?.copyWith(
+                                                color:
+                                                    theme
+                                                        .colorScheme
+                                                        .onSurfaceVariant,
+                                              ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }
+                              return Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  color:
+                                      theme.colorScheme.surfaceContainerHighest,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          Icons.sticky_note_2_rounded,
+                                          color: theme.colorScheme.primary,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          'Nota attuale',
+                                          style: theme.textTheme.titleSmall,
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      note,
+                                      style: theme.textTheme.bodyMedium,
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 24),
                         ],
-                      );
-                    },
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                IconButton(
-                  onPressed:
-                      _clientId == null ? _createClient : _clearClientSelection,
-                  tooltip:
-                      _clientId == null ? 'Nuovo cliente' : 'Rimuovi cliente',
-                  icon:
-                      _clientId == null
-                          ? const Icon(Icons.person_add_alt_1_rounded)
-                          : const Icon(Icons.close_rounded),
-                ),
+                const SizedBox(height: 16),
+                _buildActionButtons(context),
               ],
             ),
-            const SizedBox(height: 24),
-            _buildSectionHeader(
-              icon: Icons.design_services_rounded,
-              title: 'Servizi e pacchetti',
-              subtitle:
-                  'Scegli i trattamenti e decidi se scalare sessioni da un pacchetto',
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildActionButtons(BuildContext context) {
+    final theme = Theme.of(context);
+    final deleteEnabled = widget.enableDelete && widget.initial != null;
+    return Row(
+      children: [
+        if (deleteEnabled)
+          TextButton.icon(
+            onPressed: _isDeleting ? null : _confirmDelete,
+            icon:
+                _isDeleting
+                    ? SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                    : const Icon(Icons.delete_outline_rounded),
+            label: Text(_isDeleting ? 'Eliminazione...' : 'Elimina'),
+            style: TextButton.styleFrom(
+              foregroundColor: theme.colorScheme.error,
             ),
-            const SizedBox(height: 12),
-            FormField<List<String>>(
-              validator:
-                  (_) =>
-                      _serviceIds.isEmpty ? 'Scegli almeno un servizio' : null,
-              builder: (state) {
-                final theme = Theme.of(context);
-                final selectedNames =
-                    selectedServices.map((service) => service.name).toList();
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    InkWell(
-                      borderRadius: BorderRadius.circular(8),
-                      onTap: () async {
-                        final selection = await _openServicePicker(
-                          context,
-                          services: filteredServices,
-                          selectedStaff: staffMembers.firstWhereOrNull(
-                            (member) => member.id == _staffId,
-                          ),
-                        );
-                        if (selection != null) {
-                          setState(() {
-                            _serviceIds = selection;
-                            _ensureServiceState(_serviceIds);
-                            _manualPackageSelections.removeWhere(
-                              (serviceId) => !_serviceIds.contains(serviceId),
-                            );
-                            if (_serviceIds.isEmpty) {
-                              _clearAllPackageSelections();
-                            } else {
-                              _lastSuggestionKey = '';
-                              _latestSuggestion = null;
-                              final durations = services
-                                  .where(
-                                    (service) =>
-                                        _serviceIds.contains(service.id),
-                                  )
-                                  .map((service) => service.totalDuration)
-                                  .fold(
-                                    Duration.zero,
-                                    (acc, value) => acc + value,
-                                  );
-                              if (!durations.isNegative &&
-                                  durations > Duration.zero) {
-                                _end = _start.add(durations);
-                              }
-                            }
-                          });
-                          state.didChange(_serviceIds);
-                        }
-                      },
-                      child: InputDecorator(
-                        decoration: InputDecoration(
-                          labelText: 'Servizi',
-                          floatingLabelBehavior: FloatingLabelBehavior.always,
-                          errorText: state.errorText,
-                          suffixIcon: const Icon(Icons.segment_rounded),
-                        ),
-                        isEmpty: selectedNames.isEmpty,
-                        child:
-                            selectedNames.isEmpty
-                                ? Text(
-                                  'Seleziona uno o più servizi',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: theme.hintColor,
-                                  ),
-                                )
-                                : Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children:
-                                      selectedServices
-                                          .map(
-                                            (service) =>
-                                                Chip(label: Text(service.name)),
-                                          )
-                                          .toList(),
-                                ),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-            if (showPackageSection) ...[
-              const SizedBox(height: 16),
-              Text('Pacchetti disponibili', style: theme.textTheme.titleMedium),
-              const SizedBox(height: 8),
-              if (selectedServices.isEmpty)
-                Text(
-                  'Seleziona almeno un servizio per abbinare i pacchetti.',
-                  style: theme.textTheme.bodyMedium,
-                )
-              else if (allClientPackages.isEmpty)
-                Text(
-                  'Il cliente non ha pacchetti attivi.',
-                  style: theme.textTheme.bodyMedium,
-                )
-              else
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    ...selectedServices.map(
-                      (service) => Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: _ServicePackageSelector(
-                          service: service,
-                          packages: packagesByService[service.id] ?? const [],
-                          selectedPackageId:
-                              _servicePackageSelections[service.id],
-                          suggestedPackageId: _suggestedPackageForService(
-                            service.id,
-                          ),
-                          uncoveredQuantity:
-                              _latestSuggestion?.uncoveredServices[service
-                                  .id] ??
-                              0,
-                          onSelect: (value) {
-                            setState(() {
-                              _manualPackageSelections.add(service.id);
-                              _servicePackageSelections[service.id] = value;
-                            });
-                          },
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-            ],
-            const SizedBox(height: 24),
-            _buildSectionHeader(
-              icon: Icons.schedule_rounded,
-              title: 'Pianificazione',
-              subtitle: 'Rivedi e modifica data, orario e durata',
-            ),
-            const SizedBox(height: 12),
-            _buildScheduleCard(
-              bookingDateLabel: bookingDateLabel,
-              startTimeLabel: startTimeLabel,
-              endTimeLabel: endTimeLabel,
-            ),
-            const SizedBox(height: 16),
-            Text('Durata appuntamento', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                OutlinedButton.icon(
-                  onPressed:
-                      durationMinutes > _slotIntervalMinutes
-                          ? () => _adjustDuration(-_slotIntervalMinutes)
-                          : null,
-                  icon: const Icon(Icons.remove_rounded),
-                  label: Text('-$_slotIntervalMinutes min'),
-                ),
-                Text(
-                  '$durationMinutes min',
-                  style: theme.textTheme.titleMedium,
-                ),
-                FilledButton.icon(
-                  onPressed: () => _adjustDuration(_slotIntervalMinutes),
-                  icon: const Icon(Icons.add_rounded),
-                  label: Text('+$_slotIntervalMinutes min'),
-                ),
-              ],
-            ),
-            if (closureConflicts.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              ...closureConflicts.map(
-                (closure) => _buildClosureNotice(
-                  context: context,
-                  message: _describeClosure(closure),
-                ),
-              ),
-            ],
-            const SizedBox(height: 24),
-            _buildSectionHeader(
-              icon: Icons.info_outline_rounded,
-              title: 'Dettagli finali',
-              subtitle: 'Aggiorna stato e note dell\'appuntamento',
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<AppointmentStatus>(
-              value: _status,
-              decoration: const InputDecoration(labelText: 'Stato'),
-              items: statusItems,
-              onChanged: (value) {
-                if (value == null) {
-                  return;
-                }
-                if (isFutureStart && value == AppointmentStatus.completed) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Non puoi impostare lo stato "Completato" per un appuntamento futuro.',
-                      ),
-                    ),
-                  );
-                  return;
-                }
-                setState(() => _status = value);
-              },
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _notes,
-              decoration: const InputDecoration(labelText: 'Note'),
-              maxLines: 3,
-            ),
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                if (widget.enableDelete && widget.initial != null)
-                  TextButton.icon(
-                    onPressed: _isDeleting ? null : _confirmDelete,
-                    icon:
-                        _isDeleting
-                            ? SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                            : const Icon(Icons.delete_outline_rounded),
-                    label: Text(_isDeleting ? 'Eliminazione...' : 'Elimina'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: Theme.of(context).colorScheme.error,
-                    ),
+          )
+        else
+          const SizedBox.shrink(),
+        const Spacer(),
+        ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _notes,
+          builder: (context, value, _) {
+            final hasNote = value.text.trim().isNotEmpty;
+            return FilledButton.tonalIcon(
+              onPressed: _isDeleting ? null : _showNotesDialog,
+              icon: const Icon(Icons.note_alt_rounded),
+              label: Text(hasNote ? 'Modifica nota' : 'Aggiungi nota'),
+            );
+          },
+        ),
+        const SizedBox(width: 12),
+        FilledButton.tonal(
+          onPressed: _isDeleting ? null : _copy,
+          child:
+              _copyJustCompleted
+                  ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.check_rounded),
+                      SizedBox(width: 8),
+                      Text('Copiato!'),
+                    ],
                   )
-                else
-                  const SizedBox.shrink(),
-                const Spacer(),
-                FilledButton.tonal(
-                  onPressed: _isDeleting ? null : _copy,
-                  child:
-                      _copyJustCompleted
-                          ? Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: const [
-                              Icon(Icons.check_rounded),
-                              SizedBox(width: 8),
-                              Text('Copiato!'),
-                            ],
-                          )
-                          : const Text('Copia'),
-                ),
-                const SizedBox(width: 12),
-                FilledButton(
-                  onPressed: _isDeleting ? null : _submit,
-                  child: const Text('Salva'),
-                ),
-              ],
+                  : const Text('Copia'),
+        ),
+        const SizedBox(width: 12),
+        FilledButton(
+          onPressed: _isDeleting ? null : _submit,
+          child: const Text('Salva'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _showNotesDialog() async {
+    final controller = TextEditingController(text: _notes.text);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Note'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: TextField(
+              controller: controller,
+              autofocus: true,
+              minLines: 3,
+              maxLines: 6,
+              decoration: const InputDecoration(
+                labelText: 'Nota',
+                hintText: 'Aggiungi una nota per l\'appuntamento',
+                alignLabelWithHint: true,
+              ),
+              keyboardType: TextInputType.multiline,
+              textInputAction: TextInputAction.newline,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Annulla'),
+            ),
+            FilledButton(
+              onPressed:
+                  () => Navigator.of(context).pop(controller.text.trim()),
+              child: const Text('Salva nota'),
             ),
           ],
-        ),
-      ),
+        );
+      },
     );
+    if (result != null) {
+      setState(() {
+        _notes.text = result;
+      });
+    }
+    controller.dispose();
   }
 
   Widget _buildSectionHeader({
@@ -2502,6 +2776,32 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       }
     }
     return unique;
+  }
+
+  IconData _statusIcon(AppointmentStatus status) {
+    switch (status) {
+      case AppointmentStatus.scheduled:
+        return Icons.event_available_rounded;
+      case AppointmentStatus.completed:
+        return Icons.check_circle_rounded;
+      case AppointmentStatus.cancelled:
+        return Icons.cancel_rounded;
+      case AppointmentStatus.noShow:
+        return Icons.report_problem_rounded;
+    }
+  }
+
+  Color _statusColor(ColorScheme scheme, AppointmentStatus status) {
+    switch (status) {
+      case AppointmentStatus.scheduled:
+        return scheme.primary;
+      case AppointmentStatus.completed:
+        return scheme.tertiary;
+      case AppointmentStatus.cancelled:
+        return scheme.onSurfaceVariant;
+      case AppointmentStatus.noShow:
+        return scheme.error.withAlpha(180);
+    }
   }
 
   String _statusLabel(AppointmentStatus status) {
