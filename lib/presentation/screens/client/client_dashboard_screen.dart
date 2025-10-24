@@ -4944,6 +4944,39 @@ class _ClientLoyaltySheetBody extends StatelessWidget {
     final metaCaptionStyle = theme.textTheme.bodySmall?.copyWith(
       color: metaCaptionColor,
     );
+    Widget buildMetaTile({
+      required IconData icon,
+      required String label,
+      required String value,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              color:
+                  isDark
+                      ? theme.colorScheme.onPrimary
+                      : theme.colorScheme.primary,
+              size: 24,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: metaLabelStyle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(value, style: metaValueStyle, textAlign: TextAlign.right),
+          ],
+        ),
+      );
+    }
 
     final movementWidgets = <Widget>[
       Text(
@@ -5100,7 +5133,7 @@ class _ClientLoyaltySheetBody extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        '${stats.spendable}',
+                        '${stats.spendable} €',
                         style: (theme.textTheme.headlineMedium ??
                                 const TextStyle(
                                   fontSize: 32,
@@ -5120,81 +5153,36 @@ class _ClientLoyaltySheetBody extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 18,
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.event_available,
-                      color:
-                          isDark
-                              ? theme.colorScheme.onPrimary
-                              : theme.colorScheme.primary,
-                      size: 24,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [Text('Scadono il ', style: metaLabelStyle)],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      expirationLabel,
-                      style: metaValueStyle,
-                      textAlign: TextAlign.right,
-                    ),
-                  ],
-                ),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final tiles = [
+              buildMetaTile(
+                icon: Icons.event_available,
+                label: 'Scadono il',
+                value: expirationLabel,
               ),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 18,
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.currency_exchange,
-                      color:
-                          isDark
-                              ? theme.colorScheme.onPrimary
-                              : theme.colorScheme.primary,
-                      size: 24,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [Text('Valore punto', style: metaLabelStyle)],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      pointValueLabel,
-                      style: metaValueStyle,
-                      textAlign: TextAlign.right,
-                    ),
-                  ],
-                ),
+              buildMetaTile(
+                icon: Icons.currency_exchange,
+                label: 'Valore punto',
+                value: pointValueLabel,
               ),
-            ),
-          ],
+            ];
+            if (constraints.maxWidth < 480) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [tiles[0], const SizedBox(height: 12), tiles[1]],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: tiles[0]),
+                const SizedBox(width: 12),
+                Expanded(child: tiles[1]),
+              ],
+            );
+          },
         ),
-        SizedBox(height: 16),
+        const SizedBox(height: 16),
 
         const SizedBox(height: 24),
         ...movementWidgets,

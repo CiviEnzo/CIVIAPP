@@ -938,14 +938,14 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
 
     final now = DateTime.now();
-    final dayStart = DateTime(now.year, now.month, now.day);
-    final horizon = DateTime(
-      now.year + 1,
-      now.month,
-      now.day,
-    ).add(const Duration(days: 1));
-    final lowerBound = Timestamp.fromDate(dayStart);
-    final upperBound = Timestamp.fromDate(horizon);
+    final today = DateTime(now.year, now.month, now.day);
+    const buffer = Duration(days: 14);
+    final pastLimit = DateTime(today.year - 1, today.month, today.day);
+    final futureLimit = DateTime(today.year + 1, today.month, today.day);
+    final lowerBoundDate = pastLimit.subtract(buffer);
+    final upperBoundDate = futureLimit.add(buffer).add(const Duration(days: 1));
+    final lowerBound = Timestamp.fromDate(lowerBoundDate);
+    final upperBound = Timestamp.fromDate(upperBoundDate);
 
     final aggregated = <String, Shift>{};
     final salonDocIds = <String, Set<String>>{};

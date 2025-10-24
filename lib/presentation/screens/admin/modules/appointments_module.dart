@@ -438,11 +438,6 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       ),
       minimumSize: const MaterialStatePropertyAll(Size(0, 38)),
     );
-    final tonalButtonStyle = FilledButton.styleFrom(
-      visualDensity: compactDensity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      minimumSize: const Size(0, 40),
-    );
     final outlinedButtonStyle = OutlinedButton.styleFrom(
       visualDensity: compactDensity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -484,6 +479,11 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                     if (!mounted) return;
                     setDialogState(() {});
                   }
+
+                  final showInlineStaffSelection =
+                      staff.isNotEmpty && staff.length < 10;
+                  final showStaffFilterButton =
+                      staff.length >= 10 && staffLabel != null;
 
                   return SingleChildScrollView(
                     child: Column(
@@ -561,7 +561,54 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                             },
                           ),
                         ],
-                        if (staffLabel != null) ...[
+                        if (showInlineStaffSelection) ...[
+                          const SizedBox(height: 16),
+                          Text(
+                            'Filtra operatori',
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              FilterChip(
+                                label: const Text('Tutti'),
+                                selected: _selectedStaffIds.isEmpty,
+                                onSelected: (_) {
+                                  setState(() => _selectedStaffIds = <String>{});
+                                  refresh();
+                                },
+                              ),
+                              for (final member in staff)
+                                FilterChip(
+                                  label: Text(member.fullName),
+                                  selected:
+                                      _selectedStaffIds.contains(member.id),
+                                  onSelected: (isSelected) {
+                                    setState(() {
+                                      final updated = Set<String>.from(
+                                        _selectedStaffIds,
+                                      );
+                                      if (isSelected) {
+                                        updated.add(member.id);
+                                      } else {
+                                        updated.remove(member.id);
+                                      }
+                                      if (updated.length == staff.length) {
+                                        _selectedStaffIds = <String>{};
+                                      } else {
+                                        _selectedStaffIds = updated;
+                                      }
+                                    });
+                                    refresh();
+                                  },
+                                ),
+                            ],
+                          ),
+                        ] else if (showStaffFilterButton) ...[
                           const SizedBox(height: 16),
                           OutlinedButton.icon(
                             style: outlinedButtonStyle,
@@ -574,35 +621,9 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                               refresh();
                             },
                             icon: const Icon(Icons.people_alt_rounded),
-                            label: Text(staffLabel),
+                            label: Text(staffLabel!),
                           ),
                         ],
-                        const SizedBox(height: 16),
-                        Wrap(
-                          alignment: WrapAlignment.center,
-                          spacing: 12,
-                          runSpacing: 8,
-                          children: [
-                            FilledButton.tonal(
-                              style: tonalButtonStyle,
-                              onPressed: () {
-                                _goToToday();
-                                refresh();
-                              },
-                              child: const Text('Oggi'),
-                            ),
-                            FilledButton.tonalIcon(
-                              style: tonalButtonStyle,
-                              onPressed: () async {
-                                await _pickDate();
-                                if (!mounted) return;
-                                refresh();
-                              },
-                              icon: const Icon(Icons.event_available_rounded),
-                              label: const Text('Vai a data'),
-                            ),
-                          ],
-                        ),
                       ],
                     ),
                   );

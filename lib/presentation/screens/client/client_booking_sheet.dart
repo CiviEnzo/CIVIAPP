@@ -5,6 +5,7 @@ import 'package:civiapp/data/repositories/app_data_state.dart';
 import 'package:civiapp/domain/availability/appointment_conflicts.dart';
 import 'package:civiapp/domain/availability/equipment_availability.dart';
 import 'package:civiapp/domain/entities/appointment.dart';
+import 'package:civiapp/domain/entities/appointment_service_allocation.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/last_minute_slot.dart';
 import 'package:civiapp/domain/entities/salon.dart';
@@ -108,6 +109,55 @@ class _ServiceBookingSelection {
       usePackageSession: usePackageSession ?? this.usePackageSession,
       packageId: packageId ?? this.packageId,
     );
+  }
+}
+
+class _PackageUsageSummary {
+  _PackageUsageSummary({required this.purchase, this.sessionsUsed = 0});
+
+  final ClientPackagePurchase purchase;
+  int sessionsUsed;
+
+  void increment() {
+    sessionsUsed += 1;
+  }
+
+  int get sessionsBefore => purchase.effectiveRemainingSessions;
+
+  int get sessionsAfter {
+    final remaining = sessionsBefore - sessionsUsed;
+    return remaining >= 0 ? remaining : 0;
+  }
+}
+
+class _ServicePackagePlan {
+  _ServicePackagePlan({
+    required this.serviceId,
+    required this.package,
+    required this.sessionsBefore,
+    required this.sessionsAfter,
+  });
+
+  final String serviceId;
+  final ClientPackagePurchase package;
+  final int sessionsBefore;
+  final int sessionsAfter;
+}
+
+class _SelectionPackagePlan {
+  _SelectionPackagePlan({required this.index, required this.servicePlans});
+
+  final int index;
+  final List<_ServicePackagePlan> servicePlans;
+
+  bool get hasCoverage => servicePlans.isNotEmpty;
+
+  Map<String, int> get coverageCountByServiceId {
+    final counts = <String, int>{};
+    for (final plan in servicePlans) {
+      counts.update(plan.serviceId, (value) => value + 1, ifAbsent: () => 1);
+    }
+    return counts;
   }
 }
 
@@ -2237,9 +2287,6 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
           selection.end == null) {
         return false;
       }
-      if (selection.usePackageSession && selection.packageId == null) {
-        return false;
-      }
     }
     return true;
   }
@@ -2260,6 +2307,17 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     );
     final plannedAppointments = <Appointment>[];
     final appointmentsToSave = <Appointment>[];
+    final packagePurchases = resolveClientPackagePurchases(
+      sales: data.sales,
+      packages: data.packages,
+      appointments: existingAppointments,
+      services: data.services,
+      clientId: widget.client.id,
+      salonId: widget.client.salonId,
+    );
+    final packagePlans = _computePackagePlans(
+      packagePurchases: packagePurchases,
+    );
 
     for (var index = 0; index < _selections.length; index++) {
       final selection = _selections[index];
@@ -2395,14 +2453,53 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
         return;
       }
 
-      final packageId =
-          selection.usePackageSession ? selection.packageId : null;
-      if (packageId != null && servicesForSelection.length > 1) {
-        _showError(
-          'Non è possibile utilizzare un pacchetto quando sono selezionati più servizi.',
-        );
-        return;
+      final selectionPlan =
+          index < packagePlans.length ? packagePlans[index] : null;
+      final packageConsumptionsByService =
+          <String, List<AppointmentPackageConsumption>>{};
+      if (selectionPlan != null) {
+        for (final plan in selectionPlan.servicePlans) {
+          final referenceId = plan.package.item.referenceId;
+          if (referenceId.isEmpty) {
+            continue;
+          }
+          packageConsumptionsByService
+              .putIfAbsent(
+                plan.serviceId,
+                () => <AppointmentPackageConsumption>[],
+              )
+              .add(
+                AppointmentPackageConsumption(
+                  packageReferenceId: referenceId,
+                  quantity: 1,
+                ),
+              );
+        }
       }
+
+      final serviceCounts = <String, int>{};
+      for (final serviceId in selection.serviceIds) {
+        serviceCounts.update(
+          serviceId,
+          (value) => value + 1,
+          ifAbsent: () => 1,
+        );
+      }
+      final serviceAllocations =
+          serviceCounts.entries.map((entry) {
+            final consumptions =
+                packageConsumptionsByService[entry.key] ??
+                const <AppointmentPackageConsumption>[];
+            return AppointmentServiceAllocation(
+              serviceId: entry.key,
+              quantity: entry.value,
+              packageConsumptions:
+                  List<AppointmentPackageConsumption>.unmodifiable(
+                    consumptions,
+                  ),
+            );
+          }).toList();
+
       final existing =
           widget.initialAppointment != null && index == 0
               ? widget.initialAppointment
@@ -2410,10 +2507,10 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       final appointment =
           existing?.copyWith(
             staffId: staff.id,
-            serviceIds: selection.serviceIds,
+            serviceAllocations: serviceAllocations,
             start: slotStart,
             end: slotEnd,
-            packageId: packageId,
+            packageId: null,
             lastMinuteSlotId:
                 _isLastMinuteExpress && index == 0 && _expressSlot != null
                     ? _expressSlot!.id
@@ -2424,11 +2521,11 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             salonId: widget.client.salonId,
             clientId: widget.client.id,
             staffId: staff.id,
-            serviceIds: selection.serviceIds,
+            serviceAllocations: serviceAllocations,
             start: slotStart,
             end: slotEnd,
             status: AppointmentStatus.scheduled,
-            packageId: packageId,
+            packageId: null,
             lastMinuteSlotId:
                 _isLastMinuteExpress && index == 0 && _expressSlot != null
                     ? _expressSlot!.id
@@ -2583,10 +2680,17 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     final infoStyle = theme.textTheme.bodySmall;
     final warningStyle = infoStyle?.copyWith(color: theme.colorScheme.error);
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    final expirationFormatter = DateFormat('dd/MM/yyyy', 'it_IT');
     Duration totalDuration = Duration.zero;
     double totalBasePrice = 0;
     double totalPayablePrice = 0;
     final tiles = <Widget>[];
+    final packageUsageById = <String, _PackageUsageSummary>{};
+    final packagePlans = _computePackagePlans(
+      packagePurchases: packagePurchases,
+      usageSummaryOut: packageUsageById,
+    );
+
     for (var index = 0; index < _selections.length; index++) {
       final selection = _selections[index];
       final services =
@@ -2603,6 +2707,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       final staffLabel = staff?.fullName ?? 'Operatore da selezionare';
       final start = selection.start;
       final end = selection.end;
+
       String slotLabel;
       TextStyle? slotStyle = infoStyle;
       if (start != null && end != null) {
@@ -2614,170 +2719,93 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
         slotLabel = 'Orario da selezionare';
         slotStyle = warningStyle;
       }
-      final availablePackages =
-          selection.serviceIds.length == 1
-              ? _packagesAvailableForService(
-                purchases: packagePurchases,
-                serviceId: selection.serviceIds.first,
-              )
-              : const <ClientPackagePurchase>[];
-      final canUsePackages = availablePackages.isNotEmpty;
-      final hasManualOverride = _manualPackageOverrides.contains(index);
-      var selectedPackage =
-          selection.packageId != null
-              ? availablePackages.firstWhereOrNull(
-                (purchase) => purchase.item.referenceId == selection.packageId,
-              )
-              : null;
-      var usingPackage = selection.usePackageSession;
 
-      if (!canUsePackages && (usingPackage || selection.packageId != null)) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          setState(() {
-            _selections[index] = _selections[index].copyWith(
-              usePackageSession: false,
-              packageId: null,
-            );
-            if (_activeSelectionIndex == index) {
-              _usePackageSession = false;
-              _selectedPackageId = null;
-            }
-            _manualPackageOverrides.remove(index);
-          });
-        });
-        usingPackage = false;
-        selectedPackage = null;
+      final selectionPlan =
+          index < packagePlans.length ? packagePlans[index] : null;
+      final servicePlans =
+          selectionPlan?.servicePlans ?? const <_ServicePackagePlan>[];
+      final coverageCount =
+          selectionPlan?.coverageCountByServiceId ?? const <String, int>{};
+      final coverageTracker = Map<String, int>.from(coverageCount);
+      final uncoveredServices = <Service>[];
+      for (final service in services) {
+        final remainingCoverage = coverageTracker[service.id] ?? 0;
+        if (remainingCoverage > 0) {
+          coverageTracker[service.id] = remainingCoverage - 1;
+        } else {
+          uncoveredServices.add(service);
+        }
       }
-
-      if (canUsePackages && !usingPackage && !hasManualOverride) {
-        final fallbackPackage = selectedPackage ?? availablePackages.first;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          setState(() {
-            _selections[index] = _selections[index].copyWith(
-              usePackageSession: true,
-              packageId: fallbackPackage.item.referenceId,
-            );
-            if (_activeSelectionIndex == index) {
-              _usePackageSession = true;
-              _selectedPackageId = fallbackPackage.item.referenceId;
-            }
-          });
-        });
-        usingPackage = true;
-        selectedPackage = fallbackPackage;
-      }
-
-      if (canUsePackages && usingPackage && selectedPackage == null) {
-        final fallbackPackage = availablePackages.first;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          setState(() {
-            _selections[index] = _selections[index].copyWith(
-              usePackageSession: true,
-              packageId: fallbackPackage.item.referenceId,
-            );
-            if (_activeSelectionIndex == index) {
-              _usePackageSession = true;
-              _selectedPackageId = fallbackPackage.item.referenceId;
-            }
-          });
-        });
-        selectedPackage = fallbackPackage;
-      }
+      final hasCoverage = servicePlans.isNotEmpty;
+      final allServicesCovered =
+          uncoveredServices.isEmpty && services.isNotEmpty;
 
       Widget packageSection;
-      if (!canUsePackages) {
-        final message =
-            selection.serviceIds.length <= 1
-                ? 'Pacchetto: non utilizzato'
-                : 'Pacchetto non disponibile con pi\u00f9 servizi.';
-        packageSection = Text(message, style: infoStyle);
+      if (!hasCoverage) {
+        packageSection = Text(
+          selection.serviceIds.length <= 1
+              ? 'Nessun pacchetto compatibile disponibile.'
+              : 'Pacchetto non disponibile per tutti i servizi selezionati.',
+          style: infoStyle,
+        );
       } else {
-        final referencePackage = selectedPackage ?? availablePackages.first;
-        final subtitleText =
-            usingPackage
-                ? '${referencePackage.displayName} • ${referencePackage.effectiveRemainingSessions} sessioni disponibili'
-                : availablePackages.length == 1
-                ? '${availablePackages.first.displayName} • ${availablePackages.first.effectiveRemainingSessions} sessioni disponibili'
-                : '${availablePackages.length} pacchetti disponibili';
-        packageSection = Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Scala una sessione da un pacchetto'),
-              subtitle: Text(subtitleText),
-              value: usingPackage,
-              onChanged: (value) {
-                setState(() {
-                  _manualPackageOverrides.add(index);
-                  if (value) {
-                    final chosenId =
-                        (selectedPackage ?? availablePackages.first)
-                            .item
-                            .referenceId;
-                    _selections[index] = _selections[index].copyWith(
-                      usePackageSession: true,
-                      packageId: chosenId,
-                    );
-                    if (_activeSelectionIndex == index) {
-                      _usePackageSession = true;
-                      _selectedPackageId = chosenId;
-                    }
-                  } else {
-                    _selections[index] = _selections[index].copyWith(
-                      usePackageSession: false,
-                      packageId: null,
-                    );
-                    if (_activeSelectionIndex == index) {
-                      _usePackageSession = false;
-                      _selectedPackageId = null;
-                    }
-                  }
-                });
-              },
-            ),
-            if (usingPackage && availablePackages.length > 1)
-              Padding(
-                padding: const EdgeInsets.only(left: 16, top: 8),
-                child: DropdownButtonFormField<String>(
-                  value:
-                      (selectedPackage ?? availablePackages.first)
-                          .item
-                          .referenceId,
-                  decoration: const InputDecoration(
-                    labelText: 'Seleziona il pacchetto',
-                  ),
-                  items:
-                      availablePackages
-                          .map(
-                            (purchase) => DropdownMenuItem(
-                              value: purchase.item.referenceId,
-                              child: Text(
-                                '${purchase.displayName} • ${purchase.effectiveRemainingSessions} sessioni',
-                              ),
-                            ),
-                          )
-                          .toList(),
-                  onChanged: (value) {
-                    if (value == null) return;
-                    setState(() {
-                      _manualPackageOverrides.add(index);
-                      _selections[index] = _selections[index].copyWith(
-                        packageId: value,
-                        usePackageSession: true,
-                      );
-                      if (_activeSelectionIndex == index) {
-                        _usePackageSession = true;
-                        _selectedPackageId = value;
-                      }
-                    });
-                  },
+        final uncoveredLabels =
+            uncoveredServices
+                .map((service) => service.name)
+                .where((label) => label.isNotEmpty)
+                .toList();
+        packageSection = Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primary.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.lock_rounded, color: theme.colorScheme.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Scalatura da pacchetto obbligatoria',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    for (final plan in servicePlans) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        servicesById[plan.serviceId]?.name ?? 'Servizio',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(plan.package.displayName, style: infoStyle),
+                      Text(
+                        'Sessioni disponibili: ${plan.sessionsBefore} -> ${plan.sessionsAfter}',
+                        style: infoStyle,
+                      ),
+                      if (plan.package.expirationDate != null)
+                        Text(
+                          'Scadenza pacchetto: ${expirationFormatter.format(plan.package.expirationDate!)}',
+                          style: infoStyle,
+                        ),
+                    ],
+                    if (uncoveredLabels.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        'Servizi non coperti: ${uncoveredLabels.join(', ')}',
+                        style: warningStyle ?? infoStyle,
+                      ),
+                    ],
+                  ],
                 ),
               ),
-          ],
+            ],
+          ),
         );
       }
 
@@ -2785,12 +2813,14 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
         0,
         (sum, service) => sum + service.price,
       );
-      double selectionPayablePrice = selectionBasePrice;
+      double selectionPayablePrice;
       if (_isLastMinuteExpress && index == 0 && _expressSlot != null) {
-        selectionPayablePrice = _expressSlot!.priceNow;
-      }
-      if (canUsePackages && usingPackage) {
-        selectionPayablePrice = 0;
+        selectionPayablePrice = allServicesCovered ? 0 : _expressSlot!.priceNow;
+      } else {
+        selectionPayablePrice = uncoveredServices.fold<double>(
+          0,
+          (sum, service) => sum + service.price,
+        );
       }
 
       if (services.isNotEmpty) {
@@ -2875,6 +2905,61 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     }
 
     final summaryTiles = <Widget>[];
+    if (packageUsageById.isNotEmpty) {
+      summaryTiles.add(
+        Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Dettaglio pacchetti scalati',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...packageUsageById.values.map((usage) {
+                  final sessionsBefore = usage.sessionsBefore;
+                  final sessionsAfter = usage.sessionsAfter;
+                  final sessionsLabel =
+                      usage.sessionsUsed == 1
+                          ? '1 sessione verrà scalata'
+                          : '${usage.sessionsUsed} sessioni verranno scalate';
+                  final expiration = usage.purchase.expirationDate;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          usage.purchase.displayName,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '$sessionsLabel - disponibili $sessionsBefore -> $sessionsAfter',
+                          style: infoStyle,
+                        ),
+                        if (expiration != null)
+                          Text(
+                            'Scadenza: ${expirationFormatter.format(expiration)}',
+                            style: infoStyle,
+                          ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2916,6 +3001,88 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     final minutesTwo = minutes.toString().padLeft(2, '0');
     final secondsTwo = seconds.toString().padLeft(2, '0');
     return '$minutesTwo:$secondsTwo';
+  }
+
+  List<_SelectionPackagePlan> _computePackagePlans({
+    required List<ClientPackagePurchase> packagePurchases,
+    Map<String, _PackageUsageSummary>? usageSummaryOut,
+  }) {
+    if (_selections.isEmpty) {
+      return const <_SelectionPackagePlan>[];
+    }
+    final usageSummary = <String, _PackageUsageSummary>{};
+    final totalUsageByPackage = <String, int>{};
+    final serviceUsageByPackage = <String, Map<String, int>>{};
+    final plans = <_SelectionPackagePlan>[];
+
+    for (var index = 0; index < _selections.length; index++) {
+      final selection = _selections[index];
+      final servicePlans = <_ServicePackagePlan>[];
+
+      for (final serviceId in selection.serviceIds) {
+        final availablePackages = _packagesAvailableForService(
+          purchases: packagePurchases,
+          serviceId: serviceId,
+        );
+        if (availablePackages.isEmpty) {
+          continue;
+        }
+
+        for (final candidate in availablePackages) {
+          final referenceId = candidate.item.referenceId;
+          if (referenceId.isEmpty) {
+            continue;
+          }
+          final totalUsage = totalUsageByPackage[referenceId] ?? 0;
+          final serviceUsageMap =
+              serviceUsageByPackage[referenceId] ?? const <String, int>{};
+          final usageForService = serviceUsageMap[serviceId] ?? 0;
+          final totalRemaining =
+              candidate.effectiveRemainingSessions - totalUsage;
+          final serviceRemaining =
+              candidate.remainingSessionsForService(serviceId) -
+              usageForService;
+          if (totalRemaining <= 0 || serviceRemaining <= 0) {
+            continue;
+          }
+
+          final summary = usageSummary.putIfAbsent(
+            referenceId,
+            () => _PackageUsageSummary(purchase: candidate),
+          );
+          final sessionsBefore = summary.sessionsBefore - summary.sessionsUsed;
+          final safeSessionsBefore = sessionsBefore > 0 ? sessionsBefore : 0;
+          summary.increment();
+          final sessionsAfter = summary.sessionsAfter;
+          totalUsageByPackage[referenceId] = totalUsage + 1;
+          final updatedServiceUsageMap = serviceUsageByPackage.putIfAbsent(
+            referenceId,
+            () => <String, int>{},
+          );
+          updatedServiceUsageMap[serviceId] = usageForService + 1;
+
+          servicePlans.add(
+            _ServicePackagePlan(
+              serviceId: serviceId,
+              package: candidate,
+              sessionsBefore: safeSessionsBefore,
+              sessionsAfter: sessionsAfter,
+            ),
+          );
+          break;
+        }
+      }
+
+      plans.add(
+        _SelectionPackagePlan(index: index, servicePlans: servicePlans),
+      );
+    }
+
+    if (usageSummaryOut != null) {
+      usageSummaryOut.addAll(usageSummary);
+    }
+
+    return plans;
   }
 
   List<ClientPackagePurchase> _packagesAvailableForService({
