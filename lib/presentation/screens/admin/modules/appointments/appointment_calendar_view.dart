@@ -89,6 +89,7 @@ class AppointmentCalendarView extends StatefulWidget {
     required this.lastMinutePlaceholders,
     required this.staff,
     required this.clients,
+    required this.clientsWithOutstandingPayments,
     required this.services,
     required this.serviceCategories,
     required this.shifts,
@@ -123,6 +124,7 @@ class AppointmentCalendarView extends StatefulWidget {
   final List<StaffMember> staff;
   final List<StaffRole> roles;
   final List<Client> clients;
+  final Set<String> clientsWithOutstandingPayments;
   final List<Service> services;
   final List<ServiceCategory> serviceCategories;
   final List<Shift> shifts;
@@ -244,6 +246,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           absences: widget.absences,
           schedule: widget.schedule,
           staff: widget.staff,
+          clientsWithOutstandingPayments: widget.clientsWithOutstandingPayments,
           clientsById: clientsById,
           servicesById: servicesById,
           categoriesById: categoriesById,
@@ -280,6 +283,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           visibleWeekdays: widget.visibleWeekdays,
           staff: widget.staff,
           roles: widget.roles,
+          clientsWithOutstandingPayments: widget.clientsWithOutstandingPayments,
           clientsById: clientsById,
           servicesById: servicesById,
           categoriesById: categoriesById,
@@ -344,6 +348,7 @@ class _DaySchedule extends StatelessWidget {
     required this.absences,
     required this.schedule,
     required this.staff,
+    required this.clientsWithOutstandingPayments,
     required this.clientsById,
     required this.servicesById,
     required this.categoriesById,
@@ -377,6 +382,7 @@ class _DaySchedule extends StatelessWidget {
   final List<StaffAbsence> absences;
   final List<SalonDailySchedule>? schedule;
   final List<StaffMember> staff;
+  final Set<String> clientsWithOutstandingPayments;
   final Map<String, Client> clientsById;
   final Map<String, Service> servicesById;
   final Map<String, ServiceCategory> categoriesById;
@@ -796,6 +802,8 @@ class _DaySchedule extends StatelessWidget {
                                                 timelineEnd: bounds.end,
                                                 slotMinutes: slotMinutes,
                                                 slotExtent: _slotExtent,
+                                                clientsWithOutstandingPayments:
+                                                    clientsWithOutstandingPayments,
                                                 clientsById: clientsById,
                                                 servicesById: servicesById,
                                                 categoriesById: categoriesById,
@@ -922,6 +930,7 @@ class _WeekSchedule extends StatelessWidget {
     required this.visibleWeekdays,
     required this.staff,
     required this.roles,
+    required this.clientsWithOutstandingPayments,
     required this.clientsById,
     required this.servicesById,
     required this.categoriesById,
@@ -961,6 +970,7 @@ class _WeekSchedule extends StatelessWidget {
   final Set<int> visibleWeekdays;
   final List<StaffMember> staff;
   final List<StaffRole> roles;
+  final Set<String> clientsWithOutstandingPayments;
   final Map<String, Client> clientsById;
   final Map<String, Service> servicesById;
   final Map<String, ServiceCategory> categoriesById;
@@ -1210,6 +1220,7 @@ class _WeekSchedule extends StatelessWidget {
         dayData: dayData,
         staff: staff,
         roles: roles,
+        clientsWithOutstandingPayments: clientsWithOutstandingPayments,
         clientsById: clientsById,
         servicesById: servicesById,
         categoriesById: categoriesById,
@@ -1955,6 +1966,8 @@ class _WeekSchedule extends StatelessWidget {
                                                       ),
                                                   slotMinutes: slotMinutes,
                                                   slotExtent: _slotExtent,
+                                                  clientsWithOutstandingPayments:
+                                                      clientsWithOutstandingPayments,
                                                   clientsById: clientsById,
                                                   servicesById: servicesById,
                                                   categoriesById:
@@ -2821,6 +2834,7 @@ class _WeekCompactView extends StatelessWidget {
     required this.dayData,
     required this.staff,
     required this.roles,
+    required this.clientsWithOutstandingPayments,
     required this.clientsById,
     required this.servicesById,
     required this.categoriesById,
@@ -2853,6 +2867,7 @@ class _WeekCompactView extends StatelessWidget {
   final List<_WeekDayData> dayData;
   final List<StaffMember> staff;
   final List<StaffRole> roles;
+  final Set<String> clientsWithOutstandingPayments;
   final Map<String, Client> clientsById;
   final Map<String, Service> servicesById;
   final Map<String, ServiceCategory> categoriesById;
@@ -3566,6 +3581,8 @@ class _WeekCompactView extends StatelessWidget {
                     timelineEnd: data.date.add(Duration(minutes: maxMinute)),
                     slotMinutes: slotMinutes,
                     slotExtent: slotExtent,
+                    clientsWithOutstandingPayments:
+                        clientsWithOutstandingPayments,
                     clientsById: clientsById,
                     servicesById: servicesById,
                     categoriesById: categoriesById,
@@ -4439,6 +4456,7 @@ class _StaffDayColumn extends StatefulWidget {
     required this.timelineEnd,
     required this.slotMinutes,
     required this.slotExtent,
+    required this.clientsWithOutstandingPayments,
     required this.clientsById,
     required this.servicesById,
     required this.categoriesById,
@@ -4469,6 +4487,7 @@ class _StaffDayColumn extends StatefulWidget {
   final DateTime timelineEnd;
   final int slotMinutes;
   final double slotExtent;
+  final Set<String> clientsWithOutstandingPayments;
   final Map<String, Client> clientsById;
   final Map<String, Service> servicesById;
   final Map<String, ServiceCategory> categoriesById;
@@ -4756,6 +4775,8 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
             services.isNotEmpty
                 ? services.first
                 : widget.servicesById[previewed.serviceId];
+        final hasOutstandingPayments = widget.clientsWithOutstandingPayments
+            .contains(previewed.clientId);
         dragOverlay = Positioned(
           top: top,
           left: 0,
@@ -4771,7 +4792,6 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                 services: services,
                 staff: widget.staffMember,
                 roomName: roomName,
-                statusColor: widget.statusColor,
                 height: height,
                 anomalies: anomalies,
                 lockReason: null,
@@ -4779,6 +4799,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                 categoriesById: widget.categoriesById,
                 categoriesByName: widget.categoriesByName,
                 hideContent: widget.compact,
+                hasOutstandingPayments: hasOutstandingPayments,
               ),
             ),
           ),
@@ -5295,6 +5316,9 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                       final lockReason =
                           widget.lockedAppointmentReasons[appointment.id];
                       final isLocked = lockReason != null;
+                      final hasOutstandingPayments = widget
+                          .clientsWithOutstandingPayments
+                          .contains(appointment.clientId);
                       final card = _AppointmentCard(
                         appointment: appointment,
                         client: client,
@@ -5302,7 +5326,6 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                         services: services,
                         staff: widget.staffMember,
                         roomName: roomName,
-                        statusColor: widget.statusColor,
                         onTap: () => widget.onEdit(appointment),
                         height: height,
                         anomalies: issues,
@@ -5311,6 +5334,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                         categoriesById: widget.categoriesById,
                         categoriesByName: widget.categoriesByName,
                         hideContent: widget.compact,
+                        hasOutstandingPayments: hasOutstandingPayments,
                       );
                       if (isLocked) {
                         return Positioned(
@@ -5339,7 +5363,6 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                               services: services,
                               staff: widget.staffMember,
                               roomName: roomName,
-                              statusColor: widget.statusColor,
                               height: height,
                               anomalies: issues,
                               previewStart: _dragPreviewStart,
@@ -5348,6 +5371,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                               lastMinuteSlot: matchingSlot,
                               categoriesById: widget.categoriesById,
                               categoriesByName: widget.categoriesByName,
+                              hasOutstandingPayments: hasOutstandingPayments,
                             ),
                           ),
                           childWhenDragging: Opacity(
@@ -5359,7 +5383,6 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                               services: services,
                               staff: widget.staffMember,
                               roomName: roomName,
-                              statusColor: widget.statusColor,
                               height: height,
                               anomalies: issues,
                               lockReason: lockReason,
@@ -5367,6 +5390,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                               categoriesById: widget.categoriesById,
                               categoriesByName: widget.categoriesByName,
                               hideContent: widget.compact,
+                              hasOutstandingPayments: hasOutstandingPayments,
                             ),
                           ),
                           child: card,
@@ -5564,7 +5588,6 @@ class _AppointmentCard extends StatelessWidget {
     required this.service,
     this.services = const <Service>[],
     required this.staff,
-    required this.statusColor,
     required this.height,
     this.roomName,
     this.onTap,
@@ -5575,6 +5598,7 @@ class _AppointmentCard extends StatelessWidget {
     required this.categoriesById,
     required this.categoriesByName,
     this.hideContent = false,
+    this.hasOutstandingPayments = false,
   });
 
   final Appointment appointment;
@@ -5582,7 +5606,6 @@ class _AppointmentCard extends StatelessWidget {
   final Service? service;
   final List<Service> services;
   final StaffMember staff;
-  final Color Function(AppointmentStatus status) statusColor;
   final double height;
   final String? roomName;
   final VoidCallback? onTap;
@@ -5593,6 +5616,7 @@ class _AppointmentCard extends StatelessWidget {
   final Map<String, ServiceCategory> categoriesById;
   final Map<String, ServiceCategory> categoriesByName;
   final bool hideContent;
+  final bool hasOutstandingPayments;
 
   @override
   Widget build(BuildContext context) {
@@ -5608,7 +5632,6 @@ class _AppointmentCard extends StatelessWidget {
     final startTimeLabel = DateFormat('HH:mm').format(appointment.start);
     final endTimeLabel = DateFormat('HH:mm').format(appointment.end);
     final timeLabel = '$startTimeLabel - $endTimeLabel';
-    final statusColorValue = statusColor(status);
     final hasAnomalies = anomalies.isNotEmpty;
     final isLocked = lockReason != null;
     final servicesToDisplay =
@@ -5659,10 +5682,10 @@ class _AppointmentCard extends StatelessWidget {
               alpha: theme.brightness == Brightness.dark ? 0.5 : 0.4,
             )
             : hideNoShowColor
-                ? theme.colorScheme.outlineVariant.withValues(
-                  alpha: theme.brightness == Brightness.dark ? 0.35 : 0.25,
-                )
-                : Color.alphaBlend(baseColor.withValues(alpha: 0.35), gradientEnd);
+            ? theme.colorScheme.outlineVariant.withValues(
+              alpha: theme.brightness == Brightness.dark ? 0.35 : 0.25,
+            )
+            : Color.alphaBlend(baseColor.withValues(alpha: 0.35), gradientEnd);
     final List<String> issueDescriptions =
         hasAnomalies
             ? (anomalies.toList()..sort((a, b) => a.index.compareTo(b.index)))
@@ -5690,6 +5713,7 @@ class _AppointmentCard extends StatelessWidget {
             : isLocked
             ? 1.5
             : 1.0;
+    final showBorder = !hasEnded || isNoShow;
     final attentionTooltipLines = <String>[
       if (isCancelled) 'Appuntamento annullato',
       ...issueDescriptions,
@@ -5727,17 +5751,16 @@ class _AppointmentCard extends StatelessWidget {
               offset: const Offset(0, 6),
             ),
         ],
-        border: Border.all(color: borderColor, width: borderWidth),
+        border:
+            showBorder
+                ? Border.all(color: borderColor, width: borderWidth)
+                : null,
       ),
       padding: padding,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final availableHeight = constraints.maxHeight;
           if (availableHeight <= 0) {
-            return const SizedBox.shrink();
-          }
-
-          if (hideContent) {
             return const SizedBox.shrink();
           }
 
@@ -5748,7 +5771,7 @@ class _AppointmentCard extends StatelessWidget {
               iconData = Icons.close_rounded;
               iconColor = theme.colorScheme.error;
             } else {
-              iconData = Icons.task_alt_rounded;
+              iconData = Icons.check;
               final Color brightnessSample =
                   baseColor == Colors.transparent
                       ? theme.colorScheme.surface
@@ -5757,9 +5780,7 @@ class _AppointmentCard extends StatelessWidget {
                 brightnessSample.withAlpha(0xFF),
               );
               iconColor =
-                  brightness == Brightness.dark
-                      ? Colors.white
-                      : theme.colorScheme.onSurfaceVariant;
+                  brightness == Brightness.dark ? Colors.white : Colors.black;
             }
             final double iconSize =
                 availableHeight < 48
@@ -5772,22 +5793,29 @@ class _AppointmentCard extends StatelessWidget {
             );
           }
 
+          if (hideContent) {
+            return Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                timeLabel,
+                style: theme.textTheme.bodySmall,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            );
+          }
+
           if (availableHeight < 36) {
             final compactLabel =
                 '$timeLabel · ${client?.fullName ?? 'Cliente'}';
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(
-                  child: Text(
-                    compactLabel,
-                    style: theme.textTheme.labelSmall,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                Icon(Icons.circle, size: 8, color: statusColorValue),
-              ],
+            return Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                compactLabel,
+                style: theme.textTheme.labelSmall,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             );
           }
 
@@ -5798,18 +5826,11 @@ class _AppointmentCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        timeLabel,
-                        style: theme.textTheme.bodySmall,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    Icon(Icons.circle, size: 10, color: statusColorValue),
-                  ],
+                Text(
+                  timeLabel,
+                  style: theme.textTheme.bodySmall,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 SizedBox(height: availableHeight < 52 ? 2 : 4),
                 Text(
@@ -5839,13 +5860,11 @@ class _AppointmentCard extends StatelessWidget {
           final hasBottomSection = showRoom;
 
           final children = <Widget>[
-            Row(
-              children: [
-                Expanded(
-                  child: Text(timeLabel, style: theme.textTheme.labelLarge),
-                ),
-                Icon(Icons.circle, size: 12, color: statusColorValue),
-              ],
+            Text(
+              timeLabel,
+              style: theme.textTheme.labelLarge,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 4),
             Text(
@@ -5901,6 +5920,44 @@ class _AppointmentCard extends StatelessWidget {
     );
 
     final overlayWidgets = <Widget>[];
+    if (hasOutstandingPayments) {
+      final outstandingBackground = theme.colorScheme.tertiaryContainer;
+      final outstandingIconColor = theme.colorScheme.onTertiaryContainer;
+      final outstandingShadow = theme.colorScheme.tertiary.withValues(
+        alpha: theme.brightness == Brightness.dark ? 0.4 : 0.25,
+      );
+      overlayWidgets.add(
+        Positioned(
+          bottom: 8,
+          right: 8,
+          child: Tooltip(
+            message: 'Pagamenti da saldare',
+            waitDuration: const Duration(milliseconds: 250),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: outstandingBackground,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: outstandingShadow,
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Icon(
+                  Icons.payments_outlined,
+                  size: 10,
+                  color: outstandingIconColor,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     if (!hideContent) {
       if (needsAttention) {
         final overlayColor =
@@ -6012,27 +6069,25 @@ class _AppointmentCard extends StatelessWidget {
             ? card
             : Stack(children: [card, ...overlayWidgets]);
 
-    final hoverLines = <String>[];
-    if (!hidePastCompletedContent) {
-      hoverLines
-        ..add('Inizio: $startTimeLabel')
-        ..add('Fine: $endTimeLabel');
-      final clientName = client?.fullName;
-      final normalizedClientName = clientName?.trim();
-      final normalizedServiceName = serviceLabel?.trim();
-      final notes = appointment.notes?.trim();
-      if (normalizedClientName != null && normalizedClientName.isNotEmpty) {
-        hoverLines.add('Cliente: $normalizedClientName');
-      }
-      if (normalizedServiceName != null && normalizedServiceName.isNotEmpty) {
-        hoverLines.add('Servizio: $normalizedServiceName');
-      }
-      if (appointment.packageId != null) {
-        hoverLines.add('Scalato da sessione');
-      }
-      if (notes != null && notes.isNotEmpty) {
-        hoverLines.add('Note: $notes');
-      }
+    final hoverLines = <String>[
+      'Inizio: $startTimeLabel',
+      'Fine: $endTimeLabel',
+    ];
+    final clientName = client?.fullName;
+    final normalizedClientName = clientName?.trim();
+    final normalizedServiceName = serviceLabel?.trim();
+    final notes = appointment.notes?.trim();
+    if (normalizedClientName != null && normalizedClientName.isNotEmpty) {
+      hoverLines.add('Cliente: $normalizedClientName');
+    }
+    if (normalizedServiceName != null && normalizedServiceName.isNotEmpty) {
+      hoverLines.add('Servizio: $normalizedServiceName');
+    }
+    if (appointment.packageId != null) {
+      hoverLines.add('Scalato da sessione');
+    }
+    if (notes != null && notes.isNotEmpty) {
+      hoverLines.add('Note: $notes');
     }
     final hoverTooltip = hoverLines.isEmpty ? null : hoverLines.join('\n');
 
@@ -6081,7 +6136,6 @@ class _DragPreviewCard extends StatelessWidget {
     required this.service,
     this.services = const <Service>[],
     required this.staff,
-    required this.statusColor,
     required this.height,
     this.roomName,
     this.anomalies = const <AppointmentAnomalyType>{},
@@ -6091,6 +6145,7 @@ class _DragPreviewCard extends StatelessWidget {
     this.lastMinuteSlot,
     required this.categoriesById,
     required this.categoriesByName,
+    this.hasOutstandingPayments = false,
   });
 
   final Appointment appointment;
@@ -6098,7 +6153,6 @@ class _DragPreviewCard extends StatelessWidget {
   final Service? service;
   final List<Service> services;
   final StaffMember staff;
-  final Color Function(AppointmentStatus status) statusColor;
   final double height;
   final String? roomName;
   final Set<AppointmentAnomalyType> anomalies;
@@ -6108,6 +6162,7 @@ class _DragPreviewCard extends StatelessWidget {
   final LastMinuteSlot? lastMinuteSlot;
   final Map<String, ServiceCategory> categoriesById;
   final Map<String, ServiceCategory> categoriesByName;
+  final bool hasOutstandingPayments;
 
   @override
   Widget build(BuildContext context) {
@@ -6124,7 +6179,6 @@ class _DragPreviewCard extends StatelessWidget {
       services: services,
       staff: staff,
       roomName: roomName,
-      statusColor: statusColor,
       height: height,
       anomalies: anomalies,
       lockReason: null,
@@ -6132,6 +6186,7 @@ class _DragPreviewCard extends StatelessWidget {
       lastMinuteSlot: lastMinuteSlot,
       categoriesById: categoriesById,
       categoriesByName: categoriesByName,
+      hasOutstandingPayments: hasOutstandingPayments,
     );
   }
 }

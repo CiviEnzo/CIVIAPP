@@ -7,7 +7,9 @@ import 'package:civiapp/domain/entities/appointment_day_checklist.dart';
 import 'package:civiapp/domain/entities/client.dart';
 import 'package:civiapp/domain/entities/last_minute_notification.dart';
 import 'package:civiapp/domain/entities/last_minute_slot.dart';
+import 'package:civiapp/domain/entities/payment_ticket.dart';
 import 'package:civiapp/domain/entities/salon.dart';
+import 'package:civiapp/domain/entities/sale.dart';
 import 'package:civiapp/domain/entities/service.dart';
 import 'package:civiapp/domain/entities/appointment_clipboard.dart';
 import 'package:civiapp/domain/entities/shift.dart';
@@ -147,6 +149,79 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       default:
         return AppointmentWeekLayoutMode.detailed;
     }
+  }
+
+  Set<String> _clientsWithOutstandingPayments({
+    required Iterable<Appointment> appointments,
+    required Iterable<Sale> sales,
+    required Iterable<PaymentTicket> tickets,
+  }) {
+    final clientIds = appointments.map((appointment) => appointment.clientId).toSet();
+    if (clientIds.isEmpty) {
+      return const <String>{};
+    }
+
+    final salesByClient = <String, List<Sale>>{};
+    for (final sale in sales) {
+      if (!clientIds.contains(sale.clientId)) {
+        continue;
+      }
+      salesByClient.putIfAbsent(sale.clientId, () => <Sale>[]).add(sale);
+    }
+
+    final openTicketsByClient = <String, List<PaymentTicket>>{};
+    for (final ticket in tickets) {
+      if (!clientIds.contains(ticket.clientId)) {
+        continue;
+      }
+      if (ticket.status != PaymentTicketStatus.open) {
+        continue;
+      }
+      openTicketsByClient
+          .putIfAbsent(ticket.clientId, () => <PaymentTicket>[])
+          .add(ticket);
+    }
+
+    final result = <String>{};
+    for (final clientId in clientIds) {
+      final clientSales = salesByClient[clientId] ?? const <Sale>[];
+      final clientTickets = openTicketsByClient[clientId] ?? const <PaymentTicket>[];
+      if (_hasOutstandingPaymentsForClient(
+        sales: clientSales,
+        openTickets: clientTickets,
+      )) {
+        result.add(clientId);
+      }
+    }
+    return result;
+  }
+
+  bool _hasOutstandingPaymentsForClient({
+    required Iterable<Sale> sales,
+    required Iterable<PaymentTicket> openTickets,
+  }) {
+    if (openTickets.isNotEmpty) {
+      return true;
+    }
+    for (final sale in sales) {
+      final hasSaleOutstanding =
+          sale.paymentStatus == SalePaymentStatus.deposit &&
+          sale.outstandingAmount > 0.009;
+      if (hasSaleOutstanding) {
+        return true;
+      }
+      for (final item in sale.items) {
+        final hasOutstandingPackage =
+            item.referenceType == SaleReferenceType.package &&
+            (item.amount - item.depositAmount) > 0.009;
+        final packageMarkedAsDeposit =
+            item.packagePaymentStatus == PackagePaymentStatus.deposit;
+        if (hasOutstandingPackage || packageMarkedAsDeposit) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   @override
@@ -1000,6 +1075,11 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
               (appointment) => _isWeekdayVisible(appointment.start.weekday),
             )
             .toList();
+    final clientsWithOutstandingPayments = _clientsWithOutstandingPayments(
+      appointments: filteredAppointments,
+      sales: data.sales,
+      tickets: data.paymentTickets,
+    );
 
     final List<Shift> shifts = relevantShifts
         .where((shift) => staffIds.isEmpty || staffIds.contains(shift.staffId))
@@ -1140,6 +1220,8 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                         lastMinuteSlots: lastMinuteSlotsInRange,
                         staff: visibleStaff,
                         clients: clients,
+                        clientsWithOutstandingPayments:
+                            clientsWithOutstandingPayments,
                         services: services,
                         serviceCategories: data.serviceCategories,
                         shifts: filteredShifts,
