@@ -330,7 +330,16 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             .map((status) {
               return DropdownMenuItem<AppointmentStatus>(
                 value: status,
-                child: Row(children: [Text(_statusLabel(status))]),
+                child: Row(
+                  children: [
+                    Icon(
+                      _statusIcon(status),
+                      color: _statusColor(theme.colorScheme, status),
+                    ),
+                    SizedBox(width: 4),
+                    Text(_statusLabel(status)),
+                  ],
+                ),
               );
             })
             .toList();
@@ -388,6 +397,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          SizedBox(height: 8),
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -424,13 +434,6 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                   value: _status,
                                   decoration: InputDecoration(
                                     labelText: 'Stato',
-                                    prefixIcon: Icon(
-                                      _statusIcon(_status),
-                                      color: _statusColor(
-                                        theme.colorScheme,
-                                        _status,
-                                      ),
-                                    ),
                                   ),
                                   items: statusItems,
                                   onChanged: (value) {
@@ -464,108 +467,11 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                 "Seleziona l'operatore e collega il cliente per l'appuntamento",
                           ),
                           const SizedBox(height: 12),
-                          DropdownButtonFormField<String>(
-                            value: staffFieldValue,
-                            decoration: const InputDecoration(
-                              labelText: 'Operatore',
-                            ),
-                            items:
-                                filteredStaff
-                                    .map(
-                                      (member) => DropdownMenuItem(
-                                        value: member.id,
-                                        child: Text(member.fullName),
-                                      ),
-                                    )
-                                    .toList(),
-                            onChanged: (value) {
-                              final staffMember =
-                                  value == null
-                                      ? null
-                                      : staffMembers.firstWhereOrNull(
-                                        (member) => member.id == value,
-                                      );
-                              final previousSalonId = _salonId;
-                              final newSalonId = staffMember?.salonId;
-                              final salonChanged =
-                                  previousSalonId != newSalonId;
-
-                              setState(() {
-                                _staffId = value;
-                                _salonId = newSalonId;
-
-                                if (salonChanged) {
-                                  _clientId = null;
-                                  _clientSearchController.clear();
-                                  _clientSuggestions = const <Client>[];
-                                  _serviceIds = const [];
-                                  _serviceQuantities.clear();
-                                  _clearAllPackageSelections();
-                                }
-
-                                if (staffMember == null) {
-                                  if (!salonChanged) {
-                                    _serviceIds = const [];
-                                    _serviceQuantities.clear();
-                                    _clearAllPackageSelections();
-                                  }
-                                  _ensureServiceState(_serviceIds);
-                                  _lastSuggestionKey = '';
-                                  _latestSuggestion = null;
-                                  return;
-                                }
-
-                                final allowedServiceIds =
-                                    services
-                                        .where((service) {
-                                          final roles = service.staffRoles;
-                                          if (roles.isEmpty) {
-                                            return true;
-                                          }
-                                          return staffMember.roleIds.any(
-                                            (roleId) => roles.contains(roleId),
-                                          );
-                                        })
-                                        .map((service) => service.id)
-                                        .toSet();
-                                final filteredSelections =
-                                    _serviceIds
-                                        .where(allowedServiceIds.contains)
-                                        .toList();
-                                if (filteredSelections.length !=
-                                    _serviceIds.length) {
-                                  _serviceIds = filteredSelections;
-                                  _ensureServiceState(_serviceIds);
-                                  _manualPackageSelections.removeWhere(
-                                    (serviceId) =>
-                                        !_serviceIds.contains(serviceId),
-                                  );
-                                  _lastSuggestionKey = '';
-                                  _latestSuggestion = null;
-                                }
-                              });
-
-                              if (salonChanged) {
-                                WidgetsBinding.instance.addPostFrameCallback((
-                                  _,
-                                ) {
-                                  _clientFieldKey.currentState?.didChange(
-                                    _clientId,
-                                  );
-                                });
-                              }
-                            },
-                            validator:
-                                (value) =>
-                                    value == null
-                                        ? 'Scegli un operatore'
-                                        : null,
-                          ),
-                          const SizedBox(height: 12),
                           Row(
-                            crossAxisAlignment: CrossAxisAlignment.end,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Expanded(
+                                flex: 2,
                                 child: FormField<String>(
                                   key: _clientFieldKey,
                                   validator:
@@ -594,6 +500,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                                 _ClientSearchMode.general
                                             ? 'Nome, cognome, telefono o email'
                                             : 'Numero cliente';
+                                    final theme = Theme.of(context);
                                     return Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
@@ -633,63 +540,136 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                           ),
                                         if (!hasSelection)
                                           const SizedBox(height: 8),
-                                        TextField(
-                                          controller: _clientSearchController,
-                                          focusNode: _clientSearchFocusNode,
-                                          readOnly: hasSelection,
-                                          decoration: InputDecoration(
-                                            labelText: 'Cliente',
-                                            floatingLabelBehavior:
-                                                FloatingLabelBehavior.always,
-                                            hintText:
-                                                hasSelection
-                                                    ? null
-                                                    : searchHint,
-                                            errorText: state.errorText,
-                                            suffixIcon:
-                                                hasSelection
-                                                    ? const Icon(
-                                                      Icons.open_in_new_rounded,
-                                                    )
-                                                    : _clientSearchController
-                                                        .text
-                                                        .isEmpty
-                                                    ? const Icon(
-                                                      Icons.search_rounded,
-                                                      size: 20,
-                                                    )
-                                                    : IconButton(
-                                                      tooltip:
-                                                          'Pulisci ricerca',
-                                                      icon: const Icon(
-                                                        Icons.clear_rounded,
+                                        Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.end,
+                                          children: [
+                                            Expanded(
+                                              child:
+                                                  hasSelection &&
+                                                          selectedClient != null
+                                                      ? InputDecorator(
+                                                        decoration: InputDecoration(
+                                                          labelText: 'Cliente',
+                                                          floatingLabelBehavior:
+                                                              FloatingLabelBehavior
+                                                                  .always,
+                                                          errorText:
+                                                              state.errorText,
+                                                          suffixIcon: Row(
+                                                            mainAxisSize:
+                                                                MainAxisSize
+                                                                    .min,
+                                                            children: [
+                                                              IconButton(
+                                                                tooltip:
+                                                                    'Apri scheda cliente',
+                                                                icon: const Icon(
+                                                                  Icons
+                                                                      .open_in_new_rounded,
+                                                                ),
+                                                                onPressed:
+                                                                    () => _openClientDetails(
+                                                                      selectedClient,
+                                                                    ),
+                                                              ),
+                                                              IconButton(
+                                                                tooltip:
+                                                                    'Rimuovi cliente',
+                                                                icon: const Icon(
+                                                                  Icons
+                                                                      .close_rounded,
+                                                                ),
+                                                                onPressed:
+                                                                    _clearClientSelection,
+                                                              ),
+                                                            ],
+                                                          ),
+                                                        ),
+                                                        isEmpty: false,
+                                                        child: Padding(
+                                                          padding:
+                                                              const EdgeInsets.symmetric(
+                                                                vertical: 12,
+                                                              ),
+                                                          child: Text(
+                                                            selectedClient
+                                                                .fullName,
+                                                            style:
+                                                                theme
+                                                                    .textTheme
+                                                                    .bodyLarge ??
+                                                                theme
+                                                                    .textTheme
+                                                                    .bodyMedium,
+                                                          ),
+                                                        ),
+                                                      )
+                                                      : TextField(
+                                                        controller:
+                                                            _clientSearchController,
+                                                        focusNode:
+                                                            _clientSearchFocusNode,
+                                                        decoration: InputDecoration(
+                                                          labelText: 'Cliente',
+                                                          floatingLabelBehavior:
+                                                              FloatingLabelBehavior
+                                                                  .always,
+                                                          hintText: searchHint,
+                                                          errorText:
+                                                              state.errorText,
+                                                          suffixIcon:
+                                                              _clientSearchController
+                                                                      .text
+                                                                      .isEmpty
+                                                                  ? const Icon(
+                                                                    Icons
+                                                                        .search_rounded,
+                                                                    size: 20,
+                                                                  )
+                                                                  : IconButton(
+                                                                    tooltip:
+                                                                        'Pulisci ricerca',
+                                                                    icon: const Icon(
+                                                                      Icons
+                                                                          .clear_rounded,
+                                                                    ),
+                                                                    onPressed:
+                                                                        _clearClientSearch,
+                                                                  ),
+                                                        ),
+                                                        keyboardType:
+                                                            _clientSearchMode ==
+                                                                    _ClientSearchMode
+                                                                        .general
+                                                                ? TextInputType
+                                                                    .text
+                                                                : TextInputType
+                                                                    .number,
+                                                        textInputAction:
+                                                            TextInputAction
+                                                                .search,
+                                                        onChanged:
+                                                            (
+                                                              value,
+                                                            ) => _onClientSearchChanged(
+                                                              value,
+                                                              filteredClients,
+                                                            ),
                                                       ),
-                                                      onPressed:
-                                                          _clearClientSearch,
-                                                    ),
-                                          ),
-                                          keyboardType:
-                                              _clientSearchMode ==
-                                                      _ClientSearchMode.general
-                                                  ? TextInputType.text
-                                                  : TextInputType.number,
-                                          textInputAction:
-                                              TextInputAction.search,
-                                          onChanged:
-                                              hasSelection
-                                                  ? null
-                                                  : (value) =>
-                                                      _onClientSearchChanged(
-                                                        value,
-                                                        filteredClients,
-                                                      ),
-                                          onTap:
-                                              hasSelection &&
-                                                      selectedClient != null
-                                                  ? () => _openClientDetails(
-                                                    selectedClient,
-                                                  )
-                                                  : null,
+                                            ),
+                                            if (_clientId == null) ...[
+                                              const SizedBox(width: 8),
+                                              IconButton(
+                                                onPressed: _createClient,
+                                                tooltip: 'Nuovo cliente',
+                                                icon: const Icon(
+                                                  Icons
+                                                      .person_add_alt_1_rounded,
+                                                ),
+                                              ),
+                                            ],
+                                          ],
                                         ),
                                         if (!hasSelection) ...[
                                           const SizedBox(height: 8),
@@ -700,22 +680,121 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                   },
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              IconButton(
-                                onPressed:
-                                    _clientId == null
-                                        ? _createClient
-                                        : _clearClientSelection,
-                                tooltip:
-                                    _clientId == null
-                                        ? 'Nuovo cliente'
-                                        : 'Rimuovi cliente',
-                                icon:
-                                    _clientId == null
-                                        ? const Icon(
-                                          Icons.person_add_alt_1_rounded,
-                                        )
-                                        : const Icon(Icons.close_rounded),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                flex: 1,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    DropdownButtonFormField<String>(
+                                      value: staffFieldValue,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Operatore',
+                                        floatingLabelBehavior:
+                                            FloatingLabelBehavior.always,
+                                      ),
+                                      items:
+                                          filteredStaff
+                                              .map(
+                                                (member) => DropdownMenuItem(
+                                                  value: member.id,
+                                                  child: Text(member.fullName),
+                                                ),
+                                              )
+                                              .toList(),
+                                      onChanged: (value) {
+                                        final staffMember =
+                                            value == null
+                                                ? null
+                                                : staffMembers.firstWhereOrNull(
+                                                  (member) =>
+                                                      member.id == value,
+                                                );
+                                        final previousSalonId = _salonId;
+                                        final newSalonId = staffMember?.salonId;
+                                        final salonChanged =
+                                            previousSalonId != newSalonId;
+
+                                        setState(() {
+                                          _staffId = value;
+                                          _salonId = newSalonId;
+
+                                          if (salonChanged) {
+                                            _clientId = null;
+                                            _clientSearchController.clear();
+                                            _clientSuggestions =
+                                                const <Client>[];
+                                            _serviceIds = const [];
+                                            _serviceQuantities.clear();
+                                            _clearAllPackageSelections();
+                                          }
+
+                                          if (staffMember == null) {
+                                            if (!salonChanged) {
+                                              _serviceIds = const [];
+                                              _serviceQuantities.clear();
+                                              _clearAllPackageSelections();
+                                            }
+                                            _ensureServiceState(_serviceIds);
+                                            _lastSuggestionKey = '';
+                                            _latestSuggestion = null;
+                                            return;
+                                          }
+
+                                          final allowedServiceIds =
+                                              services
+                                                  .where((service) {
+                                                    final roles =
+                                                        service.staffRoles;
+                                                    if (roles.isEmpty) {
+                                                      return true;
+                                                    }
+                                                    return staffMember.roleIds
+                                                        .any(
+                                                          (roleId) => roles
+                                                              .contains(roleId),
+                                                        );
+                                                  })
+                                                  .map((service) => service.id)
+                                                  .toSet();
+                                          final filteredSelections =
+                                              _serviceIds
+                                                  .where(
+                                                    allowedServiceIds.contains,
+                                                  )
+                                                  .toList();
+                                          if (filteredSelections.length !=
+                                              _serviceIds.length) {
+                                            _serviceIds = filteredSelections;
+                                            _ensureServiceState(_serviceIds);
+                                            _manualPackageSelections
+                                                .removeWhere(
+                                                  (serviceId) =>
+                                                      !_serviceIds.contains(
+                                                        serviceId,
+                                                      ),
+                                                );
+                                            _lastSuggestionKey = '';
+                                            _latestSuggestion = null;
+                                          }
+                                        });
+
+                                        if (salonChanged) {
+                                          WidgetsBinding.instance
+                                              .addPostFrameCallback((_) {
+                                                _clientFieldKey.currentState
+                                                    ?.didChange(_clientId);
+                                              });
+                                        }
+                                      },
+                                      validator:
+                                          (value) =>
+                                              value == null
+                                                  ? 'Scegli un operatore'
+                                                  : null,
+                                    ),
+                                  ],
+                                ),
                               ),
                             ],
                           ),
@@ -842,10 +921,14 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                             ),
                             const SizedBox(height: 8),
                             if (selectedServices.isEmpty)
-                              Text(
-                                'Seleziona almeno un servizio per abbinare i pacchetti.',
-                                style: theme.textTheme.bodyMedium,
-                              )
+                              allClientPackages.isEmpty
+                                  ? Text(
+                                    'Il cliente non ha pacchetti attivi.',
+                                    style: theme.textTheme.bodyMedium,
+                                  )
+                                  : _ClientPackageSummaryList(
+                                    packages: allClientPackages,
+                                  )
                             else if (allClientPackages.isEmpty)
                               Text(
                                 'Il cliente non ha pacchetti attivi.',
@@ -2815,6 +2898,63 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       case AppointmentStatus.noShow:
         return 'No show';
     }
+  }
+}
+
+class _ClientPackageSummaryList extends StatelessWidget {
+  const _ClientPackageSummaryList({required this.packages});
+
+  final List<ClientPackagePurchase> packages;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final dateFormat = DateFormat('dd/MM/yyyy');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ...packages.map((purchase) {
+          final subtitleSegments = <String>[];
+          final remaining = purchase.effectiveRemainingSessions;
+          subtitleSegments.add(
+            remaining == 1
+                ? '1 sessione disponibile'
+                : '$remaining sessioni disponibili',
+          );
+          final expiration = purchase.expirationDate;
+          if (expiration != null) {
+            subtitleSegments.add('Scadenza ${dateFormat.format(expiration)}');
+          }
+          final services =
+              purchase.serviceNames.where((name) => name.isNotEmpty).toList();
+          if (services.isNotEmpty) {
+            const maxVisibleServices = 2;
+            final visibleServices = services
+                .take(maxVisibleServices)
+                .join(', ');
+            final remainingCount = services.length - maxVisibleServices;
+            final servicesLabel =
+                remainingCount > 0
+                    ? "$visibleServices ${remainingCount == 1 ? 'e un altro servizio' : 'e altri $remainingCount servizi'}"
+                    : visibleServices;
+            subtitleSegments.add('Copre: $servicesLabel');
+          }
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            child: ListTile(
+              leading: Icon(
+                Icons.card_membership_rounded,
+                color: colorScheme.primary,
+              ),
+              title: Text(purchase.displayName),
+              subtitle: Text(subtitleSegments.join(' • ')),
+              dense: true,
+            ),
+          );
+        }),
+      ],
+    );
   }
 }
 

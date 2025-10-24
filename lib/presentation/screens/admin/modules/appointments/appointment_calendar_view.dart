@@ -5780,7 +5780,7 @@ class _AppointmentCard extends StatelessWidget {
                 brightnessSample.withAlpha(0xFF),
               );
               iconColor =
-                  brightness == Brightness.dark ? Colors.white : Colors.black;
+                  brightness == Brightness.dark ? Colors.white : Colors.white;
             }
             final double iconSize =
                 availableHeight < 48
