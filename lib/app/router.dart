@@ -1,13 +1,13 @@
 import 'dart:async';
 
-import 'package:civiapp/app/providers.dart';
-import 'package:civiapp/domain/entities/user_role.dart';
-import 'package:civiapp/presentation/screens/admin/admin_dashboard_screen.dart';
-import 'package:civiapp/presentation/screens/auth/client_registration_screen.dart';
-import 'package:civiapp/presentation/screens/auth/onboarding_screen.dart';
-import 'package:civiapp/presentation/screens/auth/sign_in_screen.dart';
-import 'package:civiapp/presentation/screens/client/client_dashboard_screen.dart';
-import 'package:civiapp/presentation/screens/staff/staff_dashboard_screen.dart';
+import 'package:you_book/app/providers.dart';
+import 'package:you_book/domain/entities/user_role.dart';
+import 'package:you_book/presentation/screens/admin/admin_dashboard_screen.dart';
+import 'package:you_book/presentation/screens/auth/client_registration_screen.dart';
+import 'package:you_book/presentation/screens/auth/onboarding_screen.dart';
+import 'package:you_book/presentation/screens/auth/sign_in_screen.dart';
+import 'package:you_book/presentation/screens/client/client_dashboard_screen.dart';
+import 'package:you_book/presentation/screens/staff/staff_dashboard_screen.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';

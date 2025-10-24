@@ -1,4 +1,4 @@
-import 'package:civiapp/domain/entities/client_questionnaire.dart';
+import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 

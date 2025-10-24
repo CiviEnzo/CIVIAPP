@@ -1,13 +1,13 @@
 import 'dart:async';
 
-import 'package:civiapp/app/providers.dart';
-import 'package:civiapp/domain/entities/client.dart';
-import 'package:civiapp/domain/entities/message_template.dart';
-import 'package:civiapp/domain/entities/reminder_settings.dart';
-import 'package:civiapp/domain/entities/salon.dart';
-import 'package:civiapp/domain/entities/user_role.dart';
-import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
-import 'package:civiapp/presentation/screens/admin/forms/message_template_form_sheet.dart';
+import 'package:you_book/app/providers.dart';
+import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/domain/entities/message_template.dart';
+import 'package:you_book/domain/entities/reminder_settings.dart';
+import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/user_role.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
+import 'package:you_book/presentation/screens/admin/forms/message_template_form_sheet.dart';
 import 'package:collection/collection.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
@@ -902,10 +902,7 @@ class _ReminderSettingsCard extends StatelessWidget {
       await emit(reminder.copyWith(offsets: newOffsets));
     }
 
-    Future<void> updateOffsetAt(
-      int index,
-      ReminderOffsetConfig updated,
-    ) async {
+    Future<void> updateOffsetAt(int index, ReminderOffsetConfig updated) async {
       final current = reminder.offsets;
       if (index < 0 || index >= current.length) {
         return;
@@ -925,11 +922,9 @@ class _ReminderSettingsCard extends StatelessWidget {
     }
 
     final offsetsEntries =
-        reminder.offsets.asMap().entries.toList()
-          ..sort(
-            (a, b) =>
-                b.value.minutesBefore.compareTo(a.value.minutesBefore),
-          );
+        reminder.offsets.asMap().entries.toList()..sort(
+          (a, b) => b.value.minutesBefore.compareTo(a.value.minutesBefore),
+        );
     final canEditOffsets = onChanged != null;
     final canAddOffset =
         canEditOffsets &&
@@ -1061,10 +1056,7 @@ class _ReminderSettingsCard extends StatelessWidget {
       if (index < 0 || index >= current.length) {
         return;
       }
-      await updateOffsetAt(
-        index,
-        current[index].copyWith(active: active),
-      );
+      await updateOffsetAt(index, current[index].copyWith(active: active));
     }
 
     Future<void> removeOffset(int index) async {
@@ -1172,9 +1164,10 @@ class _ReminderSettingsCard extends StatelessWidget {
                         Navigator.of(dialogContext).pop(
                           offset.copyWith(
                             id: slug,
-                            title: titleController.text.trim().isEmpty
-                                ? null
-                                : titleController.text.trim(),
+                            title:
+                                titleController.text.trim().isEmpty
+                                    ? null
+                                    : titleController.text.trim(),
                             bodyTemplate:
                                 bodyController.text.trim().isEmpty
                                     ? null
@@ -1291,7 +1284,9 @@ class _ReminderSettingsCard extends StatelessWidget {
                     ),
                 ];
                 return Padding(
-                  padding: EdgeInsets.only(top: entry == offsetsEntries.first ? 0 : 8),
+                  padding: EdgeInsets.only(
+                    top: entry == offsetsEntries.first ? 0 : 8,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1309,24 +1304,16 @@ class _ReminderSettingsCard extends StatelessWidget {
                             value: config.active,
                             onChanged:
                                 canEditOffsets
-                                    ? (value) =>
-                                        unawaited(
-                                          toggleOffsetActive(
-                                            originalIndex,
-                                            value,
-                                          ),
-                                        )
+                                    ? (value) => unawaited(
+                                      toggleOffsetActive(originalIndex, value),
+                                    )
                                     : null,
                           ),
                         ],
                       ),
                       const SizedBox(height: 8),
                       if (chips.isNotEmpty)
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 4,
-                          children: chips,
-                        ),
+                        Wrap(spacing: 8, runSpacing: 4, children: chips),
                       if (config.bodyTemplate != null) ...[
                         const SizedBox(height: 6),
                         Text(
@@ -1484,9 +1471,8 @@ class _ReminderSettingsCard extends StatelessWidget {
                             tooltip: 'Rimuovi promemoria',
                             onPressed:
                                 canEditOffsets
-                                    ? () => unawaited(
-                                      removeOffset(originalIndex),
-                                    )
+                                    ? () =>
+                                        unawaited(removeOffset(originalIndex))
                                     : null,
                             icon: const Icon(Icons.delete_outline),
                           ),

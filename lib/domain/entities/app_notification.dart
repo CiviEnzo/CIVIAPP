@@ -1,4 +1,4 @@
-import 'package:civiapp/domain/entities/message_template.dart';
+import 'package:you_book/domain/entities/message_template.dart';
 
 class AppNotification {
   const AppNotification({

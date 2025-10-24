@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:civiapp/domain/entities/client_photo.dart';
+import 'package:you_book/domain/entities/client_photo.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
 class QuotePdfUploadData {

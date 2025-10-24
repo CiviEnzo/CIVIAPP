@@ -1,7 +1,7 @@
-import 'package:civiapp/domain/entities/appointment.dart';
-import 'package:civiapp/domain/entities/package.dart';
-import 'package:civiapp/domain/entities/sale.dart';
-import 'package:civiapp/domain/entities/service.dart';
+import 'package:you_book/domain/entities/appointment.dart';
+import 'package:you_book/domain/entities/package.dart';
+import 'package:you_book/domain/entities/sale.dart';
+import 'package:you_book/domain/entities/service.dart';
 import 'package:collection/collection.dart';
 
 class ClientPackagePurchase {

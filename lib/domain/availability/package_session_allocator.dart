@@ -1,5 +1,5 @@
-import 'package:civiapp/domain/entities/appointment_service_allocation.dart';
-import 'package:civiapp/presentation/shared/client_package_purchase.dart';
+import 'package:you_book/domain/entities/appointment_service_allocation.dart';
+import 'package:you_book/presentation/shared/client_package_purchase.dart';
 
 /// Result of the automatic package session allocation pass.
 class PackageSessionAllocationSuggestion {
@@ -38,21 +38,20 @@ class PackageSessionAllocator {
 
     final sortedPackages = List<ClientPackagePurchase>.from(
       availablePackages.where((package) => package.isActive),
-    )
-      ..sort((a, b) {
-        final aExpiration = a.expirationDate ?? DateTime(9999, 1, 1);
-        final bExpiration = b.expirationDate ?? DateTime(9999, 1, 1);
-        final expirationCompare = aExpiration.compareTo(bExpiration);
-        if (expirationCompare != 0) {
-          return expirationCompare;
-        }
-        final aRemaining = a.effectiveRemainingSessions;
-        final bRemaining = b.effectiveRemainingSessions;
-        if (aRemaining != bRemaining) {
-          return aRemaining.compareTo(bRemaining);
-        }
-        return a.sale.createdAt.compareTo(b.sale.createdAt);
-      });
+    )..sort((a, b) {
+      final aExpiration = a.expirationDate ?? DateTime(9999, 1, 1);
+      final bExpiration = b.expirationDate ?? DateTime(9999, 1, 1);
+      final expirationCompare = aExpiration.compareTo(bExpiration);
+      if (expirationCompare != 0) {
+        return expirationCompare;
+      }
+      final aRemaining = a.effectiveRemainingSessions;
+      final bRemaining = b.effectiveRemainingSessions;
+      if (aRemaining != bRemaining) {
+        return aRemaining.compareTo(bRemaining);
+      }
+      return a.sale.createdAt.compareTo(b.sale.createdAt);
+    });
 
     for (final package in sortedPackages) {
       if (!remainingNeed.values.any((value) => value > 0)) {

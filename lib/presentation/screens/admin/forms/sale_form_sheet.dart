@@ -1,16 +1,16 @@
 import 'dart:math' as math;
 
-import 'package:civiapp/domain/entities/client.dart';
-import 'package:civiapp/domain/entities/inventory_item.dart';
-import 'package:civiapp/domain/entities/package.dart';
-import 'package:civiapp/domain/entities/sale.dart';
-import 'package:civiapp/domain/entities/salon.dart';
-import 'package:civiapp/domain/loyalty/loyalty_calculator.dart';
-import 'package:civiapp/domain/entities/service.dart';
-import 'package:civiapp/domain/entities/staff_member.dart';
-import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
-import 'package:civiapp/presentation/screens/admin/forms/package_form_sheet.dart';
-import 'package:civiapp/presentation/screens/admin/forms/client_search_sheet.dart';
+import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/domain/entities/inventory_item.dart';
+import 'package:you_book/domain/entities/package.dart';
+import 'package:you_book/domain/entities/sale.dart';
+import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/loyalty/loyalty_calculator.dart';
+import 'package:you_book/domain/entities/service.dart';
+import 'package:you_book/domain/entities/staff_member.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
+import 'package:you_book/presentation/screens/admin/forms/package_form_sheet.dart';
+import 'package:you_book/presentation/screens/admin/forms/client_search_sheet.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';

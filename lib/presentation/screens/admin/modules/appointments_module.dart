@@ -1,25 +1,25 @@
-import 'package:civiapp/app/providers.dart';
-import 'package:civiapp/data/repositories/app_data_state.dart';
-import 'package:civiapp/domain/availability/appointment_conflicts.dart';
-import 'package:civiapp/domain/availability/equipment_availability.dart';
-import 'package:civiapp/domain/entities/appointment.dart';
-import 'package:civiapp/domain/entities/appointment_day_checklist.dart';
-import 'package:civiapp/domain/entities/client.dart';
-import 'package:civiapp/domain/entities/last_minute_notification.dart';
-import 'package:civiapp/domain/entities/last_minute_slot.dart';
-import 'package:civiapp/domain/entities/payment_ticket.dart';
-import 'package:civiapp/domain/entities/salon.dart';
-import 'package:civiapp/domain/entities/sale.dart';
-import 'package:civiapp/domain/entities/service.dart';
-import 'package:civiapp/domain/entities/appointment_clipboard.dart';
-import 'package:civiapp/domain/entities/shift.dart';
-import 'package:civiapp/domain/entities/staff_absence.dart';
-import 'package:civiapp/domain/entities/staff_member.dart';
-import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
-import 'package:civiapp/presentation/screens/admin/forms/appointment_form_sheet.dart';
-import 'package:civiapp/presentation/screens/admin/modules/appointments/appointment_calendar_view.dart';
-import 'package:civiapp/presentation/screens/admin/modules/appointments/appointment_anomaly.dart';
-import 'package:civiapp/presentation/screens/admin/modules/appointments/express_slot_sheet.dart';
+import 'package:you_book/app/providers.dart';
+import 'package:you_book/data/repositories/app_data_state.dart';
+import 'package:you_book/domain/availability/appointment_conflicts.dart';
+import 'package:you_book/domain/availability/equipment_availability.dart';
+import 'package:you_book/domain/entities/appointment.dart';
+import 'package:you_book/domain/entities/appointment_day_checklist.dart';
+import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/domain/entities/last_minute_notification.dart';
+import 'package:you_book/domain/entities/last_minute_slot.dart';
+import 'package:you_book/domain/entities/payment_ticket.dart';
+import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/sale.dart';
+import 'package:you_book/domain/entities/service.dart';
+import 'package:you_book/domain/entities/appointment_clipboard.dart';
+import 'package:you_book/domain/entities/shift.dart';
+import 'package:you_book/domain/entities/staff_absence.dart';
+import 'package:you_book/domain/entities/staff_member.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
+import 'package:you_book/presentation/screens/admin/forms/appointment_form_sheet.dart';
+import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_calendar_view.dart';
+import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_anomaly.dart';
+import 'package:you_book/presentation/screens/admin/modules/appointments/express_slot_sheet.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:collection/collection.dart';
@@ -156,7 +156,8 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     required Iterable<Sale> sales,
     required Iterable<PaymentTicket> tickets,
   }) {
-    final clientIds = appointments.map((appointment) => appointment.clientId).toSet();
+    final clientIds =
+        appointments.map((appointment) => appointment.clientId).toSet();
     if (clientIds.isEmpty) {
       return const <String>{};
     }
@@ -185,7 +186,8 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     final result = <String>{};
     for (final clientId in clientIds) {
       final clientSales = salesByClient[clientId] ?? const <Sale>[];
-      final clientTickets = openTicketsByClient[clientId] ?? const <PaymentTicket>[];
+      final clientTickets =
+          openTicketsByClient[clientId] ?? const <PaymentTicket>[];
       if (_hasOutstandingPaymentsForClient(
         sales: clientSales,
         openTickets: clientTickets,
@@ -578,15 +580,18 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                                 label: const Text('Tutti'),
                                 selected: _selectedStaffIds.isEmpty,
                                 onSelected: (_) {
-                                  setState(() => _selectedStaffIds = <String>{});
+                                  setState(
+                                    () => _selectedStaffIds = <String>{},
+                                  );
                                   refresh();
                                 },
                               ),
                               for (final member in staff)
                                 FilterChip(
                                   label: Text(member.fullName),
-                                  selected:
-                                      _selectedStaffIds.contains(member.id),
+                                  selected: _selectedStaffIds.contains(
+                                    member.id,
+                                  ),
                                   onSelected: (isSelected) {
                                     setState(() {
                                       final updated = Set<String>.from(
@@ -1052,19 +1057,16 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     }
 
     final attentionAppointments =
-        relevantAppointments
-            .where((appointment) {
-              final matchesStaff =
-                  staffIds.isEmpty || staffIds.contains(appointment.staffId);
-              if (!matchesStaff) {
-                return false;
-              }
-              final hasAnomalies = anomalies.containsKey(appointment.id);
-              final isCancelled =
-                  appointment.status == AppointmentStatus.cancelled;
-              return hasAnomalies || isCancelled;
-            })
-            .toList();
+        relevantAppointments.where((appointment) {
+          final matchesStaff =
+              staffIds.isEmpty || staffIds.contains(appointment.staffId);
+          if (!matchesStaff) {
+            return false;
+          }
+          final hasAnomalies = anomalies.containsKey(appointment.id);
+          final isCancelled = appointment.status == AppointmentStatus.cancelled;
+          return hasAnomalies || isCancelled;
+        }).toList();
 
     final allSalonAppointments = relevantAppointments
         .where(
@@ -1659,15 +1661,11 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
             leading: const Icon(Icons.event_available_rounded),
             title: const Text('Crea appuntamento standard'),
             onTap:
-                () =>
-                    Navigator.of(modalContext).pop(_SlotAction.appointment),
+                () => Navigator.of(modalContext).pop(_SlotAction.appointment),
           ),
         ];
         if (clipboard != null) {
-          final title = _clipboardActionTitle(
-            clipboard,
-            clients: clients,
-          );
+          final title = _clipboardActionTitle(clipboard, clients: clients);
           final subtitle = _clipboardActionSubtitle(
             clipboard,
             services: services,
@@ -1678,9 +1676,9 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
               title: Text(title),
               subtitle: subtitle != null ? Text(subtitle) : null,
               onTap:
-                  () => Navigator.of(modalContext).pop(
-                    _SlotAction.copyFromClipboard,
-                  ),
+                  () => Navigator.of(
+                    modalContext,
+                  ).pop(_SlotAction.copyFromClipboard),
             ),
           );
         }
@@ -1688,17 +1686,13 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
           ListTile(
             leading: const Icon(Icons.flash_on_rounded),
             title: const Text('Crea slot express last-minute'),
-            onTap:
-                () => Navigator.of(modalContext).pop(_SlotAction.express),
+            onTap: () => Navigator.of(modalContext).pop(_SlotAction.express),
           ),
         );
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            children: [
-              ...tiles,
-              const SizedBox(height: 12),
-            ],
+            children: [...tiles, const SizedBox(height: 12)],
           ),
         );
       },
@@ -1766,14 +1760,11 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     AppointmentClipboard clipboard, {
     required List<Service> services,
   }) {
-    final serviceNames =
-        clipboard.appointment.serviceIds
-            .map(
-              (id) => services.firstWhereOrNull((service) => service.id == id),
-            )
-            .whereType<Service>()
-            .map((service) => service.name)
-            .toList(growable: false);
+    final serviceNames = clipboard.appointment.serviceIds
+        .map((id) => services.firstWhereOrNull((service) => service.id == id))
+        .whereType<Service>()
+        .map((service) => service.name)
+        .toList(growable: false);
     final parts = <String>[];
     if (serviceNames.isNotEmpty) {
       parts.add(serviceNames.join(', '));
@@ -1805,13 +1796,10 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     final staffMember = staff.firstWhereOrNull(
       (member) => member.id == selection.staffId,
     );
-    final appointmentServices =
-        template.serviceIds
-            .map(
-              (id) => services.firstWhereOrNull((service) => service.id == id),
-            )
-            .whereType<Service>()
-            .toList(growable: false);
+    final appointmentServices = template.serviceIds
+        .map((id) => services.firstWhereOrNull((service) => service.id == id))
+        .whereType<Service>()
+        .toList(growable: false);
     if (staffMember == null) {
       messenger.showSnackBar(
         const SnackBar(
@@ -1842,9 +1830,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     final duration = template.duration;
     if (duration <= Duration.zero) {
       messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Durata appuntamento non valida.'),
-        ),
+        const SnackBar(content: Text('Durata appuntamento non valida.')),
       );
       return;
     }
@@ -1907,8 +1893,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       return;
     }
     final staffSalonId = staffMember.salonId.trim();
-    final salonId =
-        staffSalonId.isNotEmpty ? staffSalonId : template.salonId;
+    final salonId = staffSalonId.isNotEmpty ? staffSalonId : template.salonId;
     final appointment = template.copyWith(
       id: _uuid.v4(),
       salonId: salonId,
@@ -3103,7 +3088,8 @@ class _AttentionAppointmentsCard extends StatelessWidget {
             if (appointment.status == AppointmentStatus.cancelled) {
               issueDescriptions.insert(0, 'Appuntamento annullato');
             }
-            final isCancelled = appointment.status == AppointmentStatus.cancelled;
+            final isCancelled =
+                appointment.status == AppointmentStatus.cancelled;
             final leadingIcon =
                 isCancelled
                     ? Icons.cancel_rounded
@@ -3131,10 +3117,7 @@ class _AttentionAppointmentsCard extends StatelessWidget {
                 horizontal: 16,
                 vertical: 12,
               ),
-              leading: Icon(
-                leadingIcon,
-                color: leadingColor,
-              ),
+              leading: Icon(leadingIcon, color: leadingColor),
               title: Text(_ListAppointmentsView._buildTitle(appointment, data)),
               subtitle: Text(subtitleText),
               trailing: Column(
@@ -3224,11 +3207,12 @@ Future<void> _openForm(
     return;
   }
   if (result.action == AppointmentFormAction.copy) {
-    ref.read(appointmentClipboardProvider.notifier).state =
-        AppointmentClipboard(
-          appointment: result.appointment,
-          copiedAt: DateTime.now(),
-        );
+    ref
+        .read(appointmentClipboardProvider.notifier)
+        .state = AppointmentClipboard(
+      appointment: result.appointment,
+      copiedAt: DateTime.now(),
+    );
     messenger.showSnackBar(
       const SnackBar(
         content: Text('Appuntamento copiato. Seleziona uno slot libero.'),
@@ -3334,13 +3318,10 @@ Future<bool> _validateAndSaveAppointment(
     );
     return false;
   }
-  final appointmentServices =
-      appointment.serviceIds
-          .map(
-            (id) => allServices.firstWhereOrNull((service) => service.id == id),
-          )
-          .whereType<Service>()
-          .toList(growable: false);
+  final appointmentServices = appointment.serviceIds
+      .map((id) => allServices.firstWhereOrNull((service) => service.id == id))
+      .whereType<Service>()
+      .toList(growable: false);
   if (appointmentServices.isEmpty) {
     messenger.showSnackBar(
       const SnackBar(content: Text('Servizio non valido.')),

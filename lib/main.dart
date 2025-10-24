@@ -1,8 +1,8 @@
 import 'dart:io';
 
-import 'package:civiapp/app/app.dart';
-import 'package:civiapp/app/providers.dart';
-import 'package:civiapp/services/notifications/notification_service.dart';
+import 'package:you_book/app/app.dart';
+import 'package:you_book/app/providers.dart';
+import 'package:you_book/services/notifications/notification_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';

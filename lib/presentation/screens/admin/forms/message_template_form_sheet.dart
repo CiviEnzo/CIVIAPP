@@ -1,5 +1,5 @@
-import 'package:civiapp/domain/entities/message_template.dart';
-import 'package:civiapp/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/message_template.dart';
+import 'package:you_book/domain/entities/salon.dart';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 

@@ -1,5 +1,5 @@
-import 'package:civiapp/app/providers.dart';
-import 'package:civiapp/services/whatsapp_service.dart';
+import 'package:you_book/app/providers.dart';
+import 'package:you_book/services/whatsapp_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';

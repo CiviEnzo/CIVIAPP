@@ -1,13 +1,13 @@
-import 'package:civiapp/app/providers.dart';
-import 'package:civiapp/domain/entities/appointment.dart';
-import 'package:civiapp/domain/entities/service.dart';
-import 'package:civiapp/domain/entities/staff_absence.dart';
-import 'package:civiapp/domain/entities/staff_member.dart';
-import 'package:civiapp/domain/entities/sale.dart';
-import 'package:civiapp/domain/entities/shift.dart';
-import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
-import 'package:civiapp/presentation/common/theme_mode_action.dart';
-import 'package:civiapp/presentation/shared/client_package_purchase.dart';
+import 'package:you_book/app/providers.dart';
+import 'package:you_book/domain/entities/appointment.dart';
+import 'package:you_book/domain/entities/service.dart';
+import 'package:you_book/domain/entities/staff_absence.dart';
+import 'package:you_book/domain/entities/staff_member.dart';
+import 'package:you_book/domain/entities/sale.dart';
+import 'package:you_book/domain/entities/shift.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
+import 'package:you_book/presentation/common/theme_mode_action.dart';
+import 'package:you_book/presentation/shared/client_package_purchase.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -566,8 +566,7 @@ class _TodayView extends ConsumerWidget {
   ) {
     return showAppModalSheet<void>(
       context: context,
-      builder:
-          (ctx) => _AppointmentDetailSheet(appointment: appointment),
+      builder: (ctx) => _AppointmentDetailSheet(appointment: appointment),
     );
   }
 }

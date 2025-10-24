@@ -1,4 +1,4 @@
-import 'package:civiapp/domain/entities/client.dart';
+import 'package:you_book/domain/entities/client.dart';
 
 /// Shared utilities to filter clients by general text or client number.
 class ClientSearchUtils {

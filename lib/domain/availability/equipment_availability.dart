@@ -1,6 +1,6 @@
-import 'package:civiapp/domain/entities/appointment.dart';
-import 'package:civiapp/domain/entities/salon.dart';
-import 'package:civiapp/domain/entities/service.dart';
+import 'package:you_book/domain/entities/appointment.dart';
+import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/service.dart';
 
 class EquipmentBookingResult {
   EquipmentBookingResult._({

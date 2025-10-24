@@ -1,4 +1,4 @@
-import 'package:civiapp/domain/entities/appointment.dart';
+import 'package:you_book/domain/entities/appointment.dart';
 
 bool appointmentBlocksAvailability(Appointment appointment) {
   switch (appointment.status) {

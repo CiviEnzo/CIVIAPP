@@ -1,7 +1,7 @@
-import 'package:civiapp/app/providers.dart';
-import 'package:civiapp/domain/entities/appointment.dart';
-import 'package:civiapp/domain/entities/sale.dart';
-import 'package:civiapp/domain/entities/service.dart';
+import 'package:you_book/app/providers.dart';
+import 'package:you_book/domain/entities/appointment.dart';
+import 'package:you_book/domain/entities/sale.dart';
+import 'package:you_book/domain/entities/service.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

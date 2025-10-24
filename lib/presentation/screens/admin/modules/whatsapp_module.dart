@@ -1,6 +1,6 @@
-import 'package:civiapp/presentation/screens/admin/whatsapp/campaign_editor_page.dart';
-import 'package:civiapp/presentation/screens/admin/whatsapp/template_list_page.dart';
-import 'package:civiapp/presentation/screens/admin/whatsapp/whatsapp_settings_page.dart';
+import 'package:you_book/presentation/screens/admin/whatsapp/campaign_editor_page.dart';
+import 'package:you_book/presentation/screens/admin/whatsapp/template_list_page.dart';
+import 'package:you_book/presentation/screens/admin/whatsapp/whatsapp_settings_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 

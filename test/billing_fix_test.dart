@@ -1,10 +1,10 @@
-import 'package:civiapp/app/providers.dart';
-import 'package:civiapp/data/models/app_user.dart';
-import 'package:civiapp/data/repositories/app_data_store.dart';
-import 'package:civiapp/domain/entities/payment_ticket.dart';
-import 'package:civiapp/domain/entities/sale.dart';
-import 'package:civiapp/domain/entities/user_role.dart';
-import 'package:civiapp/presentation/screens/admin/modules/client_detail_page.dart';
+import 'package:you_book/app/providers.dart';
+import 'package:you_book/data/models/app_user.dart';
+import 'package:you_book/data/repositories/app_data_store.dart';
+import 'package:you_book/domain/entities/payment_ticket.dart';
+import 'package:you_book/domain/entities/sale.dart';
+import 'package:you_book/domain/entities/user_role.dart';
+import 'package:you_book/presentation/screens/admin/modules/client_detail_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,24 +13,30 @@ import 'package:intl/intl.dart';
 void main() {
   test('closing ticket removes it from open list', () async {
     final store = AppDataStore(currentUser: null);
-    expect(store.state.paymentTickets.where((t) => t.status == PaymentTicketStatus.open).length, 1);
+    expect(
+      store.state.paymentTickets
+          .where((t) => t.status == PaymentTicketStatus.open)
+          .length,
+      1,
+    );
     final ticket = store.state.paymentTickets.first;
 
     final sale = Sale(
       id: 'sale-test',
       salonId: ticket.salonId,
       clientId: ticket.clientId,
-      items: ticket.expectedTotal == null
-          ? const []
-          : [
-              SaleItem(
-                referenceId: 'srv',
-                referenceType: SaleReferenceType.service,
-                description: 'Test service',
-                quantity: 1,
-                unitPrice: ticket.expectedTotal!,
-              ),
-            ],
+      items:
+          ticket.expectedTotal == null
+              ? const []
+              : [
+                SaleItem(
+                  referenceId: 'srv',
+                  referenceType: SaleReferenceType.service,
+                  description: 'Test service',
+                  quantity: 1,
+                  unitPrice: ticket.expectedTotal!,
+                ),
+              ],
       total: ticket.expectedTotal ?? 0,
       createdAt: DateTime.now(),
     );
@@ -85,14 +91,14 @@ void main() {
     expect(finalSale.paymentStatus, SalePaymentStatus.paid);
   });
 
-  testWidgets('settling open ticket removes it from outstanding list', (tester) async {
+  testWidgets('settling open ticket removes it from outstanding list', (
+    tester,
+  ) async {
     final store = AppDataStore(currentUser: null);
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          appDataProvider.overrideWith((ref) => store),
-        ],
+        overrides: [appDataProvider.overrideWith((ref) => store)],
         child: const MaterialApp(
           home: ClientDetailPage(clientId: 'client-001'),
         ),
@@ -170,9 +176,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          appDataProvider.overrideWith((ref) => store),
-        ],
+        overrides: [appDataProvider.overrideWith((ref) => store)],
         child: const MaterialApp(
           home: ClientDetailPage(clientId: 'client-001'),
         ),
@@ -193,8 +197,9 @@ void main() {
 
     expect(find.textContaining('Pacchetto Relax'), findsWidgets);
 
-    final tileFinder =
-        find.byKey(const ValueKey('payment-history-tile-sale-with-deposit'));
+    final tileFinder = find.byKey(
+      const ValueKey('payment-history-tile-sale-with-deposit'),
+    );
     expect(tileFinder, findsOneWidget);
     await tester.ensureVisible(tileFinder);
     await tester.pumpAndSettle();
@@ -207,7 +212,9 @@ void main() {
     expect(find.textContaining('Pacchetto Relax'), findsWidgets);
   });
 
-  testWidgets('package deposit appears in history without restart', (tester) async {
+  testWidgets('package deposit appears in history without restart', (
+    tester,
+  ) async {
     final store = AppDataStore(currentUser: null);
     final sale = Sale(
       id: 'sale-package-outstanding',
@@ -234,9 +241,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          appDataProvider.overrideWith((ref) => store),
-        ],
+        overrides: [appDataProvider.overrideWith((ref) => store)],
         child: const MaterialApp(
           home: ClientDetailPage(clientId: 'client-001'),
         ),
@@ -288,8 +293,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final historyTileFinder =
-        find.byKey(const ValueKey('payment-history-tile-sale-package-outstanding'));
+    final historyTileFinder = find.byKey(
+      const ValueKey('payment-history-tile-sale-package-outstanding'),
+    );
     expect(historyTileFinder, findsOneWidget);
 
     await tester.tap(historyTileFinder);
@@ -298,7 +304,9 @@ void main() {
     expect(find.textContaining('Acconto registrato'), findsWidgets);
   });
 
-  testWidgets('legacy package deposit stays cumulative in outstanding view', (tester) async {
+  testWidgets('legacy package deposit stays cumulative in outstanding view', (
+    tester,
+  ) async {
     final store = AppDataStore(currentUser: null);
     final legacyDate = DateTime.now().subtract(const Duration(days: 2));
     final sale = Sale(
@@ -328,9 +336,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          appDataProvider.overrideWith((ref) => store),
-        ],
+        overrides: [appDataProvider.overrideWith((ref) => store)],
         child: const MaterialApp(
           home: ClientDetailPage(clientId: 'client-001'),
         ),
@@ -365,7 +371,9 @@ void main() {
     );
   });
 
-  testWidgets('service deposit movements are tracked in history', (tester) async {
+  testWidgets('service deposit movements are tracked in history', (
+    tester,
+  ) async {
     const currentUser = AppUser(
       uid: 'admin-test',
       role: UserRole.admin,
@@ -399,9 +407,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          appDataProvider.overrideWith((ref) => store),
-        ],
+        overrides: [appDataProvider.overrideWith((ref) => store)],
         child: const MaterialApp(
           home: ClientDetailPage(clientId: 'client-001'),
         ),
@@ -413,8 +419,9 @@ void main() {
     await tester.tap(find.text('Fatturazione'));
     await tester.pumpAndSettle();
 
-    final historyTileFinder =
-        find.byKey(const ValueKey('payment-history-tile-sale-history-tracking'));
+    final historyTileFinder = find.byKey(
+      const ValueKey('payment-history-tile-sale-history-tracking'),
+    );
 
     await tester.tap(find.textContaining('Massaggio relax').first);
     await tester.pumpAndSettle();
@@ -424,8 +431,9 @@ void main() {
     await tester.tap(find.text('Registra'));
     await tester.pumpAndSettle();
 
-    final updatedSale =
-        store.state.sales.firstWhere((element) => element.id == sale.id);
+    final updatedSale = store.state.sales.firstWhere(
+      (element) => element.id == sale.id,
+    );
     expect(updatedSale.paymentHistory.length, 2);
     expect(updatedSale.paymentHistory.last.amount, 150);
     expect(updatedSale.paymentHistory.last.type, SalePaymentType.settlement);

@@ -1,8 +1,8 @@
-import 'package:civiapp/domain/entities/client.dart';
-import 'package:civiapp/domain/entities/loyalty_settings.dart';
-import 'package:civiapp/domain/entities/sale.dart';
-import 'package:civiapp/domain/entities/salon.dart';
-import 'package:civiapp/presentation/screens/admin/forms/sale_form_sheet.dart';
+import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/domain/entities/loyalty_settings.dart';
+import 'package:you_book/domain/entities/sale.dart';
+import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/presentation/screens/admin/forms/sale_form_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

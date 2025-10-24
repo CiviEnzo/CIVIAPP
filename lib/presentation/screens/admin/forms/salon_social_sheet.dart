@@ -1,5 +1,5 @@
-import 'package:civiapp/domain/entities/salon.dart';
-import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
+import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:flutter/material.dart';
 
 class SalonSocialSheet extends StatefulWidget {
@@ -17,8 +17,8 @@ class _EditableSocialLink {
     String? label,
     String? url,
     this.isDefault = false,
-  })  : label = TextEditingController(text: label ?? ''),
-        url = TextEditingController(text: url ?? '');
+  }) : label = TextEditingController(text: label ?? ''),
+       url = TextEditingController(text: url ?? '');
 
   factory _EditableSocialLink.fromEntry(
     MapEntry<String, String> entry,
@@ -45,7 +45,11 @@ class _EditableSocialLink {
 }
 
 class _SalonSocialSheetState extends State<SalonSocialSheet> {
-  static const List<String> _defaultSocialLabels = ['Instagram', 'Facebook', 'TikTok'];
+  static const List<String> _defaultSocialLabels = [
+    'Instagram',
+    'Facebook',
+    'TikTok',
+  ];
 
   final _formKey = GlobalKey<FormState>();
   late List<_EditableSocialLink> _links;
@@ -82,9 +86,7 @@ class _SalonSocialSheetState extends State<SalonSocialSheet> {
         continue;
       }
       final entry = entries[i];
-      initialLinks.add(
-        _EditableSocialLink.fromEntry(entry, 'link_$i'),
-      );
+      initialLinks.add(_EditableSocialLink.fromEntry(entry, 'link_$i'));
     }
 
     _links = initialLinks;
@@ -174,10 +176,7 @@ class _SalonSocialSheetState extends State<SalonSocialSheet> {
           onPressed: () => Navigator.of(context).maybePop(),
           child: const Text('Annulla'),
         ),
-        FilledButton(
-          onPressed: _submit,
-          child: const Text('Salva'),
-        ),
+        FilledButton(onPressed: _submit, child: const Text('Salva')),
       ],
     );
   }

@@ -1,5 +1,5 @@
-import 'package:civiapp/domain/entities/loyalty_settings.dart';
-import 'package:civiapp/domain/loyalty/loyalty_calculator.dart';
+import 'package:you_book/domain/entities/loyalty_settings.dart';
+import 'package:you_book/domain/loyalty/loyalty_calculator.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

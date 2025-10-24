@@ -1,5 +1,5 @@
-import 'package:civiapp/domain/entities/salon.dart';
-import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
+import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
@@ -119,13 +119,7 @@ class _SalonOperationsSheetState extends State<SalonOperationsSheet> {
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day);
     setState(() {
-      _closures.add(
-        _ClosureFormData(
-          id: _uuid.v4(),
-          start: start,
-          end: start,
-        ),
-      );
+      _closures.add(_ClosureFormData(id: _uuid.v4(), start: start, end: start));
     });
   }
 
@@ -220,8 +214,9 @@ class _SalonOperationsSheetState extends State<SalonOperationsSheet> {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   static TimeOfDay _minutesToTimeOfDay(int minutes) {
@@ -286,7 +281,8 @@ class _SalonOperationsSheetState extends State<SalonOperationsSheet> {
                     .map(
                       (entry) => _ScheduleCard(
                         entry: entry,
-                        onChanged: (value) => _toggleScheduleEntry(entry, value),
+                        onChanged:
+                            (value) => _toggleScheduleEntry(entry, value),
                         onPickOpening:
                             () => _pickScheduleTime(entry, isOpening: true),
                         onPickClosing:
@@ -326,10 +322,7 @@ class _SalonOperationsSheetState extends State<SalonOperationsSheet> {
           onPressed: () => Navigator.of(context).maybePop(),
           child: const Text('Annulla'),
         ),
-        FilledButton(
-          onPressed: _submit,
-          child: const Text('Salva'),
-        ),
+        FilledButton(onPressed: _submit, child: const Text('Salva')),
       ],
     );
   }

@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:civiapp/app/providers.dart';
-import 'package:civiapp/domain/entities/salon.dart';
-import 'package:civiapp/domain/entities/staff_member.dart';
-import 'package:civiapp/domain/entities/staff_role.dart';
+import 'package:you_book/app/providers.dart';
+import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/staff_member.dart';
+import 'package:you_book/domain/entities/staff_role.dart';
 import 'package:collection/collection.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';

@@ -1,8 +1,8 @@
-import 'package:civiapp/app/providers.dart';
-import 'package:civiapp/data/repositories/app_data_state.dart';
-import 'package:civiapp/domain/entities/salon.dart';
-import 'package:civiapp/domain/entities/staff_member.dart';
-import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
+import 'package:you_book/app/providers.dart';
+import 'package:you_book/data/repositories/app_data_state.dart';
+import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/staff_member.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';

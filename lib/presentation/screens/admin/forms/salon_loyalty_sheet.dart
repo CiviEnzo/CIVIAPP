@@ -1,6 +1,6 @@
-import 'package:civiapp/domain/entities/loyalty_settings.dart';
-import 'package:civiapp/domain/entities/salon.dart';
-import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
+import 'package:you_book/domain/entities/loyalty_settings.dart';
+import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:flutter/material.dart';
 
 class SalonLoyaltySheet extends StatefulWidget {
@@ -67,18 +67,24 @@ class _SalonLoyaltySheetState extends State<SalonLoyaltySheet> {
   void _submit() {
     if (!_enabled) {
       Navigator.of(context).pop(
-        widget.salon.copyWith(loyaltySettings: const LoyaltySettings(enabled: false)),
+        widget.salon.copyWith(
+          loyaltySettings: const LoyaltySettings(enabled: false),
+        ),
       );
       return;
     }
 
-    double? euroPerPoint = double.tryParse(_euroPerPoint.text.replaceAll(',', '.'));
+    double? euroPerPoint = double.tryParse(
+      _euroPerPoint.text.replaceAll(',', '.'),
+    );
     if (euroPerPoint == null || euroPerPoint < 1) {
       _showError('Inserisci un valore valido per € per punto (>=1).');
       return;
     }
 
-    double? pointValue = double.tryParse(_pointValueEuro.text.replaceAll(',', '.'));
+    double? pointValue = double.tryParse(
+      _pointValueEuro.text.replaceAll(',', '.'),
+    );
     if (pointValue == null || pointValue <= 0) {
       _showError('Inserisci un valore valido per il valore del punto.');
       return;
@@ -109,7 +115,8 @@ class _SalonLoyaltySheetState extends State<SalonLoyaltySheet> {
       return;
     }
 
-    final timezone = _timezone.text.trim().isEmpty ? 'Europe/Rome' : _timezone.text.trim();
+    final timezone =
+        _timezone.text.trim().isEmpty ? 'Europe/Rome' : _timezone.text.trim();
 
     final settings = LoyaltySettings(
       enabled: true,
@@ -135,9 +142,9 @@ class _SalonLoyaltySheetState extends State<SalonLoyaltySheet> {
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -151,7 +158,10 @@ class _SalonLoyaltySheetState extends State<SalonLoyaltySheet> {
           Row(
             children: [
               Expanded(
-                child: Text('Programma fedeltà', style: theme.textTheme.titleLarge),
+                child: Text(
+                  'Programma fedeltà',
+                  style: theme.textTheme.titleLarge,
+                ),
               ),
               Switch.adaptive(
                 value: _enabled,
@@ -181,22 +191,27 @@ class _SalonLoyaltySheetState extends State<SalonLoyaltySheet> {
                             labelText: '€ per punto',
                             helperText: 'Es. 10 = 1 punto ogni 10 €',
                           ),
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: DropdownButtonFormField<LoyaltyRoundingMode>(
                           value: _roundingMode,
-                          decoration: const InputDecoration(labelText: 'Arrotondamento'),
-                          items: LoyaltyRoundingMode.values
-                              .map(
-                                (mode) => DropdownMenuItem(
-                                  value: mode,
-                                  child: Text(_roundingLabel(mode)),
-                                ),
-                              )
-                              .toList(),
+                          decoration: const InputDecoration(
+                            labelText: 'Arrotondamento',
+                          ),
+                          items:
+                              LoyaltyRoundingMode.values
+                                  .map(
+                                    (mode) => DropdownMenuItem(
+                                      value: mode,
+                                      child: Text(_roundingLabel(mode)),
+                                    ),
+                                  )
+                                  .toList(),
                           onChanged: (value) {
                             if (value != null) {
                               setState(() => _roundingMode = value);
@@ -216,7 +231,9 @@ class _SalonLoyaltySheetState extends State<SalonLoyaltySheet> {
                             labelText: 'Valore punto (€)',
                             helperText: 'Es. 1 = 1€ di sconto per 1 punto',
                           ),
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -227,7 +244,9 @@ class _SalonLoyaltySheetState extends State<SalonLoyaltySheet> {
                             labelText: 'Max sconto (%)',
                             helperText: 'Percentuale massima per transazione',
                           ),
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
                         ),
                       ),
                     ],
@@ -235,7 +254,9 @@ class _SalonLoyaltySheetState extends State<SalonLoyaltySheet> {
                   const SizedBox(height: 12),
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Suggerisci automaticamente i punti da usare'),
+                    title: const Text(
+                      'Suggerisci automaticamente i punti da usare',
+                    ),
                     value: _autoSuggest,
                     onChanged: (value) => setState(() => _autoSuggest = value),
                   ),
@@ -245,7 +266,9 @@ class _SalonLoyaltySheetState extends State<SalonLoyaltySheet> {
                       Expanded(
                         child: TextField(
                           controller: _initialBalance,
-                          decoration: const InputDecoration(labelText: 'Saldo iniziale punti'),
+                          decoration: const InputDecoration(
+                            labelText: 'Saldo iniziale punti',
+                          ),
                           keyboardType: TextInputType.number,
                         ),
                       ),
@@ -253,7 +276,9 @@ class _SalonLoyaltySheetState extends State<SalonLoyaltySheet> {
                       Expanded(
                         child: TextField(
                           controller: _resetMonth,
-                          decoration: const InputDecoration(labelText: 'Mese reset (1-12)'),
+                          decoration: const InputDecoration(
+                            labelText: 'Mese reset (1-12)',
+                          ),
                           keyboardType: TextInputType.number,
                         ),
                       ),
@@ -261,7 +286,9 @@ class _SalonLoyaltySheetState extends State<SalonLoyaltySheet> {
                       Expanded(
                         child: TextField(
                           controller: _resetDay,
-                          decoration: const InputDecoration(labelText: 'Giorno reset (1-31)'),
+                          decoration: const InputDecoration(
+                            labelText: 'Giorno reset (1-31)',
+                          ),
                           keyboardType: TextInputType.number,
                         ),
                       ),
@@ -286,10 +313,7 @@ class _SalonLoyaltySheetState extends State<SalonLoyaltySheet> {
           onPressed: () => Navigator.of(context).maybePop(),
           child: const Text('Annulla'),
         ),
-        FilledButton(
-          onPressed: _submit,
-          child: const Text('Salva'),
-        ),
+        FilledButton(onPressed: _submit, child: const Text('Salva')),
       ],
     );
   }

@@ -1,6 +1,6 @@
-import 'package:civiapp/domain/entities/package.dart';
-import 'package:civiapp/domain/entities/salon.dart';
-import 'package:civiapp/domain/entities/service.dart';
+import 'package:you_book/domain/entities/package.dart';
+import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/service.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';

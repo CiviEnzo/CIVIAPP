@@ -3,18 +3,16 @@ import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:collection/collection.dart';
-import 'package:civiapp/data/mock_data.dart';
-import 'package:civiapp/domain/entities/salon.dart';
-import 'package:civiapp/domain/entities/service.dart';
-import 'package:civiapp/firebase_options.dart';
+import 'package:you_book/data/mock_data.dart';
+import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/service.dart';
+import 'package:you_book/firebase_options.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/widgets.dart';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   final firestore = FirebaseFirestore.instance;
   firestore.settings = const Settings(persistenceEnabled: false);
@@ -58,7 +56,9 @@ Future<void> _updateSalon(
   }
 
   if (dryRun) {
-    stdout.writeln('• Salone ${sample.id} → aggiornamenti: ${update.keys.join(', ')}');
+    stdout.writeln(
+      '• Salone ${sample.id} → aggiornamenti: ${update.keys.join(', ')}',
+    );
     return;
   }
 
@@ -82,12 +82,15 @@ Future<void> _updateService(
   }
 
   final data = snapshot.data() ?? <String, dynamic>{};
-  final existing = (data['requiredEquipmentIds'] as List?)
-      ?.map((value) => value.toString())
-      .where((value) => value.isNotEmpty)
-      .toList();
+  final existing =
+      (data['requiredEquipmentIds'] as List?)
+          ?.map((value) => value.toString())
+          .where((value) => value.isNotEmpty)
+          .toList();
   if (existing != null && existing.isNotEmpty) {
-    stdout.writeln('• Servizio ${service.id}: requiredEquipmentIds già presenti.');
+    stdout.writeln(
+      '• Servizio ${service.id}: requiredEquipmentIds già presenti.',
+    );
     return;
   }
 
@@ -96,7 +99,9 @@ Future<void> _updateService(
   };
 
   if (dryRun) {
-    stdout.writeln('• Servizio ${service.id} → aggiunta requiredEquipmentIds ${service.requiredEquipmentIds}');
+    stdout.writeln(
+      '• Servizio ${service.id} → aggiunta requiredEquipmentIds ${service.requiredEquipmentIds}',
+    );
     return;
   }
 
@@ -133,66 +138,70 @@ Map<String, dynamic> _buildSalonUpdate(
 
   final equipment = current['equipment'];
   if (equipment == null || (equipment is List && equipment.isEmpty)) {
-    update['equipment'] = sample.equipment
-        .map(
-          (item) => {
-            'id': item.id,
-            'name': item.name,
-            'quantity': item.quantity,
-            'status': item.status.name,
-            'notes': item.notes,
-          },
-        )
-        .toList();
+    update['equipment'] =
+        sample.equipment
+            .map(
+              (item) => {
+                'id': item.id,
+                'name': item.name,
+                'quantity': item.quantity,
+                'status': item.status.name,
+                'notes': item.notes,
+              },
+            )
+            .toList();
   }
 
   final closures = current['closures'];
   if (closures == null && sample.closures.isNotEmpty) {
-    update['closures'] = sample.closures
-        .map(
-          (closure) => {
-            'id': closure.id,
-            'start': Timestamp.fromDate(closure.start),
-            'end': Timestamp.fromDate(closure.end),
-            'reason': closure.reason,
-          },
-        )
-        .toList();
+    update['closures'] =
+        sample.closures
+            .map(
+              (closure) => {
+                'id': closure.id,
+                'start': Timestamp.fromDate(closure.start),
+                'end': Timestamp.fromDate(closure.end),
+                'reason': closure.reason,
+              },
+            )
+            .toList();
   }
 
   final currentRooms = current['rooms'];
   if (currentRooms is List) {
     var roomsUpdated = false;
-    final updatedRooms = currentRooms.map((room) {
-      final roomMap = Map<String, dynamic>.from(
-        room as Map<String, dynamic>,
-      );
-      if (roomMap['category'] == null) {
-        final sampleRoom = sample.rooms.firstWhereOrNull(
-          (item) => item.id == roomMap['id'],
-        );
-        if (sampleRoom?.category != null) {
-          roomMap['category'] = sampleRoom!.category;
-          roomsUpdated = true;
-        }
-      }
-      return roomMap;
-    }).toList();
+    final updatedRooms =
+        currentRooms.map((room) {
+          final roomMap = Map<String, dynamic>.from(
+            room as Map<String, dynamic>,
+          );
+          if (roomMap['category'] == null) {
+            final sampleRoom = sample.rooms.firstWhereOrNull(
+              (item) => item.id == roomMap['id'],
+            );
+            if (sampleRoom?.category != null) {
+              roomMap['category'] = sampleRoom!.category;
+              roomsUpdated = true;
+            }
+          }
+          return roomMap;
+        }).toList();
     if (roomsUpdated) {
       update['rooms'] = updatedRooms;
     }
   } else if (sample.rooms.isNotEmpty) {
-    update['rooms'] = sample.rooms
-        .map(
-          (room) => {
-            'id': room.id,
-            'name': room.name,
-            'capacity': room.capacity,
-            'category': room.category,
-            'services': room.services,
-          },
-        )
-        .toList();
+    update['rooms'] =
+        sample.rooms
+            .map(
+              (room) => {
+                'id': room.id,
+                'name': room.name,
+                'capacity': room.capacity,
+                'category': room.category,
+                'services': room.services,
+              },
+            )
+            .toList();
   }
 
   return update;

@@ -1,6 +1,6 @@
-import 'package:civiapp/app/providers.dart';
-import 'package:civiapp/domain/entities/user_role.dart';
-import 'package:civiapp/services/notifications/notification_service.dart';
+import 'package:you_book/app/providers.dart';
+import 'package:you_book/domain/entities/user_role.dart';
+import 'package:you_book/services/notifications/notification_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

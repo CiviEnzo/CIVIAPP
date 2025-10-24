@@ -1,5 +1,5 @@
-import 'package:civiapp/domain/entities/loyalty_settings.dart';
-import 'package:civiapp/domain/entities/sale.dart';
+import 'package:you_book/domain/entities/loyalty_settings.dart';
+import 'package:you_book/domain/entities/sale.dart';
 
 class LoyaltyQuote {
   const LoyaltyQuote({

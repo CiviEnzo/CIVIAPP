@@ -1,6 +1,6 @@
-import 'package:civiapp/domain/entities/salon.dart';
-import 'package:civiapp/domain/entities/shift.dart';
-import 'package:civiapp/domain/entities/staff_member.dart';
+import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/shift.dart';
+import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';

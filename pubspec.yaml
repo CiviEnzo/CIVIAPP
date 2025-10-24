@@ -1,5 +1,5 @@
-name: You Book
-description: "You Book, gestionale per saloni di centri estetici e medici"
+name: you_book
+description: "Civi App gestionale per saloni di centri estetici"
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -54,6 +54,8 @@ flutter_launcher_icons:
   android: true
   ios: true
   image_path: assets/logo.png
+  macos:
+    generate: true
   min_sdk_android: 21
   android_adaptive_icon_background: "#D6D3CD"
 

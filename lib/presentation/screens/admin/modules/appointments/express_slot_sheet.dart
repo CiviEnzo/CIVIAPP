@@ -1,15 +1,15 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:civiapp/app/providers.dart';
-import 'package:civiapp/domain/entities/client.dart';
-import 'package:civiapp/domain/entities/last_minute_notification.dart';
-import 'package:civiapp/domain/entities/last_minute_slot.dart';
-import 'package:civiapp/domain/entities/reminder_settings.dart';
-import 'package:civiapp/domain/entities/service.dart';
-import 'package:civiapp/domain/entities/staff_member.dart';
-import 'package:civiapp/domain/entities/salon.dart';
-import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
+import 'package:you_book/app/providers.dart';
+import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/domain/entities/last_minute_notification.dart';
+import 'package:you_book/domain/entities/last_minute_slot.dart';
+import 'package:you_book/domain/entities/reminder_settings.dart';
+import 'package:you_book/domain/entities/service.dart';
+import 'package:you_book/domain/entities/staff_member.dart';
+import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:collection/collection.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';

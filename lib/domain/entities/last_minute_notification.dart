@@ -1,4 +1,4 @@
-import 'package:civiapp/domain/entities/reminder_settings.dart';
+import 'package:you_book/domain/entities/reminder_settings.dart';
 
 class LastMinuteNotificationRequest {
   const LastMinuteNotificationRequest({

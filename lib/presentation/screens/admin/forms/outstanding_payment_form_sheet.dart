@@ -1,5 +1,5 @@
-import 'package:civiapp/domain/entities/sale.dart';
-import 'package:civiapp/domain/entities/staff_member.dart';
+import 'package:you_book/domain/entities/sale.dart';
+import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 

@@ -1,4 +1,4 @@
-import 'package:civiapp/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/salon.dart';
 import 'package:flutter/material.dart';
 
 class SalonIntegrationsSheet extends StatelessWidget {

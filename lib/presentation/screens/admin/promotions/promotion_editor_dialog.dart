@@ -2,17 +2,17 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:civiapp/app/providers.dart';
-import 'package:civiapp/domain/entities/promotion.dart';
-import 'package:civiapp/domain/entities/salon.dart';
-import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
+import 'package:you_book/app/providers.dart';
+import 'package:you_book/domain/entities/promotion.dart';
+import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
-import 'package:civiapp/presentation/screens/client/client_theme.dart';
-import 'package:civiapp/presentation/shared/promotion_palette.dart';
+import 'package:you_book/presentation/screens/client/client_theme.dart';
+import 'package:you_book/presentation/shared/promotion_palette.dart';
 
 class PromotionEditorDialog extends ConsumerStatefulWidget {
   const PromotionEditorDialog({
@@ -815,7 +815,9 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
                   builder: (context, constraints) {
                     final isWide = constraints.maxWidth > 640;
                     final preview = _PromotionPreview(promotion: promotion);
-                    final detail = _PromotionDetailPreview(promotion: promotion);
+                    final detail = _PromotionDetailPreview(
+                      promotion: promotion,
+                    );
                     if (isWide) {
                       final boundedDetail =
                           constraints.maxHeight.isFinite
@@ -863,17 +865,14 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
                   leading: const Icon(Icons.short_text_rounded),
                   title: const Text('Sezione di testo'),
                   subtitle: const Text('Per paragrafi e descrizioni'),
-                  onTap:
-                      () =>
-                          Navigator.of(ctx).pop(PromotionSectionType.text),
+                  onTap: () => Navigator.of(ctx).pop(PromotionSectionType.text),
                 ),
                 ListTile(
                   leading: const Icon(Icons.image_rounded),
                   title: const Text('Sezione immagine'),
                   subtitle: const Text('Per foto con didascalia'),
                   onTap:
-                      () =>
-                          Navigator.of(ctx).pop(PromotionSectionType.image),
+                      () => Navigator.of(ctx).pop(PromotionSectionType.image),
                 ),
                 const SizedBox(height: 8),
               ],

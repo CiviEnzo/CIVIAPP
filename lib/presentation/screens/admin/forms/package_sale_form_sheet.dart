@@ -1,8 +1,8 @@
 import 'dart:math' as math;
 
-import 'package:civiapp/domain/entities/client.dart';
-import 'package:civiapp/domain/entities/package.dart';
-import 'package:civiapp/domain/entities/sale.dart';
+import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/domain/entities/package.dart';
+import 'package:you_book/domain/entities/sale.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';

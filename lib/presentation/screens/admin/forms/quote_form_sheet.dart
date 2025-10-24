@@ -1,11 +1,11 @@
-import 'package:civiapp/domain/entities/client.dart';
-import 'package:civiapp/domain/entities/inventory_item.dart';
-import 'package:civiapp/domain/entities/package.dart';
-import 'package:civiapp/domain/entities/quote.dart';
-import 'package:civiapp/domain/entities/salon.dart';
-import 'package:civiapp/domain/entities/service.dart';
-import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
-import 'package:civiapp/presentation/screens/admin/forms/package_form_sheet.dart';
+import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/domain/entities/inventory_item.dart';
+import 'package:you_book/domain/entities/package.dart';
+import 'package:you_book/domain/entities/quote.dart';
+import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/service.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
+import 'package:you_book/presentation/screens/admin/forms/package_form_sheet.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -179,7 +179,9 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
       referenceId: referenceId,
       catalogLabel: catalogLabel,
       descriptionController: TextEditingController(text: description),
-      quantityController: TextEditingController(text: _formatQuantity(quantity)),
+      quantityController: TextEditingController(
+        text: _formatQuantity(quantity),
+      ),
       unitPriceController: TextEditingController(
         text: unitPrice.toStringAsFixed(2),
       ),
@@ -299,8 +301,7 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
     if (selected == null) {
       return;
     }
-    final description =
-        selected.name.isNotEmpty ? selected.name : 'Pacchetto';
+    final description = selected.name.isNotEmpty ? selected.name : 'Pacchetto';
     final catalogLabel =
         selected.description != null && selected.description!.isNotEmpty
             ? selected.description
@@ -459,9 +460,9 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override

@@ -1,10 +1,7 @@
-import 'package:civiapp/domain/entities/appointment.dart';
+import 'package:you_book/domain/entities/appointment.dart';
 
 class AppointmentClipboard {
-  AppointmentClipboard({
-    required this.appointment,
-    required this.copiedAt,
-  });
+  AppointmentClipboard({required this.appointment, required this.copiedAt});
 
   final Appointment appointment;
   final DateTime copiedAt;

@@ -1,6 +1,6 @@
-import 'package:civiapp/domain/entities/salon.dart';
-import 'package:civiapp/domain/entities/service_category.dart';
-import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
+import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/service_category.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';

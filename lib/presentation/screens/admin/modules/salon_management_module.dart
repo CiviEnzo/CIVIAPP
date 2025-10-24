@@ -1,21 +1,21 @@
 import 'dart:async';
 
-import 'package:civiapp/app/providers.dart';
-import 'package:civiapp/data/models/app_user.dart';
-import 'package:civiapp/domain/entities/loyalty_settings.dart';
-import 'package:civiapp/domain/entities/salon.dart';
-import 'package:civiapp/domain/entities/salon_setup_progress.dart';
-import 'package:civiapp/domain/entities/user_role.dart';
-import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
-import 'package:civiapp/presentation/screens/admin/forms/salon_create_essential_dialog.dart';
-import 'package:civiapp/presentation/screens/admin/forms/salon_equipment_sheet.dart';
-import 'package:civiapp/presentation/screens/admin/forms/salon_profile_sheet.dart';
-import 'package:civiapp/presentation/screens/admin/forms/salon_operations_sheet.dart';
-import 'package:civiapp/presentation/screens/admin/forms/salon_rooms_sheet.dart';
-import 'package:civiapp/presentation/screens/admin/forms/salon_loyalty_sheet.dart';
-import 'package:civiapp/presentation/screens/admin/forms/salon_social_sheet.dart';
-import 'package:civiapp/presentation/screens/admin/forms/salon_setup_checklist_sheet.dart';
-import 'package:civiapp/services/whatsapp_service.dart';
+import 'package:you_book/app/providers.dart';
+import 'package:you_book/data/models/app_user.dart';
+import 'package:you_book/domain/entities/loyalty_settings.dart';
+import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/salon_setup_progress.dart';
+import 'package:you_book/domain/entities/user_role.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
+import 'package:you_book/presentation/screens/admin/forms/salon_create_essential_dialog.dart';
+import 'package:you_book/presentation/screens/admin/forms/salon_equipment_sheet.dart';
+import 'package:you_book/presentation/screens/admin/forms/salon_profile_sheet.dart';
+import 'package:you_book/presentation/screens/admin/forms/salon_operations_sheet.dart';
+import 'package:you_book/presentation/screens/admin/forms/salon_rooms_sheet.dart';
+import 'package:you_book/presentation/screens/admin/forms/salon_loyalty_sheet.dart';
+import 'package:you_book/presentation/screens/admin/forms/salon_social_sheet.dart';
+import 'package:you_book/presentation/screens/admin/forms/salon_setup_checklist_sheet.dart';
+import 'package:you_book/services/whatsapp_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -103,14 +103,18 @@ class SalonManagementModule extends ConsumerWidget {
       effectiveSalonId = salons.first.id;
       if (effectiveSalonId != currentSalonId) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          ref.read(sessionControllerProvider.notifier).setSalon(effectiveSalonId);
+          ref
+              .read(sessionControllerProvider.notifier)
+              .setSalon(effectiveSalonId);
         });
       }
     } else if (effectiveSalonId == null && salons.length == 1) {
       effectiveSalonId = salons.first.id;
       if (effectiveSalonId != currentSalonId) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          ref.read(sessionControllerProvider.notifier).setSalon(effectiveSalonId);
+          ref
+              .read(sessionControllerProvider.notifier)
+              .setSalon(effectiveSalonId);
         });
       }
     }
@@ -157,7 +161,12 @@ class SalonManagementModule extends ConsumerWidget {
             ),
             if (salonSelector != null) ...[
               const Spacer(),
-              Flexible(child: Align(alignment: Alignment.centerRight, child: salonSelector)),
+              Flexible(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: salonSelector,
+                ),
+              ),
             ],
           ],
         ),

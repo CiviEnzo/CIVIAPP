@@ -1,5 +1,5 @@
-import 'package:civiapp/app/providers.dart';
-import 'package:civiapp/domain/entities/staff_role.dart';
+import 'package:you_book/app/providers.dart';
+import 'package:you_book/domain/entities/staff_role.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

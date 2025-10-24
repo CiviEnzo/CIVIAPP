@@ -1,5 +1,5 @@
-import 'package:civiapp/domain/entities/salon.dart';
-import 'package:civiapp/presentation/common/bottom_sheet_utils.dart';
+import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
@@ -124,12 +124,7 @@ class _SalonRoomsSheetState extends State<SalonRoomsSheet> {
           ],
         ),
       ),
-      actions: [
-        FilledButton(
-          onPressed: _submit,
-          child: const Text('Salva'),
-        ),
-      ],
+      actions: [FilledButton(onPressed: _submit, child: const Text('Salva'))],
     );
   }
 }

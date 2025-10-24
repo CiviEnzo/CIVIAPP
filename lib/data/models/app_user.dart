@@ -1,4 +1,4 @@
-import 'package:civiapp/domain/entities/user_role.dart';
+import 'package:you_book/domain/entities/user_role.dart';
 
 class AppUser {
   const AppUser({
