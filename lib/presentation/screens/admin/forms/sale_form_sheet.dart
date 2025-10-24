@@ -10,7 +10,7 @@ import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/screens/admin/forms/package_form_sheet.dart';
-import 'package:you_book/presentation/screens/admin/forms/client_search_sheet.dart';
+import 'package:you_book/presentation/screens/admin/forms/client_search_utils.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -19,6 +19,8 @@ import 'package:uuid/uuid.dart';
 
 @visibleForTesting
 const saleFormLoyaltyRedeemFieldKey = Key('saleForm.loyaltyRedeemField');
+
+enum _ClientSearchMode { general, number }
 
 class SaleFormSheet extends StatefulWidget {
   const SaleFormSheet({
@@ -75,6 +77,10 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   final _clientFieldKey = GlobalKey<FormFieldState<String>>();
   final _uuid = const Uuid();
   final List<_SaleLineDraft> _lines = [];
+  final TextEditingController _clientSearchController = TextEditingController();
+  final FocusNode _clientSearchFocusNode = FocusNode();
+  _ClientSearchMode _clientSearchMode = _ClientSearchMode.general;
+  List<Client> _clientSuggestions = const <Client>[];
 
   late final TextEditingController _invoiceController;
   late final TextEditingController _notesController;
@@ -130,6 +136,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       if (initialClient != null) {
         _clientId = initialClient.id;
         _salonId ??= initialClient.salonId;
+        _clientSearchController.text = initialClient.fullName;
       }
     }
 
@@ -192,6 +199,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     _loyaltyRedeemController.dispose();
     _invoiceController.dispose();
     _notesController.dispose();
+    _clientSearchController.dispose();
+    _clientSearchFocusNode.dispose();
     super.dispose();
   }
 
@@ -259,71 +268,39 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
               const SizedBox(height: 24),
               _buildSectionHeader(
                 icon: Icons.store_outlined,
-                title: 'Cliente e salone',
+                title: 'Cliente e operatore',
                 subtitle:
-                    'Seleziona il cliente per associare automaticamente il salone',
+                    'Cerca il cliente e collega l\'operatore per associare il salone automaticamente',
               ),
               const SizedBox(height: 12),
-              _buildReadOnlyInfoField(
-                label: 'Salone associato',
-                value: salon?.name ?? 'Nessun salone assegnato',
-                isPlaceholder: salon == null,
-              ),
-              const SizedBox(height: 12),
-              FormField<String>(
-                key: _clientFieldKey,
-                validator:
-                    (_) => _clientId == null ? 'Seleziona un cliente' : null,
-                builder: (state) {
-                  final selectedClient = currentClient;
-                  return InkWell(
-                    borderRadius: BorderRadius.circular(8),
-                    onTap: () => _selectClient(filteredClients),
-                    child: InputDecorator(
-                      decoration: InputDecoration(
-                        errorText: state.errorText,
-                        suffixIcon: const Icon(Icons.search_rounded, size: 20),
-                        helperText:
-                            'Tocca per cercare e selezionare un cliente',
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: _buildClientSelector(filteredClients),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: _staffId,
+                      decoration: const InputDecoration(
+                        labelText: 'Operatore',
+                        floatingLabelBehavior: FloatingLabelBehavior.always,
                       ),
-                      isEmpty: selectedClient == null,
-                      child: Text(
-                        selectedClient?.fullName ?? 'Seleziona o cerca cliente',
-                        style:
-                            selectedClient == null
-                                ? Theme.of(
-                                  context,
-                                ).textTheme.bodyMedium?.copyWith(
-                                  color: Theme.of(context).hintColor,
-                                )
-                                : Theme.of(context).textTheme.bodyMedium,
-                      ),
+                      items:
+                          staff
+                              .map(
+                                (member) => DropdownMenuItem(
+                                  value: member.id,
+                                  child: Text(member.fullName),
+                                ),
+                              )
+                              .toList(),
+                      onChanged: _onStaffChanged,
                     ),
-                  );
-                },
-              ),
-              const SizedBox(height: 24),
-              _buildSectionHeader(
-                icon: Icons.event_available_outlined,
-                title: 'Team e pianificazione',
-                subtitle: 'Collega lo staff incaricato alla vendita',
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: _staffId,
-                decoration: const InputDecoration(
-                  labelText: 'Staff che ha effettuato la vendita',
-                ),
-                items:
-                    staff
-                        .map(
-                          (member) => DropdownMenuItem(
-                            value: member.id,
-                            child: Text(member.fullName),
-                          ),
-                        )
-                        .toList(),
-                onChanged: _onStaffChanged,
+                  ),
+                ],
               ),
               const SizedBox(height: 24),
               _buildSectionHeader(
@@ -555,28 +532,185 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     );
   }
 
-  Widget _buildReadOnlyInfoField({
-    required String label,
-    required String value,
-    bool isPlaceholder = false,
-  }) {
-    final theme = Theme.of(context);
-    final effectiveValue = value.isEmpty ? '-' : value;
-    final style =
-        isPlaceholder
-            ? theme.textTheme.bodyMedium?.copyWith(color: theme.hintColor)
-            : theme.textTheme.bodyMedium;
-    return InputDecorator(
-      decoration: InputDecoration(
-        labelText: label,
-        helperText:
-            isPlaceholder
-                ? 'Seleziona un cliente o uno staff per impostarlo'
-                : null,
-      ),
-      isEmpty: effectiveValue.trim().isEmpty,
-      child: Text(effectiveValue, style: style),
+  Widget _buildClientSelector(List<Client> clients) {
+    return FormField<String>(
+      key: _clientFieldKey,
+      validator: (_) => _clientId == null ? 'Seleziona un cliente' : null,
+      builder: (state) {
+        final selectedClient = _currentClient;
+        if (selectedClient != null &&
+            _clientSearchController.text != selectedClient.fullName) {
+          _clientSearchController.text = selectedClient.fullName;
+        }
+        final hasSelection = selectedClient != null;
+        final suggestions =
+            hasSelection ? const <Client>[] : _clientSuggestions;
+        final searchHint =
+            _clientSearchMode == _ClientSearchMode.general
+                ? 'Nome, cognome, telefono o email'
+                : 'Numero cliente';
+        final theme = Theme.of(context);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (!hasSelection)
+              ToggleButtons(
+                borderRadius: BorderRadius.circular(20),
+                isSelected: [
+                  _clientSearchMode == _ClientSearchMode.general,
+                  _clientSearchMode == _ClientSearchMode.number,
+                ],
+                onPressed: (index) {
+                  _setClientSearchMode(
+                    index == 0
+                        ? _ClientSearchMode.general
+                        : _ClientSearchMode.number,
+                  );
+                },
+                children: const [
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: Text('Nome'),
+                  ),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: Text('Numero'),
+                  ),
+                ],
+              ),
+            if (!hasSelection) const SizedBox(height: 8),
+            hasSelection
+                ? InputDecorator(
+                    decoration: InputDecoration(
+                      labelText: 'Cliente',
+                      floatingLabelBehavior: FloatingLabelBehavior.always,
+                      errorText: state.errorText,
+                    ),
+                    isEmpty: false,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            selectedClient.fullName,
+                            style:
+                                theme.textTheme.bodyLarge ??
+                                theme.textTheme.bodyMedium,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Rimuovi cliente',
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: _clearClientSelection,
+                        ),
+                      ],
+                    ),
+                  )
+                : TextField(
+                    controller: _clientSearchController,
+                    focusNode: _clientSearchFocusNode,
+                    decoration: InputDecoration(
+                      labelText: 'Cliente',
+                      floatingLabelBehavior: FloatingLabelBehavior.always,
+                      hintText: searchHint,
+                      errorText: state.errorText,
+                      suffixIcon:
+                          _clientSearchController.text.isEmpty
+                              ? const Icon(Icons.search_rounded, size: 20)
+                              : IconButton(
+                                tooltip: 'Pulisci ricerca',
+                                icon: const Icon(Icons.clear_rounded),
+                                onPressed: _clearClientSearch,
+                              ),
+                    ),
+                    keyboardType:
+                        _clientSearchMode == _ClientSearchMode.general
+                            ? TextInputType.text
+                            : TextInputType.number,
+                    textInputAction: TextInputAction.search,
+                    onChanged: (value) => _onClientSearchChanged(
+                      value,
+                      clients,
+                    ),
+                  ),
+            if (!hasSelection) ...[
+              const SizedBox(height: 8),
+              _buildClientSuggestions(suggestions),
+            ],
+          ],
+        );
+      },
     );
+  }
+
+  Widget _buildClientSuggestions(List<Client> suggestions) {
+    final query = _clientSearchController.text.trim();
+    if (query.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final theme = Theme.of(context);
+    if (suggestions.isEmpty) {
+      return Card(
+        margin: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          child: Text(
+            'Nessun cliente trovato. Prova a modificare la ricerca.',
+            style: theme.textTheme.bodyMedium,
+          ),
+        ),
+      );
+    }
+
+    return Card(
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < suggestions.length; i++) ...[
+            _buildClientSuggestionTile(suggestions[i]),
+            if (i != suggestions.length - 1)
+              const Divider(height: 1, thickness: 1),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildClientSuggestionTile(Client client) {
+    final initials = _clientInitial(client);
+    final subtitle = _buildClientSubtitle(client);
+    return ListTile(
+      onTap: () => _handleClientSuggestionTap(client),
+      leading: CircleAvatar(child: Text(initials)),
+      title: Text(client.fullName),
+      subtitle: subtitle.isNotEmpty ? Text(subtitle) : null,
+      trailing: const Icon(Icons.chevron_right_rounded),
+    );
+  }
+
+  String _buildClientSubtitle(Client client) {
+    final parts = <String>[];
+    if (client.clientNumber != null && client.clientNumber!.isNotEmpty) {
+      parts.add('N° ${client.clientNumber}');
+    }
+    if (client.phone.isNotEmpty) {
+      parts.add(client.phone);
+    }
+    if (client.email != null && client.email!.isNotEmpty) {
+      parts.add(client.email!);
+    }
+    return parts.join(' · ');
+  }
+
+  String _clientInitial(Client client) {
+    final trimmed = client.fullName.trim();
+    if (trimmed.isEmpty) {
+      return '?';
+    }
+    final codePoint = trimmed.runes.first;
+    return String.fromCharCode(codePoint).toUpperCase();
   }
 
   Widget _buildDateTimeField(DateFormat dateFormat) {
@@ -1186,34 +1320,98 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     _discountPercentController.clear();
   }
 
-  Future<void> _selectClient(List<Client> clients) async {
-    final selected = await showAppModalSheet<Client>(
-      context: context,
-      builder: (ctx) => ClientSearchSheet(clients: clients),
-    );
+  void _handleClientSuggestionTap(Client client) {
+    FocusScope.of(context).unfocus();
+    _applyClientSelection(client);
+  }
 
-    if (selected != null) {
-      final newSalonId = selected.salonId;
-      final salonChanged =
-          newSalonId != null && newSalonId.isNotEmpty && newSalonId != _salonId;
-      setState(() {
-        _clientId = selected.id;
-        if (salonChanged) {
-          _salonId = newSalonId;
-          _staffId = null;
-          _resetLines();
-        }
-      });
-      _clientFieldKey.currentState?.didChange(selected.id);
+  void _applyClientSelection(Client client) {
+    final newSalonId = client.salonId;
+    final salonChanged = newSalonId.isNotEmpty && newSalonId != _salonId;
+    setState(() {
+      _clientId = client.id;
+      _clientSearchController.text = client.fullName;
+      _clientSuggestions = const <Client>[];
       if (salonChanged) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _syncDiscountControllers(force: true);
-          _recalculateLoyalty(autoSuggest: true);
-        });
-      } else {
-        _recalculateLoyalty(autoSuggest: true);
+        _salonId = newSalonId;
+        _staffId = null;
+        _resetLines();
       }
+    });
+    _clientFieldKey.currentState?.didChange(client.id);
+    if (salonChanged) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        _syncDiscountControllers(force: true);
+        _recalculateLoyalty(autoSuggest: true);
+      });
+    } else {
+      _recalculateLoyalty(autoSuggest: true);
     }
+  }
+
+  void _clearClientSelection() {
+    if (_clientId == null && _clientSearchController.text.isEmpty) {
+      return;
+    }
+    setState(() {
+      _clientId = null;
+      _clientSearchController.clear();
+      _clientSuggestions = const <Client>[];
+    });
+    _clientFieldKey.currentState?.didChange(null);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      FocusScope.of(context).requestFocus(_clientSearchFocusNode);
+    });
+    _recalculateLoyalty(autoSuggest: true);
+  }
+
+  void _setClientSearchMode(_ClientSearchMode mode) {
+    if (_clientSearchMode == mode) {
+      return;
+    }
+    setState(() {
+      _clientSearchMode = mode;
+      _clientSearchController.clear();
+      _clientSuggestions = const <Client>[];
+    });
+    FocusScope.of(context).requestFocus(_clientSearchFocusNode);
+  }
+
+  void _clearClientSearch() {
+    if (_clientSearchController.text.isEmpty && _clientSuggestions.isEmpty) {
+      return;
+    }
+    _clientSearchController.clear();
+    setState(() => _clientSuggestions = const <Client>[]);
+    FocusScope.of(context).requestFocus(_clientSearchFocusNode);
+  }
+
+  void _onClientSearchChanged(String value, List<Client> clients) {
+    final query = value.trim();
+    if (query.isEmpty) {
+      setState(() => _clientSuggestions = const <Client>[]);
+      return;
+    }
+
+    final filtered = ClientSearchUtils.filterClients(
+      clients: clients,
+      generalQuery:
+          _clientSearchMode == _ClientSearchMode.general ? query : '',
+      clientNumberQuery:
+          _clientSearchMode == _ClientSearchMode.number ? query : '',
+      exactNumberMatch: _clientSearchMode == _ClientSearchMode.number,
+    )..sort((a, b) => a.lastName.compareTo(b.lastName));
+
+    setState(() {
+      _clientSuggestions =
+          filtered.length > 8 ? filtered.sublist(0, 8) : filtered;
+    });
   }
 
   void _onStaffChanged(String? staffId) {
@@ -1237,7 +1435,9 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
           );
           if (currentClient?.salonId != newSalonId) {
             _clientId = null;
-            _clientFieldKey.currentState?.reset();
+            _clientSearchController.clear();
+            _clientSuggestions = const <Client>[];
+            _clientFieldKey.currentState?.didChange(null);
           }
         }
         _resetLines();

@@ -5637,125 +5637,50 @@ class _BillingTab extends ConsumerWidget {
     );
     final rawTotal = ticket.expectedTotal ?? matchedService?.price ?? 0;
     final normalizedTotal = rawTotal > 0 ? _normalizeCurrency(rawTotal) : null;
-    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    final initialItem = SaleItem(
+      referenceId: ticket.serviceId,
+      referenceType: SaleReferenceType.service,
+      description: matchedService?.name ?? ticket.serviceName ?? 'Servizio',
+      quantity: 1,
+      unitPrice: normalizedTotal ?? rawTotal,
+    );
+    final data = ref.read(appDataProvider);
     final store = ref.read(appDataProvider.notifier);
-    final staffOptions =
-        staff.where((member) => member.salonId == ticket.salonId).toList()
-          ..sort((a, b) => a.fullName.compareTo(b.fullName));
-    final saleStaffName =
-        staffOptions
-            .firstWhereOrNull((member) => member.id == ticket.staffId)
-            ?.fullName ??
-        staff
-            .firstWhereOrNull((member) => member.id == ticket.staffId)
-            ?.fullName;
 
-    final result = await showAppModalSheet<OutstandingPaymentResult>(
+    final sale = await showAppModalSheet<Sale>(
       context: context,
       builder:
-          (ctx) => OutstandingPaymentFormSheet(
-            title: 'Registra incasso',
-            subtitle:
-                normalizedTotal == null
-                    ? 'Inserisci l\'importo da incassare'
-                    : 'Totale previsto: ${currency.format(normalizedTotal)}',
-            outstandingAmount: normalizedTotal ?? double.infinity,
-            initialAmount: normalizedTotal,
-            staff: staffOptions,
+          (ctx) => SaleFormSheet(
+            salons: data.salons,
+            clients: clients,
+            staff: staff,
+            services: services,
+            packages: data.packages,
+            inventoryItems: data.inventoryItems,
+            sales: data.sales,
+            defaultSalonId: ticket.salonId,
+            initialClientId: ticket.clientId,
+            initialItems: [initialItem],
+            initialNotes: ticket.notes,
             initialStaffId: ticket.staffId,
-            staffName: saleStaffName,
-            currency: currency,
           ),
     );
 
-    if (result == null) {
+    if (sale == null) {
       return;
     }
-
-    final paidAmount = _normalizeCurrency(result.amount);
-    if (paidAmount <= 0) {
-      return;
-    }
-
-    final selectedStaff = staffOptions.firstWhereOrNull(
-      (member) => member.id == result.staffId,
-    );
-    final recorder =
-        selectedStaff?.fullName ??
-        store.currentUser?.displayName ??
-        store.currentUser?.uid;
-
-    final saleTotal = normalizedTotal ?? paidAmount;
-    final status =
-        paidAmount >= saleTotal - 0.009
-            ? SalePaymentStatus.paid
-            : SalePaymentStatus.deposit;
-    final creationDate = DateTime.now();
-    final movementType =
-        status == SalePaymentStatus.paid
-            ? SalePaymentType.settlement
-            : SalePaymentType.deposit;
-    final paymentMovements = <SalePaymentMovement>[
-      SalePaymentMovement(
-        id: const Uuid().v4(),
-        amount: paidAmount,
-        type: movementType,
-        date: creationDate,
-        paymentMethod: result.method,
-        recordedBy: recorder,
-        note:
-            movementType == SalePaymentType.deposit
-                ? 'Incasso ticket (acconto)'
-                : 'Incasso ticket (saldo)',
-      ),
-    ];
-
-    final sale = Sale(
-      id: const Uuid().v4(),
-      salonId: ticket.salonId,
-      clientId: ticket.clientId,
-      items: [
-        SaleItem(
-          referenceId: ticket.serviceId,
-          referenceType: SaleReferenceType.service,
-          description: matchedService?.name ?? ticket.serviceName ?? 'Servizio',
-          quantity: 1,
-          unitPrice: saleTotal,
-        ),
-      ],
-      total: saleTotal,
-      createdAt: creationDate,
-      paymentMethod: result.method,
-      paymentStatus: status,
-      paidAmount: status == SalePaymentStatus.paid ? saleTotal : paidAmount,
-      invoiceNumber: null,
-      notes: ticket.notes,
-      discountAmount: 0,
-      staffId: result.staffId ?? ticket.staffId,
-      paymentHistory: paymentMovements,
-    );
 
     await store.upsertSale(sale);
-
-    final clientName =
-        clients
-            .firstWhereOrNull((client) => client.id == sale.clientId)
-            ?.fullName ??
-        'Cliente';
-    final description =
-        status == SalePaymentStatus.deposit
-            ? 'Acconto vendita a $clientName'
-            : 'Vendita a $clientName';
-
-    await _recordCashFlowEntry(
-      ref: ref,
-      sale: sale,
-      amount: paidAmount,
-      description: description,
-      date: creationDate,
-    );
+    await _recordSaleCashFlow(ref: ref, sale: sale, clients: clients);
 
     await store.closePaymentTicket(ticket.id, saleId: sale.id);
+
+    if (!context.mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Vendita registrata.')));
   }
 
   Future<void> _recordCashFlowEntry({
