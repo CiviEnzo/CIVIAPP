@@ -1,5 +1,5 @@
-name: civiapp
-description: "Civi App gestionale per saloni di centri estetici"
+name: You Book
+description: "You Book, gestionale per saloni di centri estetici e medici"
 publish_to: 'none'
 
 version: 1.0.0+1

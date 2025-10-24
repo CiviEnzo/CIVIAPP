@@ -14,7 +14,7 @@
         tools:targetApi="tiramisu" />
 
     <application
-        android:label="civiapp"
+        android:label="You Book"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

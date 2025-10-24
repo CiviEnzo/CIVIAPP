@@ -1003,16 +1003,21 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
         staffId == null
             ? _staffFilterId == null || _staffFilterId!.isEmpty
             : _staffFilterId == staffId;
-
-    final avatarRadius = 32.0;
-    final avatar =
+    final hasActiveSelection =
+        _staffFilterId != null && _staffFilterId!.isNotEmpty;
+    final isDimmed = hasActiveSelection && !isSelected;
+    const avatarRadius = 32.0;
+    const borderWidth = 2.0;
+    final avatarContentRadius =
+        isSelected ? avatarRadius - borderWidth : avatarRadius;
+    final avatarContent =
         staffId == null
             ? CircleAvatar(
-              radius: avatarRadius,
+              radius: avatarContentRadius,
               backgroundColor: theme.colorScheme.primary.withOpacity(0.12),
               child: Icon(
                 Icons.people_alt_rounded,
-                size: avatarRadius,
+                size: avatarContentRadius,
                 color: theme.colorScheme.primary,
               ),
             )
@@ -1020,48 +1025,78 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
               theme: theme,
               initials: initials,
               staffMember: staffMember,
-              radius: avatarRadius,
+              radius: avatarContentRadius,
             );
+    final avatar = AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.all(isSelected ? borderWidth : 0),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: isSelected ? theme.colorScheme.primary : Colors.transparent,
+          width: borderWidth,
+        ),
+      ),
+      child: avatarContent,
+    );
+    final baseTextStyle = theme.textTheme.bodyMedium;
+    final textColor =
+        isSelected
+            ? theme.colorScheme.primary
+            : (isDimmed
+                ? baseTextStyle?.color?.withOpacity(0.6)
+                : baseTextStyle?.color);
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: () {
-        setState(() {
-          if (isSelected) {
-            _staffFilterId = null;
-            _selectedStaffId = null;
-            _selectedSlotStart = null;
-            return;
-          }
-          _staffFilterId = staffId;
-          if (staffId == null) {
-            _selectedStaffId = null;
-          } else if (staffId != _selectedStaffId) {
-            _selectedStaffId = null;
-          }
-          _selectedSlotStart = null;
-        });
-      },
-      child: AnimatedContainer(
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      opacity: isDimmed ? 0.45 : 1.0,
+      child: AnimatedScale(
         duration: const Duration(milliseconds: 200),
-        width: 96,
-
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            avatar,
-            const SizedBox(height: 8),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: isSelected ? theme.colorScheme.primary : null,
-              ),
+        curve: Curves.easeOut,
+        scale: isDimmed ? 0.95 : 1.0,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            setState(() {
+              if (isSelected) {
+                _staffFilterId = null;
+                _selectedStaffId = null;
+                _selectedSlotStart = null;
+                return;
+              }
+              _staffFilterId = staffId;
+              if (staffId == null) {
+                _selectedStaffId = null;
+              } else if (staffId != _selectedStaffId) {
+                _selectedStaffId = null;
+              }
+              _selectedSlotStart = null;
+            });
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            width: 96,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                avatar,
+                const SizedBox(height: 8),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: baseTextStyle?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: textColor,
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -1298,6 +1333,11 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       case _BookingStep.date:
         return 'Scegli la data';
       case _BookingStep.availability:
+        final selectedDay = _selectedDay;
+        if (selectedDay != null) {
+          final dayLabel = _capitalize(_dayLabel.format(selectedDay));
+          return 'Scegli l\'orario per $dayLabel';
+        }
         return 'Scegli l\'orario';
       case _BookingStep.summary:
         return _isLastMinuteExpress
