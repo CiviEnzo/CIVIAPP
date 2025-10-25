@@ -8,8 +8,6 @@ export interface ReminderSettingsData {
 
 export const MIN_REMINDER_OFFSET_MINUTES = 15;
 export const MAX_REMINDER_OFFSET_MINUTES = 10080;
-export const DEFAULT_REMINDER_OFFSETS_MINUTES = [1440, 180, 60];
-
 export function normalizeReminderOffsets(value: unknown): number[] {
   if (!Array.isArray(value)) {
     return [];
@@ -41,13 +39,13 @@ function buildLegacyReminderOffsets(
   data: Record<string, unknown>,
 ): number[] {
   const offsets = new Set<number>();
-  if (data.dayBeforeEnabled !== false) {
+  if (data.dayBeforeEnabled === true) {
     offsets.add(1440);
   }
-  if (data.threeHoursEnabled !== false) {
+  if (data.threeHoursEnabled === true) {
     offsets.add(180);
   }
-  if (data.oneHourEnabled !== false) {
+  if (data.oneHourEnabled === true) {
     offsets.add(60);
   }
   return Array.from(offsets).sort((a, b) => a - b);

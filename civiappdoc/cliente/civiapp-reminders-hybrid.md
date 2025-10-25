@@ -110,6 +110,7 @@ firebase experiments:enable webframeworks
 - Ogni salone gestisce le proprie finestre di reminder tramite il documento `settings/reminders`.  
 - Gli offset sono espressi in minuti prima dell’inizio (`minutesBefore > 0`).  
 - Cloud Tasks può schedulare al massimo **30 giorni** in anticipo: tutti gli offset vengono quindi clampati a 30d (43200 minuti).
+- Se il documento non esiste o non contiene offset attivi, non viene inviato alcun promemoria: serve un salvataggio esplicito da parte dell’admin.
 
 **Strategia:**
 
@@ -156,12 +157,6 @@ type ReminderPayload = {
   offsetId: string | "CHECKPOINT";
 };
 
-const DEFAULT_OFFSETS: ReminderConfig[] = [
-  { id: "T24H", minutesBefore: 24 * 60 },
-  { id: "T3H", minutesBefore: 3 * 60 },
-  { id: "T30M", minutesBefore: 30 },
-];
-
 // ---------- Helpers ----------
 function nowMs() {
   return Date.now();
@@ -188,7 +183,7 @@ async function loadReminderOffsets(salonId: string): Promise<ReminderConfig[]> {
     .doc(`salons/${salonId}/settings/reminders`)
     .get();
 
-  if (!snap.exists) return DEFAULT_OFFSETS;
+  if (!snap.exists) return [];
 
   const data = snap.data() as { offsets?: ReminderConfig[] } | undefined;
   const offsets = (data?.offsets ?? [])
@@ -200,7 +195,7 @@ async function loadReminderOffsets(salonId: string): Promise<ReminderConfig[]> {
       minutesBefore: Math.min(offset.minutesBefore, MAX_AHEAD_MS / 60000),
     }));
 
-  return offsets.length ? offsets : DEFAULT_OFFSETS;
+  return offsets;
 }
 
 async function markSent(

@@ -1,3 +1,4 @@
+import { defineSecret } from 'firebase-functions/params';
 import { onRequest } from 'firebase-functions/v2/https';
 import * as logger from 'firebase-functions/logger';
 import type { Request, Response } from 'express';
@@ -6,7 +7,6 @@ import { FieldValue, db } from '../utils/firestore';
 
 const REGION = process.env.WA_REGION ?? 'europe-west1';
 const GRAPH_API_VERSION = process.env.WA_GRAPH_API_VERSION ?? 'v19.0';
-const APP_ID = process.env.WA_APP_ID ?? '';
 const DEFAULT_REDIRECT =
   process.env.WA_OAUTH_REDIRECT ??
   'https://civiapp.app/oauth/whatsapp/callback';
@@ -15,6 +15,7 @@ const REQUIRED_SCOPES =
   'whatsapp_business_management,whatsapp_business_messaging';
 const SUCCESS_REDIRECT =
   process.env.WA_SUCCESS_REDIRECT ?? 'https://civiapp-38b51.web.app/admin';
+const waAppId = defineSecret('WA_APP_ID');
 
 function base64UrlEncode(input: string): string {
   return Buffer.from(input)
@@ -95,30 +96,32 @@ function buildAuthUrl(params: {
   salonId: string;
   redirectUri: string;
   state: string;
+  appId: string;
 }): string {
-  const { salonId, redirectUri, state } = params;
+  const { salonId, redirectUri, state, appId } = params;
   const url = new URL(`https://www.facebook.com/${GRAPH_API_VERSION}/dialog/oauth`);
-  url.searchParams.set('client_id', APP_ID);
+  url.searchParams.set('client_id', appId);
   url.searchParams.set('redirect_uri', redirectUri);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('scope', REQUIRED_SCOPES);
   url.searchParams.set('state', state);
   url.searchParams.set('display', 'page');
   url.searchParams.set('auth_type', 'rerequest');
-  url.searchParams.set('app_id', APP_ID);
+  url.searchParams.set('app_id', appId);
   url.searchParams.set('salon_id', salonId);
   return url.toString();
 }
 
 export const startWhatsappOAuth = onRequest(
-  { region: REGION, cors: true },
+  { region: REGION, cors: true, secrets: [waAppId] },
   async (request: Request, response: Response) => {
     if (request.method !== 'GET') {
       response.status(405).json({ error: 'Method Not Allowed' });
       return;
     }
 
-    if (!APP_ID) {
+    const appId = waAppId.value();
+    if (!appId) {
       response
         .status(500)
         .json({ error: 'WA_APP_ID not configured on the backend' });
@@ -141,7 +144,7 @@ export const startWhatsappOAuth = onRequest(
       returnTo,
       ts: Date.now(),
     });
-    const authUrl = buildAuthUrl({ salonId, redirectUri, state });
+    const authUrl = buildAuthUrl({ salonId, redirectUri, state, appId });
 
     logger.info('Generated WhatsApp OAuth start URL', {
       salonId,

@@ -46,13 +46,6 @@ class ReminderSettings {
   static const int maxOffsetMinutes = 43200; // 30 giorni.
   static const int maxOffsetsCount = 5;
 
-  static const List<ReminderOffsetConfig> defaultOffsets =
-      <ReminderOffsetConfig>[
-        ReminderOffsetConfig(id: 'M1440', minutesBefore: 1440),
-        ReminderOffsetConfig(id: 'M180', minutesBefore: 180),
-        ReminderOffsetConfig(id: 'M30', minutesBefore: 30),
-      ];
-
   final String salonId;
   final List<ReminderOffsetConfig> offsets;
   final bool birthdayEnabled;
@@ -89,7 +82,9 @@ class ReminderSettings {
     Iterable<ReminderOffsetConfig>? rawOffsets,
   ) {
     if (rawOffsets == null || rawOffsets.isEmpty) {
-      return List<ReminderOffsetConfig>.unmodifiable(defaultOffsets);
+      return List<ReminderOffsetConfig>.unmodifiable(
+        const <ReminderOffsetConfig>[],
+      );
     }
 
     final normalized = <ReminderOffsetConfig>[];

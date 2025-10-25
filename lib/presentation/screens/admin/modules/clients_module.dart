@@ -594,26 +594,34 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                client.fullName,
-                                style: theme.textTheme.titleMedium,
+                              Row(
+                                children: [
+                                  Text(
+                                    client.fullName,
+                                    style: theme.textTheme.titleMedium,
+                                  ),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'N° ${client.clientNumber}',
+                                    style: theme.textTheme.titleMedium,
+                                  ),
+                                ],
                               ),
-                              if (client.clientNumber != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Text(
-                                    'Cliente n° ${client.clientNumber}',
-                                    style: theme.textTheme.bodySmall,
-                                  ),
+
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.phone),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      client.phone,
+                                      style: theme.textTheme.bodyLarge,
+                                    ),
+                                  ],
                                 ),
-                              if (clientSalon != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Text(
-                                    clientSalon.name,
-                                    style: theme.textTheme.bodySmall,
-                                  ),
-                                ),
+                              ),
+
                               Padding(
                                 padding: const EdgeInsets.only(top: 12),
                                 child: Wrap(

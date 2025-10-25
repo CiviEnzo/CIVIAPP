@@ -2432,9 +2432,9 @@ ReminderSettings reminderSettingsFromDoc(
               .toList();
     } else {
       final legacyOffsets = <int>[
-        if (data['dayBeforeEnabled'] as bool? ?? true) 1440,
-        if (data['threeHoursEnabled'] as bool? ?? true) 180,
-        if (data['oneHourEnabled'] as bool? ?? true) 60,
+        if (data['dayBeforeEnabled'] == true) 1440,
+        if (data['threeHoursEnabled'] == true) 180,
+        if (data['oneHourEnabled'] == true) 60,
       ];
       if (legacyOffsets.isNotEmpty) {
         offsets =

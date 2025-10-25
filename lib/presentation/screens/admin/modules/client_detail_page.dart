@@ -258,24 +258,9 @@ class _ClientDetailViewState extends ConsumerState<ClientDetailView> {
                       style: theme.textTheme.titleLarge,
                     ),
                   ),
-                  IconButton(
-                    tooltip: 'Modifica scheda',
-                    icon: const Icon(Icons.edit_rounded),
-                    onPressed: () => _editClient(context, client),
-                  ),
-                  if (widget.onClose != null)
-                    IconButton(
-                      tooltip: 'Chiudi scheda',
-                      icon: const Icon(Icons.close_rounded),
-                      onPressed: widget.onClose,
-                    ),
                 ],
               ),
-              if (salonName != null) ...[
-                const SizedBox(height: 4),
-                Text(salonName, style: theme.textTheme.bodyMedium),
-              ],
-              const SizedBox(height: 16),
+
               TabBar(isScrollable: true, tabs: tabs),
               const SizedBox(height: 16),
               SizedBox(
@@ -514,19 +499,18 @@ class _ClientQuestionnaireCardState
 
     if (templates.isEmpty) {
       return Card(
-        child: ExpansionTile(
-          key: ValueKey('questionnaire-${widget.client.id}'),
-          initiallyExpanded: false,
-          title: Text(
-            'Questionario cliente',
-            style: theme.textTheme.titleMedium,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Questionario cliente', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 8),
+              const Text(
+                'Nessun modello di questionario è stato configurato per questo salone.',
+              ),
+            ],
           ),
-          childrenPadding: const EdgeInsets.all(16),
-          children: const [
-            Text(
-              'Nessun modello di questionario è stato configurato per questo salone.',
-            ),
-          ],
         ),
       );
     }
@@ -605,24 +589,13 @@ class _ClientQuestionnaireCardState
       );
     }
 
-    final subtitle =
-        selectedTemplate == null
-            ? null
-            : Text(selectedTemplate.name, style: theme.textTheme.labelMedium);
-
     return Card(
-      child: ExpansionTile(
-        key: ValueKey('questionnaire-${widget.client.id}'),
-        initiallyExpanded: false,
-        title: Text('Questionario cliente', style: theme.textTheme.titleMedium),
-        subtitle: subtitle,
-        childrenPadding: const EdgeInsets.all(16),
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: content,
-          ),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [...content],
+        ),
       ),
     );
   }
@@ -1773,19 +1746,28 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
     }
 
     return Card(
-      child: ExpansionTile(
-        key: ValueKey('photos-${widget.client.id}'),
-        initiallyExpanded: false,
-        title: Text('Archivio fotografico', style: theme.textTheme.titleMedium),
-        subtitle: Text(subtitle, style: theme.textTheme.bodySmall),
-        childrenPadding: const EdgeInsets.all(16),
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Align(
-                alignment: Alignment.centerRight,
-                child: IconButton(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Archivio fotografico',
+                        style: theme.textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(subtitle, style: theme.textTheme.bodySmall),
+                    ],
+                  ),
+                ),
+                IconButton(
                   tooltip: 'Aggiorna elenco foto',
                   onPressed:
                       _isUploading
@@ -1795,113 +1777,112 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
                           ),
                   icon: const Icon(Icons.refresh_rounded),
                 ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                FilledButton.icon(
+                  onPressed: () => _openCollageEditor(),
+                  icon: const Icon(Icons.auto_awesome_motion),
+                  label: const Text('Crea collage'),
+                ),
+                OutlinedButton.icon(
+                  onPressed:
+                      _isUploading ? null : () => _pickAndUploadFullSet(),
+                  icon: const Icon(Icons.grid_on_outlined),
+                  label: const Text('Carica set completo'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: _orderedPhotoSets
+                    .map((type) {
+                      final setPhotos = grouped[type] ?? const <ClientPhoto>[];
+                      final activePhoto = _resolveActivePhoto(setPhotos);
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 12),
+                        child: _ClientPhotoSetPreview(
+                          label: _setLabel(type),
+                          isComplete: activePhoto != null,
+                          activePhoto: activePhoto,
+                          isUploading: _isUploading,
+                          onUpload: () => _pickAndUpload(type),
+                          onShowHistory: () => _showSetHistory(type),
+                          onPreviewActive:
+                              activePhoto == null
+                                  ? null
+                                  : () => _previewPhoto(activePhoto),
+                        ),
+                      );
+                    })
+                    .toList(growable: false),
               ),
-
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  FilledButton.icon(
-                    onPressed: () => _openCollageEditor(),
-                    icon: const Icon(Icons.auto_awesome_motion),
-                    label: const Text('Crea collage'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed:
-                        _isUploading ? null : () => _pickAndUploadFullSet(),
-                    icon: const Icon(Icons.grid_on_outlined),
-                    label: const Text('Carica set completo'),
-                  ),
-                ],
-              ),
+            ),
+            if (sortedCollages.isNotEmpty) ...[
               const SizedBox(height: 24),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  children: _orderedPhotoSets
-                      .map((type) {
-                        final setPhotos =
-                            grouped[type] ?? const <ClientPhoto>[];
-                        final activePhoto = _resolveActivePhoto(setPhotos);
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 12),
-                          child: _ClientPhotoSetPreview(
-                            label: _setLabel(type),
-                            isComplete: activePhoto != null,
-                            activePhoto: activePhoto,
-                            isUploading: _isUploading,
-                            onUpload: () => _pickAndUpload(type),
-                            onShowHistory: () => _showSetHistory(type),
-                            onPreviewActive:
-                                activePhoto == null
-                                    ? null
-                                    : () => _previewPhoto(activePhoto),
-                          ),
-                        );
-                      })
-                      .toList(growable: false),
-                ),
+              Text('Collage salvati', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 8),
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: sortedCollages.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  final collage = sortedCollages[index];
+                  final isDeleting = _deletingCollages.contains(collage.id);
+                  return _ClientCollageTile(
+                    collage: collage,
+                    isDeleting: isDeleting,
+                    onPreview: () => _previewCollage(collage),
+                    onDelete: () => _deleteCollage(collage),
+                  );
+                },
               ),
-              if (sortedCollages.isNotEmpty) ...[
-                const SizedBox(height: 24),
-                Text('Collage salvati', style: theme.textTheme.titleSmall),
-                const SizedBox(height: 8),
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: sortedCollages.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (context, index) {
-                    final collage = sortedCollages[index];
-                    final isDeleting = _deletingCollages.contains(collage.id);
-                    return _ClientCollageTile(
-                      collage: collage,
-                      isDeleting: isDeleting,
-                      onPreview: () => _previewCollage(collage),
-                      onDelete: () => _deleteCollage(collage),
-                    );
-                  },
-                ),
-              ],
-              if (otherPhotos.isNotEmpty) ...[
-                const SizedBox(height: 24),
-                Text('Altre foto', style: theme.textTheme.titleSmall),
-                const SizedBox(height: 8),
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: otherPhotos.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (context, index) {
-                    final photo = otherPhotos[index];
-                    final isDeleting = _deleting.contains(photo.id);
-                    final isUpdating = _updatingNotes.contains(photo.id);
-                    return _ClientPhotoTile(
-                      photo: photo,
-                      isDeleting: isDeleting,
-                      isUpdating: isUpdating,
-                      isActiveVersion: photo.isSetActiveVersion,
-                      setLabel:
-                          photo.setType != null
-                              ? _setLabel(photo.setType!)
-                              : null,
-                      versionIndex: photo.setVersionIndex,
-                      onPreview: () => _previewPhoto(photo),
-                      onEditNote: () => _editNote(photo),
-                      onDelete: () => _deletePhoto(photo),
-                      onSetActive:
-                          photo.setType != null && !photo.isSetActiveVersion
-                              ? () => _setActiveVersion(photo)
-                              : null,
-                    );
-                  },
-                ),
-              ],
             ],
-          ),
-        ],
+            if (otherPhotos.isNotEmpty) ...[
+              const SizedBox(height: 24),
+              Text('Altre foto', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 8),
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: otherPhotos.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  final photo = otherPhotos[index];
+                  final isDeleting = _deleting.contains(photo.id);
+                  final isUpdating = _updatingNotes.contains(photo.id);
+                  return _ClientPhotoTile(
+                    photo: photo,
+                    isDeleting: isDeleting,
+                    isUpdating: isUpdating,
+                    isActiveVersion: photo.isSetActiveVersion,
+                    setLabel:
+                        photo.setType != null
+                            ? _setLabel(photo.setType!)
+                            : null,
+                    versionIndex: photo.setVersionIndex,
+                    onPreview: () => _previewPhoto(photo),
+                    onEditNote: () => _editNote(photo),
+                    onDelete: () => _deletePhoto(photo),
+                    onSetActive:
+                        photo.setType != null && !photo.isSetActiveVersion
+                            ? () => _setActiveVersion(photo)
+                            : null,
+                  );
+                },
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -3726,15 +3707,6 @@ class _AppointmentGroup extends StatelessWidget {
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            if (amount != null) ...[
-                              Text(
-                                currency.format(amount),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                            ],
                             Wrap(
                               spacing: 4,
                               runSpacing: 4,
@@ -5482,19 +5454,7 @@ class _QuoteCard extends StatelessWidget {
                 ),
               ],
             ),
-            if (quote.number != null && quote.number!.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  'Numero: ${quote.number}',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ),
-            const SizedBox(height: 12),
-            Text(
-              'Creato il ${dateFormat.format(quote.createdAt)}',
-              style: theme.textTheme.bodyMedium,
-            ),
+
             if (quote.sentAt != null)
               Text(
                 'Inviato il ${dateFormat.format(quote.sentAt!)}',
@@ -5531,13 +5491,7 @@ class _QuoteCard extends StatelessWidget {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            if (quote.saleId != null && quote.saleId!.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Vendita collegata: ${quote.saleId}',
-                style: theme.textTheme.bodySmall,
-              ),
-            ],
+
             if (quote.stripePaymentIntentId != null &&
                 quote.stripePaymentIntentId!.isNotEmpty) ...[
               const SizedBox(height: 4),
@@ -6158,11 +6112,7 @@ class _BillingTab extends ConsumerWidget {
                 ),
                 const SizedBox(width: 16),
                 Expanded(
-                  child: _buildSummaryValue(
-                    theme,
-                    label: 'Saldo utilizzabile',
-                    value: '$loyaltySpendable pt',
-                  ),
+                  child: _buildSummaryValue(theme, label: '', value: ''),
                 ),
               ],
             ),
@@ -6174,24 +6124,26 @@ class _BillingTab extends ConsumerWidget {
                 Expanded(
                   child: _buildSummaryValue(
                     theme,
-                    label: 'Punti iniziali',
-                    value: '$loyaltyInitial pt',
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildSummaryValue(
-                    theme,
-                    label: 'Punti accumulati',
-                    value: '$loyaltyEarned pt',
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildSummaryValue(
-                    theme,
                     label: 'Punti utilizzati',
-                    value: '$loyaltyRedeemed pt',
+                    value: '$loyaltyRedeemed punti',
+                    emphasize: loyaltyRedeemed < 0,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildSummaryValue(
+                    theme,
+                    label: 'Saldo utilizzabile',
+                    value: '$loyaltySpendable punti',
+                  ),
+                ),
+
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildSummaryValue(
+                    theme,
+                    label: '',
+                    value: '',
                     emphasize: loyaltyRedeemed > 0,
                   ),
                 ),
@@ -7624,7 +7576,7 @@ class _PackageTile extends StatelessWidget {
                 Expanded(
                   child: Text(
                     purchase.package?.name ?? purchase.item.description,
-                    style: theme.textTheme.titleSmall,
+                    style: theme.textTheme.headlineSmall,
                   ),
                 ),
                 if (onEdit != null || onDelete != null)
@@ -7653,21 +7605,17 @@ class _PackageTile extends StatelessWidget {
               runSpacing: 8,
               children: [
                 _PackageGroup._statusChip(context, purchase.status),
-                _Chip(
-                  label: purchase.paymentStatus.label,
-                  icon:
-                      purchase.paymentStatus == PackagePaymentStatus.deposit
-                          ? Icons.savings_rounded
-                          : Icons.verified_rounded,
-                ),
-                if (purchase.depositAmount > 0)
+                if (purchase.outstandingAmount == 0)
                   _Chip(
-                    label:
-                        'Acconto: ${currency.format(purchase.depositAmount)}',
-                    icon: Icons.account_balance_wallet_rounded,
+                    label: purchase.paymentStatus.label,
+                    icon:
+                        purchase.paymentStatus == PackagePaymentStatus.deposit
+                            ? Icons.savings_rounded
+                            : Icons.verified_rounded,
                   ),
+
                 if (purchase.outstandingAmount > 0)
-                  _Chip(
+                  _ChipOverlay(
                     label:
                         'Da saldare: ${currency.format(purchase.outstandingAmount)}',
                     icon: Icons.pending_actions_rounded,
@@ -7676,12 +7624,7 @@ class _PackageTile extends StatelessWidget {
                   label: currency.format(purchase.totalAmount),
                   icon: Icons.euro_rounded,
                 ),
-                _Chip(
-                  label: _PackageGroup._paymentLabel(
-                    purchase.sale.paymentMethod,
-                  ),
-                  icon: Icons.payments_rounded,
-                ),
+
                 _Chip(
                   label:
                       'Acquisto: ${dateFormat.format(purchase.sale.createdAt)}',
@@ -7694,16 +7637,12 @@ class _PackageTile extends StatelessWidget {
                           : 'Scadenza: ${dateFormat.format(expiry)}',
                   icon: Icons.timer_outlined,
                 ),
-                _Chip(label: sessionLabel, icon: Icons.event_repeat_rounded),
               ],
             ),
-            if (servicesLabel.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text('Servizi inclusi: $servicesLabel'),
-            ],
+
             if (serviceUsage.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text('Utilizzo sessioni', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 32),
+              Text('Servizi', style: theme.textTheme.headlineSmall),
               const SizedBox(height: 4),
               Column(
                 children:
@@ -7720,14 +7659,9 @@ class _PackageTile extends StatelessWidget {
                                     style: theme.textTheme.bodyMedium,
                                   ),
                                 ),
-                                Text(
-                                  usage.usageLabel,
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color:
-                                        usage.remaining > 0
-                                            ? null
-                                            : theme.colorScheme.error,
-                                  ),
+                                _Chip(
+                                  label: usage.usageLabel,
+                                  icon: Icons.circle,
                                 ),
                               ],
                             ),
@@ -7746,7 +7680,7 @@ class _PackageTile extends StatelessWidget {
             ],
             if (purchase.deposits.isNotEmpty) ...[
               const SizedBox(height: 12),
-              Text('Acconti', style: theme.textTheme.titleSmall),
+              Text('Acconti', style: theme.textTheme.headlineSmall),
               const SizedBox(height: 4),
               Column(
                 children:
@@ -7837,6 +7771,23 @@ class _Chip extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Chip(
       backgroundColor: scheme.surfaceContainerHighest,
+      avatar: Icon(icon, size: 18, color: scheme.onSurfaceVariant),
+      label: Text(label),
+    );
+  }
+}
+
+class _ChipOverlay extends StatelessWidget {
+  const _ChipOverlay({required this.label, required this.icon});
+
+  final String label;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Chip(
+      backgroundColor: scheme.primaryFixedDim,
       avatar: Icon(icon, size: 18, color: scheme.onSurfaceVariant),
       label: Text(label),
     );

@@ -45,12 +45,6 @@ interface ReminderPayload {
 const MIN_OFFSET_MINUTES = 15;
 const MAX_OFFSETS_COUNT = 5;
 
-const DEFAULT_OFFSETS: ReminderOffsetConfig[] = [
-  { id: 'M1440', minutesBefore: 24 * 60, active: true },
-  { id: 'M180', minutesBefore: 3 * 60, active: true },
-  { id: 'M30', minutesBefore: 30, active: true },
-];
-
 const offsetsCache = new Map<
   string,
   { expiresAt: number; value: ReminderOffsetConfig[] }
@@ -192,9 +186,9 @@ async function loadReminderOffsets(
 
     if (!sanitized.length) {
       const legacyMinutes = [
-        source.dayBeforeEnabled !== false ? 1440 : null,
-        source.threeHoursEnabled !== false ? 180 : null,
-        source.oneHourEnabled !== false ? 60 : null,
+        source.dayBeforeEnabled === true ? 1440 : null,
+        source.threeHoursEnabled === true ? 180 : null,
+        source.oneHourEnabled === true ? 60 : null,
       ].filter((value): value is number => value !== null);
       if (legacyMinutes.length) {
         for (const minutes of legacyMinutes) {

@@ -48,11 +48,7 @@ describe('parseReminderSettingsDoc', () => {
     const doc = parseReminderSettingsDoc('salon-fallback', undefined);
 
     assert.equal(doc.salonId, 'salon-fallback');
-    assert.deepEqual(
-      doc.appointmentOffsetsMinutes,
-      [60, 180, 1440],
-      'default legacy offsets are applied',
-    );
+    assert.deepEqual(doc.appointmentOffsetsMinutes, []);
   });
 });
 
