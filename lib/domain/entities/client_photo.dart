@@ -1,5 +1,12 @@
 import 'package:flutter/foundation.dart';
 
+enum ClientPhotoSetType {
+  front,
+  back,
+  left,
+  right,
+}
+
 @immutable
 class ClientPhoto {
   const ClientPhoto({
@@ -14,6 +21,10 @@ class ClientPhoto {
     this.contentType,
     this.sizeBytes,
     this.notes,
+    this.setType,
+    this.setVersionIndex,
+    this.isSetActiveVersion = true,
+    this.archivedAt,
   });
 
   final String id;
@@ -27,6 +38,10 @@ class ClientPhoto {
   final String? contentType;
   final int? sizeBytes;
   final String? notes;
+  final ClientPhotoSetType? setType;
+  final int? setVersionIndex;
+  final bool isSetActiveVersion;
+  final DateTime? archivedAt;
 
   ClientPhoto copyWith({
     String? id,
@@ -40,6 +55,10 @@ class ClientPhoto {
     Object? contentType = _unset,
     Object? sizeBytes = _unset,
     Object? notes = _unset,
+    Object? setType = _unset,
+    Object? setVersionIndex = _unset,
+    bool? isSetActiveVersion,
+    Object? archivedAt = _unset,
   }) {
     return ClientPhoto(
       id: id ?? this.id,
@@ -54,6 +73,14 @@ class ClientPhoto {
           contentType == _unset ? this.contentType : contentType as String?,
       sizeBytes: sizeBytes == _unset ? this.sizeBytes : sizeBytes as int?,
       notes: notes == _unset ? this.notes : notes as String?,
+      setType:
+          setType == _unset ? this.setType : setType as ClientPhotoSetType?,
+      setVersionIndex: setVersionIndex == _unset
+          ? this.setVersionIndex
+          : setVersionIndex as int?,
+      isSetActiveVersion: isSetActiveVersion ?? this.isSetActiveVersion,
+      archivedAt:
+          archivedAt == _unset ? this.archivedAt : archivedAt as DateTime?,
     );
   }
 

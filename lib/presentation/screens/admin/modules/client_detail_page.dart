@@ -11,6 +11,7 @@ import 'package:you_book/domain/entities/cash_flow_entry.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
+import 'package:you_book/domain/entities/client_photo_collage.dart';
 import 'package:you_book/domain/entities/inventory_item.dart';
 import 'package:you_book/domain/entities/message_template.dart';
 import 'package:you_book/domain/entities/package.dart';
@@ -32,6 +33,7 @@ import 'package:you_book/presentation/screens/admin/forms/package_sale_form_shee
 import 'package:you_book/presentation/screens/admin/forms/quote_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/sale_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/widgets/client_overview_section.dart';
+import 'package:you_book/presentation/screens/admin/modules/collage_editor_dialog.dart';
 import 'package:you_book/presentation/shared/client_package_purchase.dart';
 import 'package:collection/collection.dart';
 import 'package:file_picker/file_picker.dart';
@@ -202,6 +204,8 @@ class _ClientDetailViewState extends ConsumerState<ClientDetailView> {
     final tabs = _buildTabs();
     final tabViews = [
       _ProfileTab(client: client, salon: salon),
+      _QuestionnaireTab(client: client),
+      _PhotoArchiveTab(client: client),
       _AppointmentsTab(clientId: client.id),
       _PackagesTab(clientId: client.id),
       _QuotesTab(clientId: client.id),
@@ -306,6 +310,8 @@ class _ClientDetailViewState extends ConsumerState<ClientDetailView> {
 
   List<Tab> _buildTabs() => const [
     Tab(text: 'Scheda'),
+    Tab(text: 'Questionario'),
+    Tab(text: 'Archivio foto'),
     Tab(text: 'Appuntamenti'),
     Tab(text: 'Pacchetti'),
     Tab(text: 'Preventivi'),
@@ -361,16 +367,9 @@ class _ProfileTab extends ConsumerWidget {
           },
         ),
       );
-      children.add(const SizedBox(height: 16));
-      children.add(_ClientQuestionnaireCard(client: client));
     } else {
       children.add(overviewSection);
-      children.add(const SizedBox(height: 16));
-      children.add(_ClientQuestionnaireCard(client: client));
     }
-
-    children.add(const SizedBox(height: 16));
-    children.add(_ClientPhotosCard(client: client));
 
     return ListView(padding: const EdgeInsets.all(16), children: children);
   }
@@ -425,6 +424,34 @@ class _BodyMapCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _QuestionnaireTab extends StatelessWidget {
+  const _QuestionnaireTab({required this.client});
+
+  final Client client;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [_ClientQuestionnaireCard(client: client)],
+    );
+  }
+}
+
+class _PhotoArchiveTab extends StatelessWidget {
+  const _PhotoArchiveTab({required this.client});
+
+  final Client client;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [_ClientPhotosCard(client: client)],
     );
   }
 }
@@ -1684,11 +1711,20 @@ class _QuestionAnswerEditor {
 
 class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
   final Set<String> _deleting = <String>{};
+  final Set<String> _deletingCollages = <String>{};
   final Set<String> _updatingNotes = <String>{};
   final TextEditingController _noteController = TextEditingController();
   bool _isUploading = false;
+  ClientPhotoSetType _selectedSetType = ClientPhotoSetType.front;
   final Uuid _uuid = const Uuid();
   static const int _maxUploadBytes = 10 * 1024 * 1024;
+  static const List<ClientPhotoSetType> _orderedPhotoSets =
+      <ClientPhotoSetType>[
+        ClientPhotoSetType.front,
+        ClientPhotoSetType.back,
+        ClientPhotoSetType.right,
+        ClientPhotoSetType.left,
+      ];
 
   @override
   void dispose() {
@@ -1700,16 +1736,41 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final photos = ref.watch(clientPhotosProvider(widget.client.id));
-    final sortedPhotos = photos.toList(growable: false)
-      ..sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
+    final collages = ref.watch(clientPhotoCollagesProvider(widget.client.id));
+    final Map<ClientPhotoSetType, List<ClientPhoto>> grouped =
+        <ClientPhotoSetType, List<ClientPhoto>>{};
+    for (final type in _orderedPhotoSets) {
+      final setPhotos =
+          photos.where((photo) => photo.setType == type).toList()
+            ..sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
+      grouped[type] = setPhotos;
+    }
+    final otherPhotos =
+        photos.where((photo) => photo.setType == null).toList()
+          ..sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
+    final sortedCollages =
+        collages.toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-    final photoCount = sortedPhotos.length;
-    final subtitle =
-        photoCount == 0
-            ? 'Nessuna foto'
-            : photoCount == 1
-            ? '1 foto'
-            : '$photoCount foto';
+    final photoCount = photos.length;
+    final collageCount = collages.length;
+    final completedSets =
+        grouped.values.where((list) {
+          for (final photo in list) {
+            if (photo.isSetActiveVersion) {
+              return true;
+            }
+          }
+          return false;
+        }).length;
+
+    late final String subtitle;
+    if (photoCount == 0) {
+      subtitle =
+          collageCount == 0 ? 'Nessuna foto' : '0 foto · $collageCount collage';
+    } else {
+      final base = '$completedSets/4 set completati · $photoCount foto';
+      subtitle = collageCount == 0 ? base : '$base · $collageCount collage';
+    }
 
     return Card(
       child: ExpansionTile(
@@ -1735,61 +1796,109 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
                   icon: const Icon(Icons.refresh_rounded),
                 ),
               ),
-              TextField(
-                controller: _noteController,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Nota da allegare (opzionale)',
-                  hintText: 'Esempio: Prima del trattamento viso',
-                  helperText:
-                      'La nota viene applicata a tutte le foto selezionate al prossimo caricamento.',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: FilledButton.icon(
-                  onPressed: _isUploading ? null : _pickAndUpload,
-                  icon:
-                      _isUploading
-                          ? const SizedBox(
-                            height: 16,
-                            width: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                          : const Icon(Icons.file_upload_outlined),
-                  label: Text(
-                    _isUploading ? 'Caricamento in corso…' : 'Carica foto',
+
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  FilledButton.icon(
+                    onPressed: () => _openCollageEditor(),
+                    icon: const Icon(Icons.auto_awesome_motion),
+                    label: const Text('Crea collage'),
                   ),
+                  OutlinedButton.icon(
+                    onPressed:
+                        _isUploading ? null : () => _pickAndUploadFullSet(),
+                    icon: const Icon(Icons.grid_on_outlined),
+                    label: const Text('Carica set completo'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: _orderedPhotoSets
+                      .map((type) {
+                        final setPhotos =
+                            grouped[type] ?? const <ClientPhoto>[];
+                        final activePhoto = _resolveActivePhoto(setPhotos);
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 12),
+                          child: _ClientPhotoSetPreview(
+                            label: _setLabel(type),
+                            isComplete: activePhoto != null,
+                            activePhoto: activePhoto,
+                            isUploading: _isUploading,
+                            onUpload: () => _pickAndUpload(type),
+                            onShowHistory: () => _showSetHistory(type),
+                            onPreviewActive:
+                                activePhoto == null
+                                    ? null
+                                    : () => _previewPhoto(activePhoto),
+                          ),
+                        );
+                      })
+                      .toList(growable: false),
                 ),
               ),
-              const SizedBox(height: 16),
-              if (sortedPhotos.isEmpty)
-                Text(
-                  'Nessuna foto presente nella scheda cliente. Carica una o più immagini per iniziare.',
-                  style: theme.textTheme.bodyMedium,
-                )
-              else
+              if (sortedCollages.isNotEmpty) ...[
+                const SizedBox(height: 24),
+                Text('Collage salvati', style: theme.textTheme.titleSmall),
+                const SizedBox(height: 8),
                 ListView.separated(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  itemCount: sortedPhotos.length,
+                  itemCount: sortedCollages.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
-                    final photo = sortedPhotos[index];
+                    final collage = sortedCollages[index];
+                    final isDeleting = _deletingCollages.contains(collage.id);
+                    return _ClientCollageTile(
+                      collage: collage,
+                      isDeleting: isDeleting,
+                      onPreview: () => _previewCollage(collage),
+                      onDelete: () => _deleteCollage(collage),
+                    );
+                  },
+                ),
+              ],
+              if (otherPhotos.isNotEmpty) ...[
+                const SizedBox(height: 24),
+                Text('Altre foto', style: theme.textTheme.titleSmall),
+                const SizedBox(height: 8),
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: otherPhotos.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final photo = otherPhotos[index];
                     final isDeleting = _deleting.contains(photo.id);
                     final isUpdating = _updatingNotes.contains(photo.id);
                     return _ClientPhotoTile(
                       photo: photo,
                       isDeleting: isDeleting,
                       isUpdating: isUpdating,
+                      isActiveVersion: photo.isSetActiveVersion,
+                      setLabel:
+                          photo.setType != null
+                              ? _setLabel(photo.setType!)
+                              : null,
+                      versionIndex: photo.setVersionIndex,
                       onPreview: () => _previewPhoto(photo),
                       onEditNote: () => _editNote(photo),
                       onDelete: () => _deletePhoto(photo),
+                      onSetActive:
+                          photo.setType != null && !photo.isSetActiveVersion
+                              ? () => _setActiveVersion(photo)
+                              : null,
                     );
                   },
                 ),
+              ],
             ],
           ),
         ],
@@ -1797,7 +1906,7 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
     );
   }
 
-  Future<void> _pickAndUpload() async {
+  Future<void> _pickAndUpload(ClientPhotoSetType setType) async {
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: true,
       type: FileType.image,
@@ -1807,6 +1916,19 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
     if (result == null || result.files.isEmpty) {
       return;
     }
+
+    final existing = ref.read(clientPhotosProvider(widget.client.id));
+    final setPhotos = existing
+        .where((photo) => photo.setType == setType)
+        .toList(growable: false);
+    var maxVersion = 0;
+    for (final photo in setPhotos) {
+      final version = photo.setVersionIndex ?? 0;
+      if (version > maxVersion) {
+        maxVersion = version;
+      }
+    }
+    var nextVersionIndex = maxVersion + 1;
 
     final storage = ref.read(firebaseStorageServiceProvider);
     final dataStore = ref.read(appDataProvider.notifier);
@@ -1821,6 +1943,7 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
       var uploadedCount = 0;
       final skippedTooLarge = <String>[];
       final skippedUnreadable = <String>[];
+      String? lastUploadedPhotoId;
       for (final file in result.files) {
         if (file.size > _maxUploadBytes) {
           skippedTooLarge.add(file.name);
@@ -1851,9 +1974,21 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
           contentType: upload.contentType,
           sizeBytes: upload.sizeBytes,
           notes: note,
+          setType: setType,
+          setVersionIndex: nextVersionIndex,
+          isSetActiveVersion: true,
         );
         await dataStore.upsertClientPhoto(photo);
         uploadedCount += 1;
+        lastUploadedPhotoId = photo.id;
+        nextVersionIndex += 1;
+      }
+      if (lastUploadedPhotoId != null) {
+        await dataStore.activateClientPhotoVersion(
+          clientId: widget.client.id,
+          setType: setType,
+          photoId: lastUploadedPhotoId,
+        );
       }
       if (!mounted) {
         return;
@@ -1863,8 +1998,8 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
           SnackBar(
             content: Text(
               uploadedCount == 1
-                  ? 'Foto caricata correttamente.'
-                  : '$uploadedCount foto caricate correttamente.',
+                  ? 'Foto caricata correttamente nel set ${_setLabel(setType)}.'
+                  : '$uploadedCount foto caricate nel set ${_setLabel(setType)}.',
             ),
           ),
         );
@@ -1959,17 +2094,51 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
 
     final dataStore = ref.read(appDataProvider.notifier);
     final storage = ref.read(firebaseStorageServiceProvider);
+    final setType = photo.setType;
+    final wasActive = photo.isSetActiveVersion;
+    ClientPhoto? fallbackVersion;
+    if (setType != null && wasActive) {
+      final siblings = ref
+          .read(clientPhotosProvider(widget.client.id))
+          .where(
+            (element) => element.id != photo.id && element.setType == setType,
+          )
+          .toList(growable: false);
+      siblings.sort((a, b) {
+        final versionA = a.setVersionIndex ?? 0;
+        final versionB = b.setVersionIndex ?? 0;
+        if (versionA != versionB) {
+          return versionB.compareTo(versionA);
+        }
+        return b.uploadedAt.compareTo(a.uploadedAt);
+      });
+      if (siblings.isNotEmpty) {
+        fallbackVersion = siblings.first;
+      }
+    }
 
     setState(() => _deleting.add(photo.id));
     try {
       await dataStore.deleteClientPhoto(photo.id);
       await storage.deleteFile(photo.storagePath);
+      final fallback = fallbackVersion;
+      if (fallback != null && fallback.setType != null) {
+        await dataStore.activateClientPhotoVersion(
+          clientId: widget.client.id,
+          setType: fallback.setType!,
+          photoId: fallback.id,
+        );
+      }
       if (!mounted) {
         return;
       }
+      final successMessage =
+          fallbackVersion == null
+              ? 'Foto eliminata.'
+              : 'Foto eliminata. Versione precedente impostata come attiva.';
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Foto eliminata.')));
+      ).showSnackBar(SnackBar(content: Text(successMessage)));
     } catch (error) {
       if (!mounted) {
         return;
@@ -2098,6 +2267,663 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
       },
     );
   }
+
+  ClientPhoto? _resolveActivePhoto(List<ClientPhoto> photos) {
+    if (photos.isEmpty) {
+      return null;
+    }
+    for (final photo in photos) {
+      if (photo.isSetActiveVersion) {
+        return photo;
+      }
+    }
+    return photos.first;
+  }
+
+  Future<void> _showSetHistory(ClientPhotoSetType setType) async {
+    final setLabel = _setLabel(setType);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        final mediaQuery = MediaQuery.of(sheetContext);
+        final sheetHeight = mediaQuery.size.height * 0.7;
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 24,
+              bottom: mediaQuery.viewInsets.bottom + 16,
+            ),
+            child: Consumer(
+              builder: (context, ref, _) {
+                final photos = ref.watch(
+                  clientPhotosProvider(widget.client.id),
+                );
+                final setPhotos =
+                    photos.where((photo) => photo.setType == setType).toList()
+                      ..sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
+
+                if (setPhotos.isEmpty) {
+                  return SizedBox(
+                    height: mediaQuery.size.height * 0.4,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Versioni $setLabel',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Chiudi',
+                              onPressed: () => Navigator.of(sheetContext).pop(),
+                              icon: const Icon(Icons.close),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Non sono ancora presenti versioni salvate per questo set.',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                return SizedBox(
+                  height: sheetHeight,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Versioni $setLabel',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Chiudi',
+                            onPressed: () => Navigator.of(sheetContext).pop(),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: ListView.separated(
+                          itemCount: setPhotos.length,
+                          separatorBuilder:
+                              (_, __) => const SizedBox(height: 8),
+                          itemBuilder: (context, index) {
+                            final photo = setPhotos[index];
+                            final isDeleting = _deleting.contains(photo.id);
+                            final isUpdating = _updatingNotes.contains(
+                              photo.id,
+                            );
+                            return _ClientPhotoTile(
+                              photo: photo,
+                              isDeleting: isDeleting,
+                              isUpdating: isUpdating,
+                              isActiveVersion: photo.isSetActiveVersion,
+                              setLabel:
+                                  photo.setType != null
+                                      ? _setLabel(photo.setType!)
+                                      : null,
+                              versionIndex: photo.setVersionIndex,
+                              onPreview: () => _previewPhoto(photo),
+                              onEditNote: () => _editNote(photo),
+                              onDelete: () => _deletePhoto(photo),
+                              onSetActive:
+                                  photo.isSetActiveVersion
+                                      ? null
+                                      : () => _setActiveVersion(photo),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _setActiveVersion(ClientPhoto photo) async {
+    final setType = photo.setType;
+    if (setType == null) {
+      return;
+    }
+    final dataStore = ref.read(appDataProvider.notifier);
+    try {
+      await dataStore.activateClientPhotoVersion(
+        clientId: widget.client.id,
+        setType: setType,
+        photoId: photo.id,
+      );
+      if (!mounted) {
+        return;
+      }
+      final versionSuffix =
+          photo.setVersionIndex == null ? '' : ' (v${photo.setVersionIndex})';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${_setLabel(setType)} aggiornato$versionSuffix come versione attiva.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Impossibile impostare la versione attiva: $error'),
+        ),
+      );
+    }
+  }
+
+  String _setLabel(ClientPhotoSetType type) {
+    switch (type) {
+      case ClientPhotoSetType.front:
+        return 'Frontale';
+      case ClientPhotoSetType.back:
+        return 'Dietro';
+      case ClientPhotoSetType.right:
+        return 'Destra';
+      case ClientPhotoSetType.left:
+        return 'Sinistra';
+    }
+  }
+
+  String _orientationLabel(ClientPhotoCollageOrientation orientation) {
+    switch (orientation) {
+      case ClientPhotoCollageOrientation.vertical:
+        return 'Verticale';
+      case ClientPhotoCollageOrientation.horizontal:
+        return 'Orizzontale';
+    }
+  }
+
+  Future<void> _openCollageEditor() async {
+    final initialNote = _noteController.text.trim();
+    final result = await showDialog<String?>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return Dialog.fullscreen(
+          child: CollageEditorDialog(
+            client: widget.client,
+            initialNote: initialNote.isEmpty ? null : initialNote,
+          ),
+        );
+      },
+    );
+    if (!mounted || result == null || result.isEmpty) {
+      return;
+    }
+    final message = result;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _previewCollage(ClientPhotoCollage collage) {
+    final imageUrl = collage.downloadUrl ?? collage.thumbnailUrl;
+    if (imageUrl == null || imageUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Anteprima collage non disponibile.')),
+      );
+      return;
+    }
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        final titleDate = DateFormat(
+          'dd/MM/yyyy HH:mm',
+        ).format(collage.createdAt.toLocal());
+        return Dialog.fullscreen(
+          child: Scaffold(
+            appBar: AppBar(
+              title: Text('Collage del $titleDate'),
+              leading: IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+            ),
+            body: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: Container(
+                    color: theme.colorScheme.surfaceVariant,
+                    child: InteractiveViewer(
+                      maxScale: 4,
+                      child: Center(
+                        child: Image.network(imageUrl, fit: BoxFit.contain),
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 16,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Orientamento: ${_orientationLabel(collage.orientation)}',
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Foto A: ${collage.primaryPlacement.photoId}\nFoto B: ${collage.secondaryPlacement.photoId}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      if (collage.notes != null && collage.notes!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Text(
+                            collage.notes!,
+                            style: theme.textTheme.bodyMedium,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _deleteCollage(ClientPhotoCollage collage) async {
+    if (_deletingCollages.contains(collage.id)) {
+      return;
+    }
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Elimina collage'),
+          content: const Text(
+            'Il collage verrà rimosso definitivamente dall\'archivio cliente.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Annulla'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Elimina'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirm != true) {
+      return;
+    }
+
+    final dataStore = ref.read(appDataProvider.notifier);
+    final storage = ref.read(firebaseStorageServiceProvider);
+
+    setState(() => _deletingCollages.add(collage.id));
+    try {
+      await dataStore.deleteClientPhotoCollage(collage.id);
+      if (collage.storagePath != null && collage.storagePath!.isNotEmpty) {
+        await storage.deleteFile(collage.storagePath!);
+      }
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Collage eliminato.')));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Impossibile eliminare il collage: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _deletingCollages.remove(collage.id));
+      }
+    }
+  }
+
+  Future<void> _pickAndUploadFullSet() async {
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: true,
+      type: FileType.image,
+      withData: true,
+      withReadStream: true,
+    );
+    if (result == null || result.files.isEmpty) {
+      return;
+    }
+    final files = result.files.take(_orderedPhotoSets.length).toList();
+    if (files.length < _orderedPhotoSets.length) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Seleziona quattro foto per coprire Frontale, Dietro, Destra e Sinistra.',
+          ),
+        ),
+      );
+      return;
+    }
+    final assignments = await _showFullSetAssignmentDialog(files);
+    if (assignments == null || assignments.isEmpty) {
+      return;
+    }
+
+    final storage = ref.read(firebaseStorageServiceProvider);
+    final dataStore = ref.read(appDataProvider.notifier);
+    final session = ref.read(sessionControllerProvider);
+    final uploaderId = session.uid ?? 'unknown';
+    final noteText = _noteController.text.trim();
+    final note = noteText.isEmpty ? null : noteText;
+    final existingPhotos = ref.read(clientPhotosProvider(widget.client.id));
+    final Map<ClientPhotoSetType, int> nextVersionIndex = {};
+    for (final assignment in assignments) {
+      nextVersionIndex.putIfAbsent(
+        assignment.setType,
+        () => _nextVersionSeed(existingPhotos, assignment.setType),
+      );
+    }
+    final Map<ClientPhotoSetType, String> lastUploadedBySet = {};
+
+    setState(() => _isUploading = true);
+    try {
+      var uploadedCount = 0;
+      final skippedTooLarge = <String>[];
+      final skippedUnreadable = <String>[];
+
+      for (final assignment in assignments) {
+        final file = assignment.file;
+        if (file.size > _maxUploadBytes) {
+          skippedTooLarge.add(file.name);
+          continue;
+        }
+        final Uint8List? bytes = await _resolveBytes(file);
+        if (bytes == null || bytes.isEmpty) {
+          skippedUnreadable.add(file.name);
+          continue;
+        }
+        final upload = await storage.uploadClientPhoto(
+          salonId: widget.client.salonId,
+          clientId: widget.client.id,
+          photoId: _uuid.v4(),
+          uploaderId: uploaderId,
+          data: bytes,
+          fileName: file.name,
+        );
+        final versionIndex = nextVersionIndex[assignment.setType]!;
+        nextVersionIndex[assignment.setType] = versionIndex + 1;
+        final photo = ClientPhoto(
+          id: upload.photoId,
+          salonId: upload.salonId,
+          clientId: upload.clientId,
+          storagePath: upload.storagePath,
+          downloadUrl: upload.downloadUrl,
+          uploadedAt: upload.uploadedAt,
+          uploadedBy: upload.uploadedBy,
+          fileName: upload.fileName,
+          contentType: upload.contentType,
+          sizeBytes: upload.sizeBytes,
+          notes: note,
+          setType: assignment.setType,
+          setVersionIndex: versionIndex,
+          isSetActiveVersion: true,
+        );
+        await dataStore.upsertClientPhoto(photo);
+        lastUploadedBySet[assignment.setType] = photo.id;
+        uploadedCount += 1;
+      }
+
+      for (final entry in lastUploadedBySet.entries) {
+        await dataStore.activateClientPhotoVersion(
+          clientId: widget.client.id,
+          setType: entry.key,
+          photoId: entry.value,
+        );
+      }
+
+      if (!mounted) {
+        return;
+      }
+      if (uploadedCount > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              uploadedCount == _orderedPhotoSets.length
+                  ? 'Set fotografico caricato correttamente.'
+                  : '$uploadedCount foto del set caricate correttamente.',
+            ),
+          ),
+        );
+      }
+      if (skippedTooLarge.isNotEmpty || skippedUnreadable.isNotEmpty) {
+        final messages = <String>[];
+        if (skippedTooLarge.isNotEmpty) {
+          messages.add(
+            'File troppo grandi (>${_maxUploadBytes ~/ (1024 * 1024)} MB): ${skippedTooLarge.join(', ')}',
+          );
+        }
+        if (skippedUnreadable.isNotEmpty) {
+          messages.add('File non leggibili: ${skippedUnreadable.join(', ')}');
+        }
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(messages.join('\n'))));
+      }
+      if (uploadedCount == 0 &&
+          skippedTooLarge.isEmpty &&
+          skippedUnreadable.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nessun file valido selezionato.')),
+        );
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Impossibile caricare il set: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isUploading = false);
+      }
+    }
+  }
+
+  int _nextVersionSeed(List<ClientPhoto> existing, ClientPhotoSetType type) {
+    var maxVersion = 0;
+    for (final photo in existing) {
+      if (photo.setType != type) {
+        continue;
+      }
+      final version = photo.setVersionIndex ?? 0;
+      if (version > maxVersion) {
+        maxVersion = version;
+      }
+    }
+    return maxVersion + 1;
+  }
+
+  Future<List<_PhotoSetAssignment>?> _showFullSetAssignmentDialog(
+    List<PlatformFile> files,
+  ) async {
+    return showDialog<List<_PhotoSetAssignment>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        final List<ClientPhotoSetType?> selections =
+            List<ClientPhotoSetType?>.generate(
+              files.length,
+              (index) =>
+                  index < _orderedPhotoSets.length
+                      ? _orderedPhotoSets[index]
+                      : null,
+            );
+        String? error;
+        return StatefulBuilder(
+          builder: (context, setState) {
+            void validateSelection() {
+              if (selections.any((element) => element == null)) {
+                setState(() {
+                  error = 'Associa ogni file a un set.';
+                });
+                return;
+              }
+              final uniqueCount =
+                  selections.whereType<ClientPhotoSetType>().toSet().length;
+              if (uniqueCount != selections.length) {
+                setState(() {
+                  error = 'Ogni set può essere utilizzato una sola volta.';
+                });
+                return;
+              }
+              setState(() => error = null);
+              Navigator.of(dialogContext).pop(
+                List<_PhotoSetAssignment>.generate(
+                  files.length,
+                  (index) => _PhotoSetAssignment(
+                    file: files[index],
+                    setType: selections[index]!,
+                  ),
+                ),
+              );
+            }
+
+            return AlertDialog(
+              title: const Text('Associa le foto ai set'),
+              content: SizedBox(
+                width: 420,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Abbina ogni file alla vista corretta (Frontale, Dietro, Destra, Sinistra).',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 12),
+                      for (var i = 0; i < files.length; i++) ...[
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 72,
+                              height: 72,
+                              margin: const EdgeInsets.only(right: 12, top: 4),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                color: theme.colorScheme.surfaceVariant,
+                              ),
+                              clipBehavior: Clip.antiAlias,
+                              child:
+                                  files[i].bytes != null
+                                      ? Image.memory(
+                                        files[i].bytes!,
+                                        fit: BoxFit.cover,
+                                      )
+                                      : files[i].path != null
+                                      ? Image.file(
+                                        File(files[i].path!),
+                                        fit: BoxFit.cover,
+                                      )
+                                      : const Icon(Icons.photo_outlined),
+                            ),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  DropdownButtonFormField<ClientPhotoSetType>(
+                                    value: selections[i],
+                                    decoration: const InputDecoration(
+                                      labelText: 'Set assegnato',
+                                      border: OutlineInputBorder(),
+                                    ),
+                                    items: _orderedPhotoSets
+                                        .map(
+                                          (type) => DropdownMenuItem(
+                                            value: type,
+                                            child: Text(_setLabel(type)),
+                                          ),
+                                        )
+                                        .toList(growable: false),
+                                    onChanged: (value) {
+                                      setState(() {
+                                        selections[i] = value;
+                                        error = null;
+                                      });
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+                      if (error != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            error!,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.error,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Annulla'),
+                ),
+                FilledButton(
+                  onPressed: () => validateSelection(),
+                  child: const Text('Conferma set'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
 }
 
 class _ClientPhotoTile extends StatelessWidget {
@@ -2105,17 +2931,25 @@ class _ClientPhotoTile extends StatelessWidget {
     required this.photo,
     required this.isDeleting,
     required this.isUpdating,
+    required this.isActiveVersion,
+    this.setLabel,
+    this.versionIndex,
     required this.onPreview,
     required this.onEditNote,
     required this.onDelete,
+    this.onSetActive,
   });
 
   final ClientPhoto photo;
   final bool isDeleting;
   final bool isUpdating;
+  final bool isActiveVersion;
+  final String? setLabel;
+  final int? versionIndex;
   final VoidCallback onPreview;
   final VoidCallback onEditNote;
   final VoidCallback onDelete;
+  final VoidCallback? onSetActive;
 
   @override
   Widget build(BuildContext context) {
@@ -2160,43 +2994,309 @@ class _ClientPhotoTile extends StatelessWidget {
               onPressed: onDelete,
             );
 
+    final activateAction =
+        onSetActive == null
+            ? null
+            : IconButton(
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              icon: const Icon(Icons.history_toggle_off),
+              tooltip: 'Imposta come versione attiva',
+              color: theme.colorScheme.primary,
+              onPressed: onSetActive,
+            );
+
+    final actionChildren = <Widget>[];
+    if (activateAction != null) {
+      actionChildren
+        ..add(activateAction)
+        ..add(const SizedBox(width: 8));
+    }
+    actionChildren
+      ..add(editAction)
+      ..add(const SizedBox(width: 8))
+      ..add(deleteAction);
+
+    final metaDetails = <String>[];
+    if (setLabel != null && setLabel!.isNotEmpty) {
+      metaDetails.add('Set $setLabel');
+    }
+    if (versionIndex != null && versionIndex! > 0) {
+      metaDetails.add('Versione ${versionIndex!}');
+    }
+
     return ListTile(
       onTap: onPreview,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      title: Text(
-        fileLabel,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.titleSmall?.copyWith(
-          fontWeight: FontWeight.w600,
-        ),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              fileLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          if (isActiveVersion)
+            Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: Icon(
+                Icons.check_circle,
+                color: theme.colorScheme.primary,
+                size: 18,
+              ),
+            ),
+        ],
       ),
       subtitle: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            uploadedAt,
+            'Caricata il $uploadedAt',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
-          const SizedBox(height: 2),
+          if (metaDetails.isNotEmpty)
+            Text(metaDetails.join(' · '), style: theme.textTheme.bodySmall),
           Text(
-            'Tocca per visualizzare',
+            isActiveVersion ? 'Versione attiva' : 'Versione storica',
             style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.primary,
+              color:
+                  isActiveVersion
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant,
               fontWeight: FontWeight.w600,
             ),
           ),
+          if (photo.notes != null && photo.notes!.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                photo.notes!,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
         ],
       ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [editAction, const SizedBox(width: 8), deleteAction],
+      trailing: Row(mainAxisSize: MainAxisSize.min, children: actionChildren),
+    );
+  }
+}
+
+class _ClientPhotoSetPreview extends StatelessWidget {
+  const _ClientPhotoSetPreview({
+    required this.label,
+    required this.isComplete,
+    required this.activePhoto,
+    required this.isUploading,
+    required this.onUpload,
+    required this.onShowHistory,
+    this.onPreviewActive,
+  });
+
+  final String label;
+  final bool isComplete;
+  final ClientPhoto? activePhoto;
+  final bool isUploading;
+  final VoidCallback onUpload;
+  final VoidCallback onShowHistory;
+  final VoidCallback? onPreviewActive;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final badgeColor =
+        isComplete
+            ? theme.colorScheme.primary
+            : theme.colorScheme.outlineVariant;
+    final badgeIcon =
+        isComplete ? Icons.check_circle : Icons.camera_alt_outlined;
+    final preview =
+        activePhoto == null
+            ? Center(
+              child: Icon(
+                Icons.photo_outlined,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            )
+            : GestureDetector(
+              onTap: onPreviewActive,
+              child: Image.network(
+                activePhoto!.downloadUrl,
+                fit: BoxFit.contain,
+              ),
+            );
+    final updatedAt = activePhoto?.uploadedAt;
+    final updatedLabel =
+        updatedAt == null
+            ? 'Nessuna foto caricata'
+            : 'Aggiornato il ${DateFormat('dd/MM/yyyy HH:mm').format(updatedAt.toLocal())}';
+
+    return SizedBox(
+      width: 170,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(badgeIcon, size: 16, color: badgeColor),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          AspectRatio(
+            aspectRatio: 3 / 4,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceVariant,
+                ),
+                child: preview,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            updatedLabel,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              IconButton(
+                tooltip: 'Cronologia set',
+                onPressed: onShowHistory,
+                icon: const Icon(Icons.history),
+              ),
+              IconButton(
+                tooltip: 'Carica foto',
+                onPressed: isUploading ? null : onUpload,
+                icon: const Icon(Icons.file_upload_outlined),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
+}
+
+class _ClientCollageTile extends StatelessWidget {
+  const _ClientCollageTile({
+    required this.collage,
+    required this.isDeleting,
+    required this.onPreview,
+    required this.onDelete,
+  });
+
+  final ClientPhotoCollage collage;
+  final bool isDeleting;
+  final VoidCallback onPreview;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final createdAt = DateFormat(
+      'dd/MM/yyyy HH:mm',
+    ).format(collage.createdAt.toLocal());
+    final orientationLabel =
+        collage.orientation == ClientPhotoCollageOrientation.vertical
+            ? 'Verticale'
+            : 'Orizzontale';
+
+    final deleteAction =
+        isDeleting
+            ? const SizedBox(
+              height: 20,
+              width: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+            : IconButton(
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              icon: const Icon(Icons.delete_outline_rounded),
+              tooltip: 'Elimina collage',
+              color: theme.colorScheme.error,
+              onPressed: onDelete,
+            );
+
+    final previewUrl = collage.thumbnailUrl ?? collage.downloadUrl;
+    final previewThumbnail = ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child:
+          previewUrl == null || previewUrl.isEmpty
+              ? Container(
+                width: 72,
+                height: 72,
+                color: theme.colorScheme.surfaceVariant,
+                child: Icon(
+                  Icons.photo_outlined,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              )
+              : Image.network(
+                previewUrl,
+                width: 72,
+                height: 72,
+                fit: BoxFit.cover,
+              ),
+    );
+
+    return ListTile(
+      onTap: onPreview,
+      leading: previewThumbnail,
+      title: Text(
+        'Collage ${DateFormat('dd/MM/yyyy').format(collage.createdAt.toLocal())}',
+        style: theme.textTheme.titleSmall?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (collage.notes != null && collage.notes!.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                collage.notes!,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
+        ],
+      ),
+      trailing: deleteAction,
+    );
+  }
+}
+
+class _PhotoSetAssignment {
+  const _PhotoSetAssignment({required this.file, required this.setType});
+
+  final PlatformFile file;
+  final ClientPhotoSetType setType;
 }
 
 class _AppointmentsTab extends ConsumerWidget {

@@ -4,6 +4,7 @@ import 'package:you_book/domain/entities/cash_flow_entry.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
+import 'package:you_book/domain/entities/client_photo_collage.dart';
 import 'package:you_book/domain/entities/inventory_item.dart';
 import 'package:you_book/domain/entities/last_minute_slot.dart';
 import 'package:you_book/domain/entities/message_template.dart';
@@ -849,6 +850,9 @@ class MockData {
       contentType: 'image/jpeg',
       sizeBytes: 1800000,
       notes: 'Risultato dopo il terzo trattamento viso rigenerante.',
+      setType: ClientPhotoSetType.front,
+      setVersionIndex: 1,
+      isSetActiveVersion: false,
     ),
     ClientPhoto(
       id: 'photo-sara-2',
@@ -864,6 +868,9 @@ class MockData {
       contentType: 'image/jpeg',
       sizeBytes: 950000,
       notes: 'Prima e dopo il trattamento manicure deluxe.',
+      setType: ClientPhotoSetType.front,
+      setVersionIndex: 2,
+      isSetActiveVersion: true,
     ),
     ClientPhoto(
       id: 'photo-daniele-1',
@@ -879,6 +886,42 @@ class MockData {
       contentType: 'image/jpeg',
       sizeBytes: 1320000,
       notes: 'Foto della prima sessione di pressoterapia.',
+      setType: ClientPhotoSetType.left,
+      setVersionIndex: 1,
+      isSetActiveVersion: true,
+    ),
+  ];
+
+  static final clientPhotoCollages = <ClientPhotoCollage>[
+    ClientPhotoCollage(
+      id: 'collage-sara-front-1',
+      salonId: 'salon-001',
+      clientId: 'client-001',
+      createdAt: _now.subtract(const Duration(days: 6)),
+      createdBy: 'staff-002',
+      updatedAt: _now.subtract(const Duration(days: 5)),
+      orientation: ClientPhotoCollageOrientation.vertical,
+      primaryPlacement: const ClientPhotoCollagePlacement(
+        photoId: 'photo-sara-1',
+        offsetX: 0,
+        offsetY: 0,
+        scale: 1,
+        rotationDegrees: 0,
+      ),
+      secondaryPlacement: const ClientPhotoCollagePlacement(
+        photoId: 'photo-sara-2',
+        offsetX: 0,
+        offsetY: 0,
+        scale: 1,
+        rotationDegrees: 0,
+      ),
+      storagePath:
+          'salon_media/salon-001/clients/client-001/collages/collage-sara-front-1.png',
+      downloadUrl:
+          'https://storage.googleapis.com/civiapp-mock/collage-sara-front-1.png',
+      thumbnailUrl:
+          'https://storage.googleapis.com/civiapp-mock/collage-sara-front-1-thumb.png',
+      notes: 'Comparativa frontale pre/post trattamento.',
     ),
   ];
 

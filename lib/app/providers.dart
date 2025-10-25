@@ -9,6 +9,7 @@ import 'package:you_book/data/storage/firebase_storage_service.dart';
 import 'package:you_book/domain/cart/cart_controller.dart';
 import 'package:you_book/domain/cart/cart_models.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
+import 'package:you_book/domain/entities/client_photo_collage.dart';
 import 'package:you_book/domain/entities/client_registration_draft.dart';
 import 'package:you_book/domain/entities/appointment_clipboard.dart';
 import 'package:you_book/domain/entities/salon_setup_progress.dart';
@@ -185,6 +186,26 @@ final clientPhotosProvider = Provider.family<List<ClientPhoto>, String?>((
       .where((photo) => photo.clientId == clientId)
       .toList(growable: false);
 });
+
+final clientPhotoCollagesProvider = Provider.family<
+  List<ClientPhotoCollage>,
+  String?
+>(
+  (
+    ref,
+    clientId,
+  ) {
+    final collages = ref.watch(
+      appDataProvider.select((state) => state.clientPhotoCollages),
+    );
+    if (clientId == null || clientId.isEmpty) {
+      return const <ClientPhotoCollage>[];
+    }
+    return collages
+        .where((collage) => collage.clientId == clientId)
+        .toList(growable: false);
+  },
+);
 
 final salonSetupProgressProvider = Provider.family<AdminSetupProgress?, String>(
   (ref, salonId) {

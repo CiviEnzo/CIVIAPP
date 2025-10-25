@@ -53,6 +53,22 @@ class StaffAvatarUploadData {
   final String downloadUrl;
 }
 
+class ClientCollageUploadData {
+  const ClientCollageUploadData({
+    required this.collageId,
+    required this.storagePath,
+    required this.downloadUrl,
+    required this.uploadedAt,
+    required this.uploadedBy,
+  });
+
+  final String collageId;
+  final String storagePath;
+  final String downloadUrl;
+  final DateTime uploadedAt;
+  final String uploadedBy;
+}
+
 class FirebaseStorageService {
   FirebaseStorageService(this._storage);
 
@@ -98,6 +114,37 @@ class FirebaseStorageService {
       fileName: sanitizedFileName,
       contentType: contentType,
       sizeBytes: data.lengthInBytes,
+    );
+  }
+
+  Future<ClientCollageUploadData> uploadClientCollage({
+    required String salonId,
+    required String clientId,
+    required String collageId,
+    required String uploaderId,
+    required Uint8List data,
+  }) async {
+    final storagePath =
+        'salon_media/$salonId/clients/$clientId/collages/$collageId.png';
+    final reference = _storage.ref(storagePath);
+    final metadata = SettableMetadata(
+      contentType: 'image/png',
+      cacheControl: 'public,max-age=86400',
+      customMetadata: {
+        'uploaderId': uploaderId,
+        'clientId': clientId,
+        'salonId': salonId,
+        'collageId': collageId,
+      },
+    );
+    await reference.putData(data, metadata);
+    final downloadUrl = await reference.getDownloadURL();
+    return ClientCollageUploadData(
+      collageId: collageId,
+      storagePath: storagePath,
+      downloadUrl: downloadUrl,
+      uploadedAt: DateTime.now().toUtc(),
+      uploadedBy: uploaderId,
     );
   }
 

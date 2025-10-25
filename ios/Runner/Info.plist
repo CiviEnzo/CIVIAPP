@@ -59,5 +59,7 @@
 		<string>Richiediamo il permesso di aggiungere immagini per salvare gli scatti dei tuoi trattamenti.</string>
 		<key>UIStatusBarHidden</key>
 		<false/>
+		<key>ITSAppUsesNonExemptEncryption</key>
+		<false/>
 	</dict>
 </plist>

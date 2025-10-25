@@ -6,6 +6,7 @@ import 'package:you_book/domain/entities/app_notification.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
+import 'package:you_book/domain/entities/client_photo_collage.dart';
 import 'package:you_book/domain/entities/inventory_item.dart';
 import 'package:you_book/domain/entities/loyalty_settings.dart';
 import 'package:you_book/domain/entities/last_minute_slot.dart';
@@ -1327,6 +1328,16 @@ Map<String, dynamic> clientQuestionnaireToMap(
 
 ClientPhoto clientPhotoFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final data = doc.data() ?? <String, dynamic>{};
+  final rawSetType = data['setType'] as String?;
+  ClientPhotoSetType? setType;
+  if (rawSetType != null && rawSetType.isNotEmpty) {
+    for (final candidate in ClientPhotoSetType.values) {
+      if (candidate.name == rawSetType) {
+        setType = candidate;
+        break;
+      }
+    }
+  }
   return ClientPhoto(
     id: doc.id,
     clientId: data['clientId'] as String? ?? '',
@@ -1339,6 +1350,10 @@ ClientPhoto clientPhotoFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     contentType: data['contentType'] as String?,
     sizeBytes: (data['sizeBytes'] as num?)?.toInt(),
     notes: data['notes'] as String?,
+    setType: setType,
+    setVersionIndex: (data['setVersionIndex'] as num?)?.toInt(),
+    isSetActiveVersion: data['isSetActiveVersion'] as bool? ?? true,
+    archivedAt: _timestampToDate(data['archivedAt']),
   );
 }
 
@@ -1363,6 +1378,85 @@ Map<String, dynamic> clientPhotoToMap(ClientPhoto photo) {
   }
   if (photo.notes != null && photo.notes!.isNotEmpty) {
     map['notes'] = photo.notes;
+  }
+  if (photo.setType != null) {
+    map['setType'] = photo.setType!.name;
+  }
+  if (photo.setVersionIndex != null) {
+    map['setVersionIndex'] = photo.setVersionIndex;
+  }
+  map['isSetActiveVersion'] = photo.isSetActiveVersion;
+  if (photo.archivedAt != null) {
+    map['archivedAt'] = Timestamp.fromDate(photo.archivedAt!);
+  }
+
+  return map;
+}
+
+ClientPhotoCollage clientPhotoCollageFromDoc(
+  DocumentSnapshot<Map<String, dynamic>> doc,
+) {
+  final data = doc.data() ?? <String, dynamic>{};
+  final orientationRaw = data['orientation'] as String? ??
+      ClientPhotoCollageOrientation.vertical.name;
+  var orientation = ClientPhotoCollageOrientation.vertical;
+  for (final candidate in ClientPhotoCollageOrientation.values) {
+    if (candidate.name == orientationRaw) {
+      orientation = candidate;
+      break;
+    }
+  }
+  final primaryDataRaw = data['primaryPlacement'];
+  final secondaryDataRaw = data['secondaryPlacement'];
+  final primaryData = primaryDataRaw is Map<String, dynamic>
+      ? Map<String, dynamic>.from(primaryDataRaw)
+      : <String, dynamic>{};
+  final secondaryData = secondaryDataRaw is Map<String, dynamic>
+      ? Map<String, dynamic>.from(secondaryDataRaw)
+      : <String, dynamic>{};
+
+  return ClientPhotoCollage(
+    id: doc.id,
+    clientId: data['clientId'] as String? ?? '',
+    salonId: data['salonId'] as String? ?? '',
+    createdAt: _timestampToDate(data['createdAt']) ?? DateTime.now(),
+    createdBy: data['createdBy'] as String? ?? '',
+    updatedAt: _timestampToDate(data['updatedAt']),
+    orientation: orientation,
+    primaryPlacement: ClientPhotoCollagePlacement.fromJson(primaryData),
+    secondaryPlacement: ClientPhotoCollagePlacement.fromJson(secondaryData),
+    storagePath: data['storagePath'] as String?,
+    downloadUrl: data['downloadUrl'] as String?,
+    thumbnailUrl: data['thumbnailUrl'] as String?,
+    notes: data['notes'] as String?,
+  );
+}
+
+Map<String, dynamic> clientPhotoCollageToMap(ClientPhotoCollage collage) {
+  final map = <String, dynamic>{
+    'clientId': collage.clientId,
+    'salonId': collage.salonId,
+    'createdAt': Timestamp.fromDate(collage.createdAt),
+    'createdBy': collage.createdBy,
+    'orientation': collage.orientation.name,
+    'primaryPlacement': collage.primaryPlacement.toJson(),
+    'secondaryPlacement': collage.secondaryPlacement.toJson(),
+  };
+
+  if (collage.updatedAt != null) {
+    map['updatedAt'] = Timestamp.fromDate(collage.updatedAt!);
+  }
+  if (collage.storagePath != null && collage.storagePath!.isNotEmpty) {
+    map['storagePath'] = collage.storagePath;
+  }
+  if (collage.downloadUrl != null && collage.downloadUrl!.isNotEmpty) {
+    map['downloadUrl'] = collage.downloadUrl;
+  }
+  if (collage.thumbnailUrl != null && collage.thumbnailUrl!.isNotEmpty) {
+    map['thumbnailUrl'] = collage.thumbnailUrl;
+  }
+  if (collage.notes != null && collage.notes!.isNotEmpty) {
+    map['notes'] = collage.notes;
   }
 
   return map;

@@ -14,6 +14,7 @@ import 'package:you_book/domain/entities/cash_flow_entry.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
+import 'package:you_book/domain/entities/client_photo_collage.dart';
 import 'package:you_book/domain/entities/inventory_item.dart';
 import 'package:you_book/domain/entities/last_minute_notification.dart';
 import 'package:you_book/domain/entities/last_minute_slot.dart';
@@ -88,6 +89,8 @@ class AppDataStore extends StateNotifier<AppDataState> {
                ),
                users: const [],
                clientPhotos: List.unmodifiable(MockData.clientPhotos),
+               clientPhotoCollages:
+                   List.unmodifiable(MockData.clientPhotoCollages),
                clientQuestionnaireTemplates: List.unmodifiable(
                  MockData.clientQuestionnaireTemplates,
                ),
@@ -471,6 +474,17 @@ class AppDataStore extends StateNotifier<AppDataState> {
           salonIds: salonIds,
           fromDoc: clientPhotoFromDoc,
           onData: (items) => state = state.copyWith(clientPhotos: items),
+        ),
+      );
+
+      addAll(
+        _listenCollectionBySalonIds<ClientPhotoCollage>(
+          firestore: firestore,
+          collectionPath: 'client_photo_collages',
+          salonIds: salonIds,
+          fromDoc: clientPhotoCollageFromDoc,
+          onData:
+              (items) => state = state.copyWith(clientPhotoCollages: items),
         ),
       );
 
@@ -2310,6 +2324,56 @@ class AppDataStore extends StateNotifier<AppDataState> {
         .set(clientPhotoToMap(photo));
   }
 
+  Future<void> upsertClientPhotoCollage(ClientPhotoCollage collage) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      _upsertLocal(clientPhotoCollages: <ClientPhotoCollage>[collage]);
+      return;
+    }
+    await firestore
+        .collection('client_photo_collages')
+        .doc(collage.id)
+        .set(clientPhotoCollageToMap(collage));
+  }
+
+  Future<void> activateClientPhotoVersion({
+    required String clientId,
+    required ClientPhotoSetType setType,
+    required String photoId,
+  }) async {
+    final relevant = state.clientPhotos.where((photo) {
+      return photo.clientId == clientId && photo.setType == setType;
+    }).toList(growable: false);
+    if (relevant.isEmpty) {
+      return;
+    }
+
+    final updates = <ClientPhoto>[];
+    for (final photo in relevant) {
+      final shouldBeActive = photo.id == photoId;
+      if (photo.isSetActiveVersion != shouldBeActive) {
+        updates.add(photo.copyWith(isSetActiveVersion: shouldBeActive));
+      }
+    }
+    if (updates.isEmpty) {
+      return;
+    }
+
+    final firestore = _firestore;
+    if (firestore == null) {
+      _upsertLocal(clientPhotos: updates);
+      return;
+    }
+
+    final batch = firestore.batch();
+    for (final update in updates) {
+      final docRef = firestore.collection('client_photos').doc(update.id);
+      batch.update(docRef, {'isSetActiveVersion': update.isSetActiveVersion});
+    }
+    await batch.commit();
+    _upsertLocal(clientPhotos: updates);
+  }
+
   Future<void> deleteClient(String clientId) async {
     final firestore = _firestore;
     if (firestore == null) {
@@ -2321,6 +2385,11 @@ class AppDataStore extends StateNotifier<AppDataState> {
     await _deleteCollectionWhere('sales', 'clientId', clientId);
     await _deleteCollectionWhere('payment_tickets', 'clientId', clientId);
     await _deleteCollectionWhere('client_photos', 'clientId', clientId);
+    await _deleteCollectionWhere(
+      'client_photo_collages',
+      'clientId',
+      clientId,
+    );
     await _deleteCollectionWhere('quotes', 'clientId', clientId);
   }
 
@@ -2331,6 +2400,17 @@ class AppDataStore extends StateNotifier<AppDataState> {
       return;
     }
     await firestore.collection('client_photos').doc(photoId).delete();
+    _deleteClientPhotoLocal(photoId);
+  }
+
+  Future<void> deleteClientPhotoCollage(String collageId) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      _deleteClientPhotoCollageLocal(collageId);
+      return;
+    }
+    await firestore.collection('client_photo_collages').doc(collageId).delete();
+    _deleteClientPhotoCollageLocal(collageId);
   }
 
   Future<void> submitSalonAccessRequest({
@@ -4408,6 +4488,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
     for (final photo in MockData.clientPhotos) {
       await upsertClientPhoto(photo);
     }
+    for (final collage in MockData.clientPhotoCollages) {
+      await upsertClientPhotoCollage(collage);
+    }
     for (final category in MockData.serviceCategories) {
       await upsertServiceCategory(category);
     }
@@ -4506,6 +4589,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     List<StaffAbsence>? staffAbsences,
     List<StaffAbsence>? publicStaffAbsences,
     List<ClientPhoto>? clientPhotos,
+    List<ClientPhotoCollage>? clientPhotoCollages,
     List<ClientQuestionnaireTemplate>? clientQuestionnaireTemplates,
     List<ClientQuestionnaire>? clientQuestionnaires,
     List<Promotion>? promotions,
@@ -4618,6 +4702,14 @@ class AppDataStore extends StateNotifier<AppDataState> {
           clientPhotos != null
               ? _merge(state.clientPhotos, clientPhotos, (e) => e.id)
               : state.clientPhotos,
+      clientPhotoCollages:
+          clientPhotoCollages != null
+              ? _merge(
+                state.clientPhotoCollages,
+                clientPhotoCollages,
+                (e) => e.id,
+              )
+              : state.clientPhotoCollages,
       clientQuestionnaireTemplates:
           clientQuestionnaireTemplates != null
               ? _merge(
@@ -4898,6 +4990,11 @@ class AppDataStore extends StateNotifier<AppDataState> {
       clientPhotos: List.unmodifiable(
         state.clientPhotos.where((element) => element.clientId != clientId),
       ),
+      clientPhotoCollages: List.unmodifiable(
+        state.clientPhotoCollages.where(
+          (element) => element.clientId != clientId,
+        ),
+      ),
     );
   }
 
@@ -4905,6 +5002,14 @@ class AppDataStore extends StateNotifier<AppDataState> {
     state = state.copyWith(
       clientPhotos: List.unmodifiable(
         state.clientPhotos.where((element) => element.id != photoId),
+      ),
+    );
+  }
+
+  void _deleteClientPhotoCollageLocal(String collageId) {
+    state = state.copyWith(
+      clientPhotoCollages: List.unmodifiable(
+        state.clientPhotoCollages.where((element) => element.id != collageId),
       ),
     );
   }

@@ -99,6 +99,18 @@ service firebase.storage {
 
       allow delete: if isSignedIn() && isSalonManager(salonId);
     }
+    match /salon_media/{salonId}/clients/{clientId}/collages/{collagePath=**} {
+      allow read, list: if isSignedIn() && (
+        isSalonManager(salonId) ||
+        isClientOwner(clientId)
+      );
+
+      allow create, update: if isSignedIn() &&
+          isSalonManager(salonId) &&
+          isValidImageUpload();
+
+      allow delete: if isSignedIn() && isSalonManager(salonId);
+    }
 
     match /salon_media/{salonId}/promotions/{promotionPath=**} {
       allow read, list: if isSignedIn() && isSalonManager(salonId);

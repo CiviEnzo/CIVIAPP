@@ -5,6 +5,7 @@ import 'package:you_book/domain/entities/cash_flow_entry.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
+import 'package:you_book/domain/entities/client_photo_collage.dart';
 import 'package:you_book/domain/entities/inventory_item.dart';
 import 'package:you_book/domain/entities/message_template.dart';
 import 'package:you_book/domain/entities/app_notification.dart';
@@ -49,6 +50,7 @@ class AppDataState {
     required this.publicStaffAbsences,
     required this.users,
     required this.clientPhotos,
+    required this.clientPhotoCollages,
     required this.clientQuestionnaireTemplates,
     required this.clientQuestionnaires,
     required this.promotions,
@@ -82,6 +84,7 @@ class AppDataState {
       publicStaffAbsences: [],
       users: [],
       clientPhotos: [],
+      clientPhotoCollages: [],
       clientQuestionnaireTemplates: [],
       clientQuestionnaires: [],
       promotions: [],
@@ -114,6 +117,7 @@ class AppDataState {
   final List<StaffAbsence> publicStaffAbsences;
   final List<AppUser> users;
   final List<ClientPhoto> clientPhotos;
+  final List<ClientPhotoCollage> clientPhotoCollages;
   final List<ClientQuestionnaireTemplate> clientQuestionnaireTemplates;
   final List<ClientQuestionnaire> clientQuestionnaires;
   final List<Promotion> promotions;
@@ -145,6 +149,7 @@ class AppDataState {
     List<StaffAbsence>? publicStaffAbsences,
     List<AppUser>? users,
     List<ClientPhoto>? clientPhotos,
+    List<ClientPhotoCollage>? clientPhotoCollages,
     List<ClientQuestionnaireTemplate>? clientQuestionnaireTemplates,
     List<ClientQuestionnaire>? clientQuestionnaires,
     List<Promotion>? promotions,
@@ -176,6 +181,8 @@ class AppDataState {
       publicStaffAbsences: publicStaffAbsences ?? this.publicStaffAbsences,
       users: users ?? this.users,
       clientPhotos: clientPhotos ?? this.clientPhotos,
+      clientPhotoCollages:
+          clientPhotoCollages ?? this.clientPhotoCollages,
       clientQuestionnaireTemplates:
           clientQuestionnaireTemplates ?? this.clientQuestionnaireTemplates,
       clientQuestionnaires: clientQuestionnaires ?? this.clientQuestionnaires,

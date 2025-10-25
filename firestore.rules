@@ -605,6 +605,21 @@ service cloud.firestore {
       allow delete: if isSignedIn() && canManageSalonDocument(resourceSalonId());
       allow update: if false;
     }
+    match /client_photo_collages/{collageId} {
+      allow read: if isSignedIn() && (
+        canManageSalonDocument(resourceSalonId()) ||
+        (resource != null && resource.data != null &&
+            resource.data.clientId is string &&
+            isOwnClient(resource.data.clientId))
+      );
+      allow create: if isSignedIn() &&
+          canManageSalonDocument(requestSalonId()) &&
+          requestClientId() != null &&
+          requestSalonId() != null &&
+          hasSalonAccess(requestSalonId());
+      allow delete: if isSignedIn() && canManageSalonDocument(resourceSalonId());
+      allow update: if false;
+    }
 
     match /salon_sequences/{salonId} {
       allow read: if isSignedIn();
