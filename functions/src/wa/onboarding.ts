@@ -1,4 +1,5 @@
 import axios, { AxiosError } from 'axios';
+import { defineSecret } from 'firebase-functions/params';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import * as logger from 'firebase-functions/logger';
 
@@ -9,14 +10,14 @@ import { clearWaConfigCache } from './config';
 
 const REGION = process.env.WA_REGION ?? 'europe-west1';
 const GRAPH_API_VERSION = process.env.WA_GRAPH_API_VERSION ?? 'v19.0';
-const APP_ID = process.env.WA_APP_ID ?? '';
-const APP_SECRET = process.env.WA_APP_SECRET ?? '';
 const DEFAULT_REDIRECT =
   process.env.WA_OAUTH_REDIRECT ??
   'https://civiapp.app/oauth/whatsapp/callback';
 const TOKEN_SECRET_PREFIX =
   process.env.WA_TOKEN_SECRET_PREFIX ?? 'wa-salon';
 const GRAPH_TIMEOUT_MS = Number(process.env.WA_GRAPH_TIMEOUT_MS ?? 10000);
+const waAppId = defineSecret('WA_APP_ID');
+const waAppSecret = defineSecret('WA_APP_SECRET');
 
 type IntegrationDoc = {
   lastCode?: unknown;
@@ -102,14 +103,16 @@ function secretNameForSalon(salonId: string): string {
 async function exchangeAuthorizationCode(params: {
   code: string;
   redirectUri: string;
+  appId: string;
+  appSecret: string;
 }): Promise<AccessTokenResponse> {
-  const { code, redirectUri } = params;
+  const { code, redirectUri, appId, appSecret } = params;
   const response = await axios.get<AccessTokenResponse>(
     `https://graph.facebook.com/${GRAPH_API_VERSION}/oauth/access_token`,
     {
       params: {
-        client_id: APP_ID,
-        client_secret: APP_SECRET,
+        client_id: appId,
+        client_secret: appSecret,
         redirect_uri: redirectUri,
         code,
       },
@@ -141,6 +144,7 @@ export const syncWhatsappOAuth = onDocumentWritten(
     region: REGION,
     document: 'salons/{salonId}/integrations/whatsapp_oauth',
     retry: false,
+    secrets: [waAppId, waAppSecret],
   },
   async (event) => {
     const salonId = String(event.params.salonId);
@@ -150,7 +154,10 @@ export const syncWhatsappOAuth = onDocumentWritten(
       return;
     }
 
-    if (!APP_ID || !APP_SECRET) {
+    const appId = waAppId.value();
+    const appSecret = waAppSecret.value();
+
+    if (!appId || !appSecret) {
       logger.error('WhatsApp app credentials missing, skipping sync', {
         salonId,
       });
@@ -210,6 +217,8 @@ export const syncWhatsappOAuth = onDocumentWritten(
       const tokenInfo = await exchangeAuthorizationCode({
         code: lastCode,
         redirectUri,
+        appId,
+        appSecret,
       });
       const accessToken = tokenInfo.access_token;
 
