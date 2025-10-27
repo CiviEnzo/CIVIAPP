@@ -6,7 +6,6 @@ import 'package:you_book/presentation/screens/admin/modules/clients_module.dart'
 import 'package:you_book/presentation/screens/admin/modules/inventory_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/messages_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/marketing_module.dart';
-import 'package:you_book/presentation/screens/admin/modules/questionnaires_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/overview_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/reports_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/sales_module.dart';
@@ -115,13 +114,6 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       title: 'Marketing',
       icon: Icons.campaign_rounded,
       builder: (context, ref, salonId) => MarketingModule(salonId: salonId),
-    ),
-    AdminModuleDefinition(
-      id: 'questionnaires',
-      title: 'Questionari cliente',
-      icon: Icons.assignment_rounded,
-      builder:
-          (context, ref, salonId) => QuestionnairesModule(salonId: salonId),
     ),
     AdminModuleDefinition(
       id: 'reports',

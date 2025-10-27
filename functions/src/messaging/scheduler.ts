@@ -1,8 +1,12 @@
-import { Timestamp , DocumentData } from 'firebase-admin/firestore';
+import {
+  Timestamp,
+  DocumentData,
+  DocumentReference,
+} from 'firebase-admin/firestore';
 import * as logger from 'firebase-functions/logger';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 
-import { db, serverTimestamp } from '../utils/firestore';
+import { db, serverTimestamp, FieldValue } from '../utils/firestore';
 import { DEFAULT_TIMEZONE, now as nowInTimeZone } from '../utils/time';
 import {
   formatReminderOffsetLabel,
@@ -25,7 +29,8 @@ interface ClientPreferences {
   };
 }
 
-const REMINDERS_ENABLED = process.env.MESSAGING_REMINDERS_ENABLED !== 'false';
+const REMINDERS_ENABLED =
+  process.env.MESSAGING_REMINDERS_ENABLED === 'true';
 const BIRTHDAYS_ENABLED = process.env.MESSAGING_BIRTHDAYS_ENABLED !== 'false';
 const REMINDER_WINDOW_MINUTES = Number.parseInt(
   process.env.MESSAGING_REMINDER_WINDOW ?? '30',
@@ -54,6 +59,128 @@ async function fetchReminderSettings(): Promise<ReminderSettingsDoc[]> {
   return snapshot.docs.map((doc) =>
     parseReminderSettingsDoc(doc.id, doc.data()),
   );
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: number }).code === 6,
+  );
+}
+
+function asDate(value: unknown): Date | null {
+  if (!value) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return value;
+  }
+  if (value instanceof Timestamp) {
+    return value.toDate();
+  }
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? null : new Date(parsed);
+  }
+  return null;
+}
+
+type ReconcileReminderParams = {
+  docRef: DocumentReference<DocumentData>;
+  scheduledAt: Date;
+  appointmentStart: Date;
+  title: string;
+  body: string;
+  payload: Record<string, unknown>;
+  salonId: string;
+  clientId: string;
+  appointmentId: string;
+  offsetMinutes: number;
+};
+
+async function reconcileExistingReminder({
+  docRef,
+  scheduledAt,
+  appointmentStart,
+  title,
+  body,
+  payload,
+  salonId,
+  clientId,
+  appointmentId,
+  offsetMinutes,
+}: ReconcileReminderParams): Promise<void> {
+  const snapshot = await docRef.get();
+  if (!snapshot.exists) {
+    logger.debug('Existing reminder missing during reconciliation', {
+      salonId,
+      appointmentId,
+      offsetMinutes,
+    });
+    return;
+  }
+  const data = snapshot.data() as DocumentData;
+  const status = (data.status as string) ?? 'pending';
+  if (status !== 'pending') {
+    logger.debug('Reminder already processed, skipping update', {
+      docId: docRef.id,
+      status,
+    });
+    return;
+  }
+
+  const payloadMap =
+    data.payload && typeof data.payload === 'object'
+      ? (data.payload as Record<string, unknown>)
+      : undefined;
+  const storedStart =
+    asDate(data.appointmentStart) ??
+    asDate(payloadMap?.['appointmentStart']);
+  const storedScheduledAt = asDate(data.scheduledAt);
+
+  const startChanged =
+    !storedStart || storedStart.getTime() !== appointmentStart.getTime();
+  const scheduleChanged =
+    !storedScheduledAt || storedScheduledAt.getTime() !== scheduledAt.getTime();
+
+  if (!startChanged && !scheduleChanged) {
+    logger.debug('Reminder already up to date', {
+      docId: docRef.id,
+      salonId,
+      appointmentId,
+      offsetMinutes,
+    });
+    return;
+  }
+
+  await docRef.update({
+    appointmentStart,
+    scheduledAt,
+    title,
+    body,
+    payload,
+    status: 'pending',
+    updatedAt: serverTimestamp(),
+    traces: FieldValue.arrayUnion({
+      at: new Date(),
+      event: 'rescheduled',
+      info: {
+        startChanged,
+        scheduleChanged,
+        previousScheduledAt: storedScheduledAt ?? null,
+        newScheduledAt: scheduledAt,
+      },
+    }),
+  });
+
+  logger.info('Rescheduled reminder message', {
+    salonId,
+    appointmentId,
+    offsetMinutes,
+    clientId,
+  });
 }
 
 const salonNameCache = new Map<string, string>();
@@ -120,7 +247,7 @@ async function enqueueReminder(
   const outboxId = `reminder_${salonId}_${appointmentId}_m${offsetMinutes}`;
   const { title, body } = buildReminderBody(appointmentStart, salonName, offsetMinutes);
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     type: 'appointment_reminder',
     offsetMinutes,
     appointmentId,
@@ -129,30 +256,50 @@ async function enqueueReminder(
     body,
   };
 
+  const docRef = messageOutboxCollection.doc(outboxId);
+  const docData = {
+    salonId,
+    clientId,
+    templateId,
+    channel: 'push',
+    status: 'pending',
+    type: 'appointment_reminder',
+    scheduledAt,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    title,
+    body,
+    payload,
+    metadata: {
+      offsetMinutes,
+      type: 'appointment_reminder',
+    },
+    appointmentStart,
+    traces: [],
+  };
+
   try {
-    await messageOutboxCollection.doc(outboxId).create({
+    await docRef.create(docData);
+    logger.info('Created reminder message', {
+      outboxId,
       salonId,
       clientId,
-      templateId,
-      channel: 'push',
-      status: 'pending',
-      type: 'appointment_reminder',
-      scheduledAt,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      title,
-      body,
-      payload,
-      metadata: {
-        offsetMinutes,
-        type: 'appointment_reminder',
-      },
-      traces: [],
+      offsetMinutes,
     });
-    logger.info('Created reminder message', { outboxId, salonId, clientId, offsetMinutes });
   } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && (error as { code?: number }).code === 6) {
-      logger.debug('Reminder already exists', { outboxId });
+    if (isAlreadyExistsError(error)) {
+      await reconcileExistingReminder({
+        docRef,
+        scheduledAt,
+        appointmentStart,
+        title,
+        body,
+        payload,
+        salonId,
+        clientId,
+        appointmentId,
+        offsetMinutes,
+      });
       return;
     }
     logger.error(

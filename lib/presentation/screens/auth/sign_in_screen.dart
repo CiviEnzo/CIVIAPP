@@ -51,6 +51,11 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                         'Inserisci le tue credenziali. Il ruolo (Admin / Operatore / Cliente) viene assegnato dal tuo profilo Firebase.',
                         style: theme.textTheme.bodyMedium,
                       ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Per i clienti: dopo l\'accesso potrai scegliere il salone di riferimento e inviare la richiesta di registrazione, che verrà approvata dall\'amministratore.',
+                        style: theme.textTheme.bodySmall,
+                      ),
                       const SizedBox(height: 24),
                       TextFormField(
                         controller: _emailController,

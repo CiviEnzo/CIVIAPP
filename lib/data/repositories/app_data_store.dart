@@ -207,6 +207,17 @@ class AppDataStore extends StateNotifier<AppDataState> {
           (items) => state = state.copyWith(setupProgress: items),
         ),
       );
+    } else if (role == UserRole.client) {
+      subscriptions.add(
+        _listenCollection<Salon>(
+          firestore.collection('salons'),
+          salonFromDoc,
+          (items) {
+            state = state.copyWith(salons: items);
+            _refreshFeatureFilteredCollections();
+          },
+        ),
+      );
     } else if (salonIds.isEmpty) {
       state = state.copyWith(
         salons: const <Salon>[],
@@ -761,8 +772,6 @@ class AppDataStore extends StateNotifier<AppDataState> {
         );
       }
 
-      subscribeSalonCollections(salonIds);
-
       if (clientId != null && clientId.isNotEmpty) {
         subscriptions.add(
           _listenDocument<Client>(
@@ -817,6 +826,17 @@ class AppDataStore extends StateNotifier<AppDataState> {
         );
 
         subscriptions.add(
+          _listenCollection<ClientPhotoCollage>(
+            firestore
+                .collection('client_photo_collages')
+                .where('clientId', isEqualTo: clientId)
+                .orderBy('createdAt', descending: true),
+            clientPhotoCollageFromDoc,
+            (items) => state = state.copyWith(clientPhotoCollages: items),
+          ),
+        );
+
+        subscriptions.add(
           _listenCollection<ClientQuestionnaire>(
             firestore
                 .collection('client_questionnaires')
@@ -832,6 +852,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
           publicAppointments: const <Appointment>[],
           sales: const <Sale>[],
           clientPhotos: const <ClientPhoto>[],
+          clientPhotoCollages: const <ClientPhotoCollage>[],
           clientQuestionnaires: const <ClientQuestionnaire>[],
         );
       }
@@ -2413,6 +2434,15 @@ class AppDataStore extends StateNotifier<AppDataState> {
     _deleteClientPhotoCollageLocal(collageId);
   }
 
+  void _removeClientAssociationLocal(String? clientId) {
+    if (clientId == null || clientId.isEmpty) {
+      return;
+    }
+    final remaining =
+        state.clients.where((client) => client.id != clientId).toList();
+    state = state.copyWith(clients: List.unmodifiable(remaining));
+  }
+
   Future<void> submitSalonAccessRequest({
     required String salonId,
     required String userId,
@@ -2500,6 +2530,27 @@ class AppDataStore extends StateNotifier<AppDataState> {
       }
       await docRef.set(createData);
     }
+  }
+
+  Future<void> detachClientFromSalon({
+    required String userId,
+    required String salonId,
+    String? clientId,
+  }) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      _removeClientAssociationLocal(clientId);
+      return;
+    }
+    final updates = <String, Object?>{
+      'salonIds': FieldValue.arrayRemove(<String>[salonId]),
+      'salonId': FieldValue.delete(),
+    };
+    if (clientId != null && clientId.isNotEmpty) {
+      updates['clientId'] = FieldValue.delete();
+    }
+    await firestore.collection('users').doc(userId).update(updates);
+    _removeClientAssociationLocal(clientId);
   }
 
   Future<void> approveSalonAccessRequest({
@@ -4147,22 +4198,53 @@ class AppDataStore extends StateNotifier<AppDataState> {
   }
 
   Future<void> upsertSale(Sale sale) async {
+    final previousSale = state.sales.firstWhereOrNull(
+      (item) => item.id == sale.id,
+    );
     final firestore = _firestore;
     if (firestore == null) {
       _upsertLocal(sales: [sale]);
+      await _syncInventoryAfterSaleChange(
+        previousUsage: _buildProductUsageMap(
+          previousSale?.items ?? const <SaleItem>[],
+        ),
+        nextUsage: _buildProductUsageMap(sale.items),
+      );
       return;
     }
     await firestore.collection('sales').doc(sale.id).set(saleToMap(sale));
     _upsertLocal(sales: [sale]);
+    await _syncInventoryAfterSaleChange(
+      previousUsage: _buildProductUsageMap(
+        previousSale?.items ?? const <SaleItem>[],
+      ),
+      nextUsage: _buildProductUsageMap(sale.items),
+    );
   }
 
   Future<void> deleteSale(String saleId) async {
+    final existingSale = state.sales.firstWhereOrNull(
+      (item) => item.id == saleId,
+    );
     final firestore = _firestore;
     if (firestore == null) {
       _deleteSaleLocal(saleId);
+      await _syncInventoryAfterSaleChange(
+        previousUsage: existingSale == null
+            ? const <String, double>{}
+            : _buildProductUsageMap(existingSale.items),
+        nextUsage: const <String, double>{},
+      );
       return;
     }
     await firestore.collection('sales').doc(saleId).delete();
+    _deleteSaleLocal(saleId);
+    await _syncInventoryAfterSaleChange(
+      previousUsage: existingSale == null
+          ? const <String, double>{}
+          : _buildProductUsageMap(existingSale.items),
+      nextUsage: const <String, double>{},
+    );
   }
 
   Future<void> upsertPaymentTicket(PaymentTicket ticket) async {
@@ -5151,6 +5233,89 @@ class AppDataStore extends StateNotifier<AppDataState> {
         state.inventoryItems.where((element) => element.id != itemId),
       ),
     );
+  }
+
+  Future<void> _syncInventoryAfterSaleChange({
+    required Map<String, double> previousUsage,
+    required Map<String, double> nextUsage,
+  }) async {
+    if (previousUsage.isEmpty && nextUsage.isEmpty) {
+      return;
+    }
+    final inventoryItems = state.inventoryItems;
+    if (inventoryItems.isEmpty) {
+      return;
+    }
+    final keys = <String>{...previousUsage.keys, ...nextUsage.keys};
+    if (keys.isEmpty) {
+      return;
+    }
+    final delta = <String, double>{};
+    for (final key in keys) {
+      final before = previousUsage[key] ?? 0;
+      final after = nextUsage[key] ?? 0;
+      final change = double.parse((after - before).toStringAsFixed(3));
+      if (change.abs() < 0.0005) {
+        continue;
+      }
+      delta[key] = change;
+    }
+    if (delta.isEmpty) {
+      return;
+    }
+    final inventoryById = <String, InventoryItem>{
+      for (final item in inventoryItems) item.id: item,
+    };
+    final now = DateTime.now();
+    for (final entry in delta.entries) {
+      final inventoryItem = inventoryById[entry.key];
+      if (inventoryItem == null) {
+        continue;
+      }
+      final adjusted = inventoryItem.quantity - entry.value;
+      var nextQuantity = double.parse(adjusted.toStringAsFixed(3));
+      if (nextQuantity < 0) {
+        nextQuantity = 0;
+      }
+      final updatedItem = InventoryItem(
+        id: inventoryItem.id,
+        salonId: inventoryItem.salonId,
+        name: inventoryItem.name,
+        category: inventoryItem.category,
+        quantity: nextQuantity,
+        unit: inventoryItem.unit,
+        threshold: inventoryItem.threshold,
+        cost: inventoryItem.cost,
+        sellingPrice: inventoryItem.sellingPrice,
+        updatedAt: now,
+      );
+      await upsertInventoryItem(updatedItem);
+    }
+  }
+
+  Map<String, double> _buildProductUsageMap(List<SaleItem> items) {
+    if (items.isEmpty) {
+      return const <String, double>{};
+    }
+    final usage = <String, double>{};
+    for (final item in items) {
+      if (item.referenceType != SaleReferenceType.product) {
+        continue;
+      }
+      if (item.referenceId.isEmpty) {
+        continue;
+      }
+      final normalizedQuantity =
+          item.quantity <= 0
+              ? 0.0
+              : double.parse(item.quantity.toStringAsFixed(3));
+      if (normalizedQuantity <= 0) {
+        continue;
+      }
+      final total = (usage[item.referenceId] ?? 0) + normalizedQuantity;
+      usage[item.referenceId] = double.parse(total.toStringAsFixed(3));
+    }
+    return usage;
   }
 
   void _deletePaymentTicketLocal(String ticketId) {

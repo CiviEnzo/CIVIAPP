@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:you_book/domain/entities/user_role.dart';
 
 class AppUser {
@@ -10,6 +11,11 @@ class AppUser {
     this.displayName,
     this.email,
     this.availableRoles = const <UserRole>[],
+    this.pendingSalonId,
+    this.pendingFirstName,
+    this.pendingLastName,
+    this.pendingPhone,
+    this.pendingDateOfBirth,
   });
 
   final String uid;
@@ -20,6 +26,11 @@ class AppUser {
   final String? displayName;
   final String? email;
   final List<UserRole> availableRoles;
+  final String? pendingSalonId;
+  final String? pendingFirstName;
+  final String? pendingLastName;
+  final String? pendingPhone;
+  final DateTime? pendingDateOfBirth;
 
   String? get defaultSalonId => salonIds.isNotEmpty ? salonIds.first : null;
 
@@ -66,19 +77,27 @@ class AppUser {
           singleSalon == null || singleSalon.isEmpty ? const [] : [singleSalon];
     }
 
+    final availableRoles = _parseAvailableRoles(
+      rawRoles: data['roles'] ?? data['availableRoles'] ?? data['allowedRoles'],
+      fallbackRole: role,
+    );
+    final effectiveRole =
+        role ?? (availableRoles.isNotEmpty ? availableRoles.first : null);
+
     return AppUser(
       uid: uid,
-      role: role,
+      role: effectiveRole,
       salonIds: salonIds,
       staffId: data['staffId'] as String?,
       clientId: data['clientId'] as String?,
       displayName: data['displayName'] as String?,
       email: data['email'] as String?,
-      availableRoles: _parseAvailableRoles(
-        rawRoles:
-            data['roles'] ?? data['availableRoles'] ?? data['allowedRoles'],
-        fallbackRole: role,
-      ),
+      availableRoles: availableRoles,
+      pendingSalonId: _stringOrNull(data['pendingSalonId']),
+      pendingFirstName: _stringOrNull(data['pendingFirstName']),
+      pendingLastName: _stringOrNull(data['pendingLastName']),
+      pendingPhone: _stringOrNull(data['pendingPhone']),
+      pendingDateOfBirth: _dateFromValue(data['pendingDateOfBirth']),
     );
   }
 
@@ -94,6 +113,11 @@ class AppUser {
       email: email,
       displayName: displayName,
       availableRoles: const <UserRole>[],
+      pendingSalonId: null,
+      pendingFirstName: null,
+      pendingLastName: null,
+      pendingPhone: null,
+      pendingDateOfBirth: null,
     );
   }
 }
@@ -139,6 +163,34 @@ UserRole? _roleFromName(String? value) {
     if (role.name == normalized) {
       return role;
     }
+  }
+  return null;
+}
+
+String? _stringOrNull(Object? value) {
+  if (value == null) {
+    return null;
+  }
+  final stringValue = value.toString().trim();
+  if (stringValue.isEmpty) {
+    return null;
+  }
+  return stringValue;
+}
+
+DateTime? _dateFromValue(Object? value) {
+  if (value == null) {
+    return null;
+  }
+  if (value is Timestamp) {
+    return value.toDate();
+  }
+  if (value is DateTime) {
+    return value;
+  }
+  if (value is String && value.isNotEmpty) {
+    final parsed = DateTime.tryParse(value);
+    return parsed;
   }
   return null;
 }

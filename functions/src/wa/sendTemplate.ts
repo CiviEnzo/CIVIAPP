@@ -74,6 +74,11 @@ export async function sendTemplateMessage(
   }
 
   const config = await getSalonWaConfig(salonId);
+  logger.debug('Resolved WhatsApp config for salon', {
+    salonId,
+    phoneNumberId: config.phoneNumberId,
+    tokenSecretId: config.tokenSecretId,
+  });
   const accessToken = await readSecret(config.tokenSecretId);
 
   const languageCode =

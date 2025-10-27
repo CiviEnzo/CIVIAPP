@@ -49,6 +49,13 @@ class _WhatsAppCampaignEditorPageState
             .toList()
           ..sort((a, b) => a.title.compareTo(b.title));
 
+    if (_selectedTemplate == null && templates.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _selectedTemplate != null) return;
+        _onTemplateChanged(templates.first);
+      });
+    }
+
     return Form(
       key: _formKey,
       child: SingleChildScrollView(

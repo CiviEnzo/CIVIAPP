@@ -65,7 +65,7 @@ class _ClientRegistrationScreenState
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Inserisci email e password per creare un account cliente. Potrai completare il profilo collegando il salone nel passo successivo.',
+                        'Inserisci email e password per creare il tuo account. Dopo l\'accesso potrai scegliere il salone e inviare una richiesta di registrazione che verrà approvata dall\'amministratore.',
                         style: theme.textTheme.bodyMedium,
                       ),
                       const SizedBox(height: 24),

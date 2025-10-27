@@ -8,6 +8,7 @@ import 'package:you_book/domain/entities/app_notification.dart';
 import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
+import 'package:you_book/domain/entities/client_photo_collage.dart';
 import 'package:you_book/domain/entities/package.dart';
 import 'package:you_book/domain/entities/last_minute_slot.dart';
 import 'package:you_book/domain/entities/promotion.dart';
@@ -1908,7 +1909,10 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       (salon) => salon.id == currentClient.salonId,
     );
     final salonPackages = data.packages
-        .where((pkg) => pkg.salonId == currentClient.salonId)
+        .where(
+          (pkg) =>
+              pkg.salonId == currentClient.salonId && pkg.showOnClientDashboard,
+        )
         .toList(growable: false);
     final appointments =
         data.appointments
@@ -5195,45 +5199,619 @@ class _ClientPhotosSheetBody extends ConsumerWidget {
   const _ClientPhotosSheetBody({required this.clientId});
 
   final String clientId;
+  static const List<ClientPhotoSetType> _orderedSets = <ClientPhotoSetType>[
+    ClientPhotoSetType.front,
+    ClientPhotoSetType.back,
+    ClientPhotoSetType.right,
+    ClientPhotoSetType.left,
+  ];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final photos = ref.watch(clientPhotosProvider(clientId));
-    final sortedPhotos =
-        photos.toList()..sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
+    final collages = ref.watch(clientPhotoCollagesProvider(clientId));
+
+    final Map<ClientPhotoSetType, List<ClientPhoto>> grouped =
+        <ClientPhotoSetType, List<ClientPhoto>>{};
+    for (final type in _orderedSets) {
+      grouped[type] =
+          photos.where((photo) => photo.setType == type).toList()
+            ..sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
+    }
+
+    final otherPhotos =
+        photos.where((photo) => photo.setType == null).toList()
+          ..sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
+    final sortedCollages =
+        collages.toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    final completedSets =
+        grouped.values
+            .where(
+              (setPhotos) => setPhotos.any((photo) => photo.isSetActiveVersion),
+            )
+            .length;
+
+    final hasAnySetsContent = grouped.values.any((list) => list.isNotEmpty);
+    final hasAnyPhotos = photos.isNotEmpty || hasAnySetsContent;
+    final hasAnyCollages = sortedCollages.isNotEmpty;
+    final hasOtherPhotos = otherPhotos.isNotEmpty;
+    final hasAnyArchive = hasAnyPhotos || hasAnyCollages || hasOtherPhotos;
 
     final children = <Widget>[
       Text(
-        'Accedi agli scatti dedicati ai tuoi trattamenti condivisi dallo staff.',
+        'Accedi ai set fotografici e ai collage creati su misura per i tuoi trattamenti.',
         style: theme.textTheme.bodyMedium?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
+          color: scheme.onSurfaceVariant,
         ),
       ),
       const SizedBox(height: 16),
     ];
 
-    if (sortedPhotos.isEmpty) {
+    if (!hasAnyArchive) {
       children.add(
         const _ClientEmptyStateCard(
           icon: Icons.photo_library_outlined,
           title: 'Ancora nessuna foto disponibile',
           message:
-              'Lo staff potrà condividere qui gli scatti dedicati ai tuoi trattamenti.',
+              'Lo staff potrà condividere qui i set fotografici e i collage delle tue sessioni.',
         ),
       );
     } else {
-      for (final photo in sortedPhotos) {
-        children.add(_ClientPhotoCard(photo: photo));
+      children.add(
+        _ClientPhotoSummaryBanner(
+          completedSets: completedSets,
+          totalSets: _orderedSets.length,
+          totalPhotos: photos.length,
+          collageCount: sortedCollages.length,
+        ),
+      );
+      children.add(const SizedBox(height: 20));
+      children.add(
+        Text(
+          'Set fotografici',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+      children.add(const SizedBox(height: 12));
+      children.add(
+        _ClientPhotoSetGrid(
+          grouped: grouped,
+          onPreview: (photo) => _showClientPhotoPreview(context, photo),
+          onShowHistory:
+              (type) => _showClientPhotoSetHistory(
+                context: context,
+                type: type,
+                photos: grouped[type] ?? const <ClientPhoto>[],
+              ),
+        ),
+      );
+
+      if (hasAnyCollages) {
+        children.add(const SizedBox(height: 24));
+        children.add(
+          Text(
+            'Collage condivisi',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        );
         children.add(const SizedBox(height: 12));
+        for (var i = 0; i < sortedCollages.length; i++) {
+          final collage = sortedCollages[i];
+          final heroTag = 'client-collage-${collage.id}';
+          children.add(
+            _ClientCollageCard(
+              collage: collage,
+              heroTag: heroTag,
+              onPreview:
+                  () => _showClientCollagePreview(
+                    context,
+                    collage,
+                    heroTag: heroTag,
+                  ),
+            ),
+          );
+          if (i != sortedCollages.length - 1) {
+            children.add(const SizedBox(height: 12));
+          }
+        }
       }
-      children.removeLast();
+
+      if (hasOtherPhotos) {
+        children.add(const SizedBox(height: 24));
+        children.add(
+          Text(
+            'Archivio completo',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        );
+        children.add(const SizedBox(height: 12));
+        children.add(
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: otherPhotos.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            itemBuilder: (context, index) {
+              final photo = otherPhotos[index];
+              return _ClientPhotoCard(photo: photo);
+            },
+          ),
+        );
+      }
     }
 
     return ListView(
       physics: const BouncingScrollPhysics(),
       padding: EdgeInsets.zero,
       children: children,
+    );
+  }
+}
+
+class _ClientPhotoSummaryBanner extends StatelessWidget {
+  const _ClientPhotoSummaryBanner({
+    required this.completedSets,
+    required this.totalSets,
+    required this.totalPhotos,
+    required this.collageCount,
+  });
+
+  final int completedSets;
+  final int totalSets;
+  final int totalPhotos;
+  final int collageCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final completionLabel = '$completedSets/$totalSets set completati';
+    final photoLabel =
+        totalPhotos == 1 ? '1 foto archiviata' : '$totalPhotos foto archiviate';
+    final collageLabel =
+        collageCount == 0
+            ? 'Nessun collage condiviso'
+            : collageCount == 1
+            ? '1 collage condiviso'
+            : '$collageCount collage condivisi';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        color: scheme.primaryContainer,
+        border: Border.all(color: scheme.primary.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                height: 44,
+                width: 44,
+                decoration: BoxDecoration(
+                  color: scheme.primary.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(
+                  Icons.auto_awesome_rounded,
+                  color: scheme.onPrimaryContainer,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Il tuo archivio fotografico',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: scheme.onPrimaryContainer,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _ClientSummaryChip(
+                icon: Icons.grid_on_rounded,
+                label: completionLabel,
+                color: scheme.onPrimaryContainer,
+              ),
+              _ClientSummaryChip(
+                icon: Icons.photo_camera_back_outlined,
+                label: photoLabel,
+                color: scheme.onPrimaryContainer,
+              ),
+              _ClientSummaryChip(
+                icon: Icons.collections_bookmark_outlined,
+                label: collageLabel,
+                color: scheme.onPrimaryContainer,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClientSummaryChip extends StatelessWidget {
+  const _ClientSummaryChip({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClientPhotoSetGrid extends StatelessWidget {
+  const _ClientPhotoSetGrid({
+    required this.grouped,
+    required this.onPreview,
+    required this.onShowHistory,
+  });
+
+  final Map<ClientPhotoSetType, List<ClientPhoto>> grouped;
+  final void Function(ClientPhoto photo) onPreview;
+  final void Function(ClientPhotoSetType type) onShowHistory;
+
+  @override
+  Widget build(BuildContext context) {
+    final dateFormat = DateFormat('dd MMM yyyy', 'it_IT');
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.maxWidth;
+        const spacing = 16.0;
+        final showTwoColumns = maxWidth >= 520;
+        final tileWidth = showTwoColumns ? (maxWidth - spacing) / 2 : maxWidth;
+
+        final tiles = _ClientPhotosSheetBody._orderedSets
+            .map((type) {
+              final setPhotos = grouped[type] ?? const <ClientPhoto>[];
+              final activePhoto = _resolveActiveClientSetPhoto(setPhotos);
+              final updatedAt = activePhoto?.uploadedAt;
+              final statusLabel =
+                  updatedAt == null
+                      ? 'In attesa di caricamento'
+                      : 'Aggiornato il ${dateFormat.format(updatedAt.toLocal())}';
+              final versionsCount = setPhotos.length;
+              return SizedBox(
+                width: tileWidth,
+                child: _ClientPhotoSetTile(
+                  label: _clientPhotoSetLabel(type),
+                  activePhoto: activePhoto,
+                  statusLabel: statusLabel,
+                  versionsCount: versionsCount,
+                  onPreview:
+                      activePhoto == null ? null : () => onPreview(activePhoto),
+                  onShowHistory:
+                      versionsCount <= 1 ? null : () => onShowHistory(type),
+                ),
+              );
+            })
+            .toList(growable: false);
+
+        return Wrap(spacing: spacing, runSpacing: 20, children: tiles);
+      },
+    );
+  }
+}
+
+class _ClientPhotoSetTile extends StatelessWidget {
+  const _ClientPhotoSetTile({
+    required this.label,
+    required this.statusLabel,
+    required this.versionsCount,
+    this.activePhoto,
+    this.onPreview,
+    this.onShowHistory,
+  });
+
+  final String label;
+  final String statusLabel;
+  final int versionsCount;
+  final ClientPhoto? activePhoto;
+  final VoidCallback? onPreview;
+  final VoidCallback? onShowHistory;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final versionLabel =
+        versionsCount == 0
+            ? 'Nessuna versione caricata'
+            : versionsCount == 1
+            ? '1 versione disponibile'
+            : '$versionsCount versioni disponibili';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        AspectRatio(
+          aspectRatio: 3 / 4,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onPreview,
+              borderRadius: BorderRadius.circular(18),
+              child: Ink(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  color: scheme.surfaceVariant,
+                ),
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child:
+                          activePhoto == null
+                              ? Center(
+                                child: Icon(
+                                  Icons.photo_outlined,
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              )
+                              : ClipRRect(
+                                borderRadius: BorderRadius.circular(18),
+                                child: Image.network(
+                                  activePhoto!.downloadUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return Center(
+                                      child: Icon(
+                                        Icons.broken_image_outlined,
+                                        color: scheme.onSurfaceVariant,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                    ),
+                    if (versionsCount > 0)
+                      Positioned(
+                        top: 12,
+                        right: 12,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.35),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            versionsCount == 1
+                                ? '1 foto'
+                                : '$versionsCount foto',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (activePhoto != null)
+                      Positioned(
+                        bottom: 12,
+                        right: 12,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.25),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: const Padding(
+                            padding: EdgeInsets.all(6),
+                            child: Icon(
+                              Icons.fullscreen_rounded,
+                              size: 16,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          statusLabel,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Icon(Icons.layers_outlined, size: 16, color: scheme.primary),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                versionLabel,
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: scheme.onSurface,
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (onShowHistory != null) ...[
+          const SizedBox(height: 6),
+          TextButton.icon(
+            onPressed: onShowHistory,
+            icon: const Icon(Icons.history, size: 16),
+            label: const Text('Storico set'),
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(0, 32),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _ClientCollageCard extends StatelessWidget {
+  const _ClientCollageCard({
+    required this.collage,
+    required this.onPreview,
+    this.heroTag,
+  });
+
+  final ClientPhotoCollage collage;
+  final VoidCallback onPreview;
+  final String? heroTag;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final previewUrl = collage.thumbnailUrl ?? collage.downloadUrl;
+    final createdAtLabel = DateFormat(
+      'dd MMM yyyy · HH:mm',
+      'it_IT',
+    ).format(collage.createdAt.toLocal());
+    final note = collage.notes?.trim();
+
+    final baseThumbnail = ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child:
+          previewUrl == null || previewUrl.isEmpty
+              ? Container(
+                width: 84,
+                height: 84,
+                color: scheme.surfaceVariant,
+                child: Icon(
+                  Icons.photo_outlined,
+                  color: scheme.onSurfaceVariant,
+                ),
+              )
+              : Image.network(
+                previewUrl,
+                width: 84,
+                height: 84,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.high,
+                errorBuilder:
+                    (context, error, stackTrace) => Container(
+                      width: 84,
+                      height: 84,
+                      color: scheme.surfaceVariant,
+                      child: Icon(
+                        Icons.broken_image_outlined,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+              ),
+    );
+
+    final thumbnail =
+        heroTag == null
+            ? baseThumbnail
+            : Hero(tag: heroTag!, child: baseThumbnail);
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: InkWell(
+        onTap: onPreview,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              thumbnail,
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _collageOrientationLabel(collage.orientation),
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Creato il $createdAtLabel',
+                      style: theme.textTheme.titleSmall,
+                    ),
+                    if (note != null && note.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        note,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Icon(Icons.fullscreen_rounded, color: scheme.onSurfaceVariant),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -5253,7 +5831,7 @@ class _ClientPhotoCard extends StatelessWidget {
             : 'Foto condivisa';
     return Card(
       child: ListTile(
-        onTap: () => _openPreview(context, photo),
+        onTap: () => _showClientPhotoPreview(context, photo),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         title: Text(
           fileLabel,
@@ -5286,70 +5864,466 @@ class _ClientPhotoCard extends StatelessWidget {
       ),
     );
   }
+}
 
-  void _openPreview(BuildContext context, ClientPhoto photo) {
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        final theme = Theme.of(dialogContext);
-        final dateFormat = DateFormat('EEEE d MMMM yyyy • HH:mm', 'it_IT');
-        return Dialog(
-          insetPadding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ClipRRect(
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(12),
-                ),
-                child: AspectRatio(
-                  aspectRatio: 1,
-                  child: Image.network(
-                    photo.downloadUrl,
-                    fit: BoxFit.contain,
-                    errorBuilder:
-                        (context, error, stackTrace) => const Center(
-                          child: Icon(Icons.broken_image_outlined, size: 48),
-                        ),
-                  ),
+Future<void> _showClientPhotoPreview(BuildContext context, ClientPhoto photo) {
+  return showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      final theme = Theme.of(dialogContext);
+      final dateFormat = DateFormat('EEEE d MMMM yyyy • HH:mm', 'it_IT');
+      return Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(12),
+              ),
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: Image.network(
+                  photo.downloadUrl,
+                  fit: BoxFit.contain,
+                  errorBuilder:
+                      (context, error, stackTrace) => const Center(
+                        child: Icon(Icons.broken_image_outlined, size: 48),
+                      ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      dateFormat.format(photo.uploadedAt.toLocal()),
-                      style: theme.textTheme.titleMedium,
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    dateFormat.format(photo.uploadedAt.toLocal()),
+                    style: theme.textTheme.titleMedium,
+                  ),
+                  if (photo.notes != null && photo.notes!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        photo.notes!,
+                        style: theme.textTheme.bodyMedium,
+                      ),
                     ),
-                    if (photo.notes != null && photo.notes!.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          photo.notes!,
-                          style: theme.textTheme.bodyMedium,
+                ],
+              ),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(0, 0, 16, 16),
+                child: TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Chiudi'),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+Future<void> _showClientCollagePreview(
+  BuildContext context,
+  ClientPhotoCollage collage, {
+  String? heroTag,
+}) {
+  return Navigator.of(context).push<void>(
+    MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder:
+          (_) =>
+              _ClientCollageFullScreenView(collage: collage, heroTag: heroTag),
+    ),
+  );
+}
+
+class _ClientCollageFullScreenView extends StatelessWidget {
+  const _ClientCollageFullScreenView({required this.collage, this.heroTag});
+
+  final ClientPhotoCollage collage;
+  final String? heroTag;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final imageUrl = collage.downloadUrl ?? collage.thumbnailUrl;
+    final orientationLabel = _collageOrientationLabel(collage.orientation);
+    final aspectRatio =
+        collage.orientation == ClientPhotoCollageOrientation.vertical
+            ? 3 / 4
+            : 4 / 3;
+    final dateFormat = DateFormat('EEEE d MMMM yyyy • HH:mm', 'it_IT');
+    final createdLabel = dateFormat.format(collage.createdAt.toLocal());
+    final notes = collage.notes?.trim();
+    final mediaPadding = MediaQuery.of(context).padding;
+
+    Widget image =
+        imageUrl == null || imageUrl.isEmpty
+            ? Container(
+              color: Colors.black,
+              alignment: Alignment.center,
+              child: Icon(
+                Icons.photo_outlined,
+                size: 72,
+                color: Colors.white.withOpacity(0.7),
+              ),
+            )
+            : Image.network(
+              imageUrl,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+              gaplessPlayback: true,
+              loadingBuilder: (context, child, progress) {
+                if (progress == null) {
+                  return child;
+                }
+                final expected = progress.expectedTotalBytes;
+                final value =
+                    expected == null || expected == 0
+                        ? null
+                        : progress.cumulativeBytesLoaded / expected;
+                return Center(
+                  child: CircularProgressIndicator(
+                    value: value,
+                    color: Colors.white,
+                  ),
+                );
+              },
+              errorBuilder:
+                  (context, error, stackTrace) => Center(
+                    child: Icon(
+                      Icons.broken_image_outlined,
+                      size: 60,
+                      color: Colors.white70,
+                    ),
+                  ),
+            );
+
+    if (heroTag != null) {
+      image = Hero(tag: heroTag!, child: image);
+    }
+
+    final infoCard = Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.65),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            orientationLabel,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: Colors.white70,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            createdLabel,
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (notes != null && notes.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              notes,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: Colors.white.withOpacity(0.9),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: Stack(
+          children: [
+            Positioned.fill(
+              child: InteractiveViewer(
+                minScale: 0.8,
+                maxScale: 6,
+                boundaryMargin: const EdgeInsets.all(120),
+                child: Center(
+                  child: AspectRatio(aspectRatio: aspectRatio, child: image),
+                ),
+              ),
+            ),
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    _FullScreenActionButton(
+                      icon: Icons.close_rounded,
+                      tooltip: 'Chiudi',
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.45),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Wrap(
+                            alignment: WrapAlignment.center,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: [
+                              const Icon(
+                                Icons.gesture_rounded,
+                                size: 16,
+                                color: Colors.white70,
+                              ),
+                              Text(
+                                'Pizzica per zoomare, trascina per spostare',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: Colors.white70,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
+                    ),
                   ],
                 ),
               ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(0, 0, 16, 16),
-                  child: TextButton(
-                    onPressed: () => Navigator.of(dialogContext).pop(),
-                    child: const Text('Chiudi'),
+            ),
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 24 + mediaPadding.bottom,
+              child: infoCard,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FullScreenActionButton extends StatelessWidget {
+  const _FullScreenActionButton({
+    required this.icon,
+    required this.onPressed,
+    this.tooltip,
+  });
+
+  final IconData icon;
+  final VoidCallback onPressed;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black.withOpacity(0.65),
+      shape: const CircleBorder(),
+      child: IconButton(
+        icon: Icon(icon, color: Colors.white),
+        tooltip: tooltip,
+        onPressed: onPressed,
+      ),
+    );
+  }
+}
+
+Future<void> _showClientPhotoSetHistory({
+  required BuildContext context,
+  required ClientPhotoSetType type,
+  required List<ClientPhoto> photos,
+}) async {
+  if (photos.isEmpty) {
+    return;
+  }
+  final sorted =
+      photos.toList()..sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) {
+      final bottomInset = MediaQuery.of(sheetContext).viewInsets.bottom;
+      return _wrapClientModal(
+        context: sheetContext,
+        padding: EdgeInsets.fromLTRB(24, 24, 24, 24 + bottomInset),
+        builder: (modalContext) {
+          final theme = Theme.of(modalContext);
+          final dateFormat = DateFormat('dd MMM yyyy HH:mm', 'it_IT');
+          final availableHeight = MediaQuery.of(modalContext).size.height * 0.7;
+          return SizedBox(
+            height: availableHeight,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Storico ${_clientPhotoSetLabel(type)}',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+                const SizedBox(height: 16),
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: sorted.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final photo = sorted[index];
+                      final versionIndex = photo.setVersionIndex;
+                      final versionLabel =
+                          versionIndex == null
+                              ? 'Versione'
+                              : 'Versione $versionIndex';
+                      final isActive = photo.isSetActiveVersion;
+                      final notes = photo.notes?.trim();
+                      return Card(
+                        child: ListTile(
+                          onTap: () {
+                            Navigator.of(modalContext).pop();
+                            _showClientPhotoPreview(context, photo);
+                          },
+                          contentPadding: const EdgeInsets.all(12),
+                          leading: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.network(
+                              photo.downloadUrl,
+                              width: 54,
+                              height: 54,
+                              fit: BoxFit.cover,
+                              errorBuilder:
+                                  (context, error, stackTrace) => Container(
+                                    width: 54,
+                                    height: 54,
+                                    color: theme.colorScheme.surfaceVariant,
+                                    child: Icon(
+                                      Icons.broken_image_outlined,
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                            ),
+                          ),
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  versionLabel,
+                                  style: theme.textTheme.titleSmall,
+                                ),
+                              ),
+                              if (isActive)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: theme.colorScheme.primary
+                                        .withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    'Versione attiva',
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: theme.colorScheme.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                dateFormat.format(photo.uploadedAt.toLocal()),
+                                style: theme.textTheme.bodySmall,
+                              ),
+                              if (notes != null && notes.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    notes,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+ClientPhoto? _resolveActiveClientSetPhoto(List<ClientPhoto> photos) {
+  for (final photo in photos) {
+    if (photo.isSetActiveVersion) {
+      return photo;
+    }
+  }
+  if (photos.isEmpty) {
+    return null;
+  }
+  return photos.first;
+}
+
+String _clientPhotoSetLabel(ClientPhotoSetType type) {
+  switch (type) {
+    case ClientPhotoSetType.front:
+      return 'Frontale';
+    case ClientPhotoSetType.back:
+      return 'Dietro';
+    case ClientPhotoSetType.right:
+      return 'Destra';
+    case ClientPhotoSetType.left:
+      return 'Sinistra';
+  }
+}
+
+String _collageOrientationLabel(ClientPhotoCollageOrientation orientation) {
+  switch (orientation) {
+    case ClientPhotoCollageOrientation.vertical:
+      return 'Verticale';
+    case ClientPhotoCollageOrientation.horizontal:
+      return 'Orizzontale';
   }
 }
 

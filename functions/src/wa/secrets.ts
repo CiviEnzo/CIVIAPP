@@ -22,6 +22,7 @@ export async function readSecret(secretId: string): Promise<string> {
   }
 
   const name = normalizeSecretName(secretId);
+  logger.debug('Accessing secret version', { secretId, name });
 
   try {
     const accessSecretVersion = client.accessSecretVersion.bind(

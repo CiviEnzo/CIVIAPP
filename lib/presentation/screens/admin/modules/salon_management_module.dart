@@ -15,6 +15,7 @@ import 'package:you_book/presentation/screens/admin/forms/salon_rooms_sheet.dart
 import 'package:you_book/presentation/screens/admin/forms/salon_loyalty_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/salon_social_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/salon_setup_checklist_sheet.dart';
+import 'package:you_book/presentation/screens/admin/modules/questionnaires_module.dart';
 import 'package:you_book/services/whatsapp_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -63,13 +64,29 @@ class SalonManagementModule extends ConsumerWidget {
     final data = ref.watch(appDataProvider);
     final theme = Theme.of(context);
     final allSalons = data.salons;
-    final availableSalonIds = session.availableSalonIds.toSet();
+    final rawSalonIds = session.availableSalonIds;
+    final rawSalonIdSet = rawSalonIds.toSet();
+    final normalizedSalonIds = <String>{};
+    for (final id in rawSalonIds) {
+      final trimmed = id.trim();
+      if (trimmed.isNotEmpty) {
+        normalizedSalonIds.add(trimmed);
+      }
+    }
+    final shouldFilterBySalonIds = normalizedSalonIds.isNotEmpty;
     final salons =
-        availableSalonIds.isEmpty
+        shouldFilterBySalonIds
             ? allSalons
-            : allSalons
-                .where((salon) => availableSalonIds.contains(salon.id))
-                .toList(growable: false);
+                .where((salon) {
+                  if (rawSalonIdSet.contains(salon.id)) {
+                    return true;
+                  }
+                  final trimmedId = salon.id.trim();
+                  return trimmedId.isNotEmpty &&
+                      normalizedSalonIds.contains(trimmedId);
+                })
+                .toList(growable: false)
+            : allSalons;
 
     if (salons.isEmpty) {
       if (session.selectedSalonId != null) {
@@ -96,19 +113,44 @@ class SalonManagementModule extends ConsumerWidget {
       );
     }
 
+    Salon? findSalonById(String? id) {
+      if (id == null) {
+        return null;
+      }
+      final trimmedId = id.trim();
+      for (final salon in salons) {
+        if (salon.id == id) {
+          return salon;
+        }
+        if (trimmedId.isNotEmpty && salon.id.trim() == trimmedId) {
+          return salon;
+        }
+      }
+      return null;
+    }
+
     final currentSalonId = session.selectedSalonId;
     String? effectiveSalonId = currentSalonId ?? selectedSalonId;
-    if (effectiveSalonId != null &&
-        !salons.any((salon) => salon.id == effectiveSalonId)) {
-      effectiveSalonId = salons.first.id;
-      if (effectiveSalonId != currentSalonId) {
+    final matchingSalon = findSalonById(effectiveSalonId);
+
+    if (matchingSalon != null) {
+      effectiveSalonId = matchingSalon.id;
+      if (matchingSalon.id != currentSalonId) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           ref
               .read(sessionControllerProvider.notifier)
-              .setSalon(effectiveSalonId);
+              .setSalon(matchingSalon.id);
         });
       }
-    } else if (effectiveSalonId == null && salons.length == 1) {
+    } else if (effectiveSalonId != null) {
+      final fallbackId = salons.isNotEmpty ? salons.first.id : null;
+      effectiveSalonId = fallbackId;
+      if (fallbackId != currentSalonId) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          ref.read(sessionControllerProvider.notifier).setSalon(fallbackId);
+        });
+      }
+    } else if (salons.length == 1) {
       effectiveSalonId = salons.first.id;
       if (effectiveSalonId != currentSalonId) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -465,6 +507,14 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
                   appointment.start.isAfter(DateTime.now()),
             )
             .length;
+    final questionnaireTemplates =
+        data.clientQuestionnaireTemplates
+            .where((template) => template.salonId == salon.id)
+            .toList(growable: false);
+    final clientQuestionnaires =
+        data.clientQuestionnaires
+            .where((entry) => entry.salonId == salon.id)
+            .toList(growable: false);
 
     Future<void> updateSections(SalonDashboardSections newPrefs) async {
       await ref
@@ -564,6 +614,21 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
       );
     }
 
+    Future<void> manageQuestionnairesAsync() async {
+      await showAppModalSheet<void>(
+        context: context,
+        builder: (ctx) {
+          final mediaQuery = MediaQuery.of(ctx);
+          final maxHeight = mediaQuery.size.height * 0.9;
+          return SizedBox(
+            width: double.infinity,
+            height: maxHeight,
+            child: QuestionnairesModule(salonId: salon.id),
+          );
+        },
+      );
+    }
+
     void onEditOperations() {
       unawaited(editOperationsAsync());
     }
@@ -582,6 +647,10 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
 
     void onEditLoyalty() {
       unawaited(editLoyaltyAsync());
+    }
+
+    void onManageQuestionnaires() {
+      unawaited(manageQuestionnairesAsync());
     }
 
     Future<void> showSectionsFilter() async {
@@ -668,6 +737,15 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
                                   prefs.copyWith(showRooms: !prefs.showRooms),
                         ),
                         buildToggle(
+                          title: 'Questionari cliente',
+                          subtitle: 'Modelli e schede compilate',
+                          value: prefsDraft.showQuestionnaires,
+                          updater:
+                              (prefs) => prefs.copyWith(
+                                showQuestionnaires: !prefs.showQuestionnaires,
+                              ),
+                        ),
+                        buildToggle(
                           title: 'Programma fedeltà',
                           subtitle: 'Regole e configurazione punti',
                           value: prefsDraft.showLoyalty,
@@ -737,6 +815,44 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
                   ),
                 )
                 .toList();
+    String defaultTemplateName =
+        questionnaireTemplates.isEmpty ? 'Nessun modello' : 'Non impostato';
+    if (questionnaireTemplates.isNotEmpty) {
+      for (final template in questionnaireTemplates) {
+        if (template.isDefault) {
+          defaultTemplateName = template.name;
+          break;
+        }
+      }
+    }
+    final questionnaireChildren =
+        questionnaireTemplates.isEmpty
+            ? [
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Text(
+                  'Nessun questionario configurato.',
+                  style: textTheme.bodyMedium,
+                ),
+              ),
+            ]
+            : [
+              _DataRowTile(
+                leadingIcon: Icons.list_alt_rounded,
+                label: 'Modelli disponibili',
+                value: questionnaireTemplates.length.toString(),
+              ),
+              _DataRowTile(
+                leadingIcon: Icons.assignment_turned_in_rounded,
+                label: 'Questionari compilati',
+                value: clientQuestionnaires.length.toString(),
+              ),
+              _DataRowTile(
+                leadingIcon: Icons.star_rate_rounded,
+                label: 'Modello predefinito',
+                value: defaultTemplateName,
+              ),
+            ];
 
     final loyaltyChildren =
         salon.loyaltySettings.enabled
@@ -918,6 +1034,21 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
           shadowColor: highlightedShadowColor,
           elevation: highlightedElevation,
           children: roomsChildren,
+        ),
+      );
+    }
+
+    if (prefs.showQuestionnaires) {
+      sectionWidgets.add(
+        _SectionBlock(
+          title: 'Questionari cliente',
+          icon: Icons.assignment_rounded,
+          onEdit: onManageQuestionnaires,
+          editLabel: 'Gestisci questionari',
+          backgroundColor: highlightedCardColor,
+          shadowColor: highlightedShadowColor,
+          elevation: highlightedElevation,
+          children: questionnaireChildren,
         ),
       );
     }
@@ -2110,6 +2241,11 @@ Future<void> _startCreateFlow(BuildContext context, WidgetRef ref) async {
       displayName: currentUser.displayName,
       email: currentUser.email,
       availableRoles: currentUser.availableRoles,
+      pendingSalonId: currentUser.pendingSalonId,
+      pendingFirstName: currentUser.pendingFirstName,
+      pendingLastName: currentUser.pendingLastName,
+      pendingPhone: currentUser.pendingPhone,
+      pendingDateOfBirth: currentUser.pendingDateOfBirth,
     );
     ref.read(sessionControllerProvider.notifier).updateUser(updatedUser);
   }

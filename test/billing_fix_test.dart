@@ -457,4 +457,58 @@ void main() {
     expect(find.textContaining('Saldo registrato'), findsOneWidget);
     expect(find.textContaining('Operatore: Admin Test'), findsWidgets);
   });
+
+  test('registering sale with products updates inventory stock', () async {
+    final store = AppDataStore(currentUser: null);
+    final product = store.state.inventoryItems.firstWhere(
+      (item) => item.id == 'inv-001',
+    );
+
+    final sale = Sale(
+      id: 'sale-inventory-sync',
+      salonId: product.salonId,
+      clientId: 'client-001',
+      items: [
+        SaleItem(
+          referenceId: product.id,
+          referenceType: SaleReferenceType.product,
+          description: product.name,
+          quantity: 2,
+          unitPrice: product.sellingPrice,
+        ),
+      ],
+      total: product.sellingPrice * 2,
+      createdAt: DateTime.now(),
+    );
+
+    await store.upsertSale(sale);
+    final afterCreation = store.state.inventoryItems.firstWhere(
+      (item) => item.id == product.id,
+    );
+    expect(
+      afterCreation.quantity,
+      closeTo(product.quantity - 2, 0.0001),
+    );
+
+    final updatedSale = sale.copyWith(
+      items: [
+        sale.items.first.copyWith(quantity: 3),
+      ],
+      total: product.sellingPrice * 3,
+    );
+    await store.upsertSale(updatedSale);
+    final afterUpdate = store.state.inventoryItems.firstWhere(
+      (item) => item.id == product.id,
+    );
+    expect(
+      afterUpdate.quantity,
+      closeTo(product.quantity - 3, 0.0001),
+    );
+
+    await store.deleteSale(sale.id);
+    final afterDeletion = store.state.inventoryItems.firstWhere(
+      (item) => item.id == product.id,
+    );
+    expect(afterDeletion.quantity, closeTo(product.quantity, 0.0001));
+  });
 }

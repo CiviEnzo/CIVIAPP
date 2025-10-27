@@ -1,13 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:you_book/app/providers.dart';
-import 'package:you_book/domain/entities/client.dart';
-import 'package:you_book/presentation/screens/client/client_theme.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:you_book/app/providers.dart';
+import 'package:you_book/data/models/app_user.dart';
+import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/presentation/screens/client/client_theme.dart';
 
 class ClientSettingsScreen extends ConsumerStatefulWidget {
   const ClientSettingsScreen({super.key});
@@ -30,6 +32,7 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
   bool _hasUserEditedProfile = false;
   bool _isSavingProfile = false;
   bool _isSendingReset = false;
+  bool _isLeavingSalon = false;
   bool _reminderNotificationsEnabled = true;
   bool _promotionsNotificationsEnabled = true;
   bool _lastMinuteNotificationsEnabled = true;
@@ -595,6 +598,41 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
                               vertical: 12,
                             ),
                             leading: _SettingsIconAvatar(
+                              icon: Icons.store_mall_directory_outlined,
+                              color: theme.colorScheme.error,
+                              backgroundOpacity: 0.18,
+                            ),
+                            title: const Text('Esci dal salone'),
+                            subtitle: const Text(
+                              'Scollega questo salone e scegli un\'altra struttura',
+                            ),
+                            trailing:
+                                _isLeavingSalon
+                                    ? const SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                    : const Icon(Icons.chevron_right_rounded),
+                            onTap:
+                                _isLeavingSalon
+                                    ? null
+                                    : () => _confirmLeaveSalon(
+                                      themedContext,
+                                      currentClient,
+                                    ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Card(
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 12,
+                            ),
+                            leading: _SettingsIconAvatar(
                               icon: Icons.logout_rounded,
                               color: theme.colorScheme.error,
                               backgroundOpacity: 0.18,
@@ -698,6 +736,96 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
         setState(() {
           _isSendingReset = false;
         });
+      }
+    }
+  }
+
+  Future<void> _confirmLeaveSalon(
+    BuildContext context,
+    Client? currentClient,
+  ) async {
+    final session = ref.read(sessionControllerProvider);
+    final user = session.user;
+    final salonId = session.salonId;
+    if (user == null || salonId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nessun salone associato all\'account.')),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) {
+            return AlertDialog(
+              title: const Text('Vuoi lasciare il salone?'),
+              content: const Text(
+                'Per scegliere un altro salone dovrai completare di nuovo la procedura di onboarding. Confermi di voler proseguire?',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Annulla'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  child: const Text('Conferma'),
+                ),
+              ],
+            );
+          },
+        ) ??
+        false;
+    if (!confirmed) {
+      return;
+    }
+
+    setState(() => _isLeavingSalon = true);
+    final router = GoRouter.of(context);
+
+    try {
+      final clientId = currentClient?.id ?? user.clientId;
+      await ref.read(appDataProvider.notifier).detachClientFromSalon(
+            userId: user.uid,
+            salonId: salonId,
+            clientId: clientId,
+          );
+      ref.read(sessionControllerProvider.notifier).setSalon(null);
+      ref.read(sessionControllerProvider.notifier).setUser(null);
+      final updatedUser = AppUser(
+        uid: user.uid,
+        role: user.role,
+        salonIds: const [],
+        staffId: user.staffId,
+        clientId: null,
+        displayName: user.displayName,
+        email: user.email,
+        availableRoles: user.availableRoles,
+        pendingSalonId: user.pendingSalonId,
+        pendingFirstName: user.pendingFirstName,
+        pendingLastName: user.pendingLastName,
+        pendingPhone: user.pendingPhone,
+        pendingDateOfBirth: user.pendingDateOfBirth,
+      );
+      ref.read(sessionControllerProvider.notifier).updateUser(updatedUser);
+      ref.read(clientRegistrationDraftProvider.notifier).clear();
+      if (!mounted) {
+        return;
+      }
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      router.go('/onboarding');
+    } on Exception catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Operazione non riuscita: ${error.toString()}')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLeavingSalon = false);
       }
     }
   }

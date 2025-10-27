@@ -562,11 +562,6 @@ class _EmptyState extends StatelessWidget {
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: onCreate,
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('Crea questionario'),
-            ),
           ],
         ),
       ),

@@ -5427,14 +5427,6 @@ class _QuoteCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Expanded(
-                  child: Text(
-                    quote.title?.isNotEmpty == true
-                        ? quote.title!
-                        : 'Preventivo ${quote.number ?? ''}'.trim(),
-                    style: theme.textTheme.titleMedium,
-                  ),
-                ),
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,

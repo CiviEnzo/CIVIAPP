@@ -4,6 +4,7 @@ import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/domain/entities/staff_role.dart';
+import 'package:you_book/domain/entities/salon_access_request.dart';
 import 'package:you_book/domain/entities/user_role.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
@@ -184,25 +185,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       }
     }
 
-    final selectedSalon =
-        _selectedSalon == null
-            ? null
-            : salons.firstWhereOrNull((salon) => salon.id == _selectedSalon);
-    final registrationSettings =
-        selectedSalon?.clientRegistration ?? const ClientRegistrationSettings();
-    final requiresAddress = registrationSettings.extraFields.contains(
-      ClientRegistrationExtraField.address,
-    );
-    final requiresProfession = registrationSettings.extraFields.contains(
-      ClientRegistrationExtraField.profession,
-    );
-    final requiresReferral = registrationSettings.extraFields.contains(
-      ClientRegistrationExtraField.referralSource,
-    );
-    final requiresNotes = registrationSettings.extraFields.contains(
-      ClientRegistrationExtraField.notes,
-    );
-
     final baseFirstNameRaw =
         registrationDraft?.firstName ??
         existingClient?.firstName ??
@@ -235,13 +217,94 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final baseFirstName = baseFirstNameRaw.trim();
     final baseLastName = baseLastNameRaw.trim();
 
+    final pendingSalonIdRaw = user?.pendingSalonId;
+    final userPendingSalonId =
+        pendingSalonIdRaw != null && pendingSalonIdRaw.trim().isNotEmpty
+            ? pendingSalonIdRaw.trim()
+            : null;
+    final pendingRequests =
+        user == null
+            ? const <SalonAccessRequest>[]
+            : data.salonAccessRequests
+                .where((request) => request.userId == user.uid)
+                .toList(growable: false);
+    final pendingRequestsPending =
+        pendingRequests.where((request) => request.isPending).toList();
+    if (userPendingSalonId != null &&
+        pendingRequestsPending
+            .every((request) => request.salonId != userPendingSalonId)) {
+      final syntheticExtra = <String, dynamic>{};
+      final syntheticAddress = _addressController.text.trim();
+      if (syntheticAddress.isNotEmpty) {
+        syntheticExtra['address'] = syntheticAddress;
+      }
+      final syntheticProfession = _professionController.text.trim();
+      if (syntheticProfession.isNotEmpty) {
+        syntheticExtra['profession'] = syntheticProfession;
+      }
+      final syntheticReferral = (_referralSource ?? '').trim();
+      if (syntheticReferral.isNotEmpty) {
+        syntheticExtra['referralSource'] = syntheticReferral;
+      }
+      final syntheticNotes = _notesController.text.trim();
+      if (syntheticNotes.isNotEmpty) {
+        syntheticExtra['notes'] = syntheticNotes;
+      }
+      pendingRequestsPending.add(
+        SalonAccessRequest(
+          id: 'local-$userPendingSalonId',
+          salonId: userPendingSalonId,
+          userId: user?.uid ?? '',
+          firstName:
+              baseFirstName.isNotEmpty
+                  ? baseFirstName
+                  : (user?.pendingFirstName ?? ''),
+          lastName:
+              baseLastName.isNotEmpty
+                  ? baseLastName
+                  : (user?.pendingLastName ?? ''),
+          email: baseEmail,
+          phone: basePhone,
+          dateOfBirth: baseDateOfBirth ?? user?.pendingDateOfBirth,
+          extraData: syntheticExtra,
+          status: SalonAccessRequestStatus.pending,
+        ),
+      );
+    }
+    final hasPendingRequest = pendingRequestsPending.isNotEmpty;
+    final firstPendingSalonId =
+        pendingRequestsPending.isEmpty ? null : pendingRequestsPending.first.salonId;
+    final selectedSalonId =
+        _selectedSalon ?? userPendingSalonId ?? firstPendingSalonId;
+    final selectedSalon =
+        selectedSalonId == null
+            ? null
+            : salons.firstWhereOrNull((salon) => salon.id == selectedSalonId);
+    final registrationSettings =
+        selectedSalon?.clientRegistration ?? const ClientRegistrationSettings();
+    final requiresAddress = registrationSettings.extraFields.contains(
+      ClientRegistrationExtraField.address,
+    );
+    final requiresProfession = registrationSettings.extraFields.contains(
+      ClientRegistrationExtraField.profession,
+    );
+    final requiresReferral = registrationSettings.extraFields.contains(
+      ClientRegistrationExtraField.referralSource,
+    );
+    final requiresNotes = registrationSettings.extraFields.contains(
+      ClientRegistrationExtraField.notes,
+    );
+
     if (selectedSalon != null && _salonSearchController.text.isEmpty) {
       _salonSearchController.text = selectedSalon.name;
     }
 
     final instructions = () {
+      if (hasPendingRequest) {
+        return 'La tua richiesta di accesso è stata inviata. Il salone ti abiliterà non appena la valuterà.';
+      }
       if (roleLocked && role == UserRole.client) {
-        return 'Completa i tuoi dati di base e collega il salone con cui vuoi utilizzare CiviApp.';
+        return 'Seleziona il salone con cui vuoi utilizzare CiviApp e invia i tuoi dati. Sarà l\'amministratore del salone ad abilitare l\'accesso.';
       }
       if (allowRoleChoice) {
         return 'Seleziona il ruolo con cui vuoi utilizzare CiviApp e, se necessario, collega il salone di riferimento.';
@@ -257,6 +320,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         !roleLocked &&
         !allowRoleChoice &&
         !_isSaving &&
+        !hasPendingRequest &&
         _canAutoSubmit(role, user, salons);
 
     if (shouldAutoSubmit) {
@@ -299,7 +363,17 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(instructions, style: theme.textTheme.bodyMedium),
-                    const SizedBox(height: 24),
+                    if (hasPendingRequest) ...[
+                      const SizedBox(height: 16),
+                      _buildPendingRequestCard(
+                        theme,
+                        pendingRequestsPending,
+                        salons,
+                      ),
+                      const SizedBox(height: 24),
+                    ] else ...[
+                      const SizedBox(height: 24),
+                    ],
                     Text('Ruolo', style: theme.textTheme.titleMedium),
                     const SizedBox(height: 8),
                     if (allowRoleChoice)
@@ -366,46 +440,49 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                           style: theme.textTheme.bodyMedium,
                         )
                       else ...[
-                        DropdownMenu<String>(
-                          controller: _salonSearchController,
-                          initialSelection: _selectedSalon,
-                          enableFilter: true,
-                          requestFocusOnTap: true,
-                          leadingIcon: const Icon(Icons.search),
-                          label: const Text('Cerca salone'),
-                          dropdownMenuEntries:
-                              salons
-                                  .map(
-                                    (salon) => DropdownMenuEntry<String>(
-                                      value: salon.id,
-                                      label: salon.name,
-                                    ),
-                                  )
-                                  .toList(),
-                          onSelected: (value) {
-                            if (!mounted) {
-                              return;
-                            }
-                            setState(() {
-                              _selectedSalon = value;
-                              if (value != null) {
-                                final name =
-                                    salons
-                                        .firstWhereOrNull(
-                                          (salon) => salon.id == value,
-                                        )
-                                        ?.name;
-                                if (name != null) {
-                                  _salonSearchController.text = name;
-                                }
+                        IgnorePointer(
+                          ignoring: hasPendingRequest,
+                          child: DropdownMenu<String>(
+                            controller: _salonSearchController,
+                            initialSelection: selectedSalonId,
+                            enableFilter: true,
+                            requestFocusOnTap: true,
+                            leadingIcon: const Icon(Icons.search),
+                            label: const Text('Cerca salone'),
+                            dropdownMenuEntries:
+                                salons
+                                    .map(
+                                      (salon) => DropdownMenuEntry<String>(
+                                        value: salon.id,
+                                        label: salon.name,
+                                      ),
+                                    )
+                                    .toList(),
+                            onSelected: (value) {
+                              if (!mounted) {
+                                return;
                               }
-                            });
-                          },
+                              setState(() {
+                                _selectedSalon = value;
+                                if (value != null) {
+                                  final name =
+                                      salons
+                                          .firstWhereOrNull(
+                                            (salon) => salon.id == value,
+                                          )
+                                          ?.name;
+                                  if (name != null) {
+                                    _salonSearchController.text = name;
+                                  }
+                                }
+                              });
+                            },
+                          ),
                         ),
-                        if (_selectedSalon != null) ...[
+                        if (selectedSalonId != null) ...[
                           const SizedBox(height: 8),
                           Text(
-                            'Salon ID collegato: $_selectedSalon',
+                            'Salon ID collegato: $selectedSalonId',
                             style: theme.textTheme.bodySmall,
                           ),
                         ],
@@ -426,7 +503,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                       const SizedBox(height: 12),
                       _buildClientExtras(
                         theme.textTheme,
-                        hasSalon: _selectedSalon != null,
+                        hasSalon: selectedSalonId != null,
                         requiresAddress: requiresAddress,
                         requiresProfession: requiresProfession,
                         requiresReferral: requiresReferral,
@@ -435,7 +512,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     ],
                     const SizedBox(height: 32),
                     FilledButton(
-                      onPressed: _isSaving ? null : _submit,
+                      onPressed:
+                          _isSaving || hasPendingRequest ? null : _submit,
                       child:
                           _isSaving
                               ? const SizedBox(
@@ -445,11 +523,17 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                                   strokeWidth: 2,
                                 ),
                               )
-                              : const Text('Completa profilo'),
+                              : Text(
+                                  hasPendingRequest
+                                      ? 'Richiesta in attesa di approvazione'
+                                      : 'Invia richiesta di accesso',
+                                ),
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Potrai modificare questi dati in seguito tramite l\'area amministratore.',
+                      hasPendingRequest
+                          ? 'Puoi chiudere l\'app: riceverai una conferma quando il salone completerà l\'attivazione.'
+                          : 'I dati inseriti saranno inviati al salone selezionato per permettere l\'attivazione del tuo account.',
                       style: theme.textTheme.bodySmall,
                     ),
                   ],
@@ -487,6 +571,135 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       }
       setState(() => _staffRoleId = fallback.id);
     });
+  }
+
+  Widget _buildPendingRequestCard(
+    ThemeData theme,
+    List<SalonAccessRequest> requests,
+    List<Salon> salons,
+  ) {
+    final pending =
+        requests.where((request) => request.isPending).toList(growable: false);
+    if (pending.isEmpty) {
+      return Card(
+        color: theme.colorScheme.surface,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            'Nessuna richiesta in attesa.',
+            style: theme.textTheme.bodyMedium,
+          ),
+        ),
+      );
+    }
+    final salonLookup = {for (final salon in salons) salon.id: salon.name};
+    final dateTimeFormat = DateFormat('dd/MM/yyyy HH:mm');
+
+    Widget buildInfoRow(String label, String value, TextTheme textTheme) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '$label: ',
+              style: textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            Expanded(
+              child: Text(value, style: textTheme.bodySmall),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Card(
+      color: theme.colorScheme.surfaceVariant.withOpacity(0.4),
+      elevation: 0,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.hourglass_top_rounded,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Richiesta in attesa di approvazione',
+                  style: theme.textTheme.titleMedium,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Il salone riceverà i tuoi dati e ti abiliterà all\'accesso quando la richiesta sarà approvata.',
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            for (var i = 0; i < pending.length; i++) ...[
+              () {
+                final request = pending[i];
+                final salonName =
+                    salonLookup[request.salonId] ?? request.salonId;
+                final createdLabel =
+                    request.createdAt != null
+                        ? dateTimeFormat.format(request.createdAt!)
+                        : 'Inviata recentemente';
+                final textTheme = theme.textTheme;
+                final extra = request.extraData;
+                final address = _stringOrNull(extra['address']);
+                final profession = _stringOrNull(extra['profession']);
+                final referral = _stringOrNull(extra['referralSource']);
+                final notes = _stringOrNull(extra['notes']);
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      salonName,
+                      style: textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    buildInfoRow('Richiesta creata', createdLabel, textTheme),
+                    buildInfoRow(
+                      'Nome',
+                      '${request.firstName} ${request.lastName}',
+                      textTheme,
+                    ),
+                    buildInfoRow('Email', request.email, textTheme),
+                    if (request.phone.isNotEmpty)
+                      buildInfoRow('Telefono', request.phone, textTheme),
+                    if (request.dateOfBirth != null)
+                      buildInfoRow(
+                        'Data di nascita',
+                        DateFormat('dd/MM/yyyy').format(request.dateOfBirth!),
+                        textTheme,
+                      ),
+                    if (address != null)
+                      buildInfoRow('Città di residenza', address, textTheme),
+                    if (profession != null)
+                      buildInfoRow('Professione', profession, textTheme),
+                    if (referral != null)
+                      buildInfoRow('Come ci ha conosciuto', referral, textTheme),
+                    if (notes != null)
+                      buildInfoRow('Note', notes, textTheme),
+                  ],
+                );
+              }(),
+              if (i != pending.length - 1) ...[
+                const SizedBox(height: 12),
+                const Divider(height: 1),
+                const SizedBox(height: 12),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildStaffExtras(TextTheme textTheme, List<StaffRole> roles) {
@@ -733,6 +946,14 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     );
   }
 
+  String? _stringOrNull(Object? value) {
+    if (value == null) {
+      return null;
+    }
+    final text = value.toString().trim();
+    return text.isEmpty ? null : text;
+  }
+
   Widget _infoRow(TextTheme textTheme, String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -766,7 +987,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     if (role == UserRole.admin) {
       return true;
     }
-    final salonId = _selectedSalon ?? user?.defaultSalonId;
+    final salonId = _selectedSalon ?? user?.pendingSalonId ?? user?.defaultSalonId;
     if (salonId == null || salonId.isEmpty) {
       return false;
     }
@@ -825,7 +1046,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       return;
     }
 
-    if (role != UserRole.admin && (_selectedSalon?.isEmpty ?? true)) {
+    final salonId = _selectedSalon ?? user?.pendingSalonId;
+    if (role != UserRole.admin && (salonId == null || salonId.isEmpty)) {
       _showMessage('Seleziona un salone.');
       return;
     }
@@ -843,7 +1065,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final authRepo = ref.read(authRepositoryProvider);
     final dataStore = ref.read(appDataProvider.notifier);
     final currentData = ref.read(appDataProvider);
-    final salonId = _selectedSalon;
     final registrationDraft = ref.read(clientRegistrationDraftProvider);
     final selectedSalon = currentData.salons.firstWhereOrNull(
       (salon) => salon.id == salonId,
@@ -960,7 +1181,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           return;
         }
 
-        final requiresApproval = registrationSettings.requiresApproval;
         final normalizedFirst =
             (registrationDraft?.firstName ??
                     existingClient?.firstName ??
@@ -976,7 +1196,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           normalizedLast,
         ].where((value) => value.isNotEmpty).join(' ');
         clientDisplayName = displayName;
-        final now = DateTime.now();
         final existingPhone = existingClient?.phone;
         final sanitizedExistingPhone =
             existingPhone == null || existingPhone == '-'
@@ -987,7 +1206,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     sanitizedExistingPhone ??
                     _phoneController.text)
                 .trim();
-        final phoneForClient = rawPhone.isEmpty ? '-' : rawPhone;
         final address = _addressController.text.trim();
         final profession = _professionController.text.trim();
         final referral = (_referralSource ?? '').trim();
@@ -1011,113 +1229,62 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           extraData['notes'] = notes;
         }
 
-        if (requiresApproval) {
-          final uid = user?.uid;
-          final email =
-              user?.email ?? existingClient?.email ?? registrationDraft?.email;
-          if (uid == null || email == null) {
-            _showMessage(
-              'Impossibile inviare la richiesta. Accedi nuovamente e riprova.',
-            );
-            return;
-          }
-          await dataStore.submitSalonAccessRequest(
-            salonId: selectedSalonId,
-            userId: uid,
-            firstName: normalizedFirst,
-            lastName: normalizedLast,
-            email: email,
-            phone: rawPhone,
-            dateOfBirth: dateOfBirth,
-            extraData: extraData,
+        final uid = user?.uid;
+        final email =
+            user?.email ?? existingClient?.email ?? registrationDraft?.email;
+        if (uid == null || email == null) {
+          _showMessage(
+            'Impossibile inviare la richiesta. Accedi nuovamente e riprova.',
           );
-          await authRepo.completeUserProfile(
+          return;
+        }
+        await dataStore.submitSalonAccessRequest(
+          salonId: selectedSalonId,
+          userId: uid,
+          firstName: normalizedFirst,
+          lastName: normalizedLast,
+          email: email,
+          phone: rawPhone,
+          dateOfBirth: dateOfBirth,
+          extraData: extraData,
+        );
+        await authRepo.completeUserProfile(
+          role: role,
+          salonIds: const [],
+          staffId: staffId,
+          clientId: null,
+          displayName: displayName.isNotEmpty ? displayName : user?.displayName,
+        );
+        final fallbackDisplayName =
+            displayName.isNotEmpty ? displayName : user?.displayName;
+        if (user != null) {
+          final updatedUser = AppUser(
+            uid: user.uid,
             role: role,
             salonIds: const [],
             staffId: staffId,
             clientId: null,
-            displayName:
-                displayName.isNotEmpty ? displayName : user?.displayName,
+            displayName: fallbackDisplayName,
+            email: user.email,
+            availableRoles: user.availableRoles,
+            pendingSalonId: selectedSalonId,
+            pendingFirstName: normalizedFirst,
+            pendingLastName: normalizedLast,
+            pendingPhone: rawPhone,
+            pendingDateOfBirth: dateOfBirth,
           );
-          profileUpdated = true;
-          ref.read(clientRegistrationDraftProvider.notifier).clear();
-          if (!mounted) {
-            return;
-          }
-          _showMessage(
-            'Richiesta inviata. Riceverai una conferma appena approvata.',
-          );
-          context.go('/');
+          ref.read(sessionControllerProvider.notifier).updateUser(updatedUser);
+        }
+        profileUpdated = true;
+        ref.read(clientRegistrationDraftProvider.notifier).clear();
+        if (!mounted) {
           return;
         }
-
-        final resolvedClientId =
-            existingClient?.id ?? clientId ?? const Uuid().v4();
-        clientId = resolvedClientId;
-
-        existingClient ??= currentData.clients.firstWhereOrNull(
-          (client) => client.id == resolvedClientId,
+        _showMessage(
+          'Richiesta inviata al salone. Riceverai una conferma via email quando sarà approvata.',
         );
-        final defaultInitialBalance =
-            (selectedSalon?.loyaltySettings.enabled ?? false)
-                ? selectedSalon!.loyaltySettings.initialBalance
-                : 0;
-        final loyaltyTotalEarned = existingClient?.loyaltyTotalEarned ?? 0;
-        final loyaltyTotalRedeemed = existingClient?.loyaltyTotalRedeemed ?? 0;
-        final resolvedInitial =
-            existingClient?.loyaltyInitialPoints ?? defaultInitialBalance;
-        final storedBalance = existingClient?.loyaltyPoints ?? resolvedInitial;
-        var historicNet = storedBalance - resolvedInitial;
-        if (historicNet == 0 &&
-            (loyaltyTotalEarned != 0 || loyaltyTotalRedeemed != 0)) {
-          historicNet = loyaltyTotalEarned - loyaltyTotalRedeemed;
-        }
-        final nextBalance = resolvedInitial + historicNet;
-        final loyaltyUpdatedAt =
-            existingClient?.loyaltyUpdatedAt ?? (nextBalance > 0 ? now : null);
-        final client = Client(
-          id: resolvedClientId,
-          salonId: selectedSalonId,
-          firstName: normalizedFirst,
-          lastName: normalizedLast,
-          phone: phoneForClient,
-          clientNumber: existingClient?.clientNumber,
-          dateOfBirth: dateOfBirth,
-          address: address.isEmpty ? existingClient?.address : address,
-          profession:
-              profession.isEmpty ? existingClient?.profession : profession,
-          referralSource:
-              referral.isEmpty ? existingClient?.referralSource : referral,
-          email: user?.email ?? existingClient?.email,
-          notes:
-              notes.isNotEmpty
-                  ? notes
-                  : (existingClient?.notes ??
-                      'Creato automaticamente dall\'onboarding utente'),
-          loyaltyInitialPoints: resolvedInitial,
-          loyaltyPoints: nextBalance,
-          loyaltyUpdatedAt: loyaltyUpdatedAt,
-          loyaltyTotalEarned: loyaltyTotalEarned,
-          loyaltyTotalRedeemed: loyaltyTotalRedeemed,
-          marketedConsents:
-              existingClient?.marketedConsents ?? const <ClientConsent>[],
-          onboardingStatus: ClientOnboardingStatus.onboardingCompleted,
-          invitationSentAt: existingClient?.invitationSentAt,
-          firstLoginAt: existingClient?.firstLoginAt ?? now,
-          onboardingCompletedAt: now,
-        );
-        await authRepo.completeUserProfile(
-          role: role,
-          salonIds: [selectedSalonId],
-          staffId: staffId,
-          clientId: resolvedClientId,
-          displayName: displayName.isNotEmpty ? displayName : user?.displayName,
-        );
-        profileUpdated = true;
-        await dataStore.upsertClient(client);
-        ref.read(sessionControllerProvider.notifier).setUser(resolvedClientId);
-        ref.read(sessionControllerProvider.notifier).setSalon(selectedSalonId);
-        ref.read(clientRegistrationDraftProvider.notifier).clear();
+        context.go('/');
+        return;
       }
 
       if (!profileUpdated) {
@@ -1158,6 +1325,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           displayName: fallbackDisplayName,
           email: firebaseUser.email,
           availableRoles: firebaseUser.availableRoles,
+          pendingSalonId: user?.pendingSalonId,
+          pendingFirstName: user?.pendingFirstName,
+          pendingLastName: user?.pendingLastName,
+          pendingPhone: user?.pendingPhone,
+          pendingDateOfBirth: user?.pendingDateOfBirth,
         );
         ref.read(sessionControllerProvider.notifier).updateUser(updatedUser);
       }

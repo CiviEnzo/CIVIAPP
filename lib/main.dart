@@ -46,6 +46,10 @@ Future<void> main() async {
     FirebaseFirestore.instance.useFirestoreEmulator(emulatorHost, 8080);
     FirebaseStorage.instance.useStorageEmulator(emulatorHost, 9199);
     FirebaseFunctions.instance.useFunctionsEmulator(emulatorHost, 5001);
+    for (final region in ['europe-west1', 'europe-west3']) {
+      FirebaseFunctions.instanceFor(region: region)
+          .useFunctionsEmulator(emulatorHost, 5001);
+    }
   }*/
 
   if (_stripePublishableKey.isNotEmpty) {

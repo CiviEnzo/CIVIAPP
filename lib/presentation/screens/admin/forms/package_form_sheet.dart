@@ -12,12 +12,14 @@ class PackageFormSheet extends StatefulWidget {
     required this.services,
     this.initial,
     this.defaultSalonId,
+    this.defaultShowOnClientDashboard,
   });
 
   final List<Salon> salons;
   final List<Service> services;
   final ServicePackage? initial;
   final String? defaultSalonId;
+  final bool? defaultShowOnClientDashboard;
 
   @override
   State<PackageFormSheet> createState() => _PackageFormSheetState();
@@ -42,6 +44,7 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
   bool _finalPriceEdited = false;
   bool _isUpdatingFinalPrice = false;
   bool _isUpdatingDiscount = false;
+  late bool _showOnClientDashboard;
   final NumberFormat _currencyFormat = NumberFormat.simpleCurrency(
     locale: 'it_IT',
   );
@@ -75,6 +78,10 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
         initial?.salonId ??
         widget.defaultSalonId ??
         (widget.salons.isNotEmpty ? widget.salons.first.id : null);
+    _showOnClientDashboard =
+        initial?.showOnClientDashboard ??
+        widget.defaultShowOnClientDashboard ??
+        true;
     _selectedServices.addAll(initial?.serviceIds ?? []);
     if (initial?.serviceSessionCounts.isNotEmpty ?? false) {
       _serviceSessions.addAll(initial!.serviceSessionCounts);
@@ -176,6 +183,20 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
               controller: _description,
               decoration: const InputDecoration(labelText: 'Descrizione'),
               maxLines: 3,
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile.adaptive(
+              value: _showOnClientDashboard,
+              onChanged: (value) {
+                setState(() {
+                  _showOnClientDashboard = value;
+                });
+              },
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Mostra nel dashboard cliente'),
+              subtitle: const Text(
+                'Quando disattivato il pacchetto resta disponibile solo per preventivi e vendite interne.',
+              ),
             ),
             const SizedBox(height: 12),
             Text(
@@ -619,6 +640,9 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
               ? null
               : int.tryParse(_validDays.text.trim()),
       serviceSessionCounts: serviceSessions,
+      showOnClientDashboard: _showOnClientDashboard,
+      isGeneratedFromServiceBuilder:
+          widget.initial?.isGeneratedFromServiceBuilder ?? false,
     );
 
     Navigator.of(context).pop(pkg);

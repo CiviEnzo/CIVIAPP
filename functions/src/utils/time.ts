@@ -8,7 +8,7 @@ export interface QuietHours {
 }
 
 export const DEFAULT_TIMEZONE = 'Europe/Rome';
-export const DEFAULT_QUIET_HOURS: QuietHours = { start: 21, end: 9 };
+export const DEFAULT_QUIET_HOURS: QuietHours = { start: 0, end: 0 };
 
 export function now(timeZone: string = DEFAULT_TIMEZONE): Date {
   return utcToZonedTime(new Date(), timeZone);

@@ -93,6 +93,12 @@ class ServicesModule extends ConsumerWidget {
             .where((pkg) => salonId == null || pkg.salonId == salonId)
             .toList()
           ..sort((a, b) => a.name.compareTo(b.name));
+    final visiblePackages = packages
+        .where((pkg) => pkg.showOnClientDashboard)
+        .toList(growable: false);
+    final archivedPackages = packages
+        .where((pkg) => !pkg.showOnClientDashboard)
+        .toList(growable: false);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
@@ -247,14 +253,19 @@ class ServicesModule extends ConsumerWidget {
                           ),
                         )
                       else
-                        _PackagesList(
-                          packages: packages,
+                        _PackagesSection(
+                          visiblePackages: visiblePackages,
+                          archivedPackages: archivedPackages,
                           services: data.services,
                           salons: salons,
                           selectedSalonId: salonId,
                           cardColor: packageCardBackground,
                           cardElevation: packageElevation,
                           shadowColor: packageShadowColor,
+                          sectionBackground: sectionBackground,
+                          sectionShadowColor: sectionShadowColor,
+                          tabElevation: tabElevation,
+                          accentColor: accentColor,
                           onEdit:
                               (pkg) => _openPackageForm(
                                 context,
@@ -266,6 +277,13 @@ class ServicesModule extends ConsumerWidget {
                               ),
                           onDelete:
                               (pkg) => _confirmDeletePackage(context, ref, pkg),
+                          onToggleVisibility:
+                              (pkg, next) => _togglePackageVisibility(
+                                context,
+                                ref,
+                                package: pkg,
+                                showOnDashboard: next,
+                              ),
                         ),
                     ],
                   ),
@@ -345,6 +363,24 @@ class ServicesModule extends ConsumerWidget {
     }
     final label =
         isActive ? 'Servizio riattivato.' : 'Servizio disattivato e nascosto.';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(label)));
+  }
+
+  Future<void> _togglePackageVisibility(
+    BuildContext context,
+    WidgetRef ref, {
+    required ServicePackage package,
+    required bool showOnDashboard,
+  }) async {
+    final updated = package.copyWith(showOnClientDashboard: showOnDashboard);
+    await ref.read(appDataProvider.notifier).upsertPackage(updated);
+    if (!context.mounted) {
+      return;
+    }
+    final label =
+        showOnDashboard
+            ? 'Pacchetto visibile nel dashboard cliente.'
+            : 'Pacchetto nascosto dal dashboard cliente.';
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(label)));
   }
 
@@ -1064,9 +1100,13 @@ class _ServicesListState extends State<_ServicesList> {
 
     final theme = Theme.of(context);
     final accentColor = theme.colorScheme.secondary;
+    final cardColor =
+        theme.brightness == Brightness.light
+            ? Colors.white
+            : Colors.grey.shade900;
 
     return Card(
-      color: widget.serviceCardColor,
+      color: cardColor,
       elevation: widget.serviceCardElevation,
       shadowColor: widget.serviceShadowColor,
       shape: RoundedRectangleBorder(
@@ -1154,8 +1194,146 @@ class _ServiceGroup {
   final Salon? salon;
 }
 
+class _PackagesSection extends StatefulWidget {
+  const _PackagesSection({
+    required this.visiblePackages,
+    required this.archivedPackages,
+    required this.services,
+    required this.salons,
+    this.selectedSalonId,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onToggleVisibility,
+    required this.cardColor,
+    required this.cardElevation,
+    required this.shadowColor,
+    required this.sectionBackground,
+    required this.sectionShadowColor,
+    required this.tabElevation,
+    required this.accentColor,
+  });
+
+  final List<ServicePackage> visiblePackages;
+  final List<ServicePackage> archivedPackages;
+  final List<Service> services;
+  final List<Salon> salons;
+  final String? selectedSalonId;
+  final ValueChanged<ServicePackage> onEdit;
+  final ValueChanged<ServicePackage> onDelete;
+  final void Function(ServicePackage package, bool showOnDashboard)
+  onToggleVisibility;
+  final Color cardColor;
+  final double cardElevation;
+  final Color shadowColor;
+  final Color sectionBackground;
+  final Color sectionShadowColor;
+  final double tabElevation;
+  final Color accentColor;
+
+  @override
+  State<_PackagesSection> createState() => _PackagesSectionState();
+}
+
+class _PackagesSectionState extends State<_PackagesSection>
+    with SingleTickerProviderStateMixin {
+  late TabController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    final initialIndex =
+        widget.visiblePackages.isNotEmpty || widget.archivedPackages.isEmpty
+            ? 0
+            : 1;
+    _controller = TabController(
+      length: 2,
+      vsync: this,
+      initialIndex: initialIndex,
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _PackagesSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.visiblePackages.isEmpty &&
+        widget.archivedPackages.isNotEmpty &&
+        _controller.index == 0) {
+      _controller.animateTo(1);
+    } else if (widget.archivedPackages.isEmpty &&
+        widget.visiblePackages.isNotEmpty &&
+        _controller.index == 1) {
+      _controller.animateTo(0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final unselectedColor = theme.colorScheme.onSurfaceVariant.withOpacity(0.7);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Material(
+          color: widget.sectionBackground,
+          elevation: widget.tabElevation,
+          shadowColor: widget.sectionShadowColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: widget.accentColor.withOpacity(0.18)),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: TabBar(
+            controller: _controller,
+            labelColor: widget.accentColor,
+            unselectedLabelColor: unselectedColor,
+            indicatorColor: widget.accentColor,
+            tabs: [
+              Tab(text: 'Dashboard cliente (${widget.visiblePackages.length})'),
+              Tab(text: 'Archivio (${widget.archivedPackages.length})'),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        AnimatedBuilder(
+          animation: _controller,
+          builder: (context, _) {
+            final index = _controller.index;
+            final packages =
+                index == 0 ? widget.visiblePackages : widget.archivedPackages;
+            final emptyLabel =
+                index == 0
+                    ? 'Nessun pacchetto è visibile nel dashboard cliente.'
+                    : 'Non ci sono bozze create da "Aggiungi servizi" o pacchetti nascosti.';
+            return _PackagesList(
+              key: ValueKey('packages_tab_$index'),
+              packages: packages,
+              services: widget.services,
+              salons: widget.salons,
+              selectedSalonId: widget.selectedSalonId,
+              onEdit: widget.onEdit,
+              onDelete: widget.onDelete,
+              onToggleVisibility: widget.onToggleVisibility,
+              cardColor: widget.cardColor,
+              cardElevation: widget.cardElevation,
+              shadowColor: widget.shadowColor,
+              emptyLabel: emptyLabel,
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
 class _PackagesList extends StatefulWidget {
   const _PackagesList({
+    super.key,
     required this.packages,
     required this.services,
     required this.salons,
@@ -1165,6 +1343,8 @@ class _PackagesList extends StatefulWidget {
     required this.cardColor,
     required this.cardElevation,
     required this.shadowColor,
+    required this.onToggleVisibility,
+    this.emptyLabel,
   });
 
   final List<ServicePackage> packages;
@@ -1176,6 +1356,9 @@ class _PackagesList extends StatefulWidget {
   final Color cardColor;
   final double cardElevation;
   final Color shadowColor;
+  final void Function(ServicePackage package, bool showOnDashboard)
+  onToggleVisibility;
+  final String? emptyLabel;
 
   @override
   State<_PackagesList> createState() => _PackagesListState();
@@ -1234,6 +1417,9 @@ class _PackagesListState extends State<_PackagesList> {
     }
 
     if (filteredPackages.isEmpty) {
+      final emptyLabel =
+          widget.emptyLabel ??
+          'Nessun pacchetto corrisponde ai filtri selezionati.';
       children.add(
         Card(
           color: _layerColor(theme, 1),
@@ -1243,9 +1429,9 @@ class _PackagesListState extends State<_PackagesList> {
             borderRadius: BorderRadius.circular(16),
             side: BorderSide(color: accentColor.withOpacity(0.12)),
           ),
-          child: const Padding(
-            padding: EdgeInsets.all(16),
-            child: Text('Nessun pacchetto corrisponde ai filtri selezionati.'),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(emptyLabel),
           ),
         ),
       );
@@ -1280,6 +1466,15 @@ class _PackagesListState extends State<_PackagesList> {
                     final discount = _effectiveDiscount(pkg);
                     final salon = salonsById[pkg.salonId];
                     final salonName = salon?.name;
+                    final isVisible = pkg.showOnClientDashboard;
+                    final visibilityIcon =
+                        isVisible
+                            ? Icons.visibility_rounded
+                            : Icons.visibility_off_rounded;
+                    final visibilityTooltip =
+                        isVisible
+                            ? 'Nascondi dal dashboard cliente'
+                            : 'Mostra nel dashboard cliente';
                     return SizedBox(
                       width: effectiveWidth,
                       child: Card(
@@ -1332,6 +1527,18 @@ class _PackagesListState extends State<_PackagesList> {
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       IconButton(
+                                        tooltip: visibilityTooltip,
+                                        onPressed:
+                                            () => widget.onToggleVisibility(
+                                              pkg,
+                                              !isVisible,
+                                            ),
+                                        icon: Icon(
+                                          visibilityIcon,
+                                          color: accentColor,
+                                        ),
+                                      ),
+                                      IconButton(
                                         tooltip: 'Modifica pacchetto',
                                         onPressed: () => widget.onEdit(pkg),
                                         icon: Icon(
@@ -1361,6 +1568,13 @@ class _PackagesListState extends State<_PackagesList> {
                                     currency: currency,
                                     discountPercentage: discount,
                                   ),
+                                  _InfoChip(
+                                    icon: visibilityIcon,
+                                    label:
+                                        isVisible
+                                            ? 'Visibile ai clienti'
+                                            : 'Solo interno',
+                                  ),
                                   if (discount != null)
                                     _InfoChip(
                                       icon: Icons.percent_rounded,
@@ -1375,6 +1589,11 @@ class _PackagesListState extends State<_PackagesList> {
                                     _InfoChip(
                                       icon: Icons.calendar_month_rounded,
                                       label: 'Validità ${pkg.validDays} gg',
+                                    ),
+                                  if (pkg.isGeneratedFromServiceBuilder)
+                                    const _InfoChip(
+                                      icon: Icons.auto_fix_high_rounded,
+                                      label: 'Creato da "Aggiungi servizi"',
                                     ),
                                 ],
                               ),

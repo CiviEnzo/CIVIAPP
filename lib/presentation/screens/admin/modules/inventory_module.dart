@@ -71,10 +71,6 @@ class InventoryModule extends ConsumerWidget {
                         ],
                       ),
                     ),
-                    IconButton(
-                      onPressed: () {},
-                      icon: const Icon(Icons.edit_rounded),
-                    ),
                   ],
                 ),
                 const SizedBox(height: 12),

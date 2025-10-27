@@ -1397,7 +1397,8 @@ ClientPhotoCollage clientPhotoCollageFromDoc(
   DocumentSnapshot<Map<String, dynamic>> doc,
 ) {
   final data = doc.data() ?? <String, dynamic>{};
-  final orientationRaw = data['orientation'] as String? ??
+  final orientationRaw =
+      data['orientation'] as String? ??
       ClientPhotoCollageOrientation.vertical.name;
   var orientation = ClientPhotoCollageOrientation.vertical;
   for (final candidate in ClientPhotoCollageOrientation.values) {
@@ -1408,12 +1409,14 @@ ClientPhotoCollage clientPhotoCollageFromDoc(
   }
   final primaryDataRaw = data['primaryPlacement'];
   final secondaryDataRaw = data['secondaryPlacement'];
-  final primaryData = primaryDataRaw is Map<String, dynamic>
-      ? Map<String, dynamic>.from(primaryDataRaw)
-      : <String, dynamic>{};
-  final secondaryData = secondaryDataRaw is Map<String, dynamic>
-      ? Map<String, dynamic>.from(secondaryDataRaw)
-      : <String, dynamic>{};
+  final primaryData =
+      primaryDataRaw is Map<String, dynamic>
+          ? Map<String, dynamic>.from(primaryDataRaw)
+          : <String, dynamic>{};
+  final secondaryData =
+      secondaryDataRaw is Map<String, dynamic>
+          ? Map<String, dynamic>.from(secondaryDataRaw)
+          : <String, dynamic>{};
 
   return ClientPhotoCollage(
     id: doc.id,
@@ -1560,6 +1563,13 @@ ServicePackage packageFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     serviceSessionCounts: _mapToIntMap(
       data['serviceSessionCounts'] as Map<String, dynamic>?,
     ),
+    showOnClientDashboard:
+        data.containsKey('showOnClientDashboard')
+            ? _coerceToBool(data['showOnClientDashboard'])
+            : true,
+    isGeneratedFromServiceBuilder: _coerceToBool(
+      data['isGeneratedFromServiceBuilder'],
+    ),
   );
 }
 
@@ -1573,6 +1583,8 @@ Map<String, dynamic> packageToMap(ServicePackage pkg) {
     'serviceIds': pkg.serviceIds,
     'sessionCount': pkg.sessionCount,
     'validDays': pkg.validDays,
+    'showOnClientDashboard': pkg.showOnClientDashboard,
+    'isGeneratedFromServiceBuilder': pkg.isGeneratedFromServiceBuilder,
   };
   if (pkg.discountPercentage != null) {
     map['discountPercentage'] = pkg.discountPercentage;

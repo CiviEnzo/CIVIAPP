@@ -93,9 +93,15 @@ export const dispatchOutbox = onSchedule(
       return;
     }
 
+    const nowInstant = new Date();
+    const dispatchHorizon = new Date(
+      nowInstant.getTime() + DISPATCH_LEEWAY_MS,
+    );
+
     const snapshot = await messageOutboxCollection
       .where('status', '==', 'pending')
       .where('channel', 'in', ['push', 'email'])
+      .where('scheduledAt', '<=', dispatchHorizon)
       .orderBy('scheduledAt', 'asc')
       .limit(BATCH_SIZE)
       .get();
@@ -104,8 +110,6 @@ export const dispatchOutbox = onSchedule(
       logger.debug('No pending messages to dispatch');
       return;
     }
-
-    const nowInstant = new Date();
 
     for (const doc of snapshot.docs) {
       const message = mapOutboxDocument(doc);
@@ -116,7 +120,7 @@ export const dispatchOutbox = onSchedule(
 
       if (
         message.scheduledAt &&
-        message.scheduledAt.getTime() - DISPATCH_LEEWAY_MS > nowInstant.getTime()
+        message.scheduledAt.getTime() > dispatchHorizon.getTime()
       ) {
         logger.debug('Skipping message scheduled in the future', {
           id: message.id,

@@ -604,7 +604,6 @@ Future<void> _openSaleForm(
   if (sale != null) {
     final store = ref.read(appDataProvider.notifier);
     await store.upsertSale(sale);
-    await _updateInventoryAfterSale(ref: ref, sale: sale);
     await _recordSaleCashFlow(ref: ref, sale: sale, clients: clients);
     if (ticket != null) {
       await store.closePaymentTicket(ticket.id, saleId: sale.id);
@@ -645,57 +644,6 @@ Future<void> _recordSaleCashFlow({
     staffId: sale.staffId,
   );
   await ref.read(appDataProvider.notifier).upsertCashFlowEntry(entry);
-}
-
-Future<void> _updateInventoryAfterSale({
-  required WidgetRef ref,
-  required Sale sale,
-}) async {
-  final inventoryItems = ref.read(appDataProvider).inventoryItems;
-  if (inventoryItems.isEmpty) {
-    return;
-  }
-  final inventoryById = <String, InventoryItem>{
-    for (final item in inventoryItems) item.id: item,
-  };
-  final usage = <String, double>{};
-  for (final item in sale.items) {
-    if (item.referenceType != SaleReferenceType.product) {
-      continue;
-    }
-    final productId = item.referenceId;
-    if (!inventoryById.containsKey(productId)) {
-      continue;
-    }
-    usage[productId] = (usage[productId] ?? 0) + item.quantity;
-  }
-  if (usage.isEmpty) {
-    return;
-  }
-  final store = ref.read(appDataProvider.notifier);
-  final now = DateTime.now();
-  for (final entry in usage.entries) {
-    final inventoryItem = inventoryById[entry.key];
-    if (inventoryItem == null) {
-      continue;
-    }
-    final remaining = inventoryItem.quantity - entry.value;
-    final nextQuantity =
-        remaining <= 0 ? 0.0 : double.parse(remaining.toStringAsFixed(3));
-    final updatedItem = InventoryItem(
-      id: inventoryItem.id,
-      salonId: inventoryItem.salonId,
-      name: inventoryItem.name,
-      category: inventoryItem.category,
-      quantity: nextQuantity,
-      unit: inventoryItem.unit,
-      threshold: inventoryItem.threshold,
-      cost: inventoryItem.cost,
-      sellingPrice: inventoryItem.sellingPrice,
-      updatedAt: now,
-    );
-    await store.upsertInventoryItem(updatedItem);
-  }
 }
 
 // ignore: unused_element

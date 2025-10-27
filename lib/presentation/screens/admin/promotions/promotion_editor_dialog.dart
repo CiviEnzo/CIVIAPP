@@ -814,7 +814,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
                 return LayoutBuilder(
                   builder: (context, constraints) {
                     final isWide = constraints.maxWidth > 640;
-                    final preview = _PromotionPreview(promotion: promotion);
+                    final previewCard = _PromotionPreview(promotion: promotion);
                     final detail = _PromotionDetailPreview(
                       promotion: promotion,
                     );
@@ -826,10 +826,14 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
                                 child: detail,
                               )
                               : detail;
+                      final previewPane = AspectRatio(
+                        aspectRatio: 3 / 2,
+                        child: previewCard,
+                      );
                       return Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(child: preview),
+                          Expanded(child: previewPane),
                           const SizedBox(width: 24),
                           Expanded(child: boundedDetail),
                         ],
@@ -838,7 +842,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        SizedBox(height: 300, child: preview),
+                        SizedBox(height: 300, child: previewCard),
                         const SizedBox(height: 24),
                         detail,
                       ],

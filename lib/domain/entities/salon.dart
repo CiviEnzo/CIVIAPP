@@ -289,6 +289,7 @@ class SalonDashboardSections {
     this.showOperational = true,
     this.showEquipment = true,
     this.showRooms = true,
+    this.showQuestionnaires = true,
     this.showLoyalty = true,
     this.showSocial = true,
   });
@@ -297,6 +298,7 @@ class SalonDashboardSections {
   final bool showOperational;
   final bool showEquipment;
   final bool showRooms;
+  final bool showQuestionnaires;
   final bool showLoyalty;
   final bool showSocial;
 
@@ -305,6 +307,7 @@ class SalonDashboardSections {
     bool? showOperational,
     bool? showEquipment,
     bool? showRooms,
+    bool? showQuestionnaires,
     bool? showLoyalty,
     bool? showSocial,
   }) {
@@ -313,6 +316,7 @@ class SalonDashboardSections {
       showOperational: showOperational ?? this.showOperational,
       showEquipment: showEquipment ?? this.showEquipment,
       showRooms: showRooms ?? this.showRooms,
+      showQuestionnaires: showQuestionnaires ?? this.showQuestionnaires,
       showLoyalty: showLoyalty ?? this.showLoyalty,
       showSocial: showSocial ?? this.showSocial,
     );
@@ -324,6 +328,7 @@ class SalonDashboardSections {
       'showOperational': showOperational,
       'showEquipment': showEquipment,
       'showRooms': showRooms,
+      'showQuestionnaires': showQuestionnaires,
       'showLoyalty': showLoyalty,
       'showSocial': showSocial,
     };
@@ -351,6 +356,10 @@ class SalonDashboardSections {
           data.containsKey('showRooms')
               ? _readFlag(data['showRooms'])
               : defaultPrefs.showRooms,
+      showQuestionnaires:
+          data.containsKey('showQuestionnaires')
+              ? _readFlag(data['showQuestionnaires'])
+              : defaultPrefs.showQuestionnaires,
       showLoyalty:
           data.containsKey('showLoyalty')
               ? _readFlag(data['showLoyalty'])

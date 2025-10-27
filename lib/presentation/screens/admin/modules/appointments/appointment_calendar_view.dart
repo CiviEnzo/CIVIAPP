@@ -5080,7 +5080,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                                             ),
                                             const SizedBox(width: 4),
                                             Text(
-                                              'Slot last-minute (prenotabile)',
+                                              'Slot last-minute',
                                               style: theme.textTheme.labelSmall
                                                   ?.copyWith(
                                                     color:

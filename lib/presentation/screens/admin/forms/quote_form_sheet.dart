@@ -1,3 +1,9 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:collection/collection.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
+import 'package:you_book/app/providers.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/inventory_item.dart';
 import 'package:you_book/domain/entities/package.dart';
@@ -6,12 +12,8 @@ import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/screens/admin/forms/package_form_sheet.dart';
-import 'package:collection/collection.dart';
-import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
-import 'package:uuid/uuid.dart';
 
-class QuoteFormSheet extends StatefulWidget {
+class QuoteFormSheet extends ConsumerStatefulWidget {
   const QuoteFormSheet({
     super.key,
     required this.client,
@@ -34,10 +36,10 @@ class QuoteFormSheet extends StatefulWidget {
   final Quote? initial;
 
   @override
-  State<QuoteFormSheet> createState() => _QuoteFormSheetState();
+  ConsumerState<QuoteFormSheet> createState() => _QuoteFormSheetState();
 }
 
-class _QuoteFormSheetState extends State<QuoteFormSheet> {
+class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
   final _formKey = GlobalKey<FormState>();
   final _numberFormat = NumberFormat.simpleCurrency(locale: 'it_IT');
   final _uuid = const Uuid();
@@ -47,12 +49,14 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
   late final String _quoteNumber;
   DateTime? _validUntil;
   bool _saving = false;
+  late List<ServicePackage> _packages;
 
   final List<_QuoteLineDraft> _lines = [];
 
   @override
   void initState() {
     super.initState();
+    _packages = List<ServicePackage>.from(widget.packages);
     final initial = widget.initial;
     _titleController = TextEditingController(text: initial?.title ?? '');
     _notesController = TextEditingController(text: initial?.notes ?? '');
@@ -211,7 +215,7 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
         packageId != null &&
         packageId.isNotEmpty) {
       referenceId = packageId;
-      final pkg = widget.packages.firstWhereOrNull(
+      final pkg = _packages.firstWhereOrNull(
         (element) => element.id == packageId,
       );
       final pkgDescription = pkg?.description;
@@ -285,14 +289,14 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
   }
 
   Future<void> _onAddPackage() async {
-    if (widget.packages.isEmpty) {
+    if (_packages.isEmpty) {
       _showSnackBar('Non sono disponibili pacchetti per questo salone.');
       return;
     }
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
     final selected = await _pickFromCatalog<ServicePackage>(
       title: 'Scegli un pacchetto',
-      items: widget.packages,
+      items: _packages,
       labelBuilder: (pkg) => pkg.name,
       subtitleBuilder:
           (pkg) =>
@@ -334,22 +338,46 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
             salons: salons,
             services: widget.services,
             defaultSalonId: widget.salon.id,
+            defaultShowOnClientDashboard: false,
           ),
     );
     if (!mounted || customPackage == null) {
       return;
     }
+    final builderPackage = customPackage.copyWith(
+      isGeneratedFromServiceBuilder: true,
+    );
+    try {
+      await ref.read(appDataProvider.notifier).upsertPackage(builderPackage);
+    } catch (error) {
+      _showSnackBar('Impossibile salvare il pacchetto personalizzato: $error');
+      return;
+    }
+    setState(() {
+      final index = _packages.indexWhere((pkg) => pkg.id == builderPackage.id);
+      if (index >= 0) {
+        _packages[index] = builderPackage;
+      } else {
+        _packages.add(builderPackage);
+      }
+    });
     final description =
-        customPackage.name.isNotEmpty
-            ? customPackage.name
+        builderPackage.name.isNotEmpty
+            ? builderPackage.name
+            : 'Pacchetto personalizzato';
+    final catalogLabel =
+        builderPackage.description != null &&
+                builderPackage.description!.isNotEmpty
+            ? builderPackage.description
             : 'Pacchetto personalizzato';
     final line = _buildLineDraft(
       id: _uuid.v4(),
-      type: QuoteItemReferenceType.manual,
+      type: QuoteItemReferenceType.package,
+      referenceId: builderPackage.id,
       description: description,
       quantity: 1,
-      unitPrice: customPackage.price,
-      catalogLabel: 'Pacchetto personalizzato',
+      unitPrice: builderPackage.price,
+      catalogLabel: catalogLabel,
     );
     _addLine(line);
   }
@@ -559,11 +587,6 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
                   runSpacing: 8,
                   children: [
                     FilledButton.tonalIcon(
-                      onPressed: _saving ? null : _onAddService,
-                      icon: const Icon(Icons.design_services_rounded),
-                      label: const Text('Aggiungi servizio'),
-                    ),
-                    FilledButton.tonalIcon(
                       onPressed: _saving ? null : _onAddPackage,
                       icon: const Icon(Icons.card_giftcard_rounded),
                       label: const Text('Aggiungi pacchetto'),
@@ -571,7 +594,7 @@ class _QuoteFormSheetState extends State<QuoteFormSheet> {
                     FilledButton.tonalIcon(
                       onPressed: _saving ? null : _onAddCustomPackage,
                       icon: const Icon(Icons.auto_fix_high_rounded),
-                      label: const Text('Pacchetto personalizzato'),
+                      label: const Text('Aggiungi Servizi'),
                     ),
                     FilledButton.tonalIcon(
                       onPressed: _saving ? null : _onAddProduct,

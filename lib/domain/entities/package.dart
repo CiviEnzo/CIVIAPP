@@ -11,6 +11,8 @@ class ServicePackage {
     this.sessionCount,
     this.validDays,
     this.serviceSessionCounts = const {},
+    this.showOnClientDashboard = true,
+    this.isGeneratedFromServiceBuilder = false,
   });
 
   final String id;
@@ -24,6 +26,8 @@ class ServicePackage {
   final int? sessionCount;
   final int? validDays;
   final Map<String, int> serviceSessionCounts;
+  final bool showOnClientDashboard;
+  final bool isGeneratedFromServiceBuilder;
 
   int? get totalConfiguredSessions {
     if (serviceSessionCounts.isEmpty) {
@@ -34,4 +38,45 @@ class ServicePackage {
       (sum, value) => sum + value,
     );
   }
+
+  ServicePackage copyWith({
+    String? id,
+    String? salonId,
+    String? name,
+    double? price,
+    double? fullPrice,
+    double? discountPercentage,
+    Object? description = _sentinel,
+    List<String>? serviceIds,
+    int? sessionCount,
+    int? validDays,
+    Map<String, int>? serviceSessionCounts,
+    bool? showOnClientDashboard,
+    bool? isGeneratedFromServiceBuilder,
+  }) {
+    return ServicePackage(
+      id: id ?? this.id,
+      salonId: salonId ?? this.salonId,
+      name: name ?? this.name,
+      price: price ?? this.price,
+      fullPrice: fullPrice ?? this.fullPrice,
+      discountPercentage: discountPercentage ?? this.discountPercentage,
+      description:
+          identical(description, _sentinel)
+              ? this.description
+              : description as String?,
+      serviceIds: serviceIds ?? this.serviceIds,
+      sessionCount: sessionCount ?? this.sessionCount,
+      validDays: validDays ?? this.validDays,
+      serviceSessionCounts:
+          serviceSessionCounts ??
+          Map<String, int>.from(this.serviceSessionCounts),
+      showOnClientDashboard:
+          showOnClientDashboard ?? this.showOnClientDashboard,
+      isGeneratedFromServiceBuilder:
+          isGeneratedFromServiceBuilder ?? this.isGeneratedFromServiceBuilder,
+    );
+  }
 }
+
+const Object _sentinel = Object();

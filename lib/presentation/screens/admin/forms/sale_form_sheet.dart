@@ -316,11 +316,6 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                 runSpacing: 8,
                 children: [
                   FilledButton.tonalIcon(
-                    onPressed: _onAddService,
-                    icon: const Icon(Icons.design_services_rounded),
-                    label: const Text('Aggiungi servizio'),
-                  ),
-                  FilledButton.tonalIcon(
                     onPressed: _onAddPackage,
                     icon: const Icon(Icons.card_giftcard_rounded),
                     label: const Text('Aggiungi pacchetto'),
@@ -328,7 +323,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                   FilledButton.tonalIcon(
                     onPressed: _onAddCustomPackage,
                     icon: const Icon(Icons.auto_fix_high_rounded),
-                    label: const Text('Personalizza pacchetto'),
+                    label: const Text('Aggiungi Servizi'),
                   ),
                   FilledButton.tonalIcon(
                     onPressed: _onAddInventoryItem,
@@ -581,57 +576,54 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
             if (!hasSelection) const SizedBox(height: 8),
             hasSelection
                 ? InputDecorator(
-                    decoration: InputDecoration(
-                      labelText: 'Cliente',
-                      floatingLabelBehavior: FloatingLabelBehavior.always,
-                      errorText: state.errorText,
-                    ),
-                    isEmpty: false,
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            selectedClient.fullName,
-                            style:
-                                theme.textTheme.bodyLarge ??
-                                theme.textTheme.bodyMedium,
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Rimuovi cliente',
-                          icon: const Icon(Icons.close_rounded),
-                          onPressed: _clearClientSelection,
-                        ),
-                      ],
-                    ),
-                  )
-                : TextField(
-                    controller: _clientSearchController,
-                    focusNode: _clientSearchFocusNode,
-                    decoration: InputDecoration(
-                      labelText: 'Cliente',
-                      floatingLabelBehavior: FloatingLabelBehavior.always,
-                      hintText: searchHint,
-                      errorText: state.errorText,
-                      suffixIcon:
-                          _clientSearchController.text.isEmpty
-                              ? const Icon(Icons.search_rounded, size: 20)
-                              : IconButton(
-                                tooltip: 'Pulisci ricerca',
-                                icon: const Icon(Icons.clear_rounded),
-                                onPressed: _clearClientSearch,
-                              ),
-                    ),
-                    keyboardType:
-                        _clientSearchMode == _ClientSearchMode.general
-                            ? TextInputType.text
-                            : TextInputType.number,
-                    textInputAction: TextInputAction.search,
-                    onChanged: (value) => _onClientSearchChanged(
-                      value,
-                      clients,
-                    ),
+                  decoration: InputDecoration(
+                    labelText: 'Cliente',
+                    floatingLabelBehavior: FloatingLabelBehavior.always,
+                    errorText: state.errorText,
                   ),
+                  isEmpty: false,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          selectedClient.fullName,
+                          style:
+                              theme.textTheme.bodyLarge ??
+                              theme.textTheme.bodyMedium,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Rimuovi cliente',
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: _clearClientSelection,
+                      ),
+                    ],
+                  ),
+                )
+                : TextField(
+                  controller: _clientSearchController,
+                  focusNode: _clientSearchFocusNode,
+                  decoration: InputDecoration(
+                    labelText: 'Cliente',
+                    floatingLabelBehavior: FloatingLabelBehavior.always,
+                    hintText: searchHint,
+                    errorText: state.errorText,
+                    suffixIcon:
+                        _clientSearchController.text.isEmpty
+                            ? const Icon(Icons.search_rounded, size: 20)
+                            : IconButton(
+                              tooltip: 'Pulisci ricerca',
+                              icon: const Icon(Icons.clear_rounded),
+                              onPressed: _clearClientSearch,
+                            ),
+                  ),
+                  keyboardType:
+                      _clientSearchMode == _ClientSearchMode.general
+                          ? TextInputType.text
+                          : TextInputType.number,
+                  textInputAction: TextInputAction.search,
+                  onChanged: (value) => _onClientSearchChanged(value, clients),
+                ),
             if (!hasSelection) ...[
               const SizedBox(height: 8),
               _buildClientSuggestions(suggestions),
@@ -1401,8 +1393,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
 
     final filtered = ClientSearchUtils.filterClients(
       clients: clients,
-      generalQuery:
-          _clientSearchMode == _ClientSearchMode.general ? query : '',
+      generalQuery: _clientSearchMode == _ClientSearchMode.general ? query : '',
       clientNumberQuery:
           _clientSearchMode == _ClientSearchMode.number ? query : '',
       exactNumberMatch: _clientSearchMode == _ClientSearchMode.number,
