@@ -2206,6 +2206,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
       }
 
       if (uid == null) {
+        debugPrint(
+          'Unable to create or locate auth user for client email $email.',
+        );
         return;
       }
 
@@ -2241,6 +2244,83 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
   }
 
+  Future<void> _ensureClientUser(Client client) async {
+    final rawEmail = client.email?.trim();
+    if (rawEmail == null || rawEmail.isEmpty) {
+      return;
+    }
+    final email = rawEmail;
+    if (Firebase.apps.isEmpty) {
+      return;
+    }
+
+    bool shouldSendReset = false;
+
+    try {
+      final functions = FirebaseFunctions.instanceFor(region: 'europe-west3');
+      final callable = functions.httpsCallable('createClientAccount');
+      final result = await callable.call(<String, dynamic>{
+        'email': email,
+        'salonId': client.salonId,
+        'clientId': client.id,
+        'displayName': client.fullName.trim(),
+      });
+
+      final data = result.data;
+      if (data is Map && data['shouldSendPasswordReset'] == true) {
+        shouldSendReset = true;
+      }
+    } on FirebaseFunctionsException catch (error, stackTrace) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'AppDataStore',
+          informationCollector:
+              () => [
+                DiagnosticsProperty<String>('Context', 'ensureClientUser'),
+                DiagnosticsProperty<String>('Client ID', client.id),
+              ],
+        ),
+      );
+      if (error.code == 'permission-denied') {
+        rethrow;
+      }
+      if (error.code == 'invalid-argument') {
+        rethrow;
+      }
+      return;
+    } catch (error, stackTrace) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'AppDataStore',
+          informationCollector:
+              () => [
+                DiagnosticsProperty<String>('Context', 'ensureClientUser'),
+                DiagnosticsProperty<String>('Client ID', client.id),
+              ],
+        ),
+      );
+      return;
+    }
+
+    if (!shouldSendReset) {
+      return;
+    }
+
+    final auth = await _getAdminAuth();
+    if (auth == null) {
+      return;
+    }
+    try {
+      await auth.sendPasswordResetEmail(email: email);
+    } on FirebaseAuthException catch (error) {
+      debugPrint('Unable to send reset email to $email: ${error.message}');
+    }
+  }
+
   Future<void> upsertClient(Client client) async {
     final prepared = await _ensureClientNumber(client);
     final firestore = _firestore;
@@ -2252,6 +2332,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
         .collection('clients')
         .doc(prepared.id)
         .set(clientToMap(prepared));
+    await _ensureClientUser(prepared);
   }
 
   Future<Client> _ensureClientNumber(Client client) async {
