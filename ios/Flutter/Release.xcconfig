@@ -1,2 +1,7 @@
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
 #include "Generated.xcconfig"
+
+// Inject Stripe test configuration when building from Xcode.
+STRIPE_DART_DEFINES=\
+U1RSSVBFX1BVQkxJU0hBQkxFX0tFWT1wa190ZXN0XzUxU0Zkblk4STMwOTRXNDdJcTE1NUtQUFVmODVIMEZZcVRYcUo5MlB3NFptZ0lvV0tnbVBmMk00endoRkE4YXRGS0d5T3psU1dFc0Q1aFYwaEhxT3czaHdJMDB5dkVLNXRlYQ==
+DART_DEFINES=$(STRIPE_DART_DEFINES)

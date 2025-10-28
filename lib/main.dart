@@ -17,6 +17,10 @@ import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 const _stripePublishableKey = String.fromEnvironment('STRIPE_PUBLISHABLE_KEY');
+const _isStripeTestMode = bool.fromEnvironment(
+  'STRIPE_TEST_MODE',
+  defaultValue: true,
+);
 const _stripeMerchantId = String.fromEnvironment(
   'STRIPE_MERCHANT_ID',
   defaultValue: 'merchant.com.cividevops.civiapp',
@@ -56,6 +60,16 @@ Future<void> main() async {
     Stripe.publishableKey = _stripePublishableKey;
     Stripe.merchantIdentifier = _stripeMerchantId;
     await Stripe.instance.applySettings();
+    if (_isStripeTestMode) {
+      debugPrint(
+        'Stripe configurato in modalità TEST. '
+        'Imposta STRIPE_TEST_MODE=false e usa le chiavi Live prima del rilascio.',
+      );
+    }
+  } else {
+    debugPrint(
+      'Stripe non è configurato: STRIPE_PUBLISHABLE_KEY non impostato.',
+    );
   }
 
   if (Platform.isAndroid || Platform.isIOS) {

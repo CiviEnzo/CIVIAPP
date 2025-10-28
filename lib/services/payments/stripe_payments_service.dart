@@ -1,13 +1,16 @@
 import 'dart:convert';
 
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:http/http.dart' as http;
 
 import '../../domain/cart/cart_models.dart';
 
+const _stripeTestMode = bool.fromEnvironment(
+  'STRIPE_TEST_MODE',
+  defaultValue: true,
+);
 const _functionsBaseOverride = String.fromEnvironment(
   'STRIPE_FUNCTIONS_BASE',
   defaultValue: '',
@@ -254,7 +257,7 @@ class StripePaymentsService {
           ),
           googlePay: PaymentSheetGooglePay(
             merchantCountryCode: _merchantCountryCodeDefine,
-            testEnv: kDebugMode,
+            testEnv: _stripeTestMode,
           ),
           style: ThemeMode.system,
           allowsDelayedPaymentMethods: true,
