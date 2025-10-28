@@ -657,6 +657,18 @@ class AppDataStore extends StateNotifier<AppDataState> {
         }
         hasSalonSubscriptions = true;
         addAll(
+          _listenDocumentsByIds<Salon>(
+            firestore: firestore,
+            collectionPath: 'salons',
+            documentIds: normalizedSalonIds,
+            fromDoc: salonFromDoc,
+            onData: (items) {
+              state = state.copyWith(salons: items);
+              _refreshFeatureFilteredCollections();
+            },
+          ),
+        );
+        addAll(
           _listenCollectionBySalonIds<StaffMember>(
             firestore: firestore,
             collectionPath: 'staff',
