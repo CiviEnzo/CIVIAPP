@@ -598,41 +598,6 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
                               vertical: 12,
                             ),
                             leading: _SettingsIconAvatar(
-                              icon: Icons.store_mall_directory_outlined,
-                              color: theme.colorScheme.error,
-                              backgroundOpacity: 0.18,
-                            ),
-                            title: const Text('Esci dal salone'),
-                            subtitle: const Text(
-                              'Scollega questo salone e scegli un\'altra struttura',
-                            ),
-                            trailing:
-                                _isLeavingSalon
-                                    ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                    : const Icon(Icons.chevron_right_rounded),
-                            onTap:
-                                _isLeavingSalon
-                                    ? null
-                                    : () => _confirmLeaveSalon(
-                                      themedContext,
-                                      currentClient,
-                                    ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Card(
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 12,
-                            ),
-                            leading: _SettingsIconAvatar(
                               icon: Icons.logout_rounded,
                               color: theme.colorScheme.error,
                               backgroundOpacity: 0.18,
@@ -754,7 +719,8 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
       return;
     }
 
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (dialogContext) {
             return AlertDialog(
@@ -785,7 +751,9 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
 
     try {
       final clientId = currentClient?.id ?? user.clientId;
-      await ref.read(appDataProvider.notifier).detachClientFromSalon(
+      await ref
+          .read(appDataProvider.notifier)
+          .detachClientFromSalon(
             userId: user.uid,
             salonId: salonId,
             clientId: clientId,

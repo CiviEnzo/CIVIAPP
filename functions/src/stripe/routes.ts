@@ -128,6 +128,7 @@ export const createStripeConnectAccount = onRequest(
         capabilities: {
           card_payments: { requested: true },
           transfers: { requested: true },
+          klarna_payments: { requested: true },
         },
       });
 
@@ -711,6 +712,7 @@ function mapCartItemToSaleItem(item: FirestoreCartItem): Record<string, unknown>
   const unitPrice = normalizeCurrency(
     item.unitPrice !== undefined ? item.unitPrice : computeCartItemSubtotal(item) / quantity,
   );
+  const totalAmount = normalizeCurrency(quantity * unitPrice);
   const referenceType = resolveReferenceType(
     normalizeString(item.type),
     metadata,
@@ -750,6 +752,7 @@ function mapCartItemToSaleItem(item: FirestoreCartItem): Record<string, unknown>
     }
     saleItem.packageStatus = 'active';
     saleItem.packagePaymentStatus = 'paid';
+    saleItem.depositAmount = totalAmount;
   }
 
   if (metadata.packageServiceSessions && typeof metadata.packageServiceSessions === 'object') {
@@ -1752,6 +1755,8 @@ export const createStripePaymentIntent = onRequest(
         res.status(403).json({ error: 'Connected account is not charges_enabled' });
         return;
       }
+      const klarnaCapabilityStatus = connectAccount.capabilities?.klarna_payments;
+      const klarnaReady = klarnaCapabilityStatus === 'active';
 
       const baseMetadata: Record<string, string> = {
         platform: getPlatformName(),
@@ -1772,20 +1777,32 @@ export const createStripePaymentIntent = onRequest(
       const metadata = toStripeMetadata(body.metadata ?? {}, baseMetadata);
       const applicationFeeAmount = getApplicationFeeAmount();
 
-      const intent = await stripe.paymentIntents.create({
+      const params: Stripe.PaymentIntentCreateParams = {
         amount: amount as number,
         currency,
         customer: body.customerId || undefined,
-        automatic_payment_methods: {
-          enabled: true,
-        },
         on_behalf_of: stripeAccountId,
         transfer_data: {
           destination: stripeAccountId,
         },
         application_fee_amount: applicationFeeAmount > 0 ? applicationFeeAmount : undefined,
         metadata,
-      });
+      };
+
+      if (klarnaReady) {
+        params.payment_method_types = ['card', 'klarna'];
+        params.payment_method_options = {
+          klarna: {
+            preferred_locale: 'it-IT',
+          },
+        };
+      } else {
+        params.automatic_payment_methods = {
+          enabled: true,
+        };
+      }
+
+      const intent = await stripe.paymentIntents.create(params);
 
       res.status(200).json({
         clientSecret: intent.client_secret,
