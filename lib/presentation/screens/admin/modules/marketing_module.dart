@@ -445,6 +445,10 @@ class _LastMinuteSection extends StatelessWidget {
                           '${dateFormat.format(slot.start)} · ${slot.duration.inMinutes} min';
                       final priceLabel =
                           '${currency.format(slot.priceNow)} (base ${currency.format(slot.basePrice)})';
+                      final paymentLabel =
+                          slot.paymentMode == LastMinutePaymentMode.online
+                              ? 'Pagamento online immediato'
+                              : 'Pagamento in sede';
                       return Card(
                         margin: const EdgeInsets.only(bottom: 12),
                         child: ListTile(
@@ -454,6 +458,7 @@ class _LastMinuteSection extends StatelessWidget {
                               timeLabel,
                               operatorName,
                               priceLabel,
+                              paymentLabel,
                               if (!slot.isAvailable)
                                 'Prenotato da ${slot.bookedClientName?.isNotEmpty == true ? slot.bookedClientName : 'cliente'}',
                             ].join('\n'),

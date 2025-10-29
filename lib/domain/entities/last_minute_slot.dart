@@ -1,3 +1,28 @@
+enum LastMinutePaymentMode { online, onSite }
+
+extension LastMinutePaymentModeDisplay on LastMinutePaymentMode {
+  String get label {
+    switch (this) {
+      case LastMinutePaymentMode.online:
+        return 'Pagamento online';
+      case LastMinutePaymentMode.onSite:
+        return 'Paga in sede';
+    }
+  }
+
+  bool get requiresImmediatePayment => this == LastMinutePaymentMode.online;
+}
+
+LastMinutePaymentMode lastMinutePaymentModeFromName(String? value) {
+  if (value == null || value.isEmpty) {
+    return LastMinutePaymentMode.online;
+  }
+  return LastMinutePaymentMode.values.firstWhere(
+    (mode) => mode.name == value,
+    orElse: () => LastMinutePaymentMode.online,
+  );
+}
+
 class LastMinuteSlot {
   static const Object _undefined = Object();
 
@@ -25,6 +50,7 @@ class LastMinuteSlot {
     this.windowEnd,
     this.bookedClientId,
     this.bookedClientName,
+    this.paymentMode = LastMinutePaymentMode.online,
   });
 
   static const Duration _defaultWindowLead = Duration(minutes: 60);
@@ -52,6 +78,7 @@ class LastMinuteSlot {
   final DateTime? windowEnd;
   final String? bookedClientId;
   final String? bookedClientName;
+  final LastMinutePaymentMode paymentMode;
 
   DateTime get end => start.add(duration);
 
@@ -63,6 +90,8 @@ class LastMinuteSlot {
   bool get isAvailable => availableSeats > 0;
 
   bool get isBooked => !isAvailable && bookedClientId != null;
+
+  bool get requiresImmediatePayment => paymentMode.requiresImmediatePayment;
 
   LastMinuteSlot copyWith({
     String? id,
@@ -88,6 +117,7 @@ class LastMinuteSlot {
     DateTime? windowEnd,
     Object? bookedClientId = _undefined,
     Object? bookedClientName = _undefined,
+    LastMinutePaymentMode? paymentMode,
   }) {
     return LastMinuteSlot(
       id: id ?? this.id,
@@ -125,6 +155,7 @@ class LastMinuteSlot {
           identical(bookedClientName, _undefined)
               ? this.bookedClientName
               : bookedClientName as String?,
+      paymentMode: paymentMode ?? this.paymentMode,
     );
   }
 

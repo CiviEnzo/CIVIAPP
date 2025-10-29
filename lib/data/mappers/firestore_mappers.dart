@@ -523,6 +523,9 @@ LastMinuteSlot lastMinuteSlotFromDoc(
     windowEnd: _coerceToDateTime(data['windowEnd']),
     bookedClientId: data['bookedClientId'] as String?,
     bookedClientName: data['bookedClientName'] as String?,
+    paymentMode: lastMinutePaymentModeFromName(
+      data['paymentMode'] as String?,
+    ),
   );
 }
 
@@ -542,6 +545,7 @@ Map<String, dynamic> lastMinuteSlotToMap(LastMinuteSlot slot) {
     'operatorName': slot.operatorName,
     'availableSeats': slot.availableSeats,
     'loyaltyPoints': slot.loyaltyPoints,
+    'paymentMode': slot.paymentMode.name,
     'createdAt':
         slot.createdAt != null ? Timestamp.fromDate(slot.createdAt!) : null,
     'updatedAt':

@@ -73,6 +73,7 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
   String? _selectedRoomId;
   late final String _slotId;
   LastMinuteSlot? _editing;
+  late LastMinutePaymentMode _paymentMode;
   bool _sendNotification = false;
   LastMinuteNotificationAudience _notificationAudience =
       LastMinuteNotificationAudience.everyone;
@@ -106,6 +107,8 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
     _labelController = TextEditingController();
     _imageUrl = _editing?.imageUrl;
     _imageStoragePath = _editing?.imageStoragePath;
+    _paymentMode =
+        _editing?.paymentMode ?? LastMinutePaymentMode.online;
 
     if (widget.initialSlot != null) {
       final slot = widget.initialSlot!;
@@ -264,6 +267,31 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
                     _imageUrl != null && !_isUploadingImage
                         ? _removeSlotImage
                         : null,
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<LastMinutePaymentMode>(
+                value: _paymentMode,
+                decoration: const InputDecoration(
+                  labelText: 'Pagamento disponibile per il cliente',
+                  helperText:
+                      'Scegli se richiedere il pagamento immediato o in salone',
+                ),
+                items: const [
+                  DropdownMenuItem<LastMinutePaymentMode>(
+                    value: LastMinutePaymentMode.online,
+                    child: Text('Pagamento immediato con Stripe'),
+                  ),
+                  DropdownMenuItem<LastMinutePaymentMode>(
+                    value: LastMinutePaymentMode.onSite,
+                    child: Text('Paga in sede'),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value == null) {
+                    return;
+                  }
+                  setState(() => _paymentMode = value);
+                },
               ),
               const SizedBox(height: 12),
               Row(
@@ -802,6 +830,7 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
       windowEnd: start.add(Duration(minutes: windowExtend.abs())),
       bookedClientId: wasBooked ? _editing!.bookedClientId : null,
       bookedClientName: wasBooked ? _editing!.bookedClientName : null,
+      paymentMode: _paymentMode,
     );
 
     LastMinuteNotificationRequest? notification;

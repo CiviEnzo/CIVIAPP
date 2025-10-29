@@ -34,6 +34,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:uuid/uuid.dart';
 
 import 'client_booking_sheet.dart';
 import 'client_settings_screen.dart';
@@ -94,6 +95,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
   final Map<_ClientBadgeTarget, int> _acknowledgedBadgeCounts = {};
   SharedPreferences? _badgePreferences;
   String? _badgePreferencesUserId;
+  final Uuid _uuid = const Uuid();
 
   Future<SharedPreferences> _ensureBadgePreferences() async {
     final cached = _badgePreferences;
@@ -1172,12 +1174,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       (service) => service.id == slot.serviceId,
     );
     if (salon == null) {
+      final message = slot.requiresImmediatePayment
+          ? 'Le offerte last-minute richiedono pagamento immediato. Contatta il salone per completare l\'acquisto.'
+          : 'Contatta il salone per completare la prenotazione di questo last-minute.';
       ScaffoldMessenger.of(targetContext).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Le offerte last-minute richiedono pagamento immediato. Contatta il salone per completare l\'acquisto.',
-          ),
-        ),
+        SnackBar(content: Text(message)),
       );
       return;
     }
@@ -1191,13 +1192,25 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       return;
     }
 
-    await _checkoutLastMinuteSlot(
-      context: targetContext,
-      client: client,
-      salon: salon,
-      slot: slot,
-      service: service,
-    );
+    final success = slot.requiresImmediatePayment
+        ? await _checkoutLastMinuteSlot(
+            context: targetContext,
+            client: client,
+            salon: salon,
+            slot: slot,
+            service: service,
+          )
+        : await _bookLastMinuteSlotOnSite(
+            context: targetContext,
+            client: client,
+            salon: salon,
+            slot: slot,
+            service: service,
+          );
+
+    if (!success || !mounted) {
+      return;
+    }
   }
 
   Future<bool> _showLastMinuteSummary({
@@ -1222,6 +1235,17 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
             : countdownDiff.inHours >= 1
             ? '${countdownDiff.inHours}h ${countdownDiff.inMinutes.remainder(60).toString().padLeft(2, '0')}m'
             : '${countdownDiff.inMinutes} min';
+    final paymentMode = slot.paymentMode;
+    final paymentDescription =
+        paymentMode == LastMinutePaymentMode.online
+            ? 'Pagamento online immediato con Stripe'
+            : 'Pagamento in salone il giorno dell\'appuntamento';
+    final IconData ctaIcon =
+        paymentMode == LastMinutePaymentMode.online
+            ? Icons.lock_rounded
+            : Icons.event_available_rounded;
+    final String ctaLabel =
+        paymentMode == LastMinutePaymentMode.online ? 'Paga ora' : 'Prenota ora';
 
     final result = await showModalBottomSheet<bool>(
       context: context,
@@ -1336,6 +1360,14 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
                             label: 'Operatore',
                             value: operatorName,
                           ),
+                          detailCard(
+                            icon:
+                                paymentMode == LastMinutePaymentMode.online
+                                    ? Icons.credit_card_rounded
+                                    : Icons.storefront_outlined,
+                            label: 'Pagamento',
+                            value: paymentDescription,
+                          ),
                           const SizedBox(height: 12),
 
                           const SizedBox(height: 24),
@@ -1402,10 +1434,20 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
                           child: FilledButton.icon(
                             onPressed:
                                 () => Navigator.of(sheetContext).pop(true),
-                            icon: const Icon(Icons.lock_rounded),
-                            label: const Text('Paga ora'),
+                            icon: Icon(ctaIcon),
+                            label: Text(ctaLabel),
                           ),
                         ),
+                        if (paymentMode == LastMinutePaymentMode.onSite) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'Non ti addebitiamo nulla ora: pagherai in salone al termine del servizio.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                              height: 1.3,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -1527,7 +1569,14 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     }
 
     try {
-      await _finalizeLastMinuteBooking(
+      await _createLastMinuteAppointment(
+        client: client,
+        salon: salon,
+        slot: slot,
+        paymentMode: LastMinutePaymentMode.online,
+        paymentIntentId: checkoutResult.paymentIntentId,
+      );
+      await _ensureLastMinuteSaleAndCashFlow(
         client: client,
         salon: salon,
         slot: slot,
@@ -1551,6 +1600,48 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
             content: Text(
               'Pagamento riuscito ma prenotazione non completata. ${error.toString()}',
             ),
+          ),
+        );
+      }
+    }
+    return false;
+  }
+
+  Future<bool> _bookLastMinuteSlotOnSite({
+    required BuildContext context,
+    required Client client,
+    required Salon salon,
+    required LastMinuteSlot slot,
+    Service? service,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await _createLastMinuteAppointment(
+        client: client,
+        salon: salon,
+        slot: slot,
+        paymentMode: LastMinutePaymentMode.onSite,
+      );
+      if (mounted) {
+        final startLabel = DateFormat('HH:mm', 'it_IT').format(slot.start);
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Prenotazione confermata! Presentati alle $startLabel e paga direttamente in salone.',
+            ),
+          ),
+        );
+      }
+      return true;
+    } on StateError catch (error) {
+      if (mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } catch (error) {
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Prenotazione non riuscita: $error'),
           ),
         );
       }
@@ -1713,18 +1804,27 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     }
   }
 
-  Future<void> _finalizeLastMinuteBooking({
+  Future<Appointment> _createLastMinuteAppointment({
     required Client client,
     required Salon salon,
     required LastMinuteSlot slot,
-    required String paymentIntentId,
+    required LastMinutePaymentMode paymentMode,
+    String? paymentIntentId,
   }) async {
     final staffId =
         slot.operatorId != null && slot.operatorId!.isNotEmpty
             ? slot.operatorId!
-            : 'auto-stripe';
+            : (paymentMode == LastMinutePaymentMode.online
+                ? 'auto-stripe'
+                : 'auto-lastminute');
+    final appointmentId =
+        paymentIntentId != null
+            ? 'stripe-$paymentIntentId'
+            : 'last-minute-${slot.id}-${_uuid.v4()}';
+    final notesSuffix =
+        paymentMode == LastMinutePaymentMode.online ? 'Stripe' : 'paga in sede';
     final appointment = Appointment(
-      id: 'stripe-$paymentIntentId',
+      id: appointmentId,
       salonId: salon.id,
       clientId: client.id,
       staffId: staffId,
@@ -1732,7 +1832,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       start: slot.start,
       end: slot.start.add(slot.duration),
       status: AppointmentStatus.scheduled,
-      notes: 'Prenotazione last-minute ${slot.id} (Stripe)',
+      notes: 'Prenotazione last-minute ${slot.id} ($notesSuffix)',
       roomId: slot.roomId,
       lastMinuteSlotId: slot.id,
     );
@@ -1742,12 +1842,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       appointment,
       consumeLastMinuteSlotId: slot.id,
     );
-    await _ensureLastMinuteSaleAndCashFlow(
-      client: client,
-      salon: salon,
-      slot: slot,
-      paymentIntentId: paymentIntentId,
-    );
+    return appointment;
   }
 
   Future<void> _ensureLastMinuteSaleAndCashFlow({

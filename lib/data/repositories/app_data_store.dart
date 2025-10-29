@@ -3562,6 +3562,19 @@ class AppDataStore extends StateNotifier<AppDataState> {
     if (previous?.status == AppointmentStatus.completed) {
       return false;
     }
+    final lastMinuteSlotId = appointment.lastMinuteSlotId;
+    if (lastMinuteSlotId != null && lastMinuteSlotId.isNotEmpty) {
+      final normalizedNotes = appointment.notes?.toLowerCase() ?? '';
+      if (normalizedNotes.contains('stripe')) {
+        return false;
+      }
+      final slot = state.lastMinuteSlots.firstWhereOrNull(
+        (item) => item.id == lastMinuteSlotId,
+      );
+      if (slot != null && slot.paymentMode == LastMinutePaymentMode.online) {
+        return false;
+      }
+    }
     final existingTicket = state.paymentTickets.firstWhereOrNull(
       (ticket) => ticket.appointmentId == appointment.id,
     );
@@ -5755,6 +5768,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
               ? data['bookedClientId'] as String
               : null,
       bookedClientName: data['bookedClientName'] as String?,
+      paymentMode: lastMinutePaymentModeFromName(
+        data['paymentMode'] as String?,
+      ),
     );
   }
 

@@ -249,6 +249,10 @@ export const bookLastMinuteSlot = functions.region('europe-west1').https.onCall(
           loyaltyPoints: Number(slotData.loyaltyPoints ?? 0),
           bookedClientId: clientId,
           bookedClientName: clientName ?? null,
+          paymentMode:
+            typeof slotData.paymentMode === 'string'
+              ? String(slotData.paymentMode)
+              : 'online',
         },
       };
     });
