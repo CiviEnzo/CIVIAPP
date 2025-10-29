@@ -15,6 +15,7 @@ import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
 import 'package:you_book/domain/entities/client_photo_collage.dart';
+import 'package:you_book/domain/entities/client_import.dart';
 import 'package:you_book/domain/entities/inventory_item.dart';
 import 'package:you_book/domain/entities/last_minute_notification.dart';
 import 'package:you_book/domain/entities/last_minute_slot.dart';
@@ -89,8 +90,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
                ),
                users: const [],
                clientPhotos: List.unmodifiable(MockData.clientPhotos),
-               clientPhotoCollages:
-                   List.unmodifiable(MockData.clientPhotoCollages),
+               clientPhotoCollages: List.unmodifiable(
+                 MockData.clientPhotoCollages,
+               ),
                clientQuestionnaireTemplates: List.unmodifiable(
                  MockData.clientQuestionnaireTemplates,
                ),
@@ -209,14 +211,12 @@ class AppDataStore extends StateNotifier<AppDataState> {
       );
     } else if (role == UserRole.client) {
       subscriptions.add(
-        _listenCollection<Salon>(
-          firestore.collection('salons'),
-          salonFromDoc,
-          (items) {
-            state = state.copyWith(salons: items);
-            _refreshFeatureFilteredCollections();
-          },
-        ),
+        _listenCollection<Salon>(firestore.collection('salons'), salonFromDoc, (
+          items,
+        ) {
+          state = state.copyWith(salons: items);
+          _refreshFeatureFilteredCollections();
+        }),
       );
     } else if (salonIds.isEmpty) {
       state = state.copyWith(
@@ -494,8 +494,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
           collectionPath: 'client_photo_collages',
           salonIds: salonIds,
           fromDoc: clientPhotoCollageFromDoc,
-          onData:
-              (items) => state = state.copyWith(clientPhotoCollages: items),
+          onData: (items) => state = state.copyWith(clientPhotoCollages: items),
         ),
       );
 
@@ -2347,6 +2346,313 @@ class AppDataStore extends StateNotifier<AppDataState> {
     await _ensureClientUser(prepared);
   }
 
+  Future<ClientImportResult> bulkImportClients({
+    required String salonId,
+    required List<ClientImportDraft> drafts,
+  }) async {
+    if (drafts.isEmpty) {
+      return const ClientImportResult(successes: [], failures: []);
+    }
+
+    final successes = <ClientImportSuccess>[];
+    final failures = <ClientImportFailure>[];
+    final processedClients = <Client>[];
+
+    final salonClients =
+        state.clients.where((client) => client.salonId == salonId).toList();
+    final clientLookup = <String, Client>{
+      for (final client in salonClients) client.id: client,
+    };
+
+    final knownPhones =
+        salonClients
+            .map((client) => _normalizePhoneForComparison(client.phone))
+            .where((value) => value.isNotEmpty)
+            .toSet();
+    final knownEmails =
+        salonClients
+            .map((client) => client.email?.trim().toLowerCase())
+            .whereType<String>()
+            .toSet();
+
+    final firestore = _firestore;
+
+    for (final draft in drafts) {
+      final existingTargetId = draft.existingClientId?.trim();
+      if (existingTargetId != null && existingTargetId.isNotEmpty) {
+        final existing = clientLookup[existingTargetId];
+        if (existing == null) {
+          failures.add(
+            ClientImportFailure(
+              draft: draft,
+              message: 'Cliente esistente non trovato per il merge.',
+            ),
+          );
+          continue;
+        }
+
+        final merged = _mergeClientWithDraft(existing, draft);
+        final normalizedPhone = _normalizePhoneForComparison(merged.phone);
+        final normalizedEmail =
+            merged.email != null && merged.email!.trim().isNotEmpty
+                ? merged.email!.trim().toLowerCase()
+                : null;
+
+        final phoneConflict =
+            normalizedPhone.isNotEmpty &&
+            clientLookup.values.any(
+              (client) =>
+                  client.id != existing.id &&
+                  _normalizePhoneForComparison(client.phone) == normalizedPhone,
+            );
+        if (phoneConflict) {
+          failures.add(
+            ClientImportFailure(
+              draft: draft,
+              message: 'Telefono già utilizzato da un altro cliente.',
+            ),
+          );
+          continue;
+        }
+
+        final emailConflict =
+            normalizedEmail != null &&
+            clientLookup.values.any(
+              (client) =>
+                  client.id != existing.id &&
+                  (client.email?.trim().toLowerCase() == normalizedEmail),
+            );
+        if (emailConflict) {
+          failures.add(
+            ClientImportFailure(
+              draft: draft,
+              message: 'Email già utilizzata da un altro cliente.',
+            ),
+          );
+          continue;
+        }
+
+        try {
+          if (firestore != null) {
+            await firestore
+                .collection('clients')
+                .doc(merged.id)
+                .set(clientToMap(merged));
+          }
+          processedClients.add(merged);
+          successes.add(ClientImportSuccess(client: merged));
+
+          final previousPhone = _normalizePhoneForComparison(existing.phone);
+          if (previousPhone.isNotEmpty) {
+            knownPhones.remove(previousPhone);
+          }
+          if (normalizedPhone.isNotEmpty) {
+            knownPhones.add(normalizedPhone);
+          }
+
+          final previousEmail = existing.email?.trim().toLowerCase();
+          if (previousEmail != null && previousEmail.isNotEmpty) {
+            knownEmails.remove(previousEmail);
+          }
+          if (normalizedEmail != null && normalizedEmail.isNotEmpty) {
+            knownEmails.add(normalizedEmail);
+          }
+
+          clientLookup[merged.id] = merged;
+        } catch (error) {
+          failures.add(
+            ClientImportFailure(
+              draft: draft,
+              message: 'Impossibile aggiornare il cliente esistente: $error',
+              error: error,
+            ),
+          );
+        }
+        continue;
+      }
+
+      final normalizedPhone = _normalizePhoneForComparison(draft.phone);
+      if (normalizedPhone.isEmpty) {
+        failures.add(
+          ClientImportFailure(
+            draft: draft,
+            message: 'Telefono mancante o non valido.',
+          ),
+        );
+        continue;
+      }
+      if (knownPhones.contains(normalizedPhone)) {
+        failures.add(
+          ClientImportFailure(
+            draft: draft,
+            message: 'Telefono già associato a un cliente esistente.',
+          ),
+        );
+        continue;
+      }
+
+      final rawEmail = draft.email?.trim();
+      final normalizedEmail =
+          rawEmail != null && rawEmail.isNotEmpty
+              ? rawEmail.toLowerCase()
+              : null;
+      if (normalizedEmail != null && knownEmails.contains(normalizedEmail)) {
+        failures.add(
+          ClientImportFailure(
+            draft: draft,
+            message: 'Email già associata a un cliente esistente.',
+          ),
+        );
+        continue;
+      }
+
+      final firstName = _normalizeName(draft.firstName);
+      final lastName = _normalizeName(draft.lastName, fallback: 'Cliente');
+      final phone = _normalizePhoneDisplay(draft.phone);
+      final notes = _resolveImportNotes(draft.notes);
+
+      final client = Client(
+        id: const Uuid().v4(),
+        salonId: salonId,
+        firstName: firstName,
+        lastName: lastName,
+        phone: phone,
+        email: rawEmail != null && rawEmail.isNotEmpty ? rawEmail : null,
+        notes: notes,
+        loyaltyInitialPoints: 0,
+        loyaltyPoints: 0,
+        marketedConsents: const [],
+        fcmTokens: const [],
+        channelPreferences: const ChannelPreferences(),
+      );
+
+      try {
+        final prepared = await _ensureClientNumber(client);
+        if (firestore != null) {
+          await firestore
+              .collection('clients')
+              .doc(prepared.id)
+              .set(clientToMap(prepared));
+        }
+        processedClients.add(prepared);
+        successes.add(ClientImportSuccess(client: prepared));
+        knownPhones.add(normalizedPhone);
+        if (normalizedEmail != null) {
+          knownEmails.add(normalizedEmail);
+        }
+        clientLookup[prepared.id] = prepared;
+      } catch (error) {
+        failures.add(
+          ClientImportFailure(
+            draft: draft,
+            message: 'Impossibile creare il cliente: $error',
+            error: error,
+          ),
+        );
+      }
+    }
+
+    if (processedClients.isNotEmpty) {
+      _upsertLocal(clients: processedClients);
+    }
+
+    for (final client in processedClients) {
+      final email = client.email;
+      if (email == null || email.isEmpty) {
+        continue;
+      }
+      try {
+        await _ensureClientUser(client);
+      } catch (error, stackTrace) {
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            exception: error,
+            stack: stackTrace,
+            library: 'AppDataStore',
+            informationCollector:
+                () => [
+                  DiagnosticsProperty<String>('Context', 'bulkImportClients'),
+                  DiagnosticsProperty<String>('Client ID', client.id),
+                  DiagnosticsProperty<String>('Email', email),
+                ],
+          ),
+        );
+      }
+    }
+
+    return ClientImportResult(
+      successes: List.unmodifiable(successes),
+      failures: List.unmodifiable(failures),
+    );
+  }
+
+  String _normalizePhoneForComparison(String value) {
+    return value.replaceAll(RegExp(r'[^0-9]'), '');
+  }
+
+  String _normalizePhoneDisplay(String value) {
+    final trimmed = value.trim();
+    return trimmed.replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  String _normalizeName(String value, {String fallback = 'Cliente'}) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return fallback;
+    }
+    return trimmed;
+  }
+
+  String? _resolveImportNotes(String? raw) {
+    final trimmed = raw?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      return 'Import massivo clienti';
+    }
+    return trimmed;
+  }
+
+  Client _mergeClientWithDraft(Client existing, ClientImportDraft draft) {
+    final mergedNotes = <String>[];
+    final existingNotes = existing.notes?.trim();
+    if (existingNotes != null && existingNotes.isNotEmpty) {
+      mergedNotes.add(existingNotes);
+    }
+    final draftNotes = draft.notes?.trim();
+    if (draftNotes != null && draftNotes.isNotEmpty) {
+      mergedNotes.add(draftNotes);
+    }
+
+    final notes =
+        mergedNotes.isEmpty
+            ? existing.notes
+            : mergedNotes.toSet().toList().join('\n');
+
+    final firstName =
+        draft.firstName.trim().isNotEmpty
+            ? draft.firstName.trim()
+            : existing.firstName;
+    final lastName =
+        draft.lastName.trim().isNotEmpty
+            ? draft.lastName.trim()
+            : existing.lastName;
+    final phone =
+        draft.phone.trim().isNotEmpty
+            ? _normalizePhoneDisplay(draft.phone)
+            : existing.phone;
+    final email =
+        draft.email != null && draft.email!.trim().isNotEmpty
+            ? draft.email!.trim()
+            : existing.email;
+
+    return existing.copyWith(
+      firstName: firstName,
+      lastName: lastName,
+      phone: phone,
+      email: email,
+      notes: notes,
+    );
+  }
+
   Future<Client> _ensureClientNumber(Client client) async {
     final existing = state.clients.firstWhereOrNull(
       (element) => element.id == client.id,
@@ -2455,9 +2761,11 @@ class AppDataStore extends StateNotifier<AppDataState> {
     required ClientPhotoSetType setType,
     required String photoId,
   }) async {
-    final relevant = state.clientPhotos.where((photo) {
-      return photo.clientId == clientId && photo.setType == setType;
-    }).toList(growable: false);
+    final relevant = state.clientPhotos
+        .where((photo) {
+          return photo.clientId == clientId && photo.setType == setType;
+        })
+        .toList(growable: false);
     if (relevant.isEmpty) {
       return;
     }
@@ -2499,11 +2807,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     await _deleteCollectionWhere('sales', 'clientId', clientId);
     await _deleteCollectionWhere('payment_tickets', 'clientId', clientId);
     await _deleteCollectionWhere('client_photos', 'clientId', clientId);
-    await _deleteCollectionWhere(
-      'client_photo_collages',
-      'clientId',
-      clientId,
-    );
+    await _deleteCollectionWhere('client_photo_collages', 'clientId', clientId);
     await _deleteCollectionWhere('quotes', 'clientId', clientId);
   }
 
@@ -4336,9 +4640,10 @@ class AppDataStore extends StateNotifier<AppDataState> {
     if (firestore == null) {
       _deleteSaleLocal(saleId);
       await _syncInventoryAfterSaleChange(
-        previousUsage: existingSale == null
-            ? const <String, double>{}
-            : _buildProductUsageMap(existingSale.items),
+        previousUsage:
+            existingSale == null
+                ? const <String, double>{}
+                : _buildProductUsageMap(existingSale.items),
         nextUsage: const <String, double>{},
       );
       return;
@@ -4346,9 +4651,10 @@ class AppDataStore extends StateNotifier<AppDataState> {
     await firestore.collection('sales').doc(saleId).delete();
     _deleteSaleLocal(saleId);
     await _syncInventoryAfterSaleChange(
-      previousUsage: existingSale == null
-          ? const <String, double>{}
-          : _buildProductUsageMap(existingSale.items),
+      previousUsage:
+          existingSale == null
+              ? const <String, double>{}
+              : _buildProductUsageMap(existingSale.items),
       nextUsage: const <String, double>{},
     );
   }

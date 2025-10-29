@@ -1,10 +1,12 @@
 import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/domain/entities/client_import.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/salon_access_request.dart';
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/data/repositories/auth_repository.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/screens/admin/forms/client_form_sheet.dart';
+import 'package:you_book/presentation/screens/admin/forms/client_import_sheet.dart';
 import 'package:you_book/presentation/screens/admin/modules/client_detail_page.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
@@ -32,6 +34,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
   bool _searchPerformed = false;
   String? _searchError;
   String? _selectedClientId;
+  bool _isSavingClient = false;
 
   @override
   void initState() {
@@ -101,6 +104,81 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
       return;
     }
     setState(() => _selectedClientId = null);
+  }
+
+  Future<void> _openClientForm({
+    required List<Salon> salons,
+    required List<Client> clients,
+    Client? existing,
+  }) async {
+    if (salons.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Crea prima un salone per associare clienti.'),
+        ),
+      );
+      return;
+    }
+
+    final result = await showAppModalSheet<Client>(
+      context: context,
+      builder:
+          (ctx) => ClientFormSheet(
+            salons: salons,
+            clients: clients,
+            defaultSalonId: widget.salonId,
+            initial: existing,
+          ),
+    );
+    if (result == null) {
+      return;
+    }
+
+    setState(() => _isSavingClient = true);
+    Client? updated;
+    try {
+      await ref.read(appDataProvider.notifier).upsertClient(result);
+      if (!mounted) {
+        return;
+      }
+      if (existing == null) {
+        updated = ref
+            .read(appDataProvider)
+            .clients
+            .firstWhereOrNull((client) => client.id == result.id);
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Errore durante il salvataggio: $error')),
+        );
+      }
+      return;
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingClient = false);
+      }
+    }
+
+    if (!mounted || existing != null || updated == null) {
+      return;
+    }
+
+    final clientNumber = updated.clientNumber?.trim();
+    if (clientNumber == null || clientNumber.isEmpty) {
+      return;
+    }
+
+    _focusOnClient(updated);
+  }
+
+  void _focusOnClient(Client client) {
+    setState(() {
+      _generalQueryController.clear();
+      _clientNumberController.text = client.clientNumber ?? '';
+    });
+    _performSearch(showErrorWhenEmpty: false);
+    setState(() => _selectedClientId = client.id);
   }
 
   void _applyIntent(ClientsModuleIntent intent) {
@@ -474,15 +552,24 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                   ),
                   FilledButton.icon(
                     onPressed:
-                        () => _openForm(
+                        () => _openClientForm(
+                          salons: salons,
+                          clients: data.clients,
+                        ),
+                    icon: const Icon(Icons.person_add_alt_1_rounded),
+                    label: const Text('Nuovo cliente'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed:
+                        () => _openImport(
                           context,
                           ref,
                           salons: salons,
                           clients: data.clients,
                           defaultSalonId: widget.salonId,
                         ),
-                    icon: const Icon(Icons.person_add_alt_1_rounded),
-                    label: const Text('Nuovo cliente'),
+                    icon: const Icon(Icons.upload_file_rounded),
+                    label: const Text('Importa CSV'),
                   ),
                 ],
               ),
@@ -555,7 +642,6 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                 .length;
         final purchases =
             data.sales.where((sale) => sale.clientId == client.id).length;
-        final clientSalon = salonLookup[client.salonId];
         final isSelected = client.id == _selectedClientId;
         final emailAvailable = client.email != null && client.email!.isNotEmpty;
         final isSending = _isSending(client.id);
@@ -678,12 +764,9 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                                 ),
                                 OutlinedButton.icon(
                                   onPressed:
-                                      () => _openForm(
-                                        context,
-                                        ref,
+                                      () => _openClientForm(
                                         salons: salons,
                                         clients: data.clients,
-                                        defaultSalonId: widget.salonId,
                                         existing: client,
                                       ),
                                   icon: const Icon(Icons.edit_rounded),
@@ -736,7 +819,27 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
       }
     }
 
-    return ListView(padding: const EdgeInsets.all(16), children: children);
+    final listView = ListView(
+      padding: const EdgeInsets.all(16),
+      children: children,
+    );
+
+    return Stack(
+      children: [
+        listView,
+        if (_isSavingClient)
+          Positioned.fill(
+            child: AbsorbPointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.35),
+                ),
+                child: const Center(child: CircularProgressIndicator()),
+              ),
+            ),
+          ),
+      ],
+    );
   }
 
   bool _isSending(String clientId) => _sendingInvites.contains(clientId);
@@ -846,13 +949,12 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
   }
 }
 
-Future<void> _openForm(
+Future<void> _openImport(
   BuildContext context,
   WidgetRef ref, {
   required List<Salon> salons,
   required List<Client> clients,
   String? defaultSalonId,
-  Client? existing,
 }) async {
   if (salons.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -862,19 +964,25 @@ Future<void> _openForm(
     );
     return;
   }
-  final result = await showAppModalSheet<Client>(
+  final result = await showAppModalSheet<ClientImportResult>(
     context: context,
     builder:
-        (ctx) => ClientFormSheet(
+        (ctx) => ClientImportSheet(
           salons: salons,
           clients: clients,
           defaultSalonId: defaultSalonId,
-          initial: existing,
         ),
   );
-  if (result != null) {
-    await ref.read(appDataProvider.notifier).upsertClient(result);
+  if (result == null) {
+    return;
   }
+  final imported = result.importedCount;
+  final failed = result.failedCount;
+  final message =
+      failed > 0
+          ? 'Import completato: $imported clienti importati, $failed non importati.'
+          : '$imported clienti importati correttamente.';
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
 }
 
 class _QuickStat extends StatelessWidget {

@@ -26,6 +26,8 @@ class ClientFormSheet extends StatefulWidget {
 
 class _ClientFormSheetState extends State<ClientFormSheet> {
   static const String _pendingClientNumberDisplay = 'Assegnato al salvataggio';
+  static const String _duplicateDialogCancel = '_duplicate_cancel';
+  static const String _duplicateDialogCreateNew = '_duplicate_create_new';
   final _formKey = GlobalKey<FormState>();
   final _uuid = const Uuid();
   final DateFormat _dateFormat = DateFormat('dd/MM/yyyy');
@@ -202,9 +204,42 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     });
   }
 
+  void _updateDateOfBirthFromText() {
+    final trimmed = _dateOfBirthDisplay.text.trim();
+    _dateOfBirth = _parseDate(trimmed);
+  }
+
+  DateTime? _parseDate(String value) {
+    if (value.length != 10) {
+      return null;
+    }
+    try {
+      return _dateFormat.parseStrict(value);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String? _validateDateOfBirth(String? value) {
+    final trimmed = value?.trim() ?? '';
+    if (trimmed.isEmpty) {
+      return 'Inserisci la data di nascita';
+    }
+    final parsed = _parseDate(trimmed);
+    if (parsed == null) {
+      return 'Formato data non valido (gg/mm/aaaa)';
+    }
+    _dateOfBirth = parsed;
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final numberDisplay =
+        _clientNumber.text.isEmpty
+            ? _pendingClientNumberDisplay
+            : _clientNumber.text;
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Form(
@@ -213,189 +248,222 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              widget.initial == null ? 'Nuovo cliente' : 'Modifica cliente',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _firstName,
-              decoration: const InputDecoration(labelText: 'Nome'),
-              validator:
-                  (value) =>
-                      value == null || value.trim().isEmpty
-                          ? 'Inserisci il nome'
-                          : null,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _lastName,
-              decoration: const InputDecoration(labelText: 'Cognome'),
-              validator:
-                  (value) =>
-                      value == null || value.trim().isEmpty
-                          ? 'Inserisci il cognome'
-                          : null,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _clientNumber,
-              readOnly: true,
-              decoration: const InputDecoration(
-                labelText: 'Numero cliente',
-                helperText:
-                    'Assegnato automaticamente al salvataggio in base al salone',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _phone,
-              decoration: const InputDecoration(labelText: 'Telefono'),
-              keyboardType: TextInputType.phone,
-              validator:
-                  (value) =>
-                      value == null || value.trim().isEmpty
-                          ? 'Inserisci un numero di telefono'
-                          : null,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _email,
-              decoration: const InputDecoration(labelText: 'Email'),
-              keyboardType: TextInputType.emailAddress,
-              validator: _validateEmail,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _dateOfBirthDisplay,
-              readOnly: true,
-              decoration: const InputDecoration(
-                labelText: 'Data di nascita',
-                suffixIcon: Icon(Icons.calendar_today_rounded),
-              ),
-              validator:
-                  (value) =>
-                      value == null || value.trim().isEmpty
-                          ? 'Seleziona la data di nascita'
-                          : null,
-              onTap: _pickDateOfBirth,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _address,
-              decoration: const InputDecoration(
-                labelText: 'Città di residenza',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _profession,
-              decoration: const InputDecoration(labelText: 'Professione'),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: _referralSource,
-              decoration: const InputDecoration(
-                labelText: 'Come ci ha conosciuto?',
-              ),
-              hint: const Text('Seleziona un\'opzione'),
-              items:
-                  _buildReferralOptions()
-                      .map(
-                        (option) => DropdownMenuItem(
-                          value: option,
-                          child: Text(option),
-                        ),
-                      )
-                      .toList(),
-              isExpanded: true,
-              onChanged:
-                  (value) => setState(() => _referralSource = value?.trim()),
-              validator:
-                  (value) =>
-                      _referralSource == null || _referralSource!.isEmpty
-                          ? 'Indica come il cliente ha conosciuto il salone'
-                          : null,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Preferenze di contatto',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: _prefPush,
-              onChanged: (value) => _updatePreference(() => _prefPush = value),
-              title: const Text('Push (app mobile)'),
-              subtitle: const Text(
-                'Notifiche gratuite tramite installazione dell\'app.',
-              ),
-            ),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: _prefEmail,
-              onChanged: (value) => _updatePreference(() => _prefEmail = value),
-              title: const Text('Email'),
-              subtitle: const Text('Promo e reminder via posta elettronica.'),
-            ),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: _prefWhatsapp,
-              onChanged:
-                  (value) => _updatePreference(() => _prefWhatsapp = value),
-              title: const Text('WhatsApp'),
-              subtitle: const Text(
-                'Richiede numero Business e template approvati.',
-              ),
-            ),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: _prefSms,
-              onChanged: (value) => _updatePreference(() => _prefSms = value),
-              title: const Text('SMS'),
-              subtitle: const Text(
-                'Canale a pagamento, usarlo solo per comunicazioni urgenti.',
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(
-                _preferencesDirty || widget.initial == null
-                    ? 'Le modifiche saranno registrate al salvataggio.'
-                    : _channelPrefsUpdatedAt != null
-                    ? 'Ultimo aggiornamento: ${_dateTimeFormat.format(_channelPrefsUpdatedAt!)}'
-                    : 'Preferenze non ancora registrate.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-            TextFormField(
-              controller: _loyaltyInitialPoints,
-              decoration: const InputDecoration(
-                labelText: 'Punti iniziali',
-                helperText: 'Saldo assegnato al momento della creazione.',
-              ),
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _loyaltyPoints,
-              decoration: const InputDecoration(
-                labelText: 'Saldo punti attuale',
-                helperText:
-                    'Se lasci invariato, sarà ricalcolato con il nuovo saldo iniziale.',
-              ),
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _notes,
-              decoration: const InputDecoration(labelText: 'Note'),
-              maxLines: 3,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Text(
+                    _isEditing ? 'Modifica cliente' : 'Nuovo cliente',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                _ClientNumberBadge(number: numberDisplay),
+              ],
             ),
             const SizedBox(height: 24),
+            _FormSection(
+              icon: Icons.badge_rounded,
+              title: 'Anagrafica',
+              subtitle: 'Imposta i dati principali del cliente',
+              children: [
+                TextFormField(
+                  controller: _firstName,
+                  autofocus: !_isEditing,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(labelText: 'Nome'),
+                  validator:
+                      (value) =>
+                          value == null || value.trim().isEmpty
+                              ? 'Inserisci il nome'
+                              : null,
+                ),
+                TextFormField(
+                  controller: _lastName,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(labelText: 'Cognome'),
+                  validator:
+                      (value) =>
+                          value == null || value.trim().isEmpty
+                              ? 'Inserisci il cognome'
+                              : null,
+                ),
+                TextFormField(
+                  controller: _dateOfBirthDisplay,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    LengthLimitingTextInputFormatter(10),
+                    _SlashDateTextInputFormatter(),
+                  ],
+                  decoration: InputDecoration(
+                    labelText: 'Data di nascita',
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.calendar_today_rounded),
+                      onPressed: _pickDateOfBirth,
+                    ),
+                  ),
+                  onChanged: (_) => _updateDateOfBirthFromText(),
+                  validator: _validateDateOfBirth,
+                ),
+              ],
+            ),
+            _FormSection(
+              icon: Icons.contact_phone_rounded,
+              title: 'Contatti',
+              subtitle: 'Recapiti, indirizzo e provenienza',
+              children: [
+                TextFormField(
+                  controller: _phone,
+                  decoration: const InputDecoration(labelText: 'Telefono'),
+                  keyboardType: TextInputType.phone,
+                  textInputAction: TextInputAction.next,
+                  validator:
+                      (value) =>
+                          value == null || value.trim().isEmpty
+                              ? 'Inserisci un numero di telefono'
+                              : null,
+                ),
+                TextFormField(
+                  controller: _email,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                  keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.next,
+                  validator: _validateEmail,
+                ),
+                TextFormField(
+                  controller: _address,
+                  decoration: const InputDecoration(
+                    labelText: 'Città di residenza',
+                  ),
+                  textInputAction: TextInputAction.next,
+                ),
+                TextFormField(
+                  controller: _profession,
+                  decoration: const InputDecoration(labelText: 'Professione'),
+                  textInputAction: TextInputAction.next,
+                ),
+                DropdownButtonFormField<String>(
+                  value: _referralSource,
+                  decoration: const InputDecoration(
+                    labelText: 'Come ci ha conosciuto?',
+                  ),
+                  hint: const Text('Seleziona un\'opzione'),
+                  items:
+                      _buildReferralOptions()
+                          .map(
+                            (option) => DropdownMenuItem(
+                              value: option,
+                              child: Text(option),
+                            ),
+                          )
+                          .toList(),
+                  isExpanded: true,
+                  onChanged:
+                      (value) =>
+                          setState(() => _referralSource = value?.trim()),
+                  validator:
+                      (value) =>
+                          _referralSource == null || _referralSource!.isEmpty
+                              ? 'Indica come il cliente ha conosciuto il salone'
+                              : null,
+                ),
+              ],
+            ),
+            _FormSection(
+              icon: Icons.forum_rounded,
+              title: 'Preferenze di contatto',
+              subtitle: 'Scegli i canali di comunicazione consentiti',
+              children: [
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: _prefPush,
+                  onChanged:
+                      (value) => _updatePreference(() => _prefPush = value),
+                  title: const Text('Push (app mobile)'),
+                  subtitle: const Text(
+                    'Notifiche gratuite tramite installazione dell\'app.',
+                  ),
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: _prefEmail,
+                  onChanged:
+                      (value) => _updatePreference(() => _prefEmail = value),
+                  title: const Text('Email'),
+                  subtitle: const Text(
+                    'Promo e reminder via posta elettronica.',
+                  ),
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: _prefWhatsapp,
+                  onChanged:
+                      (value) => _updatePreference(() => _prefWhatsapp = value),
+                  title: const Text('WhatsApp'),
+                  subtitle: const Text(
+                    'Richiede numero Business e template approvati.',
+                  ),
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: _prefSms,
+                  onChanged:
+                      (value) => _updatePreference(() => _prefSms = value),
+                  title: const Text('SMS'),
+                  subtitle: const Text(
+                    'Canale a pagamento, usarlo solo per comunicazioni urgenti.',
+                  ),
+                ),
+                Text(
+                  _preferencesDirty || widget.initial == null
+                      ? 'Le modifiche saranno registrate al salvataggio.'
+                      : _channelPrefsUpdatedAt != null
+                      ? 'Ultimo aggiornamento: ${_dateTimeFormat.format(_channelPrefsUpdatedAt!)}'
+                      : 'Preferenze non ancora registrate.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+            _FormSection(
+              icon: Icons.stars_rounded,
+              title: 'Programma fedeltà',
+              subtitle: 'Configura saldo iniziale e punti attuali',
+              children: [
+                TextFormField(
+                  controller: _loyaltyInitialPoints,
+                  decoration: const InputDecoration(
+                    labelText: 'Punti iniziali',
+                    helperText: 'Saldo assegnato al momento della creazione.',
+                  ),
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.next,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                ),
+                TextFormField(
+                  controller: _loyaltyPoints,
+                  decoration: const InputDecoration(
+                    labelText: 'Saldo punti attuale',
+                    helperText:
+                        'Se lasci invariato, sarà ricalcolato con il nuovo saldo iniziale.',
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                ),
+              ],
+            ),
+            _FormSection(
+              icon: Icons.sticky_note_2_rounded,
+              title: 'Note',
+              subtitle: 'Annotazioni visibili allo staff',
+              children: [
+                TextFormField(
+                  controller: _notes,
+                  decoration: const InputDecoration(labelText: 'Note interne'),
+                  maxLines: 4,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             Align(
               alignment: Alignment.centerRight,
               child: FilledButton(
@@ -409,7 +477,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     );
   }
 
-  void _submit() {
+  void _submit() async {
     if (!_formKey.currentState!.validate()) {
       return;
     }
@@ -420,13 +488,57 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
       return;
     }
 
+    final existing = widget.initial;
+    final salonId = _salonId!;
+    final trimmedFirstName = _firstName.text.trim();
+    final trimmedLastName = _lastName.text.trim();
+    final trimmedPhone = _phone.text.trim();
+    final trimmedEmail = _email.text.trim();
+    final trimmedAddress = _address.text.trim();
+    final trimmedProfession = _profession.text.trim();
+    final trimmedNotes = _notes.text.trim();
+    final referral = _referralSource?.trim();
+
+    _updateDateOfBirthFromText();
+
+    final duplicates = _findPotentialDuplicates(
+      salonId: salonId,
+      phone: trimmedPhone,
+      email: trimmedEmail,
+    );
+
+    if (duplicates.isNotEmpty) {
+      final decision = await _promptDuplicateResolution(duplicates);
+      if (!mounted) {
+        return;
+      }
+      if (decision == _duplicateDialogCancel || decision == null) {
+        return;
+      }
+      if (decision is Client) {
+        final mergedClient = _mergeExistingClientWithForm(
+          decision,
+          firstName: trimmedFirstName,
+          lastName: trimmedLastName,
+          phone: trimmedPhone,
+          email: trimmedEmail,
+          address: trimmedAddress,
+          profession: trimmedProfession,
+          referralSource: referral,
+          notes: trimmedNotes,
+          dateOfBirth: _dateOfBirth,
+        );
+        Navigator.of(context).pop(mergedClient);
+        return;
+      }
+    }
+
     var initialPoints = int.tryParse(_loyaltyInitialPoints.text.trim()) ?? 0;
     if (initialPoints < 0) {
       initialPoints = 0;
     }
 
     var loyaltyPoints = int.tryParse(_loyaltyPoints.text.trim()) ?? 0;
-    final existing = widget.initial;
     final previousInitial = existing?.loyaltyInitialPoints ?? 0;
     final previousBalance = existing?.loyaltyPoints ?? 0;
     final historicNet = previousBalance - previousInitial;
@@ -457,21 +569,17 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     final int loyaltyTotalRedeemed = existing?.loyaltyTotalRedeemed ?? 0;
 
     final client = Client(
-      id: widget.initial?.id ?? _uuid.v4(),
-      salonId: _salonId!,
-      firstName: _firstName.text.trim(),
-      lastName: _lastName.text.trim(),
-      phone: _phone.text.trim(),
+      id: existing?.id ?? _uuid.v4(),
+      salonId: salonId,
+      firstName: trimmedFirstName,
+      lastName: trimmedLastName,
+      phone: trimmedPhone,
       dateOfBirth: _dateOfBirth,
-      address: _address.text.trim().isEmpty ? null : _address.text.trim(),
-      profession:
-          _profession.text.trim().isEmpty ? null : _profession.text.trim(),
-      referralSource:
-          _referralSource == null || _referralSource!.trim().isEmpty
-              ? null
-              : _referralSource!.trim(),
-      email: _email.text.trim(),
-      notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
+      address: trimmedAddress.isEmpty ? null : trimmedAddress,
+      profession: trimmedProfession.isEmpty ? null : trimmedProfession,
+      referralSource: referral == null || referral.isEmpty ? null : referral,
+      email: trimmedEmail,
+      notes: trimmedNotes.isEmpty ? null : trimmedNotes,
       loyaltyInitialPoints: initialPoints,
       loyaltyPoints: loyaltyPoints,
       loyaltyUpdatedAt: loyaltyUpdatedAt,
@@ -492,6 +600,131 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     Navigator.of(context).pop(client);
   }
 
+  List<Client> _findPotentialDuplicates({
+    required String salonId,
+    required String phone,
+    required String email,
+  }) {
+    final normalizedPhone = _normalizePhoneForComparison(phone);
+    final normalizedEmail = email.trim().toLowerCase();
+
+    return widget.clients.where((client) {
+      if (client.id == widget.initial?.id) {
+        return false;
+      }
+      if (client.salonId != salonId) {
+        return false;
+      }
+      final clientPhone = _normalizePhoneForComparison(client.phone);
+      final phoneMatch =
+          normalizedPhone.isNotEmpty && clientPhone == normalizedPhone;
+      final clientEmail = client.email?.trim().toLowerCase() ?? '';
+      final emailMatch =
+          normalizedEmail.isNotEmpty && clientEmail == normalizedEmail;
+      return phoneMatch || emailMatch;
+    }).toList();
+  }
+
+  Future<Object?> _promptDuplicateResolution(List<Client> duplicates) {
+    return showDialog<Object?>(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text('Possibile duplicato'),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      duplicates.length == 1
+                          ? 'È stato trovato un cliente con gli stessi contatti.'
+                          : 'Sono stati trovati ${duplicates.length} clienti con gli stessi contatti.',
+                    ),
+                    const SizedBox(height: 12),
+                    ...duplicates.map(
+                      (client) => ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.person_outline_rounded),
+                        title: Text(client.fullName),
+                        subtitle: Text(_buildDuplicateSubtitle(client)),
+                        onTap: () => Navigator.of(ctx).pop(client),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(_duplicateDialogCancel),
+                child: const Text('Annulla'),
+              ),
+              FilledButton(
+                onPressed:
+                    () => Navigator.of(ctx).pop(_duplicateDialogCreateNew),
+                child: const Text('Crea nuovo comunque'),
+              ),
+            ],
+          ),
+    );
+  }
+
+  String _buildDuplicateSubtitle(Client client) {
+    final details = <String>[
+      if (client.phone.isNotEmpty) client.phone,
+      if (client.email != null && client.email!.isNotEmpty) client.email!,
+    ];
+    return details.join(' • ');
+  }
+
+  Client _mergeExistingClientWithForm(
+    Client existing, {
+    required String firstName,
+    required String lastName,
+    required String phone,
+    required String email,
+    required String address,
+    required String profession,
+    required String? referralSource,
+    required String notes,
+    required DateTime? dateOfBirth,
+  }) {
+    final mergedNotes = <String>[];
+    final existingNotes = existing.notes?.trim();
+    if (existingNotes != null && existingNotes.isNotEmpty) {
+      mergedNotes.add(existingNotes);
+    }
+    if (notes.trim().isNotEmpty) {
+      mergedNotes.add(notes.trim());
+    }
+
+    return existing.copyWith(
+      firstName: firstName.isNotEmpty ? firstName : existing.firstName,
+      lastName: lastName.isNotEmpty ? lastName : existing.lastName,
+      phone: phone.isNotEmpty ? phone : existing.phone,
+      email: email.isNotEmpty ? email : existing.email,
+      address: address.isNotEmpty ? address : existing.address,
+      profession: profession.isNotEmpty ? profession : existing.profession,
+      referralSource:
+          referralSource != null && referralSource.isNotEmpty
+              ? referralSource
+              : existing.referralSource,
+      notes:
+          mergedNotes.isEmpty
+              ? existing.notes
+              : mergedNotes.toSet().toList().join('\n'),
+      dateOfBirth: dateOfBirth ?? existing.dateOfBirth,
+    );
+  }
+
+  String _normalizePhoneForComparison(String value) {
+    return value.replaceAll(RegExp(r'[^0-9]'), '');
+  }
+
   void _updatePreference(VoidCallback updater) {
     setState(() {
       updater();
@@ -507,20 +740,6 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     final emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
     if (!emailPattern.hasMatch(raw)) {
       return "Email non valida";
-    }
-    final normalized = raw.toLowerCase();
-    final duplicate = widget.clients.firstWhereOrNull((client) {
-      if (client.id == widget.initial?.id) {
-        return false;
-      }
-      final candidate = client.email?.trim();
-      if (candidate == null || candidate.isEmpty) {
-        return false;
-      }
-      return candidate.toLowerCase() == normalized;
-    });
-    if (duplicate != null) {
-      return "Esiste gia' un cliente con questa email";
     }
     return null;
   }
@@ -540,5 +759,156 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
       options.add(_referralSource!);
     }
     return options;
+  }
+}
+
+class _FormSection extends StatelessWidget {
+  const _FormSection({
+    required this.title,
+    required this.children,
+    this.icon,
+    this.subtitle,
+  });
+
+  final IconData? icon;
+  final String title;
+  final String? subtitle;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final headerColor = theme.colorScheme.secondaryContainer;
+    final borderColor = theme.colorScheme.outlineVariant;
+    final onHeaderColor = theme.colorScheme.onSecondaryContainer;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: borderColor),
+          color: theme.colorScheme.surface,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: headerColor,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(20),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  if (icon != null) ...[
+                    Container(
+                      decoration: BoxDecoration(
+                        color: onHeaderColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.all(6),
+                      child: Icon(icon, size: 20, color: onHeaderColor),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: onHeaderColor,
+                          ),
+                        ),
+                        if (subtitle != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            subtitle!,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: onHeaderColor.withValues(alpha: 0.8),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: _withSpacing(children),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _withSpacing(List<Widget> items) {
+    final result = <Widget>[];
+    for (var i = 0; i < items.length; i++) {
+      result.add(items[i]);
+      if (i != items.length - 1) {
+        result.add(const SizedBox(height: 12));
+      }
+    }
+    return result;
+  }
+}
+
+class _ClientNumberBadge extends StatelessWidget {
+  const _ClientNumberBadge({required this.number});
+
+  final String number;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Text(
+        'N° $number',
+        style: theme.textTheme.titleMedium?.copyWith(
+          color: theme.colorScheme.onPrimaryContainer,
+        ),
+      ),
+    );
+  }
+}
+
+class _SlashDateTextInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    final buffer = StringBuffer();
+    for (var i = 0; i < digits.length && i < 8; i++) {
+      if (i == 2 || i == 4) {
+        buffer.write('/');
+      }
+      buffer.write(digits[i]);
+    }
+    final formatted = buffer.toString();
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
   }
 }

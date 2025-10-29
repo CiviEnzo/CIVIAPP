@@ -1017,35 +1017,30 @@ class _WeekSchedule extends StatelessWidget {
     Color? foreground,
     String? tooltip,
   }) {
+    final tooltipParts = <String>[];
+    if (label.trim().isNotEmpty) {
+      tooltipParts.add(label);
+    }
+    if (tooltip != null && tooltip.trim().isNotEmpty) {
+      tooltipParts.add(tooltip);
+    }
+    final tooltipMessage = tooltipParts.join('\n');
+
     final chip = Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: background ?? theme.colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 14,
-            color: foreground ?? theme.colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: foreground ?? theme.colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.2,
-            ),
-          ),
-        ],
+      child: Icon(
+        icon,
+        size: 18,
+        color: foreground ?? theme.colorScheme.onSurfaceVariant,
       ),
     );
-    if (tooltip != null && tooltip.isNotEmpty) {
+    if (tooltipMessage.isNotEmpty) {
       return Tooltip(
-        message: tooltip,
+        message: tooltipMessage,
         waitDuration: const Duration(milliseconds: 250),
         child: chip,
       );

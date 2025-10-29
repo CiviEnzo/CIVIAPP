@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/data/repositories/app_data_state.dart';
 import 'package:you_book/domain/availability/appointment_conflicts.dart';
@@ -26,6 +28,7 @@ import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 enum _AppointmentDisplayMode { calendar, list }
@@ -108,6 +111,14 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         const ButtonSegment<int>(value: 30, label: const Text('30 min')),
         const ButtonSegment<int>(value: 60, label: const Text('60 min')),
       ];
+  static const String _agendaModeKey = 'admin_appointments_agenda_mode';
+  static const String _agendaScopeKey = 'admin_appointments_agenda_scope';
+  static const String _agendaSlotMinutesKey =
+      'admin_appointments_agenda_slot_minutes';
+  static const String _agendaWeekLayoutKey =
+      'admin_appointments_agenda_week_layout';
+  static const String _agendaStaffKey = 'admin_appointments_agenda_staff';
+  static const String _agendaWeekdaysKey = 'admin_appointments_agenda_weekdays';
 
   _AppointmentDisplayMode _mode = _AppointmentDisplayMode.calendar;
   AppointmentCalendarScope _scope = AppointmentCalendarScope.week;
@@ -126,6 +137,8 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     DateTime.saturday,
     DateTime.sunday,
   };
+  bool _isAgendaPreferencesReady = false;
+  SharedPreferences? _agendaPreferences;
 
   String? get _effectiveSalonId {
     final explicit = widget.salonId?.trim();
@@ -231,6 +244,192 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     super.initState();
     final now = DateTime.now();
     _anchorDate = DateTime(now.year, now.month, now.day);
+    unawaited(_restoreAgendaPreferences());
+  }
+
+  Future<SharedPreferences> _ensureAgendaPreferences() async {
+    final cached = _agendaPreferences;
+    if (cached != null) {
+      return cached;
+    }
+    final resolved = await SharedPreferences.getInstance();
+    _agendaPreferences = resolved;
+    return resolved;
+  }
+
+  _AppointmentDisplayMode? _decodeDisplayMode(String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return null;
+    }
+    return _AppointmentDisplayMode.values.firstWhereOrNull(
+      (mode) => mode.name == raw,
+    );
+  }
+
+  AppointmentCalendarScope? _decodeScope(String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return null;
+    }
+    return AppointmentCalendarScope.values.firstWhereOrNull(
+      (scope) => scope.name == raw,
+    );
+  }
+
+  _WeekLayoutMode? _decodeWeekLayout(String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return null;
+    }
+    return _WeekLayoutMode.values.firstWhereOrNull(
+      (layout) => layout.name == raw,
+    );
+  }
+
+  Set<int>? _decodeVisibleWeekdays(List<String>? raw) {
+    if (raw == null) {
+      return null;
+    }
+    final parsed =
+        raw.map((value) => int.tryParse(value)).whereType<int>().toSet();
+    if (parsed.isEmpty) {
+      return const <int>{};
+    }
+    final filtered =
+        parsed
+            .where((day) => day >= DateTime.monday && day <= DateTime.sunday)
+            .toSet();
+    if (filtered.isEmpty) {
+      return const <int>{};
+    }
+    return filtered;
+  }
+
+  Future<void> _restoreAgendaPreferences() async {
+    try {
+      final prefs = await _ensureAgendaPreferences();
+      final restoredMode = _decodeDisplayMode(prefs.getString(_agendaModeKey));
+      final restoredScope = _decodeScope(prefs.getString(_agendaScopeKey));
+      final storedMinutes = prefs.getInt(_agendaSlotMinutesKey);
+      final restoredLayout = _decodeWeekLayout(
+        prefs.getString(_agendaWeekLayoutKey),
+      );
+      final restoredStaffList = prefs.getStringList(_agendaStaffKey);
+      final restoredStaff =
+          restoredStaffList == null
+              ? null
+              : restoredStaffList.where((id) => id.isNotEmpty).toSet();
+      final restoredWeekdays = _decodeVisibleWeekdays(
+        prefs.getStringList(_agendaWeekdaysKey),
+      );
+      if (!mounted) {
+        _isAgendaPreferencesReady = true;
+        return;
+      }
+
+      var nextMode = _mode;
+      if (restoredMode != null) {
+        nextMode = restoredMode;
+      }
+
+      var nextScope = _scope;
+      if (restoredScope != null) {
+        nextScope = restoredScope;
+      }
+
+      var nextSlotMinutes = _calendarSlotMinutes;
+      if (storedMinutes != null &&
+          _slotDurationSegments.any(
+            (segment) => segment.value == storedMinutes,
+          )) {
+        nextSlotMinutes = storedMinutes;
+      }
+
+      var nextWeekLayout = _weekLayoutMode;
+      if (restoredLayout != null) {
+        nextWeekLayout = restoredLayout;
+      }
+
+      final shouldApplyStaff = restoredStaff != null;
+      final shouldApplyWeekdays =
+          restoredWeekdays != null && restoredWeekdays.isNotEmpty;
+      final setEqualsString = const SetEquality<String>();
+      final setEqualsInt = const SetEquality<int>();
+      final modeChanged = nextMode != _mode;
+      final scopeChanged = nextScope != _scope;
+      final slotChanged = nextSlotMinutes != _calendarSlotMinutes;
+      final layoutChanged = nextWeekLayout != _weekLayoutMode;
+      final staffChanged =
+          shouldApplyStaff &&
+          !setEqualsString.equals(restoredStaff!, _selectedStaffIds);
+      final weekdaysChanged =
+          shouldApplyWeekdays &&
+          !setEqualsInt.equals(restoredWeekdays!, _visibleWeekdays);
+
+      if (modeChanged ||
+          scopeChanged ||
+          slotChanged ||
+          layoutChanged ||
+          staffChanged ||
+          weekdaysChanged) {
+        setState(() {
+          _mode = nextMode;
+          _scope = nextScope;
+          _calendarSlotMinutes = nextSlotMinutes;
+          _weekLayoutMode = nextWeekLayout;
+          if (shouldApplyStaff) {
+            _selectedStaffIds = restoredStaff!;
+          }
+          if (shouldApplyWeekdays) {
+            _visibleWeekdays
+              ..clear()
+              ..addAll(restoredWeekdays!);
+          }
+          if (scopeChanged) {
+            if (_scope == AppointmentCalendarScope.week) {
+              _anchorDate = _startOfWeek(_anchorDate);
+            } else {
+              _anchorDate = _findNextVisibleDay(_anchorDate, 1);
+            }
+          } else if (_scope == AppointmentCalendarScope.day &&
+              weekdaysChanged &&
+              !_isWeekdayVisible(_anchorDate.weekday)) {
+            _anchorDate = _findNextVisibleDay(_anchorDate, 1);
+          }
+          _isAgendaPreferencesReady = true;
+        });
+      } else if (!_isAgendaPreferencesReady) {
+        setState(() => _isAgendaPreferencesReady = true);
+      }
+    } catch (_) {
+      // Preferenze agenda opzionali: ignora errori di ripristino.
+      if (mounted) {
+        setState(() => _isAgendaPreferencesReady = true);
+      } else {
+        _isAgendaPreferencesReady = true;
+      }
+    }
+  }
+
+  Future<void> _persistAgendaPreferences() async {
+    try {
+      final prefs = await _ensureAgendaPreferences();
+      await prefs.setString(_agendaModeKey, _mode.name);
+      await prefs.setString(_agendaScopeKey, _scope.name);
+      await prefs.setInt(_agendaSlotMinutesKey, _calendarSlotMinutes);
+      await prefs.setString(_agendaWeekLayoutKey, _weekLayoutMode.name);
+      final staffList = _selectedStaffIds.toList()..sort();
+      await prefs.setStringList(_agendaStaffKey, staffList);
+      final weekdayList =
+          _visibleWeekdays
+              .where((day) => day >= DateTime.monday && day <= DateTime.sunday)
+              .toList()
+            ..sort();
+      await prefs.setStringList(
+        _agendaWeekdaysKey,
+        weekdayList.map((day) => day.toString()).toList(),
+      );
+    } catch (_) {
+      // Preferenze agenda opzionali: ignora errori di salvataggio.
+    }
   }
 
   String _staffFilterLabel(List<StaffMember> staff, Set<String> selectedIds) {
@@ -397,6 +596,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       final normalized =
           sanitizedResult.length == staff.length ? <String>{} : sanitizedResult;
       setState(() => _selectedStaffIds = normalized);
+      unawaited(_persistAgendaPreferences());
     }
   }
 
@@ -522,6 +722,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                           onSelectionChanged: (selection) {
                             final newMode = selection.first;
                             setState(() => _mode = newMode);
+                            unawaited(_persistAgendaPreferences());
                             refresh();
                           },
                         ),
@@ -545,6 +746,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                             onSelectionChanged: (selection) {
                               final minutes = selection.first;
                               setState(() => _calendarSlotMinutes = minutes);
+                              unawaited(_persistAgendaPreferences());
                               refresh();
                             },
                           ),
@@ -559,6 +761,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                             onSelectionChanged: (selection) {
                               final newLayout = selection.first;
                               setState(() => _weekLayoutMode = newLayout);
+                              unawaited(_persistAgendaPreferences());
                               refresh();
                             },
                           ),
@@ -583,6 +786,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                                   setState(
                                     () => _selectedStaffIds = <String>{},
                                   );
+                                  unawaited(_persistAgendaPreferences());
                                   refresh();
                                 },
                               ),
@@ -608,6 +812,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                                         _selectedStaffIds = updated;
                                       }
                                     });
+                                    unawaited(_persistAgendaPreferences());
                                     refresh();
                                   },
                                 ),
@@ -970,6 +1175,9 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   @override
   Widget build(BuildContext context) {
     final data = ref.watch(appDataProvider);
+    if (!_isAgendaPreferencesReady) {
+      return const Center(child: CircularProgressIndicator());
+    }
     final salons = data.salons;
     final salonsById = {for (final salon in salons) salon.id: salon};
     final clients = data.clients;
@@ -991,10 +1199,12 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         _selectedStaffIds
             .where((id) => staffMembers.any((member) => member.id == id))
             .toSet();
-    if (sanitizedSelectedIds.length != _selectedStaffIds.length) {
+    final setEquality = const SetEquality<String>();
+    if (!setEquality.equals(sanitizedSelectedIds, _selectedStaffIds)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         setState(() => _selectedStaffIds = sanitizedSelectedIds);
+        unawaited(_persistAgendaPreferences());
       });
     }
 
@@ -1444,6 +1654,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         _anchorDate = _findNextVisibleDay(_anchorDate, 1);
       }
     });
+    unawaited(_persistAgendaPreferences());
   }
 
   void _shiftAnchor(int direction) {
@@ -1612,6 +1823,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
           ..addAll(result);
         _ensureAnchorVisible();
       });
+      unawaited(_persistAgendaPreferences());
     }
   }
 
