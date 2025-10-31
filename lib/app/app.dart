@@ -1,9 +1,155 @@
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/domain/entities/user_role.dart';
-import 'package:you_book/services/notifications/notification_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:you_book/services/notifications/notification_service.dart';
+
+const ColorScheme _lightAdminColorScheme = ColorScheme(
+  brightness: Brightness.light,
+  primary: Color(0xFF7F56D9),
+  onPrimary: Colors.white,
+  primaryContainer: Color(0xFFE9DDFF),
+  onPrimaryContainer: Color(0xFF23005A),
+  secondary: Color(0xFF2FA58D),
+  onSecondary: Colors.white,
+  secondaryContainer: Color(0xFFC5F4E6),
+  onSecondaryContainer: Color(0xFF062E24),
+  tertiary: Color(0xFFE8873A),
+  onTertiary: Colors.white,
+  tertiaryContainer: Color(0xFFFFE3C6),
+  onTertiaryContainer: Color(0xFF301500),
+  error: Color(0xFFBA1A1A),
+  onError: Colors.white,
+  errorContainer: Color(0xFFFFDAD6),
+  onErrorContainer: Color(0xFF410002),
+  background: Color(0xFFF6F4FB),
+  onBackground: Color(0xFF1D1B20),
+  surface: Color(0xFFFCFAFF),
+  onSurface: Color(0xFF1D1B20),
+  surfaceVariant: Color(0xFFE5E0EC),
+  onSurfaceVariant: Color(0xFF49454F),
+  outline: Color(0xFF7A7580),
+  outlineVariant: Color(0xFFCBC4D0),
+  shadow: Colors.black,
+  scrim: Colors.black,
+  inverseSurface: Color(0xFF312F35),
+  onInverseSurface: Color(0xFFF4EFF5),
+  inversePrimary: Color(0xFFD3C1FF),
+  surfaceTint: Color(0xFF7F56D9),
+);
+
+const ColorScheme _darkAdminColorScheme = ColorScheme(
+  brightness: Brightness.dark,
+  primary: Color(0xFFD3C1FF),
+  onPrimary: Color(0xFF381E72),
+  primaryContainer: Color(0xFF4F3790),
+  onPrimaryContainer: Color(0xFFE9DDFF),
+  secondary: Color(0xFF7FD8C4),
+  onSecondary: Color(0xFF00382C),
+  secondaryContainer: Color(0xFF005143),
+  onSecondaryContainer: Color(0xFFC5F4E6),
+  tertiary: Color(0xFFFFB77C),
+  onTertiary: Color(0xFF4F1F00),
+  tertiaryContainer: Color(0xFF6C3200),
+  onTertiaryContainer: Color(0xFFFFE3C6),
+  error: Color(0xFFFFB4AB),
+  onError: Color(0xFF690005),
+  errorContainer: Color(0xFF93000A),
+  onErrorContainer: Color(0xFFFFDAD6),
+  background: Color(0xFF15131A),
+  onBackground: Color(0xFFE5E1EA),
+  surface: Color(0xFF1A1721),
+  onSurface: Color(0xFFE5E1EA),
+  surfaceVariant: Color(0xFF4A4453),
+  onSurfaceVariant: Color(0xFFCAC4D3),
+  outline: Color(0xFF958F9F),
+  outlineVariant: Color(0xFF4A4453),
+  shadow: Colors.black,
+  scrim: Colors.black,
+  inverseSurface: Color(0xFFE5E1EA),
+  onInverseSurface: Color(0xFF2E2B33),
+  inversePrimary: Color(0xFF7F56D9),
+  surfaceTint: Color(0xFFD3C1FF),
+);
+
+Color _blendColor(Color base, Color overlay, double opacity) {
+  return Color.alphaBlend(overlay.withOpacity(opacity), base);
+}
+
+class _AdminPalette {
+  const _AdminPalette({
+    required this.scheme,
+    required this.background,
+    required this.surface,
+    required this.card,
+    required this.icon,
+    required this.iconMuted,
+    required this.shadow,
+    required this.fieldFill,
+    required this.drawerBackground,
+    required this.menuBackground,
+  });
+
+  final ColorScheme scheme;
+  final Color background;
+  final Color surface;
+  final Color card;
+  final Color icon;
+  final Color iconMuted;
+  final Color shadow;
+  final Color fieldFill;
+  final Color drawerBackground;
+  final Color menuBackground;
+
+  static _AdminPalette resolve(Brightness brightness) {
+    if (brightness == Brightness.light) {
+      const scheme = _lightAdminColorScheme;
+      return _AdminPalette(
+        scheme: scheme,
+        background: scheme.background,
+        surface: scheme.surface,
+        card: Colors.white,
+        icon: scheme.onSurface,
+        iconMuted: scheme.onSurfaceVariant,
+        shadow: Colors.black.withOpacity(0.14),
+        fieldFill: _blendColor(Colors.white, scheme.primary, 0.06),
+        drawerBackground: _blendColor(
+          scheme.background,
+          scheme.secondaryContainer,
+          0.12,
+        ),
+        menuBackground: _blendColor(
+          scheme.surface,
+          scheme.surfaceVariant,
+          0.08,
+        ),
+      );
+    }
+
+    const scheme = _darkAdminColorScheme;
+    return _AdminPalette(
+      scheme: scheme,
+      background: scheme.background,
+      surface: scheme.surface,
+      card: _blendColor(scheme.surface, scheme.onSurface, 0.08),
+      icon: scheme.onSurface,
+      iconMuted: scheme.onSurfaceVariant,
+      shadow: Colors.black.withOpacity(0.46),
+      fieldFill: _blendColor(scheme.surface, scheme.surfaceVariant, 0.18),
+      drawerBackground: _blendColor(
+        scheme.surface,
+        scheme.secondaryContainer,
+        0.16,
+      ),
+      menuBackground: _blendColor(
+        scheme.surface,
+        scheme.surfaceVariant,
+        0.18,
+      ),
+    );
+  }
+}
 
 class CiviApp extends ConsumerWidget {
   const CiviApp({super.key});
@@ -58,68 +204,62 @@ class CiviApp extends ConsumerWidget {
   }
 
   ThemeData _buildTheme(Brightness brightness) {
-    final isLight = brightness == Brightness.light;
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: isLight ? const Color(0xFFF48FB1) : const Color(0xFFAD1457),
-      brightness: brightness,
-    );
+    final palette = _AdminPalette.resolve(brightness);
+    final colorScheme = palette.scheme;
 
     return ThemeData(
       colorScheme: colorScheme,
       useMaterial3: true,
+      scaffoldBackgroundColor: palette.background,
+      canvasColor: palette.background,
 
       appBarTheme: AppBarTheme(
-        backgroundColor: colorScheme.surface,
-        elevation: 10,
+        backgroundColor: palette.surface,
+        elevation: 4,
+        scrolledUnderElevation: 8,
         foregroundColor: colorScheme.onSurface,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: palette.shadow,
       ),
 
       iconTheme: IconThemeData(
-        color: isLight ? Colors.black87 : Colors.white70,
+        color: palette.icon,
         size: 24,
       ),
 
       cardTheme: CardTheme(
         elevation: 6,
         margin: const EdgeInsets.all(12),
-        color:
-            isLight
-                ? colorScheme.surface.withOpacity(0.6)
-                : colorScheme.surface.withOpacity(0.4),
-        shadowColor: Colors.black.withOpacity(0.2),
+        color: palette.card,
+        shadowColor: palette.shadow,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
 
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          foregroundColor: Colors.white,
-          backgroundColor:
-              isLight ? const Color(0xFFF7ADC9) : const Color(0xFFCB8CA7),
+          foregroundColor: colorScheme.onSecondaryContainer,
+          backgroundColor: colorScheme.secondaryContainer,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-          elevation: 3,
+          elevation: brightness == Brightness.light ? 2 : 0,
           textStyle: const TextStyle(fontWeight: FontWeight.w600),
         ),
       ),
 
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor:
-              isLight ? const Color(0xFFE57AA3) : const Color(0xFFF9B7CD),
+          foregroundColor: colorScheme.primary,
           textStyle: const TextStyle(fontWeight: FontWeight.w600),
         ),
       ),
 
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor:
-              isLight ? const Color(0xFFE57AA3) : const Color(0xFFF48FB1),
-          side: BorderSide(
-            color: isLight ? const Color(0xFFE57AA3) : const Color(0xFFF48FB1),
-          ),
+          foregroundColor: colorScheme.primary,
+          side: BorderSide(color: colorScheme.primary),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
@@ -130,9 +270,8 @@ class CiviApp extends ConsumerWidget {
 
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          foregroundColor: Colors.white,
-          backgroundColor:
-              isLight ? const Color(0xFFF48FB1) : const Color(0xFFC2185B),
+          foregroundColor: colorScheme.onPrimary,
+          backgroundColor: colorScheme.primary,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
@@ -142,34 +281,62 @@ class CiviApp extends ConsumerWidget {
       ),
 
       inputDecorationTheme: InputDecorationTheme(
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         filled: true,
-        fillColor: isLight ? Colors.white.withOpacity(0.9) : Colors.white10,
+        fillColor: palette.fieldFill,
+        labelStyle: TextStyle(color: palette.iconMuted),
+        floatingLabelStyle: TextStyle(
+          color: colorScheme.primary,
+          fontWeight: FontWeight.w600,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: colorScheme.outline),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: colorScheme.outline),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: colorScheme.primary, width: 1.5),
+        ),
       ),
 
       dropdownMenuTheme: DropdownMenuThemeData(
         inputDecorationTheme: InputDecorationTheme(
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: colorScheme.outline),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: colorScheme.outline),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: colorScheme.primary, width: 1.5),
+          ),
           filled: true,
-          fillColor: isLight ? Colors.white.withOpacity(0.9) : Colors.white10,
+          fillColor: palette.fieldFill,
         ),
         menuStyle: MenuStyle(
-          backgroundColor: MaterialStateProperty.all(
-            isLight ? Colors.white : const Color(0xFF2D2D2D),
-          ),
+          backgroundColor: MaterialStateProperty.all(palette.menuBackground),
+          shadowColor: MaterialStateProperty.all(palette.shadow),
+          surfaceTintColor: MaterialStateProperty.all(Colors.transparent),
         ),
       ),
 
       drawerTheme: DrawerThemeData(
-        backgroundColor:
-            isLight ? const Color(0xFFFDFDFD) : const Color(0xFF1F1F1F),
-        elevation: 100,
+        backgroundColor: palette.drawerBackground,
+        surfaceTintColor: Colors.transparent,
+        elevation: 16,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.only(
             topRight: Radius.circular(16),
             bottomRight: Radius.circular(16),
           ),
         ),
+        scrimColor: colorScheme.scrim.withOpacity(0.55),
       ),
     );
   }
