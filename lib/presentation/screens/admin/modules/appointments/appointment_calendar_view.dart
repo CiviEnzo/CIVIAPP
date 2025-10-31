@@ -2909,7 +2909,6 @@ class _WeekCompactView extends StatelessWidget {
   static const double _kStaffHeaderSpacing = 4;
   static const double _kStaffGridTopInset =
       _kStaffHeaderHeight + _kStaffHeaderSpacing;
-  static const double _kMaxDayWidth = 320;
   static const double _kMinStaffColumnWidth = 44;
   static const double _kScrollVerticalPadding = 20;
   static const double _kMinSlotExtent = 14;
@@ -3067,7 +3066,7 @@ class _WeekCompactView extends StatelessWidget {
       return 0;
     }
     final double width = available / dayCount;
-    return min(width, _kMaxDayWidth);
+    return width;
   }
 
   static double _computeEffectiveSlotExtent({
