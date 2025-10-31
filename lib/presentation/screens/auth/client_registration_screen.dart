@@ -1,7 +1,9 @@
 import 'package:you_book/app/providers.dart';
+import 'package:you_book/app/router_constants.dart';
 import 'package:you_book/domain/entities/client_registration_draft.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
@@ -71,6 +73,8 @@ class _ClientRegistrationScreenState
                       const SizedBox(height: 24),
                       TextFormField(
                         controller: _firstNameController,
+                        autofocus: true,
+                        textInputAction: TextInputAction.next,
                         decoration: const InputDecoration(
                           labelText: 'Nome',
                           prefixIcon: Icon(Icons.person_outline),
@@ -86,6 +90,7 @@ class _ClientRegistrationScreenState
                       const SizedBox(height: 16),
                       TextFormField(
                         controller: _lastNameController,
+                        textInputAction: TextInputAction.next,
                         decoration: const InputDecoration(
                           labelText: 'Cognome',
                           prefixIcon: Icon(Icons.person_outline),
@@ -107,6 +112,8 @@ class _ClientRegistrationScreenState
                           helperText: 'Formato richiesto: gg/mm/aaaa',
                         ),
                         keyboardType: TextInputType.datetime,
+                        textInputAction: TextInputAction.next,
+                        inputFormatters: const [_DateInputFormatter()],
                         validator: (value) {
                           final text = value?.trim() ?? '';
                           if (text.isEmpty) {
@@ -126,6 +133,7 @@ class _ClientRegistrationScreenState
                           prefixIcon: Icon(Icons.phone_outlined),
                         ),
                         keyboardType: TextInputType.phone,
+                        textInputAction: TextInputAction.next,
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
                             return 'Inserisci il numero di telefono';
@@ -141,6 +149,7 @@ class _ClientRegistrationScreenState
                           prefixIcon: Icon(Icons.email_outlined),
                         ),
                         keyboardType: TextInputType.emailAddress,
+                        textInputAction: TextInputAction.next,
                         validator: (value) {
                           final text = value?.trim() ?? '';
                           if (text.isEmpty) {
@@ -252,6 +261,7 @@ class _ClientRegistrationScreenState
       return;
     }
     setState(() => _isLoading = true);
+    ref.read(clientRegistrationInProgressProvider.notifier).state = true;
     final email = _emailController.text.trim();
     final password = _passwordController.text;
     final firstName = _firstNameController.text.trim();
@@ -259,10 +269,22 @@ class _ClientRegistrationScreenState
     final phone = _phoneController.text.trim();
     final dateOfBirthText = _dateOfBirthController.text.trim();
     final dateOfBirth = _parseDate(dateOfBirthText);
+    final composedDisplayName = [
+      firstName,
+      lastName,
+    ].where((value) => value.isNotEmpty).join(' ');
     try {
       await ref
           .read(authRepositoryProvider)
-          .registerClient(email: email, password: password);
+          .registerClient(
+            email: email,
+            password: password,
+            displayName:
+                composedDisplayName.isEmpty ? null : composedDisplayName,
+          );
+      if (!mounted) {
+        return;
+      }
       ref
           .read(clientRegistrationDraftProvider.notifier)
           .save(
@@ -275,13 +297,17 @@ class _ClientRegistrationScreenState
             ),
           );
       if (!mounted) return;
-      context.go('/onboarding');
+      context.goNamed(
+        'sign_in',
+        queryParameters: const {verifyEmailQueryParam: '1'},
+      );
     } on Exception catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(_friendlyError(error))));
     } finally {
+      ref.read(clientRegistrationInProgressProvider.notifier).state = false;
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -314,5 +340,33 @@ class _ClientRegistrationScreenState
     } catch (_) {
       return null;
     }
+  }
+}
+
+class _DateInputFormatter extends TextInputFormatter {
+  const _DateInputFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    var digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length > 8) {
+      digits = digits.substring(0, 8);
+    }
+
+    final buffer = StringBuffer();
+    for (var i = 0; i < digits.length; i++) {
+      if (i == 2 || i == 4) {
+        buffer.write('/');
+      }
+      buffer.write(digits[i]);
+    }
+    final formatted = buffer.toString();
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
   }
 }

@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:you_book/app/providers.dart';
+import 'package:you_book/app/router_constants.dart';
 import 'package:you_book/domain/entities/user_role.dart';
 import 'package:you_book/presentation/screens/admin/admin_dashboard_screen.dart';
 import 'package:you_book/presentation/screens/auth/client_registration_screen.dart';
 import 'package:you_book/presentation/screens/auth/onboarding_screen.dart';
 import 'package:you_book/presentation/screens/auth/sign_in_screen.dart';
 import 'package:you_book/presentation/screens/client/client_dashboard_screen.dart';
+import 'package:you_book/presentation/screens/client/client_salon_discovery_screen.dart';
 import 'package:you_book/presentation/screens/staff/staff_dashboard_screen.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,7 +26,15 @@ GoRouter createRouter(Ref ref) {
       GoRoute(
         path: '/',
         name: 'sign_in',
-        builder: (context, state) => const SignInScreen(),
+        builder: (context, state) {
+          final showVerificationNotice =
+              state.uri.queryParameters[verifyEmailQueryParam] == '1';
+          const verificationMessage =
+              'Registrazione completata. Controlla la tua email e conferma l\'indirizzo prima di accedere.';
+          return SignInScreen(
+            notice: showVerificationNotice ? verificationMessage : null,
+          );
+        },
       ),
       GoRoute(
         path: '/register',
@@ -48,17 +58,29 @@ GoRouter createRouter(Ref ref) {
       ),
       GoRoute(
         path: '/client',
+        name: 'client_salons',
+        builder: (context, state) => const ClientSalonDiscoveryScreen(),
+      ),
+      GoRoute(
+        path: '/client/dashboard',
         name: 'client_dashboard',
         builder: (context, state) => const ClientDashboardScreen(),
       ),
     ],
     redirect: (context, state) {
       final session = ref.read(sessionControllerProvider);
+      final registrationInProgress = ref.read(
+        clientRegistrationInProgressProvider,
+      );
       final isAuthenticated = session.user != null;
       final loggingIn = state.matchedLocation == '/';
       final registering = state.matchedLocation == '/register';
       final onboarding = state.matchedLocation == '/onboarding';
       final requiresProfile = session.requiresProfile;
+
+      if (registering && registrationInProgress) {
+        return null;
+      }
 
       if (!isAuthenticated) {
         if (loggingIn || registering) {
@@ -89,6 +111,15 @@ GoRouter createRouter(Ref ref) {
       if (state.matchedLocation == '/client' &&
           session.role != UserRole.client) {
         return destination;
+      }
+      if (state.matchedLocation == '/client/dashboard' &&
+          session.role != UserRole.client) {
+        return destination;
+      }
+      if (state.matchedLocation == '/client/dashboard' &&
+          session.role == UserRole.client &&
+          session.availableSalonIds.isEmpty) {
+        return '/client';
       }
 
       return null;

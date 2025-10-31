@@ -110,16 +110,25 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final theme = Theme.of(context);
     final session = ref.watch(sessionControllerProvider);
     final data = ref.watch(appDataProvider);
-    final salons = data.salons;
+    final salons =
+        data.discoverableSalons.isNotEmpty
+            ? data.discoverableSalons
+            : data.salons;
     final staffRoles = data.staffRoles;
     final user = session.user;
     final roleLocked = user?.role != null;
-    final role = _role ?? user?.role;
     final availableRoles =
         _availableRoles.isNotEmpty ? _availableRoles : session.availableRoles;
     final roleOptions =
         availableRoles.isNotEmpty ? availableRoles : UserRole.values;
-    final allowRoleChoice = !roleLocked && roleOptions.length > 1;
+    if (_role == null) {
+      if (user?.role != null) {
+        _role = user!.role;
+      } else if (roleOptions.isNotEmpty) {
+        _role = roleOptions.first;
+      }
+    }
+    final role = _role ?? user?.role;
     final existingClient =
         user?.clientId == null
             ? null
@@ -231,8 +240,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final pendingRequestsPending =
         pendingRequests.where((request) => request.isPending).toList();
     if (userPendingSalonId != null &&
-        pendingRequestsPending
-            .every((request) => request.salonId != userPendingSalonId)) {
+        pendingRequestsPending.every(
+          (request) => request.salonId != userPendingSalonId,
+        )) {
       final syntheticExtra = <String, dynamic>{};
       final syntheticAddress = _addressController.text.trim();
       if (syntheticAddress.isNotEmpty) {
@@ -273,7 +283,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     }
     final hasPendingRequest = pendingRequestsPending.isNotEmpty;
     final firstPendingSalonId =
-        pendingRequestsPending.isEmpty ? null : pendingRequestsPending.first.salonId;
+        pendingRequestsPending.isEmpty
+            ? null
+            : pendingRequestsPending.first.salonId;
     final selectedSalonId =
         _selectedSalon ?? userPendingSalonId ?? firstPendingSalonId;
     final selectedSalon =
@@ -306,9 +318,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       if (roleLocked && role == UserRole.client) {
         return 'Seleziona il salone con cui vuoi utilizzare CiviApp e invia i tuoi dati. Sarà l\'amministratore del salone ad abilitare l\'accesso.';
       }
-      if (allowRoleChoice) {
-        return 'Seleziona il ruolo con cui vuoi utilizzare CiviApp e, se necessario, collega il salone di riferimento.';
-      }
       if (role != null) {
         return 'Completa il profilo per continuare con CiviApp.';
       }
@@ -318,7 +327,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final shouldAutoSubmit =
         !_autoSubmitScheduled &&
         !roleLocked &&
-        !allowRoleChoice &&
         !_isSaving &&
         !hasPendingRequest &&
         _canAutoSubmit(role, user, salons);
@@ -376,39 +384,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     ],
                     Text('Ruolo', style: theme.textTheme.titleMedium),
                     const SizedBox(height: 8),
-                    if (allowRoleChoice)
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
-                        children:
-                            roleOptions
-                                .map(
-                                  (candidateRole) => ChoiceChip(
-                                    label: Text(candidateRole.label),
-                                    selected: _role == candidateRole,
-                                    onSelected: (selected) {
-                                      setState(() {
-                                        if (selected) {
-                                          _role = candidateRole;
-                                          if (candidateRole == UserRole.admin) {
-                                            _selectedSalon = null;
-                                          } else if ((_selectedSalon == null ||
-                                                  !_isSalonValid(
-                                                    _selectedSalon!,
-                                                  )) &&
-                                              salons.isNotEmpty) {
-                                            _selectedSalon = salons.first.id;
-                                          }
-                                        } else {
-                                          _role = null;
-                                        }
-                                      });
-                                    },
-                                  ),
-                                )
-                                .toList(),
-                      )
-                    else if (role != null)
+                    if (role != null)
                       InputDecorator(
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
@@ -524,10 +500,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                                 ),
                               )
                               : Text(
-                                  hasPendingRequest
-                                      ? 'Richiesta in attesa di approvazione'
-                                      : 'Invia richiesta di accesso',
-                                ),
+                                hasPendingRequest
+                                    ? 'Richiesta in attesa di approvazione'
+                                    : 'Invia richiesta di accesso',
+                              ),
                     ),
                     const SizedBox(height: 12),
                     Text(
@@ -578,8 +554,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     List<SalonAccessRequest> requests,
     List<Salon> salons,
   ) {
-    final pending =
-        requests.where((request) => request.isPending).toList(growable: false);
+    final pending = requests
+        .where((request) => request.isPending)
+        .toList(growable: false);
     if (pending.isEmpty) {
       return Card(
         color: theme.colorScheme.surface,
@@ -605,9 +582,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               '$label: ',
               style: textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
             ),
-            Expanded(
-              child: Text(value, style: textTheme.bodySmall),
-            ),
+            Expanded(child: Text(value, style: textTheme.bodySmall)),
           ],
         ),
       );
@@ -659,10 +634,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      salonName,
-                      style: textTheme.titleSmall,
-                    ),
+                    Text(salonName, style: textTheme.titleSmall),
                     const SizedBox(height: 4),
                     buildInfoRow('Richiesta creata', createdLabel, textTheme),
                     buildInfoRow(
@@ -684,9 +656,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     if (profession != null)
                       buildInfoRow('Professione', profession, textTheme),
                     if (referral != null)
-                      buildInfoRow('Come ci ha conosciuto', referral, textTheme),
-                    if (notes != null)
-                      buildInfoRow('Note', notes, textTheme),
+                      buildInfoRow(
+                        'Come ci ha conosciuto',
+                        referral,
+                        textTheme,
+                      ),
+                    if (notes != null) buildInfoRow('Note', notes, textTheme),
                   ],
                 );
               }(),
@@ -987,7 +962,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     if (role == UserRole.admin) {
       return true;
     }
-    final salonId = _selectedSalon ?? user?.pendingSalonId ?? user?.defaultSalonId;
+    final salonId =
+        _selectedSalon ?? user?.pendingSalonId ?? user?.defaultSalonId;
     if (salonId == null || salonId.isEmpty) {
       return false;
     }
@@ -1349,7 +1325,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   Future<void> _signOut() async {
     try {
-      await ref.read(authRepositoryProvider).signOut();
+      await performSignOut(ref);
     } on Exception catch (error) {
       if (!mounted) {
         return;

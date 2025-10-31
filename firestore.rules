@@ -214,6 +214,12 @@ service cloud.firestore {
       return data != null && data.role is string && data.role == 'staff';
     }
 
+    function isClientUserData(data) {
+      return data != null &&
+          data.role is string && data.role == 'client' &&
+          data.clientId is string && data.clientId.size() > 0;
+    }
+
     function hasValidQuestionnaireTemplatePayload(data) {
       return data != null &&
           data.salonId is string && data.name is string &&
@@ -259,11 +265,21 @@ service cloud.firestore {
             request.resource.data is map &&
             resource != null &&
             resource.data is map &&
-            isStaffUserData(request.resource.data) &&
-            isStaffUserData(resource.data) &&
-            requestSalonIdsList().size() > 0 &&
-            requestSalonIdsList().hasOnly(currentSalonIds()) &&
-            resourceSalonIdsList().hasOnly(currentSalonIds()))
+            (
+              (
+                isStaffUserData(request.resource.data) &&
+                isStaffUserData(resource.data) &&
+                requestSalonIdsList().size() > 0 &&
+                requestSalonIdsList().hasOnly(currentSalonIds()) &&
+                resourceSalonIdsList().hasOnly(currentSalonIds())
+              ) ||
+              (
+                isClientUserData(request.resource.data) &&
+                requestSalonIdsList().size() > 0 &&
+                requestSalonIdsList().hasOnly(currentSalonIds()) &&
+                resourceSalonIdsList().hasOnly(currentSalonIds())
+              )
+            ))
       );
 
       allow delete: if isSignedIn() && (

@@ -445,7 +445,7 @@ class _StaffDashboardScreenState extends ConsumerState<StaffDashboardScreen> {
             IconButton(
               tooltip: 'Esci',
               onPressed: () async {
-                await ref.read(authRepositoryProvider).signOut();
+                await performSignOut(ref);
               },
               icon: const Icon(Icons.logout_rounded),
             ),

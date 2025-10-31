@@ -239,7 +239,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               IconButton(
                 tooltip: 'Esci',
                 onPressed: () async {
-                  await ref.read(authRepositoryProvider).signOut();
+                  await performSignOut(ref);
                 },
                 icon: const Icon(Icons.logout_rounded),
               ),

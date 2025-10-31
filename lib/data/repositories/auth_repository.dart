@@ -23,23 +23,24 @@ class AuthRepository {
     if (auth == null || firestore == null) {
       return const Stream<AppUser?>.empty();
     }
-    return auth.authStateChanges().asyncMap((firebaseUser) async {
+    return auth.authStateChanges().asyncExpand((firebaseUser) {
       if (firebaseUser == null) {
-        return null;
+        return Stream<AppUser?>.value(null);
       }
-      final doc =
-          await firestore.collection('users').doc(firebaseUser.uid).get();
-      if (!doc.exists) {
-        return AppUser.placeholder(
-          firebaseUser.uid,
-          email: firebaseUser.email,
-          displayName: firebaseUser.displayName,
-        );
-      }
-      final data = doc.data() ?? <String, dynamic>{};
-      data.putIfAbsent('email', () => firebaseUser.email);
-      data.putIfAbsent('displayName', () => firebaseUser.displayName);
-      return AppUser.fromMap(firebaseUser.uid, data);
+      final docRef = firestore.collection('users').doc(firebaseUser.uid);
+      return docRef.snapshots().map((doc) {
+        if (!doc.exists) {
+          return AppUser.placeholder(
+            firebaseUser.uid,
+            email: firebaseUser.email,
+            displayName: firebaseUser.displayName,
+          );
+        }
+        final data = doc.data() ?? <String, dynamic>{};
+        data.putIfAbsent('email', () => firebaseUser.email);
+        data.putIfAbsent('displayName', () => firebaseUser.displayName);
+        return AppUser.fromMap(firebaseUser.uid, data);
+      });
     });
   }
 
@@ -48,7 +49,28 @@ class AuthRepository {
     if (auth == null) {
       throw StateError('Firebase non inizializzato.');
     }
-    await auth.signInWithEmailAndPassword(email: email, password: password);
+    final credential = await auth.signInWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+    final user = credential.user;
+    if (user != null && !user.emailVerified) {
+      final primaryRole = await _fetchPrimaryRole(user.uid);
+      if (primaryRole == UserRole.admin) {
+        return;
+      }
+      try {
+        await user.sendEmailVerification();
+      } catch (_) {
+        // Ignora errori di resend: l'utente potrà riprovare più tardi.
+      } finally {
+        await auth.signOut();
+      }
+      throw FirebaseAuthException(
+        code: 'email-not-verified',
+        message: 'Email non verificata.',
+      );
+    }
   }
 
   Future<void> registerClient({
@@ -66,6 +88,9 @@ class AuthRepository {
       password: password,
     );
     final uid = credential.user!.uid;
+    if (displayName != null && displayName.trim().isNotEmpty) {
+      await credential.user!.updateDisplayName(displayName.trim());
+    }
     final userData = {
       'role': UserRole.client.name,
       'salonIds': const <String>[],
@@ -74,6 +99,11 @@ class AuthRepository {
     };
     userData.removeWhere((key, value) => value == null);
     await firestore.collection('users').doc(uid).set(userData);
+    final firebaseUser = credential.user;
+    if (firebaseUser != null && !firebaseUser.emailVerified) {
+      await firebaseUser.sendEmailVerification();
+    }
+    await auth.signOut();
   }
 
   Future<void> completeUserProfile({
@@ -109,6 +139,58 @@ class AuthRepository {
         .collection('users')
         .doc(user.uid)
         .set(docData, SetOptions(merge: true));
+  }
+
+  Future<UserRole?> _fetchPrimaryRole(String uid) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      return null;
+    }
+    try {
+      final doc = await firestore.collection('users').doc(uid).get();
+      if (!doc.exists) {
+        return null;
+      }
+      final data = doc.data();
+      if (data == null) {
+        return null;
+      }
+      final directRole = _roleFromValue(data['role']);
+      if (directRole != null) {
+        return directRole;
+      }
+      final availableRoles = data['roles'];
+      if (availableRoles is Iterable) {
+        for (final entry in availableRoles) {
+          final resolved = _roleFromValue(entry);
+          if (resolved != null) {
+            return resolved;
+          }
+        }
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
+  UserRole? _roleFromValue(Object? value) {
+    if (value == null) {
+      return null;
+    }
+    if (value is UserRole) {
+      return value;
+    }
+    final text = value.toString().trim().toLowerCase();
+    if (text.isEmpty) {
+      return null;
+    }
+    for (final role in UserRole.values) {
+      if (role.name == text) {
+        return role;
+      }
+    }
+    return null;
   }
 
   Future<void> signOut() async {

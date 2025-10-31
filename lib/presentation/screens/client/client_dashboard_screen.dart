@@ -31,6 +31,7 @@ import 'package:flutter/physics.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -397,7 +398,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
         label: 'Esci',
         onTap: () async {
           Navigator.of(context).pop();
-          await ref.read(authRepositoryProvider).signOut();
+          await performSignOut(ref);
         },
       ),
     );
@@ -1943,37 +1944,59 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     final selectedClient = clients.firstWhereOrNull(
       (client) => client.id == session.userId,
     );
+    final selectedSalonId = session.salonId?.trim();
+    final clientForSalon =
+        selectedSalonId == null
+            ? null
+            : clients.firstWhereOrNull(
+              (client) => client.salonId == selectedSalonId,
+            );
 
     if (clients.isEmpty) {
+      final sessionUser = session.user;
+      final expectedClientId = sessionUser?.clientId;
+      final expectedSalonId = session.salonId;
+      final hasPendingClientLoad =
+          expectedClientId != null && expectedClientId.isNotEmpty;
+      final hasPendingSalonLoad =
+          expectedSalonId != null && expectedSalonId.isNotEmpty;
+
       final themedData = ClientTheme.resolve(Theme.of(context));
+      final actions = <Widget>[
+        const ThemeModeAction(),
+        IconButton(
+          tooltip: 'Impostazioni',
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const ClientSettingsScreen(),
+              ),
+            );
+          },
+          icon: const Icon(Icons.settings_rounded),
+        ),
+        IconButton(
+          tooltip: 'Esci',
+          onPressed: () async {
+            await performSignOut(ref);
+          },
+          icon: const Icon(Icons.logout_rounded),
+        ),
+      ];
       return Theme(
         data: themedData,
         child: Builder(
           builder: (context) {
+            if (hasPendingClientLoad || hasPendingSalonLoad) {
+              return Scaffold(
+                appBar: AppBar(title: const Text('Area clienti'), actions: actions),
+                body: const Center(child: CircularProgressIndicator()),
+              );
+            }
             return Scaffold(
               appBar: AppBar(
                 title: const Text('Area clienti'),
-                actions: [
-                  const ThemeModeAction(),
-                  IconButton(
-                    tooltip: 'Impostazioni',
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const ClientSettingsScreen(),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.settings_rounded),
-                  ),
-                  IconButton(
-                    tooltip: 'Esci',
-                    onPressed: () async {
-                      await ref.read(authRepositoryProvider).signOut();
-                    },
-                    icon: const Icon(Icons.logout_rounded),
-                  ),
-                ],
+                actions: actions,
               ),
               body: const Center(
                 child: Padding(
@@ -1999,14 +2022,21 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       });
     }
 
-    final currentClient = selectedClient ?? clients.first;
+    if (clientForSalon != null && clientForSalon.id != session.userId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(sessionControllerProvider.notifier).setUser(clientForSalon.id);
+      });
+    }
+
+    final currentClient = clientForSalon ?? selectedClient ?? clients.first;
+    final effectiveSalonId = selectedSalonId ?? currentClient.salonId;
     final salon = data.salons.firstWhereOrNull(
-      (salon) => salon.id == currentClient.salonId,
+      (salon) => salon.id == effectiveSalonId,
     );
     final salonPackages = data.packages
         .where(
           (pkg) =>
-              pkg.salonId == currentClient.salonId && pkg.showOnClientDashboard,
+              pkg.salonId == effectiveSalonId && pkg.showOnClientDashboard,
         )
         .toList(growable: false);
     final appointments =
@@ -2039,15 +2069,15 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
         data.services
             .where(
               (service) =>
-                  service.salonId == currentClient.salonId && service.isActive,
+                  service.salonId == effectiveSalonId && service.isActive,
             )
             .toList();
     final salonStaff = data.staff
-        .where((member) => member.salonId == currentClient.salonId)
+        .where((member) => member.salonId == effectiveSalonId)
         .toList(growable: false);
     final salonFeatureFlags = salon?.featureFlags ?? const SalonFeatureFlags();
     final rawPromotions = data.promotions
-        .where((promotion) => promotion.salonId == currentClient.salonId)
+        .where((promotion) => promotion.salonId == effectiveSalonId)
         .toList(growable: false);
     final promotions =
         salonFeatureFlags.clientPromotions
@@ -2056,7 +2086,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
                 .toList(growable: false)
             : const <Promotion>[];
     final rawLastMinuteSlots = data.lastMinuteSlots
-        .where((slot) => slot.salonId == currentClient.salonId)
+        .where((slot) => slot.salonId == effectiveSalonId)
         .toList(growable: false);
     final lastMinuteSlots =
         salonFeatureFlags.clientLastMinute
@@ -2070,7 +2100,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       appointments: data.appointments,
       services: data.services,
       clientId: currentClient.id,
-      salonId: currentClient.salonId,
+      salonId: effectiveSalonId,
     );
     final activePackages = clientPackages
         .where((pkg) => pkg.isActive)
@@ -2247,6 +2277,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
               ),
               title: Text('Ciao ${currentClient.firstName}'),
               actions: [
+                IconButton(
+                  tooltip: 'Cambia salone',
+                  onPressed: () => context.go('/client'),
+                  icon: const Icon(Icons.storefront_rounded),
+                ),
                 IconButton(
                   tooltip: 'Notifiche',
                   onPressed: () {
@@ -6439,7 +6474,7 @@ class _PushTokenRegistrarState extends ConsumerState<_PushTokenRegistrar> {
   @override
   void initState() {
     super.initState();
-    _ensureRegistered();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _ensureRegistered());
   }
 
   Future<void> _ensureRegistered() async {
@@ -6448,6 +6483,9 @@ class _PushTokenRegistrarState extends ConsumerState<_PushTokenRegistrar> {
     }
     _initialized = true;
 
+    if (!mounted) {
+      return;
+    }
     final messaging = ref.read(firebaseMessagingProvider);
     try {
       await messaging.setAutoInitEnabled(true);
@@ -6473,12 +6511,18 @@ class _PushTokenRegistrarState extends ConsumerState<_PushTokenRegistrar> {
         if (kDebugMode) {
           debugPrint('FCM token (initial): $token');
         }
+        if (!mounted) {
+          return;
+        }
         await ref
             .read(appDataProvider.notifier)
             .registerClientPushToken(clientId: widget.clientId, token: token);
       }
 
       _subscription = messaging.onTokenRefresh.listen((freshToken) async {
+        if (!mounted) {
+          return;
+        }
         if (kDebugMode) {
           debugPrint('FCM token refreshed: $freshToken');
         }

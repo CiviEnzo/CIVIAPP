@@ -1,10 +1,15 @@
+import 'dart:async';
+
 import 'package:collection/collection.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
+
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/data/models/app_user.dart';
+import 'package:you_book/data/repositories/auth_repository.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/client_registration_draft.dart';
 import 'package:you_book/domain/entities/salon.dart';
@@ -23,6 +28,7 @@ class _ClientSalonDiscoveryScreenState
     extends ConsumerState<ClientSalonDiscoveryScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  String? _joiningSalonId;
 
   @override
   void initState() {
@@ -39,13 +45,11 @@ class _ClientSalonDiscoveryScreenState
   }
 
   void _handleSearchChanged() {
-    final query = _searchController.text.trim();
-    if (query == _searchQuery) {
+    final next = _searchController.text.trim();
+    if (next == _searchQuery) {
       return;
     }
-    setState(() {
-      _searchQuery = query;
-    });
+    setState(() => _searchQuery = next);
   }
 
   bool _matchesQuery(Salon salon) {
@@ -66,14 +70,17 @@ class _ClientSalonDiscoveryScreenState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
     final data = ref.watch(appDataProvider);
     final session = ref.watch(sessionControllerProvider);
     final user = session.user;
     final userId = session.uid;
 
-    final salons = data.salons
-        .where((salon) => salon.status == SalonStatus.active)
+    final availableSalons =
+        data.discoverableSalons.isNotEmpty
+            ? data.discoverableSalons
+            : data.salons;
+    final salons = availableSalons
+        .where((salon) => salon.status != SalonStatus.archived)
         .where(_matchesQuery)
         .sorted((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
@@ -90,7 +97,6 @@ class _ClientSalonDiscoveryScreenState
       ))
         request.salonId: request,
     };
-
     final rejectedBySalon = <String, SalonAccessRequest>{
       for (final request in requests.where(
         (request) => request.status == SalonAccessRequestStatus.rejected,
@@ -101,22 +107,20 @@ class _ClientSalonDiscoveryScreenState
     final approvedSalonIds = session.availableSalonIds.toSet();
     final hasSalons = salons.isNotEmpty;
     final useCardGrid = salons.length <= 5;
-
     final defaultSalonId =
         session.salonId ??
-        (approvedSalonIds.isEmpty ? null : approvedSalonIds.first);
+        (approvedSalonIds.isNotEmpty ? approvedSalonIds.first : null);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Scegli il tuo salone'),
         automaticallyImplyLeading: false,
         actions: [
-          if (approvedSalonIds.isNotEmpty)
-            IconButton(
-              tooltip: 'Vai al salone attivo',
-              icon: const Icon(Icons.launch_rounded),
-              onPressed: () => _enterSalon(context, defaultSalonId),
-            ),
+          IconButton(
+            tooltip: 'Logout',
+            icon: const Icon(Icons.logout_rounded),
+            onPressed: () => _signOut(context),
+          ),
         ],
       ),
       body: SafeArea(
@@ -133,7 +137,7 @@ class _ClientSalonDiscoveryScreenState
               ),
               const SizedBox(height: 8),
               Text(
-                'Qui puoi esplorare i saloni disponibili, inviare una richiesta di accesso e, una volta approvata, entrare direttamente nella tua area cliente.',
+                'Esplora i saloni disponibili, invia una richiesta di accesso o entra nei saloni che ti hanno già approvato.',
                 style: theme.textTheme.bodyMedium,
               ),
               const SizedBox(height: 20),
@@ -148,9 +152,7 @@ class _ClientSalonDiscoveryScreenState
                           ? null
                           : IconButton(
                             icon: const Icon(Icons.clear_rounded),
-                            onPressed: () {
-                              _searchController.clear();
-                            },
+                            onPressed: _searchController.clear,
                           ),
                 ),
               ),
@@ -185,6 +187,7 @@ class _ClientSalonDiscoveryScreenState
                           crossAxisSpacing: 16,
                           childAspectRatio: 4 / 3,
                         ),
+                        itemCount: salons.length,
                         itemBuilder: (context, index) {
                           final salon = salons[index];
                           final isApproved = approvedSalonIds.contains(
@@ -195,6 +198,7 @@ class _ClientSalonDiscoveryScreenState
                           return _SalonCard(
                             salon: salon,
                             isApproved: isApproved,
+                            isProcessing: _joiningSalonId == salon.id,
                             pendingRequest: pendingRequest,
                             rejectedRequest: rejectedRequest,
                             onRequestAccess:
@@ -202,7 +206,6 @@ class _ClientSalonDiscoveryScreenState
                             onEnter: () => _enterSalon(context, salon.id),
                           );
                         },
-                        itemCount: salons.length,
                       );
                     },
                   ),
@@ -220,6 +223,7 @@ class _ClientSalonDiscoveryScreenState
                       return _SalonCard(
                         salon: salon,
                         isApproved: isApproved,
+                        isProcessing: _joiningSalonId == salon.id,
                         pendingRequest: pendingRequest,
                         rejectedRequest: rejectedRequest,
                         onRequestAccess:
@@ -232,8 +236,8 @@ class _ClientSalonDiscoveryScreenState
               const SizedBox(height: 12),
               if (pendingBySalon.isNotEmpty)
                 _StatusInfoBanner(
-                  icon: Icons.hourglass_top_rounded,
-                  color: scheme.tertiary,
+                  icon: Icons.hourglass_top,
+                  color: theme.colorScheme.tertiary,
                   message:
                       'Hai ${pendingBySalon.length} richiesta'
                       '${pendingBySalon.length == 1 ? '' : 'e'} in attesa di approvazione.',
@@ -242,7 +246,7 @@ class _ClientSalonDiscoveryScreenState
                 const SizedBox(height: 8),
                 _StatusInfoBanner(
                   icon: Icons.verified_rounded,
-                  color: scheme.primary,
+                  color: theme.colorScheme.primary,
                   message:
                       'Accesso attivo per ${approvedSalonIds.length} salone'
                       '${approvedSalonIds.length == 1 ? '' : 'i'}.',
@@ -255,15 +259,21 @@ class _ClientSalonDiscoveryScreenState
     );
   }
 
-  Future<void> _enterSalon(BuildContext context, String? salonId) async {
-    if (salonId == null || salonId.isEmpty) {
-      return;
+  Future<void> _signOut(BuildContext context) async {
+    try {
+      await performSignOut(ref);
+      if (!mounted) {
+        return;
+      }
+      context.go('/');
+    } on Exception catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Logout non riuscito: $error')));
     }
-    ref.read(sessionControllerProvider.notifier).setSalon(salonId);
-    if (!mounted) {
-      return;
-    }
-    context.go('/client/dashboard');
   }
 
   Future<void> _startRequestFlow(
@@ -271,11 +281,21 @@ class _ClientSalonDiscoveryScreenState
     Salon salon,
     AppUser? user,
   ) async {
+    final session = ref.read(sessionControllerProvider);
+    final userId = session.uid;
+    if (userId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Sessione scaduta. Accedi nuovamente per proseguire.'),
+        ),
+      );
+      return;
+    }
+
+    final scaffoldMessenger = ScaffoldMessenger.maybeOf(context);
     final data = ref.read(appDataProvider);
     final registrationDraft = ref.read(clientRegistrationDraftProvider);
-    final registrationSettings = salon.clientRegistration;
     final clients = data.clients;
-    final session = ref.read(sessionControllerProvider);
     Client? existingClient;
     if (user?.clientId != null) {
       existingClient = clients.firstWhereOrNull(
@@ -309,7 +329,6 @@ class _ClientSalonDiscoveryScreenState
         '';
     final initialEmail =
         registrationDraft?.email ?? existingClient?.email ?? user?.email ?? '';
-
     final initialAddress = existingClient?.address ?? '';
     final initialProfession = existingClient?.profession ?? '';
     final initialNotes = existingClient?.notes ?? '';
@@ -318,6 +337,7 @@ class _ClientSalonDiscoveryScreenState
         registrationDraft?.dateOfBirth ??
         existingClient?.dateOfBirth ??
         user?.pendingDateOfBirth;
+    final registrationSettings = salon.clientRegistration;
 
     final requestSent =
         await showModalBottomSheet<bool>(
@@ -326,6 +346,7 @@ class _ClientSalonDiscoveryScreenState
           builder: (sheetContext) {
             return _SalonAccessRequestSheet(
               salon: salon,
+              settings: registrationSettings,
               initialFirstName: initialFirstName,
               initialLastName: initialLastName,
               initialEmail: initialEmail,
@@ -335,21 +356,392 @@ class _ClientSalonDiscoveryScreenState
               initialReferralSource: initialReferral,
               initialNotes: initialNotes,
               initialBirthDate: initialBirthDate,
-              settings: registrationSettings,
             );
           },
         ) ??
         false;
-    if (!requestSent || !mounted) {
+    if (!requestSent) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (!mounted) {
+      return;
+    }
+    final messenger = scaffoldMessenger;
+    if (messenger == null || !messenger.mounted) {
+      return;
+    }
+    messenger.showSnackBar(
       SnackBar(
         content: Text(
-          'Richiesta inviata a ${salon.name}. Ti avviseremo appena verrà approvata.',
+          'Richiesta inviata a ${salon.name}. Riceverai una notifica quando verrà approvata.',
         ),
       ),
     );
+  }
+
+  Future<void> _enterSalon(BuildContext context, String? salonId) async {
+    if (salonId == null || salonId.isEmpty) {
+      return;
+    }
+    if (_joiningSalonId != null) {
+      if (_joiningSalonId == salonId) {
+        return;
+      }
+      return;
+    }
+    if (mounted) {
+      setState(() => _joiningSalonId = salonId);
+    } else {
+      _joiningSalonId = salonId;
+    }
+    final navigator = Navigator.of(context, rootNavigator: true);
+    var loadingDialogVisible = true;
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        useRootNavigator: true,
+        builder: (dialogContext) {
+          return const Center(child: CircularProgressIndicator());
+        },
+      ).whenComplete(() => loadingDialogVisible = false),
+    );
+
+    void closeLoadingDialog() {
+      if (!loadingDialogVisible) {
+        return;
+      }
+      if (!navigator.mounted) {
+        loadingDialogVisible = false;
+        return;
+      }
+      if (navigator.canPop()) {
+        navigator.pop();
+        loadingDialogVisible = false;
+      }
+    }
+
+    try {
+      final sessionController = ref.read(sessionControllerProvider.notifier);
+      final sessionState = ref.read(sessionControllerProvider);
+      final currentUser = sessionState.user;
+      final dataState = ref.read(appDataProvider);
+      final clients = dataState.clients;
+
+      Client? targetClient;
+      String? targetClientId;
+      SalonAccessRequest? approvedRequest;
+
+      final currentClientId = currentUser?.clientId;
+      if (currentClientId != null && currentClientId.isNotEmpty) {
+        final currentClient = clients.firstWhereOrNull(
+          (client) => client.id == currentClientId,
+        );
+        if (currentClient != null && currentClient.salonId == salonId) {
+          targetClient = currentClient;
+          targetClientId = currentClient.id;
+        }
+      }
+
+      targetClient ??= clients.firstWhereOrNull(
+        (client) => client.salonId == salonId,
+      );
+      targetClientId ??= targetClient?.id;
+
+      final selectedEntityId = sessionState.selectedEntityId;
+      if ((targetClientId == null || targetClient == null) &&
+          selectedEntityId != null &&
+          selectedEntityId.isNotEmpty) {
+        final selectedClient = clients.firstWhereOrNull(
+          (client) => client.id == selectedEntityId,
+        );
+        if (selectedClient != null && selectedClient.salonId == salonId) {
+          targetClient = selectedClient;
+          targetClientId = selectedClient.id;
+        }
+      }
+
+      if (targetClientId == null || targetClientId.isEmpty) {
+        approvedRequest = dataState.salonAccessRequests.firstWhereOrNull(
+          (request) =>
+              request.salonId == salonId &&
+              request.status == SalonAccessRequestStatus.approved &&
+              (request.clientId?.isNotEmpty ?? false),
+        );
+        targetClientId = approvedRequest?.clientId;
+        if (targetClient == null && targetClientId != null) {
+          targetClient = clients.firstWhereOrNull(
+            (client) => client.id == targetClientId,
+          );
+        }
+      }
+
+      if (targetClientId == null || targetClientId.isEmpty) {
+        sessionController.setUser(null);
+        closeLoadingDialog();
+        if (!mounted) {
+          return;
+        }
+
+        final pendingRequest = approvedRequest ??
+            dataState.salonAccessRequests.firstWhereOrNull(
+              (request) =>
+                  request.salonId == salonId &&
+                  request.status == SalonAccessRequestStatus.approved,
+            );
+
+        final message =
+            pendingRequest == null
+                ? 'Non è stato trovato un profilo cliente attivo per questo salone.'
+                : 'Il profilo è in fase di attivazione. Riprova tra qualche istante.';
+
+        await showDialog<void>(
+          context: context,
+          useRootNavigator: true,
+          builder: (dialogContext) {
+            return AlertDialog(
+              title: const Text('Profilo non disponibile'),
+              content: Text(message),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Ok'),
+                ),
+              ],
+            );
+          },
+        );
+        return;
+      }
+
+      final resolvedFirstNameFallback =
+          targetClient?.firstName ?? approvedRequest?.firstName;
+      final resolvedLastNameFallback =
+          targetClient?.lastName ?? approvedRequest?.lastName;
+      final resolvedEmailFallback =
+          targetClient?.email ?? approvedRequest?.email ?? currentUser?.email;
+      final resolvedDisplayName = _formatDisplayName(
+        resolvedFirstNameFallback,
+        resolvedLastNameFallback,
+        fallback: currentUser?.displayName,
+      );
+      final currentUid = currentUser?.uid ?? sessionState.uid;
+      if (currentUid == null || currentUid.isEmpty) {
+        throw StateError('Profilo utente non disponibile.');
+      }
+
+      await _activateSalonAccessOnBackend(
+        salonId: salonId,
+        clientId: targetClientId,
+        displayName: resolvedDisplayName,
+        email: resolvedEmailFallback,
+      );
+
+      sessionController.setUser(targetClientId);
+
+      if (currentUser != null) {
+        final updatedSalonIds = <String>{
+          ...currentUser.salonIds,
+          salonId,
+        }..removeWhere((value) => value.isEmpty);
+        final updatedRoles =
+            currentUser.availableRoles.contains(UserRole.client)
+                ? currentUser.availableRoles
+                : <UserRole>[...currentUser.availableRoles, UserRole.client];
+        final updatedUser = AppUser(
+          uid: currentUser.uid,
+          role: UserRole.client,
+          salonIds: updatedSalonIds.toList(growable: false),
+          staffId: currentUser.staffId,
+          clientId: targetClientId,
+          displayName: resolvedDisplayName,
+          email: resolvedEmailFallback ?? currentUser.email,
+          availableRoles: updatedRoles,
+          pendingSalonId: null,
+          pendingFirstName: null,
+          pendingLastName: null,
+          pendingPhone: null,
+          pendingDateOfBirth: null,
+        );
+        sessionController.updateUser(updatedUser);
+      } else if (currentUid.isNotEmpty) {
+        final fallbackUser = AppUser(
+          uid: currentUid,
+          role: UserRole.client,
+          salonIds: <String>[salonId],
+          staffId: null,
+          clientId: targetClientId,
+          displayName: resolvedDisplayName,
+          email: resolvedEmailFallback,
+          availableRoles: const <UserRole>[UserRole.client],
+          pendingSalonId: null,
+          pendingFirstName: null,
+          pendingLastName: null,
+          pendingPhone: null,
+          pendingDateOfBirth: null,
+        );
+        sessionController.updateUser(fallbackUser);
+      }
+
+      sessionController.setSalon(salonId);
+
+      ref.invalidate(appDataProvider);
+      final store = ref.read(appDataProvider.notifier);
+      final dataStream = store.stream;
+      await store.reloadActiveSalon();
+
+      try {
+        final awaitedState = await dataStream.firstWhere(
+          (state) =>
+              state.clients.any((client) => client.id == targetClientId),
+        ).timeout(const Duration(seconds: 8));
+        targetClient = awaitedState.clients.firstWhereOrNull(
+          (client) => client.id == targetClientId,
+        );
+      } on TimeoutException {
+        // Keep existing fallback data; navigation will continue with loader.
+      } catch (_) {
+        // Ignore other stream errors and fallback to best effort data.
+      }
+
+      if (mounted) {
+        final sessionSnapshot = ref.read(sessionControllerProvider);
+        final stabilizedUser = sessionSnapshot.user ?? currentUser;
+        if (stabilizedUser != null) {
+          final resolvedFirstName =
+              targetClient?.firstName ?? approvedRequest?.firstName;
+          final resolvedLastName =
+              targetClient?.lastName ?? approvedRequest?.lastName;
+          final resolvedEmail = targetClient?.email ?? approvedRequest?.email;
+          final updatedSalonIds = <String>{
+            ...stabilizedUser.salonIds,
+            salonId,
+          }..removeWhere((value) => value.isEmpty);
+          final updatedRoles =
+              stabilizedUser.availableRoles.contains(UserRole.client)
+                  ? stabilizedUser.availableRoles
+                  : <UserRole>[...stabilizedUser.availableRoles, UserRole.client];
+          final resolvedDisplayName = _formatDisplayName(
+            resolvedFirstName,
+            resolvedLastName,
+            fallback: stabilizedUser.displayName,
+          );
+          final updatedUser = AppUser(
+            uid: stabilizedUser.uid,
+            role: UserRole.client,
+            salonIds: updatedSalonIds.toList(growable: false),
+            staffId: stabilizedUser.staffId,
+            clientId: targetClientId,
+            displayName: resolvedDisplayName,
+            email: resolvedEmail ?? stabilizedUser.email,
+            availableRoles: updatedRoles,
+            pendingSalonId: null,
+            pendingFirstName: null,
+            pendingLastName: null,
+            pendingPhone: null,
+            pendingDateOfBirth: null,
+          );
+          ref.read(sessionControllerProvider.notifier).updateUser(updatedUser);
+        }
+      }
+
+      closeLoadingDialog();
+      if (mounted) {
+        context.go('/client/dashboard');
+      }
+    } catch (error) {
+      closeLoadingDialog();
+      if (!mounted) {
+        return;
+      }
+      if (!navigator.mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Cambio salone non riuscito: $error',
+            ),
+          ),
+        );
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        useRootNavigator: true,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('Cambio salone non riuscito'),
+            content: Text(
+              'Non è stato possibile attivare il salone selezionato. '
+              'Dettagli: $error',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Ok'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      if (_joiningSalonId == salonId) {
+        if (mounted) {
+          setState(() => _joiningSalonId = null);
+        } else {
+          _joiningSalonId = null;
+        }
+      }
+    }
+  }
+
+  Future<void> _activateSalonAccessOnBackend({
+    required String salonId,
+    required String clientId,
+    String? displayName,
+    String? email,
+  }) async {
+    final functions = FirebaseFunctions.instanceFor(region: 'europe-west3');
+    final callable = functions.httpsCallable('activateClientSalon');
+    final payload = <String, dynamic>{
+      'salonId': salonId,
+      'clientId': clientId,
+    };
+    if (displayName != null && displayName.trim().isNotEmpty) {
+      payload['displayName'] = displayName.trim();
+    }
+    if (email != null && email.trim().isNotEmpty) {
+      payload['email'] = email.trim();
+    }
+    try {
+      await callable.call(payload);
+    } on FirebaseFunctionsException catch (error) {
+      final details =
+          error.code == 'permission-denied'
+              ? 'permessi insufficienti'
+              : error.message ?? error.code;
+      throw Exception('Aggiornamento profilo non riuscito ($details).');
+    }
+  }
+
+  String? _formatDisplayName(
+    String? firstName,
+    String? lastName, {
+    String? fallback,
+  }) {
+    final parts = <String>[
+      if (firstName != null && firstName.trim().isNotEmpty)
+        firstName.trim(),
+      if (lastName != null && lastName.trim().isNotEmpty)
+        lastName.trim(),
+    ];
+    if (parts.isNotEmpty) {
+      return parts.join(' ');
+    }
+    final normalizedFallback = fallback?.trim();
+    if (normalizedFallback == null || normalizedFallback.isEmpty) {
+      return null;
+    }
+    return normalizedFallback;
   }
 
   (String, String) _splitName(String? displayName) {
@@ -360,9 +752,7 @@ class _ClientSalonDiscoveryScreenState
     if (parts.length == 1) {
       return (parts.first, '');
     }
-    final first = parts.first;
-    final last = parts.skip(1).join(' ');
-    return (first, last);
+    return (parts.first, parts.skip(1).join(' '));
   }
 }
 
@@ -370,6 +760,7 @@ class _SalonCard extends StatelessWidget {
   const _SalonCard({
     required this.salon,
     required this.isApproved,
+    required this.isProcessing,
     required this.pendingRequest,
     required this.rejectedRequest,
     required this.onRequestAccess,
@@ -378,6 +769,7 @@ class _SalonCard extends StatelessWidget {
 
   final Salon salon;
   final bool isApproved;
+  final bool isProcessing;
   final SalonAccessRequest? pendingRequest;
   final SalonAccessRequest? rejectedRequest;
   final VoidCallback onRequestAccess;
@@ -389,21 +781,15 @@ class _SalonCard extends StatelessWidget {
     final scheme = theme.colorScheme;
     final subtitleStyle = theme.textTheme.bodyMedium;
     final status = _resolveStatus();
-    final cardColor =
-        status == _CardStatus.approved
-            ? scheme.primaryContainer
-            : status == _CardStatus.pending
-            ? scheme.surfaceVariant
-            : scheme.surface;
 
     return Card(
-      color: cardColor,
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
                   child: Text(
@@ -417,8 +803,9 @@ class _SalonCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            if (salon.city.isNotEmpty || salon.address.isNotEmpty) ...[
+            if (salon.address.isNotEmpty || salon.city.isNotEmpty) ...[
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Icon(Icons.place_outlined, size: 18),
                   const SizedBox(width: 6),
@@ -453,17 +840,41 @@ class _SalonCard extends StatelessWidget {
                   Expanded(child: Text(salon.email, style: subtitleStyle)),
                 ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 6),
             ],
             const Spacer(),
             Row(
               children: [
                 if (status == _CardStatus.approved)
                   Expanded(
-                    child: FilledButton.icon(
-                      icon: const Icon(Icons.arrow_forward_rounded),
-                      onPressed: onEnter,
-                      label: const Text('Entra'),
+                    child: FilledButton(
+                      onPressed: isProcessing ? null : onEnter,
+                      child:
+                          isProcessing
+                              ? Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                    SizedBox(width: 12),
+                                    Text('Accesso in corso'),
+                                  ],
+                                )
+                              : Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    Icon(Icons.arrow_forward_rounded),
+                                    SizedBox(width: 12),
+                                    Text('Entra nel salone'),
+                                  ],
+                                ),
                     ),
                   )
                 else if (status == _CardStatus.pending)
@@ -471,15 +882,7 @@ class _SalonCard extends StatelessWidget {
                     child: OutlinedButton.icon(
                       icon: const Icon(Icons.hourglass_top_rounded),
                       onPressed: null,
-                      label: const Text('Richiesta in attesa'),
-                    ),
-                  )
-                else if (status == _CardStatus.rejected)
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.info_outline_rounded),
-                      onPressed: onRequestAccess,
-                      label: const Text('Richiedi nuovamente'),
+                      label: const Text('Richiesta in elaborazione'),
                     ),
                   )
                 else
@@ -487,7 +890,11 @@ class _SalonCard extends StatelessWidget {
                     child: FilledButton.icon(
                       icon: const Icon(Icons.send_rounded),
                       onPressed: onRequestAccess,
-                      label: const Text('Richiedi accesso'),
+                      label: Text(
+                        status == _CardStatus.rejected
+                            ? 'Invia di nuovo la richiesta'
+                            : 'Richiedi accesso',
+                      ),
                     ),
                   ),
               ],
@@ -529,11 +936,11 @@ class _StatusChip extends StatelessWidget {
     IconData icon;
 
     switch (status) {
-      case _CardStatus.approved:
-        background = scheme.primary;
-        foreground = scheme.onPrimary;
-        label = 'Accesso attivo';
-        icon = Icons.verified_rounded;
+      case _CardStatus.available:
+        background = scheme.surfaceVariant;
+        foreground = scheme.onSurfaceVariant;
+        label = 'Disponibile';
+        icon = Icons.meeting_room_outlined;
         break;
       case _CardStatus.pending:
         background = scheme.secondaryContainer;
@@ -541,17 +948,17 @@ class _StatusChip extends StatelessWidget {
         label = 'In attesa';
         icon = Icons.hourglass_bottom_rounded;
         break;
+      case _CardStatus.approved:
+        background = scheme.primary;
+        foreground = scheme.onPrimary;
+        label = 'Accesso attivo';
+        icon = Icons.verified_rounded;
+        break;
       case _CardStatus.rejected:
         background = scheme.errorContainer;
         foreground = scheme.onErrorContainer;
         label = 'Richiesta respinta';
         icon = Icons.block_rounded;
-        break;
-      case _CardStatus.available:
-        background = scheme.surfaceVariant;
-        foreground = scheme.onSurfaceVariant;
-        label = 'Disponibile';
-        icon = Icons.meeting_room_outlined;
         break;
     }
 
@@ -755,7 +1162,7 @@ class _SalonAccessRequestSheetState
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'Compila i dati richiesti. Il salone potrà chiederti conferma prima di approvare l\'accesso.',
+                  'Compila i dati richiesti dal salone. Riceverai una conferma quando l\'accesso sarà approvato.',
                   style: theme.textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 20),
@@ -800,9 +1207,7 @@ class _SalonAccessRequestSheetState
                     if (text.isEmpty) {
                       return 'Inserisci l\'email';
                     }
-                    if (!RegExp(
-                      r'^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$',
-                    ).hasMatch(text)) {
+                    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(text)) {
                       return 'Email non valida';
                     }
                     return null;
@@ -941,14 +1346,13 @@ class _SalonAccessRequestSheetState
     if (!_formKey.currentState!.validate()) {
       return;
     }
-
     final session = ref.read(sessionControllerProvider);
     final user = session.user;
     final userId = session.uid;
     if (userId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Sessione non valida. Effettua di nuovo l\'accesso.'),
+          content: Text('Sessione scaduta. Accedi nuovamente per proseguire.'),
         ),
       );
       return;
@@ -1037,11 +1441,7 @@ class _SalonAccessRequestSheetState
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Impossibile inviare la richiesta: ${error.toString()}',
-          ),
-        ),
+        SnackBar(content: Text('Impossibile inviare la richiesta: $error')),
       );
     } finally {
       if (mounted) {

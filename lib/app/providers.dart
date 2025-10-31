@@ -44,7 +44,17 @@ final appDataProvider = StateNotifierProvider<AppDataStore, AppDataState>((
       Firebase.apps.isNotEmpty
           ? ref.read(firebaseStorageServiceProvider)
           : null;
-  return AppDataStore(currentUser: user, storage: storage);
+  final store = AppDataStore(currentUser: user, storage: storage);
+  ref.listen<String?>(
+    sessionControllerProvider.select((state) => state.salonId),
+    (previous, next) {
+      if (previous == next) {
+        return;
+      }
+      unawaited(store.reloadActiveSalon());
+    },
+  );
+  return store;
 });
 
 final appBootstrapProvider = FutureProvider<void>((ref) async {
@@ -187,25 +197,18 @@ final clientPhotosProvider = Provider.family<List<ClientPhoto>, String?>((
       .toList(growable: false);
 });
 
-final clientPhotoCollagesProvider = Provider.family<
-  List<ClientPhotoCollage>,
-  String?
->(
-  (
-    ref,
-    clientId,
-  ) {
-    final collages = ref.watch(
-      appDataProvider.select((state) => state.clientPhotoCollages),
-    );
-    if (clientId == null || clientId.isEmpty) {
-      return const <ClientPhotoCollage>[];
-    }
-    return collages
-        .where((collage) => collage.clientId == clientId)
-        .toList(growable: false);
-  },
-);
+final clientPhotoCollagesProvider =
+    Provider.family<List<ClientPhotoCollage>, String?>((ref, clientId) {
+      final collages = ref.watch(
+        appDataProvider.select((state) => state.clientPhotoCollages),
+      );
+      if (clientId == null || clientId.isEmpty) {
+        return const <ClientPhotoCollage>[];
+      }
+      return collages
+          .where((collage) => collage.clientId == clientId)
+          .toList(growable: false);
+    });
 
 final salonSetupProgressProvider = Provider.family<AdminSetupProgress?, String>(
   (ref, salonId) {
@@ -240,9 +243,20 @@ final clientRegistrationDraftProvider = StateNotifierProvider<
   ClientRegistrationDraft?
 >((ref) => ClientRegistrationDraftController());
 
+final clientRegistrationInProgressProvider = StateProvider<bool>(
+  (ref) => false,
+);
+
 final appointmentClipboardProvider = StateProvider<AppointmentClipboard?>(
   (ref) => null,
 );
+
+Future<void> performSignOut(WidgetRef ref) async {
+  await ref.read(authRepositoryProvider).signOut();
+  ref.invalidate(appDataProvider);
+  ref.invalidate(appBootstrapProvider);
+  ref.read(sessionControllerProvider.notifier).updateUser(null);
+}
 
 class SessionState {
   const SessionState({this.user, this.selectedSalonId, this.selectedEntityId});
@@ -263,7 +277,16 @@ class SessionState {
 
   String? get uid => user?.uid;
 
-  bool get requiresProfile => user != null && !(user!.isProfileComplete);
+  bool get requiresProfile {
+    final currentUser = user;
+    if (currentUser == null) {
+      return false;
+    }
+    if (currentUser.role == UserRole.client) {
+      return false;
+    }
+    return !currentUser.isProfileComplete;
+  }
 }
 
 class SessionController extends StateNotifier<SessionState> {

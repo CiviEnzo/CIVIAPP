@@ -31,7 +31,7 @@ class CiviApp extends ConsumerWidget {
         }
         ref.read(clientDashboardIntentProvider.notifier).state =
             ClientDashboardIntent(tabIndex: targetTab, payload: payload);
-        router.go('/client');
+        router.go('/client/dashboard');
       });
     });
 

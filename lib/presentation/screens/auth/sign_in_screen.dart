@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 class SignInScreen extends ConsumerStatefulWidget {
-  const SignInScreen({super.key});
+  const SignInScreen({super.key, this.notice});
+
+  final String? notice;
 
   @override
   ConsumerState<SignInScreen> createState() => _SignInScreenState();
@@ -16,12 +18,46 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
   final _passwordController = TextEditingController();
   bool _isObscured = true;
   bool _isLoading = false;
+  bool _noticeScheduled = false;
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleNotice();
+  }
+
+  @override
+  void didUpdateWidget(SignInScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.notice != widget.notice) {
+      _noticeScheduled = false;
+      _scheduleNotice();
+    }
+  }
+
+  void _scheduleNotice() {
+    if (_noticeScheduled) {
+      return;
+    }
+    final message = widget.notice;
+    if (message == null || message.isEmpty) {
+      return;
+    }
+    _noticeScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      messenger?.showSnackBar(SnackBar(content: Text(message)));
+    });
   }
 
   @override
@@ -197,6 +233,12 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
     }
     if (message.contains('user-disabled')) {
       return 'Account disabilitato.';
+    }
+    if (message.contains('email-not-verified')) {
+      return 'Email non verificata. Controlla la posta e conferma l\'indirizzo prima di accedere.';
+    }
+    if (message.contains('email-not-verified')) {
+      return 'Email non verificata. Ti abbiamo inviato un nuovo link di conferma.';
     }
     return 'Accesso non riuscito: $message';
   }

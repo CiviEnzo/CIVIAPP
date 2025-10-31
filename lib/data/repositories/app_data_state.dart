@@ -29,6 +29,7 @@ import 'package:you_book/domain/entities/salon_setup_progress.dart';
 class AppDataState {
   const AppDataState({
     required this.salons,
+    required this.discoverableSalons,
     required this.staff,
     required this.staffRoles,
     required this.clients,
@@ -63,6 +64,7 @@ class AppDataState {
   factory AppDataState.initial() {
     return const AppDataState(
       salons: [],
+      discoverableSalons: [],
       staff: [],
       staffRoles: [],
       clients: [],
@@ -96,6 +98,7 @@ class AppDataState {
   }
 
   final List<Salon> salons;
+  final List<Salon> discoverableSalons;
   final List<StaffMember> staff;
   final List<StaffRole> staffRoles;
   final List<Client> clients;
@@ -128,6 +131,7 @@ class AppDataState {
 
   AppDataState copyWith({
     List<Salon>? salons,
+    List<Salon>? discoverableSalons,
     List<StaffMember>? staff,
     List<StaffRole>? staffRoles,
     List<Client>? clients,
@@ -160,6 +164,7 @@ class AppDataState {
   }) {
     return AppDataState(
       salons: salons ?? this.salons,
+      discoverableSalons: discoverableSalons ?? this.discoverableSalons,
       staff: staff ?? this.staff,
       staffRoles: staffRoles ?? this.staffRoles,
       clients: clients ?? this.clients,
@@ -181,8 +186,7 @@ class AppDataState {
       publicStaffAbsences: publicStaffAbsences ?? this.publicStaffAbsences,
       users: users ?? this.users,
       clientPhotos: clientPhotos ?? this.clientPhotos,
-      clientPhotoCollages:
-          clientPhotoCollages ?? this.clientPhotoCollages,
+      clientPhotoCollages: clientPhotoCollages ?? this.clientPhotoCollages,
       clientQuestionnaireTemplates:
           clientQuestionnaireTemplates ?? this.clientQuestionnaireTemplates,
       clientQuestionnaires: clientQuestionnaires ?? this.clientQuestionnaires,
