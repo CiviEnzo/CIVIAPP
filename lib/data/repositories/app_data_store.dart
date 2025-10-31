@@ -790,17 +790,6 @@ class AppDataStore extends StateNotifier<AppDataState> {
           ),
         );
 
-        addAll(
-          _listenCollectionBySalonIds<ClientQuestionnaireTemplate>(
-            firestore: firestore,
-            collectionPath: 'client_questionnaire_templates',
-            salonIds: normalizedSalonIds,
-            fromDoc: clientQuestionnaireTemplateFromDoc,
-            onData:
-                (items) =>
-                    state = state.copyWith(clientQuestionnaireTemplates: items),
-          ),
-        );
       }
 
       if (clientId != null && clientId.isNotEmpty) {

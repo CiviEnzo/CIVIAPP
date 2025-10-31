@@ -395,14 +395,15 @@ class _ClientSalonDiscoveryScreenState
       _joiningSalonId = salonId;
     }
     final navigator = Navigator.of(context, rootNavigator: true);
+    final overlayContext = navigator.context;
     var loadingDialogVisible = true;
     unawaited(
       showDialog<void>(
-        context: context,
+        context: overlayContext,
         barrierDismissible: false,
         useRootNavigator: true,
         builder: (dialogContext) {
-          return const Center(child: CircularProgressIndicator());
+          return const _ProgressDialog(message: 'Sto cambiando salone...');
         },
       ).whenComplete(() => loadingDialogVisible = false),
     );
@@ -496,7 +497,7 @@ class _ClientSalonDiscoveryScreenState
                 : 'Il profilo è in fase di attivazione. Riprova tra qualche istante.';
 
         await showDialog<void>(
-          context: context,
+          context: overlayContext,
           useRootNavigator: true,
           builder: (dialogContext) {
             return AlertDialog(
@@ -665,7 +666,7 @@ class _ClientSalonDiscoveryScreenState
         return;
       }
       await showDialog<void>(
-        context: context,
+        context: overlayContext,
         useRootNavigator: true,
         builder: (dialogContext) {
           return AlertDialog(
@@ -916,6 +917,41 @@ class _SalonCard extends StatelessWidget {
       return _CardStatus.rejected;
     }
     return _CardStatus.available;
+  }
+}
+
+class _ProgressDialog extends StatelessWidget {
+  const _ProgressDialog({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      elevation: 0,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2.6),
+            ),
+            const SizedBox(width: 20),
+            Flexible(
+              child: Text(
+                message,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

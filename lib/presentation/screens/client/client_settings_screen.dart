@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -33,6 +34,7 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
   bool _isSavingProfile = false;
   bool _isSendingReset = false;
   bool _isLeavingSalon = false;
+  bool _preparingSalonSwitch = false;
   bool _reminderNotificationsEnabled = true;
   bool _promotionsNotificationsEnabled = true;
   bool _lastMinuteNotificationsEnabled = true;
@@ -279,6 +281,7 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
 
     final session = ref.watch(sessionControllerProvider);
     final clients = ref.watch(appDataProvider.select((state) => state.clients));
+    final salons = ref.watch(appDataProvider.select((state) => state.salons));
     final currentClient = clients.firstWhereOrNull(
       (client) => client.id == session.userId,
     );
@@ -333,6 +336,40 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
                             value: isDarkMode,
                             onChanged: themeController.setDarkEnabled,
                           ),
+                        ),
+                        const SizedBox(height: 16),
+                        _SettingsActionTile(
+                          icon: Icons.storefront_rounded,
+                          color: theme.colorScheme.primary,
+                          title: 'Cambia salone',
+                          subtitle:
+                              session.salonId == null
+                                  ? 'Nessun salone attivo'
+                                  : 'Salone attuale: ${
+                                      salons
+                                              .firstWhereOrNull(
+                                                (salon) =>
+                                                    salon.id == session.salonId,
+                                              )
+                                              ?.name ??
+                                          session.salonId
+                                    }',
+                          trailing:
+                              _preparingSalonSwitch
+                                  ? const SizedBox.square(
+                                    dimension: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                  : const Icon(Icons.chevron_right_rounded),
+                          onTap:
+                              _preparingSalonSwitch
+                                  ? null
+                                  : () => _handleSalonSwitch(
+                                        themedContext,
+                                        session,
+                                      ),
                         ),
                         const SizedBox(height: 16),
                         Card(
@@ -680,6 +717,117 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
     }
   }
 
+  Future<void> _handleSalonSwitch(
+    BuildContext context,
+    SessionState session,
+  ) async {
+    if (_preparingSalonSwitch) {
+      return;
+    }
+    final uid = session.uid;
+    if (uid == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Accesso non valido. Riprova.')),
+      );
+      return;
+    }
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) {
+            return AlertDialog(
+              title: const Text('Vuoi cambiare salone?'),
+              content: const Text(
+                'Verrai reindirizzato alla lista dei saloni per scegliere quello attivo.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Annulla'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  child: const Text('Continua'),
+                ),
+              ],
+            );
+          },
+        ) ??
+        false;
+    if (!confirmed) {
+      return;
+    }
+
+    if (mounted) {
+      setState(() => _preparingSalonSwitch = true);
+    } else {
+      _preparingSalonSwitch = true;
+    }
+
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final overlayContext = navigator.context;
+    var loaderVisible = true;
+    unawaited(
+      showDialog<void>(
+        context: overlayContext,
+        barrierDismissible: false,
+        useRootNavigator: true,
+        builder: (dialogContext) {
+          return const _SettingsProgressDialog(
+            message: 'Caricamento saloni in corso...',
+          );
+        },
+      ).whenComplete(() => loaderVisible = false),
+    );
+
+    void closeLoader() {
+      if (!loaderVisible) {
+        return;
+      }
+      if (!navigator.mounted) {
+        loaderVisible = false;
+        return;
+      }
+      if (navigator.canPop()) {
+        navigator.pop();
+        loaderVisible = false;
+      }
+    }
+
+    try {
+      final firestore = FirebaseFirestore.instance;
+      final userDoc = await firestore.collection('users').doc(uid).get();
+      final data = userDoc.data();
+      if (data != null) {
+        final updatedUser = AppUser.fromMap(uid, data);
+        ref.read(sessionControllerProvider.notifier).updateUser(updatedUser);
+      }
+
+      ref.invalidate(appDataProvider);
+      await ref.read(appDataProvider.notifier).reloadActiveSalon();
+      closeLoader();
+      if (!mounted) {
+        return;
+      }
+      GoRouter.of(context).go('/client');
+    } catch (error) {
+      closeLoader();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Operazione non riuscita: $error'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _preparingSalonSwitch = false);
+      } else {
+        _preparingSalonSwitch = false;
+      }
+    }
+  }
+
   Future<void> _confirmLeaveSalon(
     BuildContext context,
     Client? currentClient,
@@ -911,6 +1059,84 @@ class _SettingsIconAvatar extends StatelessWidget {
       backgroundColor: color.withOpacity(backgroundOpacity),
       foregroundColor: color,
       child: Icon(icon, size: iconSize),
+    );
+  }
+}
+
+class _SettingsActionTile extends StatelessWidget {
+  const _SettingsActionTile({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    this.trailing,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: ListTile(
+        onTap: onTap,
+        enabled: onTap != null,
+        leading: _SettingsIconAvatar(icon: icon, color: color),
+        title: Text(
+          title,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        subtitle: Text(
+          subtitle,
+          style: theme.textTheme.bodySmall,
+        ),
+        trailing: trailing ?? const Icon(Icons.chevron_right_rounded),
+      ),
+    );
+  }
+}
+
+class _SettingsProgressDialog extends StatelessWidget {
+  const _SettingsProgressDialog({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      elevation: 0,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2.6),
+            ),
+            const SizedBox(width: 20),
+            Flexible(
+              child: Text(
+                message,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

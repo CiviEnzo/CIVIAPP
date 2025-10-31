@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:you_book/app/providers.dart';
+import 'package:you_book/data/models/app_user.dart';
 import 'package:you_book/domain/cart/cart_models.dart';
 import 'package:you_book/domain/entities/app_notification.dart';
 import 'package:you_book/domain/entities/appointment.dart';
@@ -1175,12 +1176,13 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       (service) => service.id == slot.serviceId,
     );
     if (salon == null) {
-      final message = slot.requiresImmediatePayment
-          ? 'Le offerte last-minute richiedono pagamento immediato. Contatta il salone per completare l\'acquisto.'
-          : 'Contatta il salone per completare la prenotazione di questo last-minute.';
-      ScaffoldMessenger.of(targetContext).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      final message =
+          slot.requiresImmediatePayment
+              ? 'Le offerte last-minute richiedono pagamento immediato. Contatta il salone per completare l\'acquisto.'
+              : 'Contatta il salone per completare la prenotazione di questo last-minute.';
+      ScaffoldMessenger.of(
+        targetContext,
+      ).showSnackBar(SnackBar(content: Text(message)));
       return;
     }
 
@@ -1193,21 +1195,22 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       return;
     }
 
-    final success = slot.requiresImmediatePayment
-        ? await _checkoutLastMinuteSlot(
-            context: targetContext,
-            client: client,
-            salon: salon,
-            slot: slot,
-            service: service,
-          )
-        : await _bookLastMinuteSlotOnSite(
-            context: targetContext,
-            client: client,
-            salon: salon,
-            slot: slot,
-            service: service,
-          );
+    final success =
+        slot.requiresImmediatePayment
+            ? await _checkoutLastMinuteSlot(
+              context: targetContext,
+              client: client,
+              salon: salon,
+              slot: slot,
+              service: service,
+            )
+            : await _bookLastMinuteSlotOnSite(
+              context: targetContext,
+              client: client,
+              salon: salon,
+              slot: slot,
+              service: service,
+            );
 
     if (!success || !mounted) {
       return;
@@ -1246,7 +1249,9 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
             ? Icons.lock_rounded
             : Icons.event_available_rounded;
     final String ctaLabel =
-        paymentMode == LastMinutePaymentMode.online ? 'Paga ora' : 'Prenota ora';
+        paymentMode == LastMinutePaymentMode.online
+            ? 'Paga ora'
+            : 'Prenota ora';
 
     final result = await showModalBottomSheet<bool>(
       context: context,
@@ -1641,9 +1646,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     } catch (error) {
       if (mounted) {
         messenger.showSnackBar(
-          SnackBar(
-            content: Text('Prenotazione non riuscita: $error'),
-          ),
+          SnackBar(content: Text('Prenotazione non riuscita: $error')),
         );
       }
     }
@@ -1989,7 +1992,10 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
           builder: (context) {
             if (hasPendingClientLoad || hasPendingSalonLoad) {
               return Scaffold(
-                appBar: AppBar(title: const Text('Area clienti'), actions: actions),
+                appBar: AppBar(
+                  title: const Text('Area clienti'),
+                  actions: actions,
+                ),
                 body: const Center(child: CircularProgressIndicator()),
               );
             }
@@ -2035,8 +2041,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     );
     final salonPackages = data.packages
         .where(
-          (pkg) =>
-              pkg.salonId == effectiveSalonId && pkg.showOnClientDashboard,
+          (pkg) => pkg.salonId == effectiveSalonId && pkg.showOnClientDashboard,
         )
         .toList(growable: false);
     final appointments =
@@ -2277,11 +2282,6 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
               ),
               title: Text('Ciao ${currentClient.firstName}'),
               actions: [
-                IconButton(
-                  tooltip: 'Cambia salone',
-                  onPressed: () => context.go('/client'),
-                  icon: const Icon(Icons.storefront_rounded),
-                ),
                 IconButton(
                   tooltip: 'Notifiche',
                   onPressed: () {
