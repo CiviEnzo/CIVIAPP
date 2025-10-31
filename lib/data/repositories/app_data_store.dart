@@ -210,14 +210,31 @@ class AppDataStore extends StateNotifier<AppDataState> {
         ),
       );
     } else if (role == UserRole.client) {
-      subscriptions.add(
-        _listenCollection<Salon>(firestore.collection('salons'), salonFromDoc, (
-          items,
-        ) {
-          state = state.copyWith(salons: items);
-          _refreshFeatureFilteredCollections();
-        }),
-      );
+      if (salonIds.isEmpty) {
+        subscriptions.add(
+          _listenCollection<Salon>(
+            firestore.collection('salons'),
+            salonFromDoc,
+            (items) {
+              state = state.copyWith(salons: items);
+              _refreshFeatureFilteredCollections();
+            },
+          ),
+        );
+      } else {
+        addAll(
+          _listenDocumentsByIds<Salon>(
+            firestore: firestore,
+            collectionPath: 'salons',
+            documentIds: salonIds,
+            fromDoc: salonFromDoc,
+            onData: (items) {
+              state = state.copyWith(salons: items);
+              _refreshFeatureFilteredCollections();
+            },
+          ),
+        );
+      }
     } else if (salonIds.isEmpty) {
       state = state.copyWith(
         salons: const <Salon>[],
@@ -2294,12 +2311,11 @@ class AppDataStore extends StateNotifier<AppDataState> {
               ],
         ),
       );
-      if (error.code == 'permission-denied') {
-        rethrow;
-      }
       if (error.code == 'invalid-argument') {
         rethrow;
       }
+      // Per permission denied o altri errori, il cliente resta creato ma
+      // evitiamo di bloccare il flusso lato UI.
       return;
     } catch (error, stackTrace) {
       FlutterError.reportError(

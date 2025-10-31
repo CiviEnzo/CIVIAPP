@@ -590,31 +590,6 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
                                     ),
                           ),
                         ),
-                        const SizedBox(height: 16),
-                        Card(
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 12,
-                            ),
-                            leading: _SettingsIconAvatar(
-                              icon: Icons.logout_rounded,
-                              color: theme.colorScheme.error,
-                              backgroundOpacity: 0.18,
-                            ),
-                            title: const Text('Esci'),
-                            subtitle: const Text(
-                              'Disconnettiti dal tuo account',
-                            ),
-                            onTap: () async {
-                              await ref.read(authRepositoryProvider).signOut();
-                              if (!mounted) {
-                                return;
-                              }
-                              Navigator.of(themedContext).pop();
-                            },
-                          ),
-                        ),
                       ],
                     ),
           );
@@ -726,7 +701,7 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
             return AlertDialog(
               title: const Text('Vuoi lasciare il salone?'),
               content: const Text(
-                'Per scegliere un altro salone dovrai completare di nuovo la procedura di onboarding. Confermi di voler proseguire?',
+                'Potrai scegliere un nuovo salone dalla schermata iniziale dei clienti. Confermi di voler proseguire?',
               ),
               actions: [
                 TextButton(
@@ -783,7 +758,7 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
       if (Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
       }
-      router.go('/onboarding');
+      router.go('/client');
     } on Exception catch (error) {
       if (!mounted) {
         return;

@@ -38,6 +38,7 @@ export {
 } from "./stripe/routes";
 export { assignClientNumber } from "./clients/assignClientNumber";
 export { createClientAccount } from "./clients/createClientAccount";
+export { activateClientSalon } from "./clients/activateClientSalon";
 export {
   appointmentReminderOnWrite,
   appointmentReminderOnRootWrite,

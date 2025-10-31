@@ -277,7 +277,11 @@ service cloud.firestore {
     }
 
     match /salons/{salonId} {
-      allow read: if isSignedIn() && (canReadSalonDocument(salonId) || canViewAllSalons());
+      allow read: if isSignedIn() && (
+        canReadSalonDocument(salonId) ||
+        isClient() ||
+        canViewAllSalons()
+      );
       allow create: if isSignedIn() && isAdmin();
       allow update, delete: if isSignedIn() && isAdmin() && canReadSalonDocument(salonId);
     }
