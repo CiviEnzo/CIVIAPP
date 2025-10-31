@@ -1,4 +1,5 @@
 import 'package:you_book/app/providers.dart';
+import 'package:you_book/domain/entities/user_role.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -19,11 +20,13 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
   bool _isObscured = true;
   bool _isLoading = false;
   bool _noticeScheduled = false;
+  ProviderSubscription<SessionState>? _sessionSubscription;
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _closeSessionSubscription();
     super.dispose();
   }
 
@@ -177,12 +180,23 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
     if (!_formKey.currentState!.validate()) {
       return;
     }
+    if (_handleExistingSession()) {
+      return;
+    }
+
+    _ensureSessionListener();
+
     setState(() => _isLoading = true);
     final email = _emailController.text.trim();
     final password = _passwordController.text;
+    var didFail = false;
     try {
       await ref.read(authRepositoryProvider).signInWithEmail(email, password);
+      if (_handleExistingSession()) {
+        return;
+      }
     } on Exception catch (error) {
+      didFail = true;
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
@@ -191,7 +205,61 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
       if (mounted) {
         setState(() => _isLoading = false);
       }
+      if (didFail) {
+        _closeSessionSubscription();
+      }
     }
+  }
+
+  void _ensureSessionListener() {
+    if (_sessionSubscription != null) {
+      return;
+    }
+    _sessionSubscription = ref.listenManual<SessionState>(
+      sessionControllerProvider,
+      (previous, next) {
+        if (next.user == null) {
+          return;
+        }
+        _navigateForSession(next);
+      },
+    );
+  }
+
+  bool _handleExistingSession() {
+    final session = ref.read(sessionControllerProvider);
+    if (session.user == null) {
+      return false;
+    }
+    _navigateForSession(session);
+    return true;
+  }
+
+  void _navigateForSession(SessionState session) {
+    final router = ref.read(appRouterProvider);
+    router.go(_destinationForSession(session));
+    _closeSessionSubscription();
+  }
+
+  String _destinationForSession(SessionState session) {
+    if (session.requiresProfile) {
+      return '/onboarding';
+    }
+    switch (session.role) {
+      case UserRole.admin:
+        return '/admin';
+      case UserRole.staff:
+        return '/staff';
+      case UserRole.client:
+        return '/client';
+      case null:
+        return '/';
+    }
+  }
+
+  void _closeSessionSubscription() {
+    _sessionSubscription?.close();
+    _sessionSubscription = null;
   }
 
   Future<void> _resetPassword() async {

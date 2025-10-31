@@ -252,10 +252,12 @@ final appointmentClipboardProvider = StateProvider<AppointmentClipboard?>(
 );
 
 Future<void> performSignOut(WidgetRef ref) async {
+  final router = ref.read(appRouterProvider);
   await ref.read(authRepositoryProvider).signOut();
   ref.invalidate(appDataProvider);
   ref.invalidate(appBootstrapProvider);
   ref.read(sessionControllerProvider.notifier).updateUser(null);
+  router.go('/');
 }
 
 class SessionState {

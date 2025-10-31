@@ -384,27 +384,6 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     );
   }
 
-  Widget _buildDrawerFooterSection({required BuildContext context}) {
-    return AnimatedBuilder(
-      animation: _drawerFooterController,
-      builder: (context, child) {
-        final stretch = _clampStretch(_drawerFooterController.value);
-        return Padding(
-          padding: EdgeInsets.fromLTRB(20, 12, 20, 24 + stretch),
-          child: child,
-        );
-      },
-      child: _DrawerNavigationCard(
-        icon: Icons.logout_rounded,
-        label: 'Esci',
-        onTap: () async {
-          Navigator.of(context).pop();
-          await performSignOut(ref);
-        },
-      ),
-    );
-  }
-
   Widget _navigationIcon(
     BuildContext context, {
     required IconData icon,
