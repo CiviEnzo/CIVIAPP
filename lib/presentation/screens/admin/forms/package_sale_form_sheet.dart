@@ -688,6 +688,7 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
               ? null
               : _notesController.text.trim(),
       paymentHistory: salePaymentMovements,
+      metadata: const {'source': 'backoffice'},
     );
 
     Navigator.of(context).pop(sale);

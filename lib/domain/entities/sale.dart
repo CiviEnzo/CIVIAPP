@@ -15,11 +15,13 @@ class Sale {
     this.staffId,
     List<SalePaymentMovement>? paymentHistory,
     SaleLoyaltySummary? loyalty,
+    Map<String, dynamic>? metadata,
   }) : paidAmount = double.parse(
          ((paidAmount ?? total).clamp(0, total)).toStringAsFixed(2),
        ),
        paymentHistory = List.unmodifiable(paymentHistory ?? const []),
-       loyalty = loyalty ?? SaleLoyaltySummary();
+       loyalty = loyalty ?? SaleLoyaltySummary(),
+       metadata = Map.unmodifiable(metadata ?? const <String, dynamic>{});
 
   final String id;
   final String salonId;
@@ -36,6 +38,12 @@ class Sale {
   final String? staffId;
   final List<SalePaymentMovement> paymentHistory;
   final SaleLoyaltySummary loyalty;
+  final Map<String, dynamic> metadata;
+
+  String? get source {
+    final value = metadata['source'];
+    return value is String && value.isNotEmpty ? value : null;
+  }
 
   double get subtotal {
     return items.fold<double>(0, (sum, item) => sum + item.amount);
@@ -65,6 +73,7 @@ class Sale {
     Object? staffId = _unset,
     List<SalePaymentMovement>? paymentHistory,
     SaleLoyaltySummary? loyalty,
+    Map<String, dynamic>? metadata,
   }) {
     return Sale(
       id: id ?? this.id,
@@ -82,6 +91,7 @@ class Sale {
       staffId: staffId == _unset ? this.staffId : staffId as String?,
       paymentHistory: paymentHistory ?? this.paymentHistory,
       loyalty: loyalty ?? this.loyalty,
+      metadata: metadata ?? this.metadata,
     );
   }
 }

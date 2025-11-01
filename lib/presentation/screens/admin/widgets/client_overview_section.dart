@@ -55,6 +55,7 @@ class ClientOverviewSection extends StatelessWidget {
       _InfoFieldData(label: 'Telefono', value: client.phone),
       _InfoFieldData(label: 'Email', value: client.email ?? '—'),
       _InfoFieldData(label: 'Indirizzo', value: client.address ?? '—'),
+      _InfoFieldData(label: 'Città', value: client.city ?? '—'),
     ];
 
     return LayoutBuilder(

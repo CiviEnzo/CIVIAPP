@@ -17,6 +17,7 @@ class Appointment {
     this.roomId,
     this.lastMinuteSlotId,
     this.createdAt,
+    this.bookingChannel,
   }) : _serviceAllocations = List<AppointmentServiceAllocation>.unmodifiable(
          _resolveServiceAllocations(
            serviceAllocations: serviceAllocations,
@@ -38,6 +39,7 @@ class Appointment {
   final String? roomId;
   final String? lastMinuteSlotId;
   final DateTime? createdAt;
+  final String? bookingChannel;
 
   List<AppointmentServiceAllocation> get serviceAllocations =>
       _serviceAllocations;
@@ -111,6 +113,7 @@ extension AppointmentX on Appointment {
     String? roomId,
     String? lastMinuteSlotId,
     DateTime? createdAt,
+    String? bookingChannel,
   }) {
     final updatedAllocations =
         serviceAllocations ??
@@ -147,6 +150,7 @@ extension AppointmentX on Appointment {
       roomId: roomId ?? this.roomId,
       lastMinuteSlotId: lastMinuteSlotId ?? this.lastMinuteSlotId,
       createdAt: createdAt ?? this.createdAt,
+      bookingChannel: bookingChannel ?? this.bookingChannel,
     );
   }
 }

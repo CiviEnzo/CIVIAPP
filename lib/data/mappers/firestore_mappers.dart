@@ -966,6 +966,12 @@ Client clientFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final channelPreferencesRaw =
       data['channelPreferences'] as Map<String, dynamic>?;
   final fcmTokensRaw = data['fcmTokens'] as List<dynamic>?;
+  final rawCity = data['city'];
+  final normalizedCity =
+      rawCity is String ? rawCity.trim() : '';
+  final rawAddress = data['address'];
+  final normalizedAddress =
+      rawAddress is String ? rawAddress.trim() : '';
 
   return Client(
     id: doc.id,
@@ -978,7 +984,11 @@ Client clientFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
         (dateOfBirthRaw is Timestamp)
             ? dateOfBirthRaw.toDate()
             : (dateOfBirthRaw is DateTime ? dateOfBirthRaw : null),
-    address: data['address'] as String?,
+    address: normalizedAddress.isNotEmpty ? normalizedAddress : null,
+    city:
+        normalizedCity.isNotEmpty
+            ? normalizedCity
+            : (normalizedAddress.isNotEmpty ? normalizedAddress : null),
     profession: data['profession'] as String?,
     referralSource: data['referralSource'] as String?,
     email: data['email'] as String?,
@@ -1030,6 +1040,7 @@ Client clientFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
             : (onboardingCompletedAtRaw is DateTime
                 ? onboardingCompletedAtRaw
                 : null),
+    createdAt: _timestampToDate(data['createdAt']),
   );
 }
 
@@ -1045,6 +1056,7 @@ Map<String, dynamic> clientToMap(Client client) {
             ? null
             : Timestamp.fromDate(client.dateOfBirth!),
     'address': client.address,
+    'city': client.city,
     'profession': client.profession,
     'referralSource': client.referralSource,
     'email': client.email,
@@ -1092,6 +1104,11 @@ Map<String, dynamic> clientToMap(Client client) {
     map['onboardingCompletedAt'] = Timestamp.fromDate(
       client.onboardingCompletedAt!,
     );
+  }
+  if (client.createdAt != null) {
+    map['createdAt'] = Timestamp.fromDate(client.createdAt!);
+  } else {
+    map['createdAt'] = FieldValue.serverTimestamp();
   }
 
   return map;
@@ -1624,6 +1641,7 @@ Appointment appointmentFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     roomId: data['roomId'] as String?,
     lastMinuteSlotId: data['lastMinuteSlotId'] as String?,
     createdAt: _timestampToDate(data['createdAt']),
+    bookingChannel: (data['bookingChannel'] as String?)?.trim(),
   );
 }
 
@@ -1645,6 +1663,8 @@ Map<String, dynamic> appointmentToMap(Appointment appointment) {
     'packageId': appointment.packageId,
     'roomId': appointment.roomId,
     'lastMinuteSlotId': appointment.lastMinuteSlotId,
+    if (appointment.bookingChannel != null)
+      'bookingChannel': appointment.bookingChannel,
     'createdAt':
         appointment.createdAt != null
             ? Timestamp.fromDate(appointment.createdAt!)
@@ -1802,6 +1822,15 @@ Sale saleFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
           .whereType<SalePaymentMovement>()
           .toList();
   final loyaltyRaw = data['loyalty'] as Map<String, dynamic>?;
+  final metadataRaw = data['metadata'];
+  final metadata =
+      metadataRaw is Map
+          ? Map<String, dynamic>.from(
+            metadataRaw.map(
+              (key, value) => MapEntry(key.toString(), value),
+            ),
+          )
+          : const <String, dynamic>{};
 
   return Sale(
     id: doc.id,
@@ -1876,6 +1905,7 @@ Sale saleFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     staffId: data['staffId'] as String?,
     paymentHistory: paymentHistory,
     loyalty: _mapToSaleLoyaltySummary(loyaltyRaw),
+    metadata: metadata,
   );
 }
 
@@ -1961,6 +1991,9 @@ Map<String, dynamic> saleToMap(Sale sale) {
   final loyaltyMap = _saleLoyaltySummaryToMap(sale.loyalty);
   if (loyaltyMap != null) {
     map['loyalty'] = loyaltyMap;
+  }
+  if (sale.metadata.isNotEmpty) {
+    map['metadata'] = sale.metadata;
   }
 
   return map;

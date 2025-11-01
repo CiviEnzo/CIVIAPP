@@ -40,6 +40,7 @@ class ClientImportDraft {
       marketedConsents: const [],
       fcmTokens: const [],
       channelPreferences: const ChannelPreferences(),
+      createdAt: DateTime.now(),
     );
   }
 }

@@ -240,240 +240,303 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
             ? _pendingClientNumberDisplay
             : _clientNumber.text;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Form(
-        key: _formKey,
-        child: Column(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final theme = Theme.of(context);
+        final bool isWide = constraints.maxWidth >= 900;
+
+        double sidebarWidth = constraints.maxWidth * 0.36;
+        if (sidebarWidth < 320) {
+          sidebarWidth = 320;
+        } else if (sidebarWidth > 420) {
+          sidebarWidth = 420;
+        }
+
+        final header = Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Text(
+                _isEditing ? 'Modifica cliente' : 'Nuovo cliente',
+                style: theme.textTheme.titleLarge,
+              ),
+            ),
+            const SizedBox(width: 12),
+            _ClientNumberBadge(number: numberDisplay),
+          ],
+        );
+
+        final anagraficaSection = _FormSection(
+          icon: Icons.badge_rounded,
+          title: 'Anagrafica',
+          subtitle: 'Imposta i dati principali del cliente',
+          children: [
+            TextFormField(
+              controller: _firstName,
+              autofocus: !_isEditing,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(labelText: 'Nome'),
+              validator:
+                  (value) =>
+                      value == null || value.trim().isEmpty
+                          ? 'Inserisci il nome'
+                          : null,
+            ),
+            TextFormField(
+              controller: _lastName,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(labelText: 'Cognome'),
+              validator:
+                  (value) =>
+                      value == null || value.trim().isEmpty
+                          ? 'Inserisci il cognome'
+                          : null,
+            ),
+            TextFormField(
+              controller: _dateOfBirthDisplay,
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                LengthLimitingTextInputFormatter(10),
+                _SlashDateTextInputFormatter(),
+              ],
+              decoration: InputDecoration(
+                labelText: 'Data di nascita',
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.calendar_today_rounded),
+                  onPressed: _pickDateOfBirth,
+                ),
+              ),
+              onChanged: (_) => _updateDateOfBirthFromText(),
+              validator: _validateDateOfBirth,
+            ),
+          ],
+        );
+
+        final contattiSection = _FormSection(
+          icon: Icons.contact_phone_rounded,
+          title: 'Contatti',
+          subtitle: 'Recapiti, indirizzo e provenienza',
+          children: [
+            TextFormField(
+              controller: _phone,
+              decoration: const InputDecoration(labelText: 'Telefono'),
+              keyboardType: TextInputType.phone,
+              textInputAction: TextInputAction.next,
+              validator:
+                  (value) =>
+                      value == null || value.trim().isEmpty
+                          ? 'Inserisci un numero di telefono'
+                          : null,
+            ),
+            TextFormField(
+              controller: _email,
+              decoration: const InputDecoration(labelText: 'Email'),
+              keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.next,
+              validator: _validateEmail,
+            ),
+            TextFormField(
+              controller: _address,
+              decoration: const InputDecoration(
+                labelText: 'Città di residenza',
+              ),
+              textInputAction: TextInputAction.next,
+            ),
+            TextFormField(
+              controller: _profession,
+              decoration: const InputDecoration(labelText: 'Professione'),
+              textInputAction: TextInputAction.next,
+            ),
+            DropdownButtonFormField<String>(
+              value: _referralSource,
+              decoration: const InputDecoration(
+                labelText: 'Come ci ha conosciuto?',
+              ),
+              hint: const Text('Seleziona un\'opzione'),
+              items:
+                  _buildReferralOptions()
+                      .map(
+                        (option) => DropdownMenuItem(
+                          value: option,
+                          child: Text(option),
+                        ),
+                      )
+                      .toList(),
+              isExpanded: true,
+              onChanged:
+                  (value) => setState(() => _referralSource = value?.trim()),
+              validator:
+                  (value) =>
+                      _referralSource == null || _referralSource!.isEmpty
+                          ? 'Indica come il cliente ha conosciuto il salone'
+                          : null,
+            ),
+          ],
+        );
+
+        final preferenzeSection = _FormSection(
+          icon: Icons.forum_rounded,
+          title: 'Preferenze di contatto',
+          subtitle: 'Scegli i canali di comunicazione consentiti',
+          children: [
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: _prefPush,
+              onChanged: (value) => _updatePreference(() => _prefPush = value),
+              title: const Text('Push (app mobile)'),
+              subtitle: const Text(
+                'Notifiche gratuite tramite installazione dell\'app.',
+              ),
+            ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: _prefEmail,
+              onChanged: (value) => _updatePreference(() => _prefEmail = value),
+              title: const Text('Email'),
+              subtitle: const Text('Promo e reminder via posta elettronica.'),
+            ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: _prefWhatsapp,
+              onChanged:
+                  (value) => _updatePreference(() => _prefWhatsapp = value),
+              title: const Text('WhatsApp'),
+              subtitle: const Text(
+                'Richiede numero Business e template approvati.',
+              ),
+            ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: _prefSms,
+              onChanged: (value) => _updatePreference(() => _prefSms = value),
+              title: const Text('SMS'),
+              subtitle: const Text(
+                'Canale a pagamento, usarlo solo per comunicazioni urgenti.',
+              ),
+            ),
+            Text(
+              _preferencesDirty || widget.initial == null
+                  ? 'Le modifiche saranno registrate al salvataggio.'
+                  : _channelPrefsUpdatedAt != null
+                  ? 'Ultimo aggiornamento: ${_dateTimeFormat.format(_channelPrefsUpdatedAt!)}'
+                  : 'Preferenze non ancora registrate.',
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        );
+
+        final loyaltySection = _FormSection(
+          icon: Icons.stars_rounded,
+          title: 'Programma fedeltà',
+          subtitle: 'Configura saldo iniziale e punti attuali',
+          children: [
+            TextFormField(
+              controller: _loyaltyInitialPoints,
+              decoration: const InputDecoration(
+                labelText: 'Punti iniziali',
+                helperText: 'Saldo assegnato al momento della creazione.',
+              ),
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.next,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            ),
+            TextFormField(
+              controller: _loyaltyPoints,
+              decoration: const InputDecoration(
+                labelText: 'Saldo punti attuale',
+                helperText:
+                    'Se lasci invariato, sarà ricalcolato con il nuovo saldo iniziale.',
+              ),
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            ),
+          ],
+        );
+
+        final noteSection = _FormSection(
+          icon: Icons.sticky_note_2_rounded,
+          title: 'Note',
+          subtitle: 'Annotazioni visibili allo staff',
+          children: [
+            TextFormField(
+              controller: _notes,
+              decoration: const InputDecoration(labelText: 'Note interne'),
+              maxLines: 4,
+            ),
+          ],
+        );
+
+        final saveButton = Align(
+          alignment: Alignment.centerRight,
+          child: FilledButton(onPressed: _submit, child: const Text('Salva')),
+        );
+
+        final narrowChildren = <Widget>[
+          header,
+          const SizedBox(height: 24),
+          anagraficaSection,
+          contattiSection,
+          preferenzeSection,
+          loyaltySection,
+          noteSection,
+          const SizedBox(height: 12),
+          saveButton,
+        ];
+
+        final wideLayout = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
+            header,
+            const SizedBox(height: 24),
             Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: Text(
-                    _isEditing ? 'Modifica cliente' : 'Nuovo cliente',
-                    style: Theme.of(context).textTheme.titleLarge,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      anagraficaSection,
+                      contattiSection,
+                      loyaltySection,
+                    ],
                   ),
                 ),
-                const SizedBox(width: 12),
-                _ClientNumberBadge(number: numberDisplay),
-              ],
-            ),
-            const SizedBox(height: 24),
-            _FormSection(
-              icon: Icons.badge_rounded,
-              title: 'Anagrafica',
-              subtitle: 'Imposta i dati principali del cliente',
-              children: [
-                TextFormField(
-                  controller: _firstName,
-                  autofocus: !_isEditing,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(labelText: 'Nome'),
-                  validator:
-                      (value) =>
-                          value == null || value.trim().isEmpty
-                              ? 'Inserisci il nome'
-                              : null,
-                ),
-                TextFormField(
-                  controller: _lastName,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(labelText: 'Cognome'),
-                  validator:
-                      (value) =>
-                          value == null || value.trim().isEmpty
-                              ? 'Inserisci il cognome'
-                              : null,
-                ),
-                TextFormField(
-                  controller: _dateOfBirthDisplay,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [
-                    LengthLimitingTextInputFormatter(10),
-                    _SlashDateTextInputFormatter(),
-                  ],
-                  decoration: InputDecoration(
-                    labelText: 'Data di nascita',
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.calendar_today_rounded),
-                      onPressed: _pickDateOfBirth,
-                    ),
+                const SizedBox(width: 24),
+                SizedBox(
+                  width: sidebarWidth,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      preferenzeSection,
+                      noteSection,
+                      const SizedBox(height: 12),
+                      saveButton,
+                    ],
                   ),
-                  onChanged: (_) => _updateDateOfBirthFromText(),
-                  validator: _validateDateOfBirth,
                 ),
               ],
-            ),
-            _FormSection(
-              icon: Icons.contact_phone_rounded,
-              title: 'Contatti',
-              subtitle: 'Recapiti, indirizzo e provenienza',
-              children: [
-                TextFormField(
-                  controller: _phone,
-                  decoration: const InputDecoration(labelText: 'Telefono'),
-                  keyboardType: TextInputType.phone,
-                  textInputAction: TextInputAction.next,
-                  validator:
-                      (value) =>
-                          value == null || value.trim().isEmpty
-                              ? 'Inserisci un numero di telefono'
-                              : null,
-                ),
-                TextFormField(
-                  controller: _email,
-                  decoration: const InputDecoration(labelText: 'Email'),
-                  keyboardType: TextInputType.emailAddress,
-                  textInputAction: TextInputAction.next,
-                  validator: _validateEmail,
-                ),
-                TextFormField(
-                  controller: _address,
-                  decoration: const InputDecoration(
-                    labelText: 'Città di residenza',
-                  ),
-                  textInputAction: TextInputAction.next,
-                ),
-                TextFormField(
-                  controller: _profession,
-                  decoration: const InputDecoration(labelText: 'Professione'),
-                  textInputAction: TextInputAction.next,
-                ),
-                DropdownButtonFormField<String>(
-                  value: _referralSource,
-                  decoration: const InputDecoration(
-                    labelText: 'Come ci ha conosciuto?',
-                  ),
-                  hint: const Text('Seleziona un\'opzione'),
-                  items:
-                      _buildReferralOptions()
-                          .map(
-                            (option) => DropdownMenuItem(
-                              value: option,
-                              child: Text(option),
-                            ),
-                          )
-                          .toList(),
-                  isExpanded: true,
-                  onChanged:
-                      (value) =>
-                          setState(() => _referralSource = value?.trim()),
-                  validator:
-                      (value) =>
-                          _referralSource == null || _referralSource!.isEmpty
-                              ? 'Indica come il cliente ha conosciuto il salone'
-                              : null,
-                ),
-              ],
-            ),
-            _FormSection(
-              icon: Icons.forum_rounded,
-              title: 'Preferenze di contatto',
-              subtitle: 'Scegli i canali di comunicazione consentiti',
-              children: [
-                SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  value: _prefPush,
-                  onChanged:
-                      (value) => _updatePreference(() => _prefPush = value),
-                  title: const Text('Push (app mobile)'),
-                  subtitle: const Text(
-                    'Notifiche gratuite tramite installazione dell\'app.',
-                  ),
-                ),
-                SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  value: _prefEmail,
-                  onChanged:
-                      (value) => _updatePreference(() => _prefEmail = value),
-                  title: const Text('Email'),
-                  subtitle: const Text(
-                    'Promo e reminder via posta elettronica.',
-                  ),
-                ),
-                SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  value: _prefWhatsapp,
-                  onChanged:
-                      (value) => _updatePreference(() => _prefWhatsapp = value),
-                  title: const Text('WhatsApp'),
-                  subtitle: const Text(
-                    'Richiede numero Business e template approvati.',
-                  ),
-                ),
-                SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  value: _prefSms,
-                  onChanged:
-                      (value) => _updatePreference(() => _prefSms = value),
-                  title: const Text('SMS'),
-                  subtitle: const Text(
-                    'Canale a pagamento, usarlo solo per comunicazioni urgenti.',
-                  ),
-                ),
-                Text(
-                  _preferencesDirty || widget.initial == null
-                      ? 'Le modifiche saranno registrate al salvataggio.'
-                      : _channelPrefsUpdatedAt != null
-                      ? 'Ultimo aggiornamento: ${_dateTimeFormat.format(_channelPrefsUpdatedAt!)}'
-                      : 'Preferenze non ancora registrate.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
-            _FormSection(
-              icon: Icons.stars_rounded,
-              title: 'Programma fedeltà',
-              subtitle: 'Configura saldo iniziale e punti attuali',
-              children: [
-                TextFormField(
-                  controller: _loyaltyInitialPoints,
-                  decoration: const InputDecoration(
-                    labelText: 'Punti iniziali',
-                    helperText: 'Saldo assegnato al momento della creazione.',
-                  ),
-                  keyboardType: TextInputType.number,
-                  textInputAction: TextInputAction.next,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                ),
-                TextFormField(
-                  controller: _loyaltyPoints,
-                  decoration: const InputDecoration(
-                    labelText: 'Saldo punti attuale',
-                    helperText:
-                        'Se lasci invariato, sarà ricalcolato con il nuovo saldo iniziale.',
-                  ),
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                ),
-              ],
-            ),
-            _FormSection(
-              icon: Icons.sticky_note_2_rounded,
-              title: 'Note',
-              subtitle: 'Annotazioni visibili allo staff',
-              children: [
-                TextFormField(
-                  controller: _notes,
-                  decoration: const InputDecoration(labelText: 'Note interne'),
-                  maxLines: 4,
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                onPressed: _submit,
-                child: const Text('Salva'),
-              ),
             ),
           ],
-        ),
-      ),
+        );
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Form(
+            key: _formKey,
+            child:
+                isWide
+                    ? wideLayout
+                    : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: narrowChildren,
+                    ),
+          ),
+        );
+      },
     );
   }
 
@@ -576,6 +639,10 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
       phone: trimmedPhone,
       dateOfBirth: _dateOfBirth,
       address: trimmedAddress.isEmpty ? null : trimmedAddress,
+      city:
+          trimmedAddress.isEmpty
+              ? (existing?.city ?? existing?.address)
+              : trimmedAddress,
       profession: trimmedProfession.isEmpty ? null : trimmedProfession,
       referralSource: referral == null || referral.isEmpty ? null : referral,
       email: trimmedEmail,
@@ -595,6 +662,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
           existing?.clientNumber != null && existing!.clientNumber!.isNotEmpty
               ? existing.clientNumber
               : null,
+      createdAt: existing?.createdAt ?? DateTime.now(),
     );
 
     Navigator.of(context).pop(client);

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 
+import 'package:you_book/app/reporting_config.dart';
 import 'package:you_book/data/mappers/firestore_mappers.dart';
 import 'package:you_book/data/mock_data.dart';
 import 'package:you_book/data/models/app_user.dart';
@@ -789,7 +790,6 @@ class AppDataStore extends StateNotifier<AppDataState> {
                 (items) => state = state.copyWith(publicStaffAbsences: items),
           ),
         );
-
       }
 
       if (clientId != null && clientId.isNotEmpty) {
@@ -2385,16 +2385,32 @@ class AppDataStore extends StateNotifier<AppDataState> {
 
   Future<void> upsertClient(Client client) async {
     final prepared = await _ensureClientNumber(client);
+    final now = DateTime.now();
+    final normalizedCity = () {
+      final rawCity = prepared.city?.trim();
+      if (rawCity != null && rawCity.isNotEmpty) {
+        return rawCity;
+      }
+      final rawAddress = prepared.address?.trim();
+      if (rawAddress != null && rawAddress.isNotEmpty) {
+        return rawAddress;
+      }
+      return null;
+    }();
+    final enriched = prepared.copyWith(
+      createdAt: prepared.createdAt ?? now,
+      city: normalizedCity,
+    );
     final firestore = _firestore;
     if (firestore == null) {
-      _upsertLocal(clients: [prepared]);
+      _upsertLocal(clients: [enriched]);
       return;
     }
     await firestore
         .collection('clients')
-        .doc(prepared.id)
-        .set(clientToMap(prepared));
-    await _ensureClientUser(prepared);
+        .doc(enriched.id)
+        .set(clientToMap(enriched));
+    await _ensureClientUser(enriched);
   }
 
   Future<ClientImportResult> bulkImportClients({
@@ -2575,6 +2591,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
         marketedConsents: const [],
         fcmTokens: const [],
         channelPreferences: const ChannelPreferences(),
+        createdAt: DateTime.now(),
       );
 
       try {
@@ -3037,6 +3054,11 @@ class AppDataStore extends StateNotifier<AppDataState> {
     final profession = _stringOrNull(request.extraData['profession']);
     final referral = _stringOrNull(request.extraData['referralSource']);
     final notes = _stringOrNull(request.extraData['notes']);
+    final rawCity = _stringOrNull(request.extraData['city']);
+    final inferredCity =
+        rawCity != null && rawCity.isNotEmpty
+            ? rawCity
+            : (address?.isNotEmpty == true ? address : null);
 
     final client = Client(
       id: clientId,
@@ -3048,6 +3070,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
       clientNumber: assignedNumber,
       dateOfBirth: request.dateOfBirth,
       address: address?.isEmpty == true ? null : address,
+      city: inferredCity?.isEmpty == true ? null : inferredCity,
       profession: profession?.isEmpty == true ? null : profession,
       referralSource: referral?.isEmpty == true ? null : referral,
       notes: notes?.isEmpty == true ? null : notes,
@@ -3057,6 +3080,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
       onboardingStatus: ClientOnboardingStatus.onboardingCompleted,
       onboardingCompletedAt: now,
       firstLoginAt: now,
+      createdAt: now,
     );
 
     await upsertClient(client);
@@ -3702,6 +3726,21 @@ class AppDataStore extends StateNotifier<AppDataState> {
     String? consumeLastMinuteSlotId,
   }) async {
     final isAdmin = _currentUser?.role == UserRole.admin;
+    final resolvedBookingChannel =
+        appointment.bookingChannel ??
+        () {
+          final role = _currentUser?.role;
+          if (role == UserRole.client) {
+            return 'self';
+          }
+          if (role == UserRole.staff) {
+            return 'staff';
+          }
+          if (role == UserRole.admin) {
+            return 'admin';
+          }
+          return 'system';
+        }();
 
     if (!isAdmin && consumeLastMinuteSlotId != null) {
       final bookingResult = await _bookLastMinuteAppointment(
@@ -3738,6 +3777,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     final resolvedAppointment = appointment.copyWith(
       lastMinuteSlotId: appointment.lastMinuteSlotId ?? consumeLastMinuteSlotId,
       createdAt: appointment.createdAt ?? previous?.createdAt ?? DateTime.now(),
+      bookingChannel: resolvedBookingChannel,
     );
     final publicView = _publicViewOfAppointment(resolvedAppointment);
     final now = DateTime.now();
@@ -4532,6 +4572,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
       paymentStatus: SalePaymentStatus.deposit,
       paidAmount: 0,
       notes: quote.notes,
+      metadata: <String, dynamic>{'source': 'quote', 'quoteId': quote.id},
     );
   }
 
@@ -6410,6 +6451,34 @@ class AppDataStore extends StateNotifier<AppDataState> {
         discoverableSalons: <Salon>[updatedSalon],
       );
     }
+  }
+
+  List<Sale> reportingSales({String? salonId}) {
+    return state.sales
+        .where((sale) => salonId == null || sale.salonId == salonId)
+        .where((sale) => includeInReporting(primary: sale.createdAt))
+        .toList(growable: false);
+  }
+
+  List<Appointment> reportingAppointments({String? salonId}) {
+    return state.appointments
+        .where(
+          (appointment) => salonId == null || appointment.salonId == salonId,
+        )
+        .where(
+          (appointment) => includeInReporting(
+            primary: appointment.createdAt,
+            fallback: appointment.start,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  List<Client> reportingClients({String? salonId}) {
+    return state.clients
+        .where((client) => salonId == null || client.salonId == salonId)
+        .where((client) => includeInReporting(primary: client.createdAt))
+        .toList(growable: false);
   }
 
   List<T> _merge<T>(

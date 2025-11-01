@@ -49,6 +49,7 @@ class Client {
     this.clientNumber,
     this.dateOfBirth,
     this.address,
+    this.city,
     this.profession,
     this.referralSource,
     this.email,
@@ -66,6 +67,7 @@ class Client {
     this.invitationSentAt,
     this.firstLoginAt,
     this.onboardingCompletedAt,
+    this.createdAt,
   });
 
   static const Object _unset = Object();
@@ -78,6 +80,7 @@ class Client {
   final String? clientNumber;
   final DateTime? dateOfBirth;
   final String? address;
+  final String? city;
   final String? profession;
   final String? referralSource;
   final String? email;
@@ -95,6 +98,7 @@ class Client {
   final DateTime? invitationSentAt;
   final DateTime? firstLoginAt;
   final DateTime? onboardingCompletedAt;
+  final DateTime? createdAt;
 
   String get fullName => '$firstName $lastName';
 
@@ -107,6 +111,7 @@ class Client {
     Object? clientNumber = _unset,
     Object? dateOfBirth = _unset,
     Object? address = _unset,
+    Object? city = _unset,
     Object? profession = _unset,
     Object? referralSource = _unset,
     Object? email = _unset,
@@ -124,6 +129,7 @@ class Client {
     Object? firstLoginAt = _unset,
     Object? onboardingCompletedAt = _unset,
     ChannelPreferences? channelPreferences,
+    Object? createdAt = _unset,
   }) {
     return Client(
       id: id ?? this.id,
@@ -136,6 +142,7 @@ class Client {
       dateOfBirth:
           dateOfBirth == _unset ? this.dateOfBirth : dateOfBirth as DateTime?,
       address: address == _unset ? this.address : address as String?,
+      city: city == _unset ? this.city : city as String?,
       profession:
           profession == _unset ? this.profession : profession as String?,
       referralSource:
@@ -178,6 +185,8 @@ class Client {
           onboardingCompletedAt == _unset
               ? this.onboardingCompletedAt
               : onboardingCompletedAt as DateTime?,
+      createdAt:
+          createdAt == _unset ? this.createdAt : createdAt as DateTime?,
     );
   }
 }

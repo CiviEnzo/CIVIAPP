@@ -2244,6 +2244,18 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       );
     }
 
+    final resolvedMetadata = () {
+      if (widget.initialSaleId != null) {
+        final existing = widget.sales.firstWhereOrNull(
+          (sale) => sale.id == widget.initialSaleId,
+        );
+        if (existing != null && existing.metadata.isNotEmpty) {
+          return existing.metadata;
+        }
+      }
+      return const <String, dynamic>{'source': 'backoffice'};
+    }();
+
     final sale = Sale(
       id: widget.initialSaleId ?? _uuid.v4(),
       salonId: _salonId!,
@@ -2260,6 +2272,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       staffId: _staffId,
       paymentHistory: paymentMovements,
       loyalty: _loyaltySummary,
+      metadata: resolvedMetadata,
     );
 
     Navigator.of(context).pop(sale);
