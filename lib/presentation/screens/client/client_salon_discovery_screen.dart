@@ -329,7 +329,8 @@ class _ClientSalonDiscoveryScreenState
         '';
     final initialEmail =
         registrationDraft?.email ?? existingClient?.email ?? user?.email ?? '';
-    final initialAddress = existingClient?.address ?? '';
+    final initialAddress =
+        existingClient?.city ?? existingClient?.address ?? '';
     final initialProfession = existingClient?.profession ?? '';
     final initialNotes = existingClient?.notes ?? '';
     final initialReferral = existingClient?.referralSource ?? '';
@@ -484,7 +485,8 @@ class _ClientSalonDiscoveryScreenState
           return;
         }
 
-        final pendingRequest = approvedRequest ??
+        final pendingRequest =
+            approvedRequest ??
             dataState.salonAccessRequests.firstWhereOrNull(
               (request) =>
                   request.salonId == salonId &&
@@ -541,10 +543,8 @@ class _ClientSalonDiscoveryScreenState
       sessionController.setUser(targetClientId);
 
       if (currentUser != null) {
-        final updatedSalonIds = <String>{
-          ...currentUser.salonIds,
-          salonId,
-        }..removeWhere((value) => value.isEmpty);
+        final updatedSalonIds = <String>{...currentUser.salonIds, salonId}
+          ..removeWhere((value) => value.isEmpty);
         final updatedRoles =
             currentUser.availableRoles.contains(UserRole.client)
                 ? currentUser.availableRoles
@@ -592,10 +592,12 @@ class _ClientSalonDiscoveryScreenState
       await store.reloadActiveSalon();
 
       try {
-        final awaitedState = await dataStream.firstWhere(
-          (state) =>
-              state.clients.any((client) => client.id == targetClientId),
-        ).timeout(const Duration(seconds: 8));
+        final awaitedState = await dataStream
+            .firstWhere(
+              (state) =>
+                  state.clients.any((client) => client.id == targetClientId),
+            )
+            .timeout(const Duration(seconds: 8));
         targetClient = awaitedState.clients.firstWhereOrNull(
           (client) => client.id == targetClientId,
         );
@@ -614,14 +616,15 @@ class _ClientSalonDiscoveryScreenState
           final resolvedLastName =
               targetClient?.lastName ?? approvedRequest?.lastName;
           final resolvedEmail = targetClient?.email ?? approvedRequest?.email;
-          final updatedSalonIds = <String>{
-            ...stabilizedUser.salonIds,
-            salonId,
-          }..removeWhere((value) => value.isEmpty);
+          final updatedSalonIds = <String>{...stabilizedUser.salonIds, salonId}
+            ..removeWhere((value) => value.isEmpty);
           final updatedRoles =
               stabilizedUser.availableRoles.contains(UserRole.client)
                   ? stabilizedUser.availableRoles
-                  : <UserRole>[...stabilizedUser.availableRoles, UserRole.client];
+                  : <UserRole>[
+                    ...stabilizedUser.availableRoles,
+                    UserRole.client,
+                  ];
           final resolvedDisplayName = _formatDisplayName(
             resolvedFirstName,
             resolvedLastName,
@@ -657,11 +660,7 @@ class _ClientSalonDiscoveryScreenState
       }
       if (!navigator.mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(
-            content: Text(
-              'Cambio salone non riuscito: $error',
-            ),
-          ),
+          SnackBar(content: Text('Cambio salone non riuscito: $error')),
         );
         return;
       }
@@ -703,10 +702,7 @@ class _ClientSalonDiscoveryScreenState
   }) async {
     final functions = FirebaseFunctions.instanceFor(region: 'europe-west3');
     final callable = functions.httpsCallable('activateClientSalon');
-    final payload = <String, dynamic>{
-      'salonId': salonId,
-      'clientId': clientId,
-    };
+    final payload = <String, dynamic>{'salonId': salonId, 'clientId': clientId};
     if (displayName != null && displayName.trim().isNotEmpty) {
       payload['displayName'] = displayName.trim();
     }
@@ -730,10 +726,8 @@ class _ClientSalonDiscoveryScreenState
     String? fallback,
   }) {
     final parts = <String>[
-      if (firstName != null && firstName.trim().isNotEmpty)
-        firstName.trim(),
-      if (lastName != null && lastName.trim().isNotEmpty)
-        lastName.trim(),
+      if (firstName != null && firstName.trim().isNotEmpty) firstName.trim(),
+      if (lastName != null && lastName.trim().isNotEmpty) lastName.trim(),
     ];
     if (parts.isNotEmpty) {
       return parts.join(' ');
@@ -853,29 +847,29 @@ class _SalonCard extends StatelessWidget {
                       child:
                           isProcessing
                               ? Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: const [
-                                    SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
+                                children: const [
+                                  SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
                                     ),
-                                    SizedBox(width: 12),
-                                    Text('Accesso in corso'),
-                                  ],
-                                )
+                                  ),
+                                  SizedBox(width: 12),
+                                  Text('Accesso in corso'),
+                                ],
+                              )
                               : Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: const [
-                                    Icon(Icons.arrow_forward_rounded),
-                                    SizedBox(width: 12),
-                                    Text('Entra nel salone'),
-                                  ],
-                                ),
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
+                                children: const [
+                                  Icon(Icons.arrow_forward_rounded),
+                                  SizedBox(width: 12),
+                                  Text('Entra nel salone'),
+                                ],
+                              ),
                     ),
                   )
                 else if (status == _CardStatus.pending)
@@ -1401,6 +1395,7 @@ class _SalonAccessRequestSheetState
     final extraData = <String, dynamic>{};
     if (_addressController.text.trim().isNotEmpty) {
       extraData['address'] = _addressController.text.trim();
+      extraData['city'] = _addressController.text.trim();
     }
     if (_professionController.text.trim().isNotEmpty) {
       extraData['profession'] = _professionController.text.trim();

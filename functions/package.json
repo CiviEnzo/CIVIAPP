@@ -10,7 +10,7 @@
     "build": "tsc -p tsconfig.json",
     "clean": "rimraf lib",
     "lint": "eslint src --ext .ts",
-    "test": "npm run build && node --test lib/messaging/__tests__/scheduler.test.js",
+    "test": "npm run build && node --test lib",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

@@ -45,3 +45,4 @@ export {
   processAppointmentReminderTask,
   appointmentReminderSweeper,
 } from "./reminders/hybrid";
+export { getReportsSummary, getReportsMetrics } from "./reports/routes";

@@ -97,7 +97,9 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
       _clientNumber.text = _pendingClientNumberDisplay;
     }
     _refreshClientNumberForSalon(_salonId);
-    _address = TextEditingController(text: initial?.address ?? '');
+    _address = TextEditingController(
+      text: initial?.city ?? initial?.address ?? '',
+    );
     _profession = TextEditingController(text: initial?.profession ?? '');
     _referralSource = initial?.referralSource;
     _dateOfBirth = initial?.dateOfBirth;
@@ -557,7 +559,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     final trimmedLastName = _lastName.text.trim();
     final trimmedPhone = _phone.text.trim();
     final trimmedEmail = _email.text.trim();
-    final trimmedAddress = _address.text.trim();
+    final trimmedCity = _address.text.trim();
     final trimmedProfession = _profession.text.trim();
     final trimmedNotes = _notes.text.trim();
     final referral = _referralSource?.trim();
@@ -585,7 +587,8 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
           lastName: trimmedLastName,
           phone: trimmedPhone,
           email: trimmedEmail,
-          address: trimmedAddress,
+          address: trimmedCity,
+          city: trimmedCity,
           profession: trimmedProfession,
           referralSource: referral,
           notes: trimmedNotes,
@@ -638,11 +641,11 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
       lastName: trimmedLastName,
       phone: trimmedPhone,
       dateOfBirth: _dateOfBirth,
-      address: trimmedAddress.isEmpty ? null : trimmedAddress,
+      address: trimmedCity.isEmpty ? null : trimmedCity,
       city:
-          trimmedAddress.isEmpty
-              ? (existing?.city ?? existing?.address)
-              : trimmedAddress,
+          trimmedCity.isNotEmpty
+              ? trimmedCity
+              : (existing?.city ?? existing?.address),
       profession: trimmedProfession.isEmpty ? null : trimmedProfession,
       referralSource: referral == null || referral.isEmpty ? null : referral,
       email: trimmedEmail,
@@ -756,6 +759,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     required String phone,
     required String email,
     required String address,
+    required String city,
     required String profession,
     required String? referralSource,
     required String notes,
@@ -776,6 +780,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
       phone: phone.isNotEmpty ? phone : existing.phone,
       email: email.isNotEmpty ? email : existing.email,
       address: address.isNotEmpty ? address : existing.address,
+      city: city.isNotEmpty ? city : (existing.city ?? existing.address),
       profession: profession.isNotEmpty ? profession : existing.profession,
       referralSource:
           referralSource != null && referralSource.isNotEmpty

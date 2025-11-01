@@ -20,6 +20,7 @@ interface CallableAppointmentPayload {
   notes?: string | null;
   packageId?: string | null;
   roomId?: string | null;
+  bookingChannel?: string | null;
 }
 
 interface CallableResult {
@@ -43,6 +44,30 @@ function parseIsoDate(value: unknown, fieldName: string): Date {
     );
   }
   return parsed;
+}
+
+const ALLOWED_BOOKING_CHANNELS = new Set([
+  'self',
+  'admin',
+  'staff',
+  'system',
+  'app',
+  'public_link',
+  'last_minute',
+]);
+
+function normalizeBookingChannel(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+  if (ALLOWED_BOOKING_CHANNELS.has(normalized)) {
+    return normalized;
+  }
+  return fallback;
 }
 
 export const bookLastMinuteSlot = functions.region('europe-west1').https.onCall(
@@ -106,6 +131,7 @@ export const bookLastMinuteSlot = functions.region('europe-west1').https.onCall(
     const notes = rawAppointment.notes ? String(rawAppointment.notes) : null;
     const packageId = rawAppointment.packageId ? String(rawAppointment.packageId) : null;
     const roomId = rawAppointment.roomId ? String(rawAppointment.roomId) : null;
+    const bookingChannel = normalizeBookingChannel(rawAppointment.bookingChannel, 'self');
 
     const clientNameFromPayload = data?.clientName ? String(data.clientName) : null;
 
@@ -200,6 +226,7 @@ export const bookLastMinuteSlot = functions.region('europe-west1').https.onCall(
         lastMinuteSlotId: slotId,
         createdAt: serverTimestamp,
         updatedAt: serverTimestamp,
+        bookingChannel,
       };
 
       tx.set(appointmentRef, appointmentData, { merge: true });
@@ -230,6 +257,7 @@ export const bookLastMinuteSlot = functions.region('europe-west1').https.onCall(
           packageId,
           roomId,
           lastMinuteSlotId: slotId,
+          bookingChannel,
         },
         slot: {
           id: slotId,

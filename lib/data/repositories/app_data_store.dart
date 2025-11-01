@@ -3666,6 +3666,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
   Future<_LastMinuteBookingResult> _bookLastMinuteAppointment(
     Appointment appointment,
     String slotId,
+    String bookingChannel,
   ) async {
     final functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
     final callable = functions.httpsCallable('bookLastMinuteSlot');
@@ -3691,6 +3692,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
         'notes': appointment.notes,
         'packageId': appointment.packageId,
         'roomId': appointment.roomId,
+        'bookingChannel': bookingChannel,
       },
       'clientName': clientName,
     };
@@ -3706,7 +3708,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
               ? Map<String, dynamic>.from(data['slot'] as Map)
               : null;
 
-      final bookedAppointment = _appointmentFromCallableMap(appointmentMap);
+      final bookedAppointment = _appointmentFromCallableMap(
+        appointmentMap,
+      ).copyWith(bookingChannel: bookingChannel);
       final bookedSlot = slotMap != null ? _slotFromCallableMap(slotMap) : null;
 
       return _LastMinuteBookingResult(
@@ -3746,6 +3750,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
       final bookingResult = await _bookLastMinuteAppointment(
         appointment,
         consumeLastMinuteSlotId,
+        resolvedBookingChannel,
       );
       _upsertLocal(
         appointments: <Appointment>[bookingResult.appointment],
@@ -6133,6 +6138,10 @@ class AppDataStore extends StateNotifier<AppDataState> {
       lastMinuteSlotId:
           (data['lastMinuteSlotId'] as String?)?.isNotEmpty == true
               ? data['lastMinuteSlotId'] as String
+              : null,
+      bookingChannel:
+          (data['bookingChannel'] as String?)?.trim().isNotEmpty == true
+              ? (data['bookingChannel'] as String).trim()
               : null,
     );
   }

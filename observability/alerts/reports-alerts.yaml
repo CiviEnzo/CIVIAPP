@@ -1,0 +1,56 @@
+groups:
+  - name: reports-service
+    interval: 1m
+    rules:
+      - alert: ReportsHighLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(reports_request_duration_ms_bucket[5m])) by (le, scope, storeId)
+          ) > 2000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Report latency high (scope={{ $labels.scope }}, store={{ $labels.storeId }})"
+          description: |
+            The 95th percentile latency for the reports service exceeded 2s for the last 5 minutes.
+            Investigate slow queries or cache invalidation storms. Trace ID hints: check logs filtered by scope.
+
+      - alert: ReportsHighErrorRate
+        expr: |
+          (
+            sum(rate(reports_request_errors_total[5m])) by (scope, storeId)
+            /
+            clamp_min(
+              sum(rate(reports_request_duration_ms_count[5m])) by (scope, storeId),
+              1
+            )
+          ) > 0.02
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Report error rate above 2% (scope={{ $labels.scope }}, store={{ $labels.storeId }})"
+          description: |
+            The reports API is failing more than 2% of the requests over the last 10 minutes.
+            Inspect recent deploys, upstream data sources and network connectivity.
+
+      - alert: ReportsCacheMissSpike
+        expr: |
+          (
+            sum(rate(reports_cache_miss_total[5m])) by (scope, storeId)
+            /
+            clamp_min(
+              sum(rate(reports_cache_hit_total[5m]) + rate(reports_cache_miss_total[5m])) by (scope, storeId),
+              1
+            )
+          ) > 0.4
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cache miss ratio above 40% (scope={{ $labels.scope }}, store={{ $labels.storeId }})"
+          description: |
+            Cache efficiency degraded, forcing recomputation of report payloads.
+            Review cache TTL configuration and invalidation events.

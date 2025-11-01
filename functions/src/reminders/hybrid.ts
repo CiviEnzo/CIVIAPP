@@ -17,9 +17,11 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import {
   db,
   serverTimestamp,
+  FieldValue,
   Timestamp as AdminTimestamp,
 } from '../utils/firestore';
-
+import { formatReminderOffsetLabel } from '../messaging/reminder_settings';
+import { DEFAULT_TIMEZONE } from '../utils/time';
 const REGION = 'europe-west1';
 const MAX_AHEAD_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_AHEAD_MINUTES = MAX_AHEAD_MS / 60000;
@@ -40,6 +42,7 @@ interface ReminderPayload {
   appointmentId: string;
   docPath: string;
   offsetId: ReminderKind | 'CHECKPOINT';
+  offsetMinutes?: number;
 }
 
 const MIN_OFFSET_MINUTES = 15;
@@ -53,6 +56,21 @@ const offsetsCache = new Map<
 const reminderQueue = getFunctions().taskQueue<ReminderPayload>(
   `locations/${REGION}/functions/processAppointmentReminderTask`,
 );
+
+const TIME_FORMATTER = new Intl.DateTimeFormat('it-IT', {
+  timeStyle: 'short',
+  timeZone: DEFAULT_TIMEZONE,
+});
+const DATE_DISPLAY_FORMATTER = new Intl.DateTimeFormat('it-IT', {
+  dateStyle: 'long',
+  timeZone: DEFAULT_TIMEZONE,
+});
+const DATE_COMPARE_FORMATTER = new Intl.DateTimeFormat('it-IT', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  timeZone: DEFAULT_TIMEZONE,
+});
 
 function clampMinutes(value: number): number {
   if (Number.isNaN(value)) {
@@ -208,17 +226,6 @@ async function loadReminderOffsets(
   let sanitized = buildOffsets(data);
 
   if (!sanitized.length) {
-    const fallbackSnapshot = await db
-      .collection('reminder_settings')
-      .doc(salonId)
-      .get();
-    if (fallbackSnapshot.exists) {
-      data = (fallbackSnapshot.data() ?? {}) as Record<string, unknown>;
-      sanitized = buildOffsets(data);
-    }
-  }
-
-  if (!sanitized.length) {
     const result: ReminderOffsetConfig[] = [];
     offsetsCache.set(salonId, {
       value: result,
@@ -263,6 +270,247 @@ function isCancelled(appt: DocumentData): boolean {
   return status.toLowerCase() === 'cancelled';
 }
 
+function normalizeToken(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function collectCandidateClientIds(appt: DocumentData): string[] {
+  const ids = new Set<string>();
+  const maybeAdd = (value: unknown) => {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.length > 0) {
+        ids.add(trimmed);
+      }
+    }
+  };
+  maybeAdd(appt.clientId);
+  maybeAdd(appt.clientUid);
+  maybeAdd(appt.customerId);
+  maybeAdd(appt.customerUid);
+  maybeAdd(
+    typeof appt.client === 'object' && appt.client
+      ? (appt.client as Record<string, unknown>)['id']
+      : null,
+  );
+  return Array.from(ids);
+}
+
+async function resolveClientTokens(
+  appt: DocumentData,
+): Promise<{
+  tokens: string[];
+  clientRef: DocumentReference<DocumentData> | null;
+  clientId: string | null;
+}> {
+  const candidateIds = collectCandidateClientIds(appt);
+  for (const candidate of candidateIds) {
+    const clientRef = db.collection('clients').doc(candidate);
+    const snapshot = await clientRef.get();
+    if (!snapshot.exists) {
+      continue;
+    }
+    const rawTokens = snapshot.get('fcmTokens');
+    if (!Array.isArray(rawTokens)) {
+      continue;
+    }
+    const tokens = rawTokens
+      .map((token) => normalizeToken(token))
+      .filter((token): token is string => Boolean(token));
+    if (!tokens.length) {
+      continue;
+    }
+    return {
+      tokens,
+      clientRef,
+      clientId: snapshot.id,
+    };
+  }
+
+  return {
+    tokens: [],
+    clientRef: null,
+    clientId: null,
+  };
+}
+
+function resolvePrimaryClientId(
+  appt: DocumentData,
+  resolvedClientId: string | null,
+): string | null {
+  if (resolvedClientId) {
+    return resolvedClientId;
+  }
+  const candidates = collectCandidateClientIds(appt);
+  return candidates.length > 0 ? candidates[0] : null;
+}
+
+function buildReminderNotificationCopy(
+  appt: DocumentData,
+  startTimestamp: Timestamp | null,
+  configuredOffsetMinutes?: number | null,
+): {
+  title: string;
+  body: string;
+  minutesUntil: number | null;
+  relativeLabel: string | null;
+} {
+  const defaultTitle = 'Promemoria appuntamento';
+  const baseLabel =
+    typeof appt.title === 'string' && appt.title.trim().length > 0
+      ? appt.title.trim()
+      : 'Il tuo appuntamento';
+  if (!startTimestamp) {
+    const relativeLabel =
+      configuredOffsetMinutes != null
+        ? formatReminderOffsetLabel(Math.max(0, Math.round(configuredOffsetMinutes)))
+        : null;
+    return {
+      title: defaultTitle,
+      body: `${baseLabel} sta per iniziare.`,
+      minutesUntil:
+        configuredOffsetMinutes != null
+          ? Math.max(0, Math.round(configuredOffsetMinutes))
+          : null,
+      relativeLabel,
+    };
+  }
+  const startDate = startTimestamp.toDate();
+  const nowMs = Date.now();
+  const offsetForCopy =
+    configuredOffsetMinutes != null
+      ? Math.max(0, Math.round(configuredOffsetMinutes))
+      : Math.max(0, Math.round((startDate.getTime() - nowMs) / 60000));
+  const relativeLabel = formatReminderOffsetLabel(offsetForCopy);
+  const timeLabel = TIME_FORMATTER.format(startDate);
+  const sameDay =
+    DATE_COMPARE_FORMATTER.format(startDate) ===
+    DATE_COMPARE_FORMATTER.format(new Date(nowMs));
+  const whenLabel = sameDay
+    ? `alle ${timeLabel}`
+    : `il ${DATE_DISPLAY_FORMATTER.format(startDate)} alle ${timeLabel}`;
+
+  return {
+    title: defaultTitle,
+    body: `${baseLabel} è ${whenLabel} (${relativeLabel}).`,
+    minutesUntil: offsetForCopy,
+    relativeLabel,
+  };
+}
+
+async function storeReminderOutboxEntry({
+  salonId,
+  clientId,
+  appointmentId,
+  offsetId,
+  offsetMinutes,
+  startTimestamp,
+  notificationTitle,
+  notificationBody,
+  relativeLabel,
+  successCount,
+  failureCount,
+  invalidTokenCount,
+}: {
+  salonId: string;
+  clientId: string | null;
+  appointmentId: string;
+  offsetId: string;
+  offsetMinutes: number | null;
+  startTimestamp: Timestamp | null;
+  notificationTitle: string;
+  notificationBody: string;
+  relativeLabel: string | null;
+  successCount: number;
+  failureCount: number;
+  invalidTokenCount: number;
+}): Promise<void> {
+  if (!clientId) {
+    return;
+  }
+
+  const offsetSlug = normalizeSlug(offsetId, 'OFFSET');
+  const docId = `reminder_${salonId}_${clientId}_${appointmentId}_${offsetSlug}`;
+  const docRef = db.collection('message_outbox').doc(docId);
+
+  const payload: Record<string, unknown> = {
+    type: 'appointment_reminder',
+    appointmentId,
+    offsetId,
+    title: notificationTitle,
+    body: notificationBody,
+    sentAt: new Date().toISOString(),
+  };
+  if (offsetMinutes != null) {
+    payload.offsetMinutes = offsetMinutes;
+  }
+  if (startTimestamp) {
+    payload.appointmentStart = startTimestamp.toDate().toISOString();
+  }
+  if (relativeLabel) {
+    payload.relativeLabel = relativeLabel;
+  }
+
+  const metadata: Record<string, unknown> = {
+    source: 'appointment_reminder_task',
+    offsetId,
+    successCount,
+    failureCount,
+    invalidTokenCount,
+  };
+  if (offsetMinutes != null) {
+    metadata.offsetMinutes = offsetMinutes;
+  }
+  if (relativeLabel) {
+    metadata.relativeLabel = relativeLabel;
+  }
+
+  const baseData = {
+    salonId,
+    clientId,
+    channel: 'push',
+    status: successCount > 0 ? 'sent' : 'failed',
+    type: 'appointment_reminder',
+    title: notificationTitle,
+    body: notificationBody,
+    payload,
+    metadata,
+    appointmentId,
+    appointmentStart: startTimestamp ?? null,
+    updatedAt: serverTimestamp(),
+    sentAt: successCount > 0 ? serverTimestamp() : null,
+  };
+
+  try {
+    const snapshot = await docRef.get();
+    if (!snapshot.exists) {
+      await docRef.set({
+        ...baseData,
+        scheduledAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+        traces: [],
+      });
+    } else {
+      await docRef.update(baseData);
+    }
+  } catch (error) {
+    logger.error(
+      'Failed to persist reminder outbox entry',
+      error instanceof Error ? error : new Error(String(error)),
+      {
+        salonId,
+        appointmentId,
+        offsetId,
+        clientId,
+      },
+    );
+  }
+}
+
 async function markSent(
   ref: DocumentReference<DocumentData>,
   offsetId: string,
@@ -279,22 +527,64 @@ async function sendNotification(
   salonId: string,
   appointmentId: string,
   offsetId: string,
+  offsetMinutes?: number | null,
 ): Promise<void> {
-  const token = typeof appt.deviceToken === 'string' ? appt.deviceToken : null;
-  if (!token) {
+  const tokens = new Set<string>();
+  const appointmentToken = normalizeToken(appt.deviceToken);
+  if (appointmentToken) {
+    tokens.add(appointmentToken);
+  }
+  if (Array.isArray(appt.deviceTokens)) {
+    for (const token of appt.deviceTokens) {
+      const normalized = normalizeToken(token);
+      if (normalized) {
+        tokens.add(normalized);
+      }
+    }
+  }
+
+  const {
+    tokens: clientTokens,
+    clientRef,
+    clientId: resolvedClientId,
+  } = await resolveClientTokens(appt);
+  for (const token of clientTokens) {
+    tokens.add(token);
+  }
+  if (!tokens.size) {
+    logger.debug('Skipping reminder notification: no push tokens', {
+      salonId,
+      appointmentId,
+      offsetId,
+    });
     return;
   }
 
+  const targetTokens = Array.from(tokens);
+  const clientTokenSet = new Set(clientTokens);
   const messaging = getMessaging();
+  const startTimestamp = getStartTimestamp(appt);
+  const copy = buildReminderNotificationCopy(
+    appt,
+    startTimestamp,
+    offsetMinutes,
+  );
+  const {
+    title: notificationTitle,
+    body: notificationBody,
+    minutesUntil: copyMinutes,
+    relativeLabel,
+  } = copy;
+  const effectiveOffsetMinutes =
+    typeof offsetMinutes === 'number'
+      ? Math.max(0, Math.round(offsetMinutes))
+      : copyMinutes;
   try {
-    await messaging.send({
-      token,
+    const response = await messaging.sendEachForMulticast({
+      tokens: targetTokens,
       notification: {
-        title: 'Promemoria appuntamento',
-        body:
-          typeof appt.title === 'string' && appt.title.trim().length > 0
-            ? `${appt.title} in arrivo`
-            : 'Hai un appuntamento imminente',
+        title: notificationTitle,
+        body: notificationBody,
       },
       data: {
         salonId,
@@ -302,11 +592,86 @@ async function sendNotification(
         offsetId,
       },
     });
+    const invalidTokenErrors = new Set([
+      'messaging/registration-token-not-registered',
+      'messaging/invalid-registration-token',
+      'messaging/invalid-argument',
+    ]);
+    const invalidFromClient: string[] = [];
+    let totalInvalidTokens = 0;
+    response.responses.forEach((res, index) => {
+      if (res.success) {
+        return;
+      }
+      const code = res.error?.code;
+      if (code && invalidTokenErrors.has(code)) {
+        totalInvalidTokens += 1;
+        const failingToken = targetTokens[index];
+        if (failingToken && clientTokenSet.has(failingToken)) {
+          invalidFromClient.push(failingToken);
+        }
+      }
+    });
+    if (clientRef && clientTokenSet.size) {
+      if (invalidFromClient.length) {
+        await clientRef.update({
+          fcmTokens: FieldValue.arrayRemove(...invalidFromClient),
+        });
+        logger.debug('Removed invalid reminder tokens from client profile', {
+          salonId,
+          appointmentId,
+          offsetId,
+          clientId: resolvedClientId,
+          removed: invalidFromClient.length,
+        });
+      }
+    }
+    if (response.successCount === 0) {
+      const errors = response.responses
+        .map((res) => res.error?.message)
+        .filter((msg): msg is string => Boolean(msg));
+      logger.warn('Reminder notification failed for all tokens', {
+        salonId,
+        appointmentId,
+        offsetId,
+        clientId: resolvedClientId,
+        errors,
+      });
+    }
+    await storeReminderOutboxEntry({
+      salonId,
+      clientId: resolvePrimaryClientId(appt, resolvedClientId),
+      appointmentId,
+      offsetId,
+      offsetMinutes: effectiveOffsetMinutes ?? null,
+      startTimestamp,
+      notificationTitle,
+      notificationBody,
+      relativeLabel,
+      successCount: response.successCount,
+      failureCount: response.failureCount,
+      invalidTokenCount: totalInvalidTokens,
+    });
   } catch (error) {
     logger.error('Failed to send reminder notification', error, {
       salonId,
       appointmentId,
       offsetId,
+      clientId: resolvedClientId ?? undefined,
+    });
+    await storeReminderOutboxEntry({
+      salonId,
+      clientId: resolvePrimaryClientId(appt, resolvedClientId),
+      appointmentId,
+      offsetId,
+      offsetMinutes: effectiveOffsetMinutes ?? null,
+      startTimestamp,
+      notificationTitle,
+      notificationBody,
+      relativeLabel,
+      successCount: 0,
+      failureCount: targetTokens.length,
+      invalidTokenCount: 0,
     });
   }
 }
@@ -380,7 +745,13 @@ async function enqueueForAppointment(
       continue;
     }
     await enqueueReminderTask(
-      { salonId, appointmentId, docPath, offsetId: offset.id },
+      {
+        salonId,
+        appointmentId,
+        docPath,
+        offsetId: offset.id,
+        offsetMinutes: offset.minutesBefore,
+      },
       new Date(fireAtMs),
     );
   }
@@ -439,7 +810,7 @@ export const processAppointmentReminderTask = onTaskDispatched(
     if (!payload) {
       return;
     }
-    const { salonId, appointmentId, offsetId, docPath } = payload;
+    const { salonId, appointmentId, offsetId, docPath, offsetMinutes } = payload;
     const apptRef = db.doc(docPath);
     const snapshot = await apptRef.get();
     if (!snapshot.exists) {
@@ -469,7 +840,13 @@ export const processAppointmentReminderTask = onTaskDispatched(
       return;
     }
 
-    await sendNotification(appt, salonId, appointmentId, offsetId);
+    await sendNotification(
+      appt,
+      salonId,
+      appointmentId,
+      offsetId,
+      typeof offsetMinutes === 'number' ? offsetMinutes : null,
+    );
     await markSent(apptRef, offsetId);
   },
 );

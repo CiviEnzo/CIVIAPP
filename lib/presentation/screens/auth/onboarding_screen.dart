@@ -150,9 +150,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           existingClient.phone != '-') {
         _phoneController.text = existingClient.phone;
       }
-      if (_addressController.text.isEmpty &&
-          (existingClient.address?.isNotEmpty ?? false)) {
-        _addressController.text = existingClient.address!;
+      if (_addressController.text.isEmpty) {
+        final existingCity = existingClient.city;
+        if (existingCity != null && existingCity.isNotEmpty) {
+          _addressController.text = existingCity;
+        } else if (existingClient.address?.isNotEmpty ?? false) {
+          _addressController.text = existingClient.address!;
+        }
       }
       if (_professionController.text.isEmpty &&
           (existingClient.profession?.isNotEmpty ?? false)) {
@@ -247,6 +251,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       final syntheticAddress = _addressController.text.trim();
       if (syntheticAddress.isNotEmpty) {
         syntheticExtra['address'] = syntheticAddress;
+        syntheticExtra['city'] = syntheticAddress;
       }
       final syntheticProfession = _professionController.text.trim();
       if (syntheticProfession.isNotEmpty) {
@@ -1194,6 +1199,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         final extraData = <String, dynamic>{};
         if (address.isNotEmpty) {
           extraData['address'] = address;
+          extraData['city'] = address;
         }
         if (profession.isNotEmpty) {
           extraData['profession'] = profession;

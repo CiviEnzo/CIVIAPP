@@ -7,7 +7,7 @@ import 'package:you_book/services/notifications/notification_service.dart';
 
 const ColorScheme _lightAdminColorScheme = ColorScheme(
   brightness: Brightness.light,
-  primary: Color(0xFF7F56D9),
+  primary: Color.fromARGB(255, 217, 86, 86),
   onPrimary: Colors.white,
   primaryContainer: Color(0xFFE9DDFF),
   onPrimaryContainer: Color(0xFF23005A),
@@ -142,11 +142,7 @@ class _AdminPalette {
         scheme.secondaryContainer,
         0.16,
       ),
-      menuBackground: _blendColor(
-        scheme.surface,
-        scheme.surfaceVariant,
-        0.18,
-      ),
+      menuBackground: _blendColor(scheme.surface, scheme.surfaceVariant, 0.18),
     );
   }
 }
@@ -222,10 +218,7 @@ class CiviApp extends ConsumerWidget {
         shadowColor: palette.shadow,
       ),
 
-      iconTheme: IconThemeData(
-        color: palette.icon,
-        size: 24,
-      ),
+      iconTheme: IconThemeData(color: palette.icon, size: 24),
 
       cardTheme: CardTheme(
         elevation: 6,
