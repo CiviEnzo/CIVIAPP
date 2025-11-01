@@ -78,14 +78,15 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   final _uuid = const Uuid();
   final List<_SaleLineDraft> _lines = [];
   final TextEditingController _clientSearchController = TextEditingController();
+  final TextEditingController _clientNumberSearchController =
+      TextEditingController();
   final FocusNode _clientSearchFocusNode = FocusNode();
+  final FocusNode _clientNumberSearchFocusNode = FocusNode();
   _ClientSearchMode _clientSearchMode = _ClientSearchMode.general;
   List<Client> _clientSuggestions = const <Client>[];
 
   late final TextEditingController _invoiceController;
   late final TextEditingController _notesController;
-  late final TextEditingController _discountAmountController;
-  late final TextEditingController _discountPercentController;
   late final TextEditingController _manualTotalController;
   late final TextEditingController _paidAmountController;
   late final TextEditingController _loyaltyRedeemController;
@@ -96,9 +97,11 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   String? _clientId;
   String? _staffId;
   DateTime _date = DateTime.now();
-  bool _manualTotalEnabled = false;
-  bool _programmaticDiscountUpdate = false;
+  bool _manualTotalOverridden = false;
+  bool _programmaticManualUpdate = false;
+  bool _isPaymentStep = false;
   bool _programmaticPaidUpdate = false;
+  bool _isLoyaltyExpanded = false;
 
   SaleLoyaltySummary _loyaltySummary = SaleLoyaltySummary();
   int _selectedRedeemPoints = 0;
@@ -114,10 +117,6 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       text: widget.initialInvoiceNumber ?? '',
     );
     _notesController = TextEditingController(text: widget.initialNotes ?? '');
-    _discountAmountController = TextEditingController(
-      text: (widget.initialDiscountAmount ?? 0).toStringAsFixed(2),
-    );
-    _discountPercentController = TextEditingController();
     _manualTotalController = TextEditingController();
     _paidAmountController = TextEditingController();
     _loyaltyRedeemController = TextEditingController(text: '0');
@@ -137,6 +136,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         _clientId = initialClient.id;
         _salonId ??= initialClient.salonId;
         _clientSearchController.text = initialClient.fullName;
+        _clientNumberSearchController.text = initialClient.clientNumber ?? '';
       }
     }
 
@@ -149,8 +149,6 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       }
     }
 
-    _discountAmountController.addListener(_handleDiscountAmountChanged);
-    _discountPercentController.addListener(_handleDiscountPercentChanged);
     _manualTotalController.addListener(_handleManualTotalChanged);
     _paidAmountController.addListener(_handlePaidAmountChanged);
 
@@ -161,13 +159,6 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         _attachLineListeners(draft);
         _lines.add(draft);
       }
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _syncDiscountControllers(force: true);
-      });
-    } else {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _syncDiscountControllers(force: true);
-      });
     }
 
     final initialPaid = widget.initialPaidAmount;
@@ -179,8 +170,63 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       if (!mounted) {
         return;
       }
+      final subtotal = _computeSubtotal();
+      final initialDiscount = widget.initialDiscountAmount ?? 0;
+      final base =
+          subtotal <= 0 ? 0 : (subtotal - initialDiscount).clamp(0, subtotal);
+      _syncManualTotalWithSubtotal(force: true, base: base.toDouble());
       _recalculateLoyalty(autoSuggest: true);
     });
+  }
+
+  Widget _buildBottomSummaryBar(
+    BuildContext context,
+    NumberFormat currency,
+    double total,
+  ) {
+    final theme = Theme.of(context);
+    final buttonLabel = _isPaymentStep ? 'Salva' : 'Conferma';
+    final onPressed =
+        total > 0 ? (_isPaymentStep ? _submit : _continueToPaymentStep) : null;
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Material(
+        elevation: 8,
+        color: theme.colorScheme.surface,
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Totale da pagare',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        currency.format(total),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                FilledButton(onPressed: onPressed, child: Text(buttonLabel)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -188,19 +234,17 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     for (final line in _lines) {
       line.dispose();
     }
-    _discountAmountController.removeListener(_handleDiscountAmountChanged);
-    _discountPercentController.removeListener(_handleDiscountPercentChanged);
     _manualTotalController.removeListener(_handleManualTotalChanged);
     _paidAmountController.removeListener(_handlePaidAmountChanged);
-    _discountAmountController.dispose();
-    _discountPercentController.dispose();
     _manualTotalController.dispose();
     _paidAmountController.dispose();
     _loyaltyRedeemController.dispose();
     _invoiceController.dispose();
     _notesController.dispose();
     _clientSearchController.dispose();
+    _clientNumberSearchController.dispose();
     _clientSearchFocusNode.dispose();
+    _clientNumberSearchFocusNode.dispose();
     super.dispose();
   }
 
@@ -212,7 +256,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     final subtotal = _computeSubtotal();
     final manualDiscount = _currentManualDiscount(subtotal);
     final baseTotal = _currentTotal(subtotal, manualDiscount);
-    final loyaltyDiscount = _loyaltySummary.redeemedValue;
+    final loyaltyDiscount = _normalizeCurrency(_loyaltySummary.redeemedValue);
     final total = _normalizeCurrency(baseTotal - loyaltyDiscount);
     _syncPaidAmountWithTotal(total);
 
@@ -238,240 +282,229 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
           return a.fullName.compareTo(b.fullName);
         });
 
+    final safeBottom = MediaQuery.of(context).viewPadding.bottom;
+    final scrollBottomPadding = 120 + safeBottom;
+
     return Material(
       color: Colors.transparent,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Registra vendita',
-                      style: theme.textTheme.titleLarge,
+      child: Stack(
+        children: [
+          Padding(
+            padding: EdgeInsets.only(bottom: scrollBottomPadding),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.only(
+                left: 24,
+                right: 24,
+                bottom: 24,
+                top: 24,
+              ),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Registra una vendita',
+                            style: theme.textTheme.titleLarge,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        SizedBox(
+                          width: 280,
+                          child: DropdownButtonFormField<String>(
+                            value: _staffId,
+                            decoration: const InputDecoration(
+                              labelText: 'Operatore',
+                              floatingLabelBehavior:
+                                  FloatingLabelBehavior.always,
+                            ),
+                            items:
+                                staff
+                                    .map(
+                                      (member) => DropdownMenuItem(
+                                        value: member.id,
+                                        child: Text(member.fullName),
+                                      ),
+                                    )
+                                    .toList(),
+                            onChanged: _onStaffChanged,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  Flexible(
-                    child: ConstrainedBox(
+                    const SizedBox(height: 12),
+                    ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 320),
                       child: _buildDateTimeField(dateFormat),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              _buildSectionHeader(
-                icon: Icons.store_outlined,
-                title: 'Cliente e operatore',
-                subtitle:
-                    'Cerca il cliente e collega l\'operatore per associare il salone automaticamente',
-              ),
-              const SizedBox(height: 12),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    flex: 2,
-                    child: _buildClientSelector(filteredClients),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      value: _staffId,
-                      decoration: const InputDecoration(
-                        labelText: 'Operatore',
-                        floatingLabelBehavior: FloatingLabelBehavior.always,
-                      ),
-                      items:
-                          staff
-                              .map(
-                                (member) => DropdownMenuItem(
-                                  value: member.id,
-                                  child: Text(member.fullName),
-                                ),
-                              )
-                              .toList(),
-                      onChanged: _onStaffChanged,
+                    const SizedBox(height: 24),
+                    _buildSectionHeader(
+                      icon: Icons.store_outlined,
+                      title: 'Cliente e operatore',
+                      subtitle:
+                          'Cerca il cliente e collega l\'operatore per associare il salone automaticamente',
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              _buildSectionHeader(
-                icon: Icons.receipt_long,
-                title: 'Elementi vendita',
-                subtitle: 'Aggiungi servizi, pacchetti o prodotti',
-              ),
-              const SizedBox(height: 12),
-              _buildSaleLinesSection(theme, currency),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 12,
-                runSpacing: 8,
-                children: [
-                  FilledButton.tonalIcon(
-                    onPressed: _onAddPackage,
-                    icon: const Icon(Icons.card_giftcard_rounded),
-                    label: const Text('Aggiungi pacchetto'),
-                  ),
-                  FilledButton.tonalIcon(
-                    onPressed: _onAddCustomPackage,
-                    icon: const Icon(Icons.auto_fix_high_rounded),
-                    label: const Text('Aggiungi Servizi'),
-                  ),
-                  FilledButton.tonalIcon(
-                    onPressed: _onAddInventoryItem,
-                    icon: const Icon(Icons.inventory_2_rounded),
-                    label: const Text('Aggiungi prodotto'),
-                  ),
-                  FilledButton.tonalIcon(
-                    onPressed: _onAddManualItem,
-                    icon: const Icon(Icons.add_circle_outline_rounded),
-                    label: const Text('Voce manuale'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              _buildSectionHeader(
-                icon: Icons.loyalty,
-                title: 'Programma fedeltà',
-                subtitle: 'Gestisci punti e riscatto prima del totale',
-              ),
-              const SizedBox(height: 12),
-              _buildLoyaltySection(currency, salon, currentClient),
-              const SizedBox(height: 24),
-              _buildSectionHeader(
-                icon: Icons.calculate,
-                title: 'Totali e sconti',
-                subtitle: 'Rivedi importi e riepilogo finale',
-              ),
-              const SizedBox(height: 12),
-              _buildSummarySection(
-                currency,
-                subtotal,
-                manualDiscount,
-                loyaltyDiscount,
-                total,
-              ),
-              const SizedBox(height: 24),
-              _buildSectionHeader(
-                icon: Icons.credit_card,
-                title: 'Pagamenti',
-                subtitle: 'Definisci metodo, stato e incassi',
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<PaymentMethod>(
-                value: _payment,
-                decoration: const InputDecoration(
-                  labelText: 'Metodo di pagamento',
-                ),
-                items:
-                    PaymentMethod.values
-                        .map(
-                          (method) => DropdownMenuItem(
-                            value: method,
-                            child: Text(_paymentLabel(method)),
+                    const SizedBox(height: 12),
+                    _buildClientSelector(filteredClients),
+                    const SizedBox(height: 24),
+                    _buildSectionHeader(
+                      icon: Icons.receipt_long,
+                      title: 'Elementi vendita',
+                      subtitle: 'Aggiungi servizi, pacchetti o prodotti',
+                    ),
+                    const SizedBox(height: 12),
+                    _buildSaleLinesSection(theme, currency),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 8,
+                      children: [
+                        FilledButton.tonalIcon(
+                          onPressed: _onAddPackage,
+                          icon: const Icon(Icons.card_giftcard_rounded),
+                          label: const Text('Aggiungi pacchetto'),
+                        ),
+                        FilledButton.tonalIcon(
+                          onPressed: _onAddCustomPackage,
+                          icon: const Icon(Icons.auto_fix_high_rounded),
+                          label: const Text('Aggiungi Servizi'),
+                        ),
+                        FilledButton.tonalIcon(
+                          onPressed: _onAddInventoryItem,
+                          icon: const Icon(Icons.inventory_2_rounded),
+                          label: const Text('Aggiungi prodotto'),
+                        ),
+                        FilledButton.tonal(
+                          onPressed: _onAddManualItem,
+                          child: Icon(Icons.add_circle_outline),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    _buildSectionHeader(
+                      icon: Icons.loyalty,
+                      title: 'Programma fedeltà',
+                      subtitle: 'Gestisci punti e riscatto prima del totale',
+                      isExpandable: true,
+                      isExpanded: _isLoyaltyExpanded,
+                      onTap: () {
+                        setState(() {
+                          _isLoyaltyExpanded = !_isLoyaltyExpanded;
+                        });
+                      },
+                    ),
+                    if (_isLoyaltyExpanded) ...[
+                      const SizedBox(height: 12),
+                      _buildLoyaltySection(currency, salon, currentClient),
+                    ],
+                    const SizedBox(height: 24),
+
+                    if (_isPaymentStep) ...[
+                      const SizedBox(height: 24),
+                      _buildSectionHeader(
+                        icon: Icons.credit_card,
+                        title: 'Pagamenti',
+                        subtitle: 'Definisci metodo, stato e incassi',
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<PaymentMethod>(
+                        value: _payment,
+                        decoration: const InputDecoration(
+                          labelText: 'Metodo di pagamento',
+                        ),
+                        items:
+                            PaymentMethod.values
+                                .map(
+                                  (method) => DropdownMenuItem(
+                                    value: method,
+                                    child: Text(_paymentLabel(method)),
+                                  ),
+                                )
+                                .toList(),
+                        validator:
+                            (value) =>
+                                value == null
+                                    ? 'Seleziona il metodo di pagamento'
+                                    : null,
+                        onChanged: (value) => setState(() => _payment = value),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<SalePaymentStatus>(
+                        value: _paymentStatus,
+                        decoration: const InputDecoration(
+                          labelText: 'Stato pagamento',
+                        ),
+                        items:
+                            SalePaymentStatus.values
+                                .map(
+                                  (status) => DropdownMenuItem(
+                                    value: status,
+                                    child: Text(status.label),
+                                  ),
+                                )
+                                .toList(),
+                        validator:
+                            (value) =>
+                                value == null
+                                    ? 'Seleziona lo stato del pagamento'
+                                    : null,
+                        onChanged: (value) {
+                          setState(() {
+                            _paymentStatus = value;
+                          });
+                          if (value != SalePaymentStatus.deposit) {
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (!mounted) {
+                                return;
+                              }
+                              _setPaidAmountText('');
+                            });
+                          }
+                        },
+                      ),
+                      if (_paymentStatus == SalePaymentStatus.deposit) ...[
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _paidAmountController,
+                          decoration: const InputDecoration(
+                            labelText: 'Importo incassato (€)',
                           ),
-                        )
-                        .toList(),
-                validator:
-                    (value) =>
-                        value == null
-                            ? 'Seleziona il metodo di pagamento'
-                            : null,
-                onChanged: (value) => setState(() => _payment = value),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<SalePaymentStatus>(
-                value: _paymentStatus,
-                decoration: const InputDecoration(labelText: 'Stato pagamento'),
-                items:
-                    SalePaymentStatus.values
-                        .map(
-                          (status) => DropdownMenuItem(
-                            value: status,
-                            child: Text(status.label),
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
                           ),
-                        )
-                        .toList(),
-                validator:
-                    (value) =>
-                        value == null
-                            ? 'Seleziona lo stato del pagamento'
-                            : null,
-                onChanged: (value) {
-                  setState(() {
-                    _paymentStatus = value;
-                  });
-                  if (value != SalePaymentStatus.deposit) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (!mounted) {
-                        return;
-                      }
-                      _setPaidAmountText('');
-                    });
-                  }
-                },
-              ),
-              if (_paymentStatus == SalePaymentStatus.deposit) ...[
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _paidAmountController,
-                  decoration: const InputDecoration(
-                    labelText: 'Importo incassato (€)',
-                  ),
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  validator: (value) {
-                    if (_paymentStatus != SalePaymentStatus.deposit) {
-                      return null;
-                    }
-                    final amount = _parseAmount(value);
-                    if (amount == null || amount <= 0) {
-                      return 'Inserisci un importo valido';
-                    }
-                    if (amount > total + 0.01) {
-                      return 'L\'acconto supera il totale';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Residuo da incassare: ${currency.format(_remainingBalance(total))}',
-                  style: theme.textTheme.bodyMedium,
-                ),
-              ],
-              const SizedBox(height: 24),
-              _buildSectionHeader(
-                icon: Icons.notes,
-                title: 'Note e documenti',
-                subtitle: 'Aggiungi informazioni utili per il team',
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _notesController,
-                decoration: const InputDecoration(labelText: 'Note'),
-                maxLines: 3,
-              ),
-              const SizedBox(height: 24),
-              Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton(
-                  onPressed: _submit,
-                  child: const Text('Salva'),
+                          validator: (value) {
+                            if (_paymentStatus != SalePaymentStatus.deposit) {
+                              return null;
+                            }
+                            final amount = _parseAmount(value);
+                            if (amount == null || amount <= 0) {
+                              return 'Inserisci un importo valido';
+                            }
+                            if (amount > total + 0.01) {
+                              return 'L\'acconto supera il totale';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Residuo da incassare: ${currency.format(_remainingBalance(total))}',
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ],
+                    ],
+                    const SizedBox(height: 24),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
-        ),
+          _buildBottomSummaryBar(context, currency, total),
+        ],
       ),
     );
   }
@@ -480,16 +513,20 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     required IconData icon,
     required String title,
     String? subtitle,
+    VoidCallback? onTap,
+    bool isExpandable = false,
+    bool isExpanded = false,
   }) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final textTheme = theme.textTheme;
-    return Container(
+    final borderRadius = BorderRadius.circular(12);
+    final content = Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
       decoration: BoxDecoration(
         color: colorScheme.surfaceVariant,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: borderRadius,
       ),
       child: Row(
         crossAxisAlignment:
@@ -509,22 +546,30 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                if (subtitle != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
-                      subtitle,
-                      style: textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant.withOpacity(0.8),
-                      ),
-                    ),
-                  ),
               ],
             ),
           ),
+          if (isExpandable)
+            Icon(
+              isExpanded
+                  ? Icons.expand_less_rounded
+                  : Icons.expand_more_rounded,
+              color: colorScheme.onSurfaceVariant,
+            ),
         ],
       ),
     );
+    if (onTap != null) {
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: borderRadius,
+          onTap: onTap,
+          child: content,
+        ),
+      );
+    }
+    return content;
   }
 
   Widget _buildClientSelector(List<Client> clients) {
@@ -533,97 +578,144 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       validator: (_) => _clientId == null ? 'Seleziona un cliente' : null,
       builder: (state) {
         final selectedClient = _currentClient;
-        if (selectedClient != null &&
-            _clientSearchController.text != selectedClient.fullName) {
-          _clientSearchController.text = selectedClient.fullName;
+        if (selectedClient != null) {
+          if (_clientSearchController.text != selectedClient.fullName) {
+            _clientSearchController.text = selectedClient.fullName;
+          }
+          final number = selectedClient.clientNumber ?? '';
+          if (_clientNumberSearchController.text != number) {
+            _clientNumberSearchController.text = number;
+          }
         }
         final hasSelection = selectedClient != null;
         final suggestions =
             hasSelection ? const <Client>[] : _clientSuggestions;
-        final searchHint =
-            _clientSearchMode == _ClientSearchMode.general
-                ? 'Nome, cognome, telefono o email'
-                : 'Numero cliente';
         final theme = Theme.of(context);
+        final clientNumberText = selectedClient?.clientNumber ?? '';
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (!hasSelection)
-              ToggleButtons(
-                borderRadius: BorderRadius.circular(20),
-                isSelected: [
-                  _clientSearchMode == _ClientSearchMode.general,
-                  _clientSearchMode == _ClientSearchMode.number,
-                ],
-                onPressed: (index) {
-                  _setClientSearchMode(
-                    index == 0
-                        ? _ClientSearchMode.general
-                        : _ClientSearchMode.number,
-                  );
-                },
-                children: const [
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 12),
-                    child: Text('Nome'),
-                  ),
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 12),
-                    child: Text('Numero'),
-                  ),
-                ],
-              ),
-            if (!hasSelection) const SizedBox(height: 8),
-            hasSelection
-                ? InputDecorator(
-                  decoration: InputDecoration(
-                    labelText: 'Cliente',
-                    floatingLabelBehavior: FloatingLabelBehavior.always,
-                    errorText: state.errorText,
-                  ),
-                  isEmpty: false,
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          selectedClient.fullName,
-                          style:
-                              theme.textTheme.bodyLarge ??
-                              theme.textTheme.bodyMedium,
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Rimuovi cliente',
-                        icon: const Icon(Icons.close_rounded),
-                        onPressed: _clearClientSelection,
-                      ),
-                    ],
-                  ),
-                )
-                : TextField(
-                  controller: _clientSearchController,
-                  focusNode: _clientSearchFocusNode,
-                  decoration: InputDecoration(
-                    labelText: 'Cliente',
-                    floatingLabelBehavior: FloatingLabelBehavior.always,
-                    hintText: searchHint,
-                    errorText: state.errorText,
-                    suffixIcon:
-                        _clientSearchController.text.isEmpty
-                            ? const Icon(Icons.search_rounded, size: 20)
-                            : IconButton(
-                              tooltip: 'Pulisci ricerca',
-                              icon: const Icon(Icons.clear_rounded),
-                              onPressed: _clearClientSearch,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child:
+                      hasSelection
+                          ? InputDecorator(
+                            decoration: InputDecoration(
+                              labelText: 'Cliente',
+                              floatingLabelBehavior:
+                                  FloatingLabelBehavior.always,
+                              errorText: state.errorText,
                             ),
-                  ),
-                  keyboardType:
-                      _clientSearchMode == _ClientSearchMode.general
-                          ? TextInputType.text
-                          : TextInputType.number,
-                  textInputAction: TextInputAction.search,
-                  onChanged: (value) => _onClientSearchChanged(value, clients),
+                            isEmpty: false,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    selectedClient.fullName,
+                                    style:
+                                        theme.textTheme.bodyLarge ??
+                                        theme.textTheme.bodyMedium,
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Rimuovi cliente',
+                                  icon: const Icon(Icons.close_rounded),
+                                  onPressed: _clearClientSelection,
+                                ),
+                              ],
+                            ),
+                          )
+                          : TextField(
+                            controller: _clientSearchController,
+                            focusNode: _clientSearchFocusNode,
+                            decoration: InputDecoration(
+                              labelText: 'Cliente',
+                              floatingLabelBehavior:
+                                  FloatingLabelBehavior.always,
+                              hintText: 'Nome, cognome, telefono o email',
+                              errorText: state.errorText,
+                              suffixIcon:
+                                  _clientSearchController.text.isEmpty
+                                      ? const Icon(
+                                        Icons.search_rounded,
+                                        size: 20,
+                                      )
+                                      : IconButton(
+                                        tooltip: 'Pulisci ricerca',
+                                        icon: const Icon(Icons.clear_rounded),
+                                        onPressed: _clearClientSearch,
+                                      ),
+                            ),
+                            keyboardType: TextInputType.text,
+                            textInputAction: TextInputAction.search,
+                            onChanged:
+                                (value) => _onClientSearchChanged(
+                                  value,
+                                  clients,
+                                  _ClientSearchMode.general,
+                                ),
+                          ),
                 ),
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: 220,
+                  child:
+                      hasSelection
+                          ? InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Numero cliente',
+                              floatingLabelBehavior:
+                                  FloatingLabelBehavior.always,
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              child: Text(
+                                clientNumberText.isNotEmpty
+                                    ? clientNumberText
+                                    : 'Numero non disponibile',
+                                style:
+                                    theme.textTheme.bodyLarge ??
+                                    theme.textTheme.bodyMedium,
+                              ),
+                            ),
+                          )
+                          : TextField(
+                            controller: _clientNumberSearchController,
+                            focusNode: _clientNumberSearchFocusNode,
+                            decoration: InputDecoration(
+                              labelText: 'Numero cliente',
+                              floatingLabelBehavior:
+                                  FloatingLabelBehavior.always,
+                              hintText: 'Numero cliente',
+                              suffixIcon:
+                                  _clientNumberSearchController.text.isEmpty
+                                      ? const Icon(
+                                        Icons.search_rounded,
+                                        size: 20,
+                                      )
+                                      : IconButton(
+                                        tooltip: 'Pulisci ricerca',
+                                        icon: const Icon(Icons.clear_rounded),
+                                        onPressed: _clearClientNumberSearch,
+                                      ),
+                            ),
+                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.search,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                            ],
+                            onChanged:
+                                (value) => _onClientSearchChanged(
+                                  value,
+                                  clients,
+                                  _ClientSearchMode.number,
+                                ),
+                          ),
+                ),
+              ],
+            ),
             if (!hasSelection) ...[
               const SizedBox(height: 8),
               _buildClientSuggestions(suggestions),
@@ -635,7 +727,10 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   }
 
   Widget _buildClientSuggestions(List<Client> suggestions) {
-    final query = _clientSearchController.text.trim();
+    final query =
+        _clientSearchMode == _ClientSearchMode.number
+            ? _clientNumberSearchController.text.trim()
+            : _clientSearchController.text.trim();
     if (query.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -707,34 +802,10 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
 
   Widget _buildDateTimeField(DateFormat dateFormat) {
     final theme = Theme.of(context);
-    return InkWell(
-      borderRadius: BorderRadius.circular(8),
-      onTap: _pickDateTime,
-      child: InputDecorator(
-        decoration: const InputDecoration(
-          labelText: 'Data e ora vendita',
-          suffixIcon: Icon(Icons.calendar_month_rounded, size: 20),
-        ),
-        child: Text(
-          dateFormat.format(_date),
-          style: theme.textTheme.bodyMedium,
-        ),
-      ),
-    );
+    return Text(dateFormat.format(_date), style: theme.textTheme.bodyMedium);
   }
 
   Widget _buildSaleLinesSection(ThemeData theme, NumberFormat currency) {
-    if (_lines.isEmpty) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Text(
-            'Aggiungi almeno un servizio, pacchetto o prodotto per registrare la vendita.',
-            style: theme.textTheme.bodyMedium,
-          ),
-        ),
-      );
-    }
     return Column(
       children: [
         for (var i = 0; i < _lines.length; i++) ...[
@@ -849,9 +920,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     double total,
   ) {
     final theme = Theme.of(context);
-    final combinedDiscount = manualDiscount + loyaltyDiscount;
-    final discountPercent =
-        subtotal <= 0 ? 0 : (combinedDiscount / subtotal) * 100;
+    final manualBase = subtotal - manualDiscount;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -865,136 +934,91 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                 Text(currency.format(subtotal)),
               ],
             ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _discountAmountController,
-                    enabled: !_manualTotalEnabled,
-                    decoration: const InputDecoration(labelText: 'Sconto (€)'),
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    validator: (value) {
-                      if (_manualTotalEnabled) {
-                        return null;
-                      }
-                      final amount = _parseAmount(value) ?? 0;
-                      if (amount < 0) {
-                        return 'Valore non valido';
-                      }
-                      final currentSubtotal = _computeSubtotal();
-                      if (amount > currentSubtotal + 0.01) {
-                        return 'Sconto superiore al totale';
-                      }
-                      return null;
-                    },
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextFormField(
-                    controller: _discountPercentController,
-                    enabled: !_manualTotalEnabled,
-                    decoration: const InputDecoration(labelText: 'Sconto (%)'),
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    validator: (value) {
-                      if (_manualTotalEnabled ||
-                          value == null ||
-                          value.trim().isEmpty) {
-                        return null;
-                      }
-                      final percent = _parseAmount(value);
-                      if (percent == null) {
-                        return 'Valore non valido';
-                      }
-                      if (percent < 0) {
-                        return 'Valore non valido';
-                      }
-                      if (percent > 100) {
-                        return 'Oltre 100%';
-                      }
-                      return null;
-                    },
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Imposta manualmente l\'importo finale'),
-              value: _manualTotalEnabled,
-              onChanged:
-                  (value) =>
-                      _toggleManualTotal(value, subtotal, manualDiscount),
-            ),
-            if (_manualTotalEnabled) ...[
+            if (manualDiscount > 0) ...[
               const SizedBox(height: 8),
-              TextFormField(
-                controller: _manualTotalController,
-                decoration: const InputDecoration(
-                  labelText: 'Totale finale (€)',
-                ),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                validator: (value) {
-                  if (!_manualTotalEnabled) {
-                    return null;
-                  }
-                  final manual = _parseAmount(value);
-                  if (manual == null) {
-                    return 'Inserisci il totale finale';
-                  }
-                  if (manual < 0) {
-                    return 'Valore non valido';
-                  }
-                  final currentSubtotal = _computeSubtotal();
-                  if (manual > currentSubtotal + 0.01) {
-                    return 'Supera il totale degli articoli';
-                  }
-                  if (manual == 0) {
-                    return 'Il totale deve essere positivo';
-                  }
-                  return null;
-                },
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Adeguamento manuale',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                  Text(
+                    '-${currency.format(manualDiscount)}',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ],
               ),
-              const SizedBox(height: 8),
             ],
-            const Divider(),
-            if (manualDiscount > 0)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(
-                  'Sconto manuale: ${currency.format(manualDiscount)}',
-                  style: theme.textTheme.bodyMedium,
-                ),
+            if (loyaltyDiscount > 0) ...[
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Riscatto punti', style: theme.textTheme.bodyMedium),
+                  Text(
+                    '-${currency.format(loyaltyDiscount)}',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ],
               ),
-            if (loyaltyDiscount > 0)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(
-                  'Sconto fedeltà: ${currency.format(loyaltyDiscount)}',
-                  style: theme.textTheme.bodyMedium,
-                ),
+            ],
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _manualTotalController,
+              decoration: const InputDecoration(
+                labelText: 'Totale vendita (€)',
+                helperText:
+                    'Modifica l\'importo per impostare manualmente il totale prima dei punti fedeltà.',
               ),
-            Text(
-              'Sconto applicato: ${currency.format(combinedDiscount)} (${discountPercent.toStringAsFixed(discountPercent.abs() < 10 ? 1 : 0)}%)',
-              style: theme.textTheme.bodyMedium,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              validator: (value) {
+                if (_lines.isEmpty) {
+                  return null;
+                }
+                final manual = _parseAmount(value);
+                if (manual == null) {
+                  return 'Inserisci un importo valido';
+                }
+                if (manual < 0.01) {
+                  return 'Il totale deve essere positivo';
+                }
+                final currentSubtotal = _computeSubtotal();
+                if (manual > currentSubtotal + 0.01) {
+                  return 'Non può superare il subtotale';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Totale prima dei punti',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                Text(currency.format(manualBase)),
+              ],
             ),
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Totale da incassare'),
+                Text(
+                  'Totale dopo i punti',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 Text(
                   currency.format(total),
                   style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
@@ -1279,7 +1303,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     setState(() {
       _lines.add(line);
     });
-    _syncDiscountControllers(force: true);
+    _syncManualTotalWithSubtotal();
     _recalculateLoyalty();
   }
 
@@ -1291,13 +1315,9 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     final line = _lines[index];
     setState(() {
       _lines.removeAt(index);
-      if (_lines.isEmpty) {
-        _manualTotalEnabled = false;
-        _manualTotalController.clear();
-      }
     });
     line.dispose();
-    _syncDiscountControllers(force: true);
+    _syncManualTotalWithSubtotal(force: true);
     _recalculateLoyalty();
   }
 
@@ -1306,10 +1326,9 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       line.dispose();
     }
     _lines.clear();
-    _manualTotalEnabled = false;
     _manualTotalController.clear();
-    _discountAmountController.text = '0';
-    _discountPercentController.clear();
+    _manualTotalOverridden = false;
+    _isPaymentStep = false;
   }
 
   void _handleClientSuggestionTap(Client client) {
@@ -1323,6 +1342,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     setState(() {
       _clientId = client.id;
       _clientSearchController.text = client.fullName;
+      _clientNumberSearchController.text = client.clientNumber ?? '';
+      _clientSearchMode = _ClientSearchMode.general;
       _clientSuggestions = const <Client>[];
       if (salonChanged) {
         _salonId = newSalonId;
@@ -1336,7 +1357,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         if (!mounted) {
           return;
         }
-        _syncDiscountControllers(force: true);
+        _syncManualTotalWithSubtotal(force: true);
         _recalculateLoyalty(autoSuggest: true);
       });
     } else {
@@ -1351,7 +1372,10 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     setState(() {
       _clientId = null;
       _clientSearchController.clear();
+      _clientNumberSearchController.clear();
+      _clientSearchMode = _ClientSearchMode.general;
       _clientSuggestions = const <Client>[];
+      _isPaymentStep = false;
     });
     _clientFieldKey.currentState?.didChange(null);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1363,43 +1387,54 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     _recalculateLoyalty(autoSuggest: true);
   }
 
-  void _setClientSearchMode(_ClientSearchMode mode) {
-    if (_clientSearchMode == mode) {
-      return;
-    }
-    setState(() {
-      _clientSearchMode = mode;
-      _clientSearchController.clear();
-      _clientSuggestions = const <Client>[];
-    });
-    FocusScope.of(context).requestFocus(_clientSearchFocusNode);
-  }
-
   void _clearClientSearch() {
     if (_clientSearchController.text.isEmpty && _clientSuggestions.isEmpty) {
       return;
     }
     _clientSearchController.clear();
-    setState(() => _clientSuggestions = const <Client>[]);
+    setState(() {
+      _clientSearchMode = _ClientSearchMode.general;
+      _clientSuggestions = const <Client>[];
+    });
     FocusScope.of(context).requestFocus(_clientSearchFocusNode);
   }
 
-  void _onClientSearchChanged(String value, List<Client> clients) {
+  void _clearClientNumberSearch() {
+    if (_clientNumberSearchController.text.isEmpty &&
+        _clientSuggestions.isEmpty) {
+      return;
+    }
+    _clientNumberSearchController.clear();
+    setState(() {
+      _clientSearchMode = _ClientSearchMode.general;
+      _clientSuggestions = const <Client>[];
+    });
+    FocusScope.of(context).requestFocus(_clientNumberSearchFocusNode);
+  }
+
+  void _onClientSearchChanged(
+    String value,
+    List<Client> clients,
+    _ClientSearchMode mode,
+  ) {
     final query = value.trim();
     if (query.isEmpty) {
-      setState(() => _clientSuggestions = const <Client>[]);
+      setState(() {
+        _clientSearchMode = mode;
+        _clientSuggestions = const <Client>[];
+      });
       return;
     }
 
     final filtered = ClientSearchUtils.filterClients(
       clients: clients,
-      generalQuery: _clientSearchMode == _ClientSearchMode.general ? query : '',
-      clientNumberQuery:
-          _clientSearchMode == _ClientSearchMode.number ? query : '',
-      exactNumberMatch: _clientSearchMode == _ClientSearchMode.number,
+      generalQuery: mode == _ClientSearchMode.general ? query : '',
+      clientNumberQuery: mode == _ClientSearchMode.number ? query : '',
+      exactNumberMatch: mode == _ClientSearchMode.number,
     )..sort((a, b) => a.lastName.compareTo(b.lastName));
 
     setState(() {
+      _clientSearchMode = mode;
       _clientSuggestions =
           filtered.length > 8 ? filtered.sublist(0, 8) : filtered;
     });
@@ -1436,7 +1471,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     });
     if (salonChanged) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _syncDiscountControllers(force: true);
+        _syncManualTotalWithSubtotal(force: true);
         _recalculateLoyalty(autoSuggest: true);
       });
     } else {
@@ -1762,100 +1797,19 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   }
 
   void _handleLineChanged() {
-    if (_manualTotalEnabled) {
-      setState(() {});
-      _recalculateLoyalty();
-      return;
-    }
-    _syncDiscountControllers();
+    _syncManualTotalWithSubtotal();
     _recalculateLoyalty();
-  }
-
-  void _handleDiscountAmountChanged() {
-    if (_manualTotalEnabled || _programmaticDiscountUpdate) {
-      return;
-    }
-    final subtotal = _computeSubtotal();
-    _programmaticDiscountUpdate = true;
-    var amount = _parseAmount(_discountAmountController.text) ?? 0;
-    if (subtotal <= 0) {
-      amount = 0;
-      _discountAmountController.text = '0';
-      _discountPercentController.clear();
-    } else {
-      if (amount < 0) {
-        amount = 0;
-        _discountAmountController.text = '0';
-      }
-      if (amount > subtotal) {
-        amount = subtotal;
-        _discountAmountController.text = subtotal.toStringAsFixed(2);
-      }
-      if (amount == 0) {
-        _discountPercentController.clear();
-      } else {
-        final percent = (amount / subtotal) * 100;
-        _discountPercentController.text = percent.toStringAsFixed(
-          percent.abs() < 10 ? 1 : 0,
-        );
-      }
-    }
-    _programmaticDiscountUpdate = false;
     setState(() {});
-    _recalculateLoyalty();
-  }
-
-  void _handleDiscountPercentChanged() {
-    if (_manualTotalEnabled || _programmaticDiscountUpdate) {
-      return;
-    }
-    final subtotal = _computeSubtotal();
-    _programmaticDiscountUpdate = true;
-    final rawText = _discountPercentController.text;
-    final hasInput = rawText.trim().isNotEmpty;
-    var percent = hasInput ? (_parseAmount(rawText) ?? 0) : 0;
-
-    void updatePercentText(String value) {
-      _discountPercentController.value = TextEditingValue(
-        text: value,
-        selection: TextSelection.collapsed(offset: value.length),
-      );
-    }
-
-    if (!hasInput) {
-      percent = 0;
-    } else if (percent < 0) {
-      percent = 0;
-      updatePercentText('0');
-    } else if (percent > 100) {
-      percent = 100;
-      updatePercentText('100');
-    }
-
-    if (subtotal <= 0) {
-      if (_discountPercentController.text.isNotEmpty) {
-        _discountPercentController.clear();
-      }
-      _discountAmountController.text = '0';
-      _programmaticDiscountUpdate = false;
-      setState(() {});
-      _recalculateLoyalty();
-      return;
-    }
-
-    final amount = subtotal * percent / 100;
-    _discountAmountController.text =
-        amount == 0 ? '0' : amount.toStringAsFixed(2);
-    _programmaticDiscountUpdate = false;
-    setState(() {});
-    _recalculateLoyalty();
   }
 
   void _handleManualTotalChanged() {
-    if (_manualTotalEnabled) {
-      setState(() {});
-      _recalculateLoyalty();
+    if (_programmaticManualUpdate) {
+      return;
     }
+    setState(() {
+      _manualTotalOverridden = true;
+    });
+    _recalculateLoyalty();
   }
 
   void _handlePaidAmountChanged() {
@@ -1933,62 +1887,27 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     return double.parse(remaining.toStringAsFixed(2));
   }
 
-  void _syncDiscountControllers({bool force = false}) {
-    if (_manualTotalEnabled) {
-      setState(() {});
-      _recalculateLoyalty();
-      return;
-    }
-    if (!force && _programmaticDiscountUpdate) {
+  void _syncManualTotalWithSubtotal({bool force = false, double? base}) {
+    if (!force && _manualTotalOverridden) {
       return;
     }
     final subtotal = _computeSubtotal();
-    _programmaticDiscountUpdate = true;
-    if (subtotal <= 0) {
-      _discountAmountController.text = '0';
-      _discountPercentController.clear();
+    final target = () {
+      if (subtotal <= 0) {
+        return 0.0;
+      }
+      final desired = base ?? subtotal;
+      final num clamped = desired.clamp(0, subtotal);
+      return clamped.toDouble();
+    }();
+    _programmaticManualUpdate = true;
+    if (target <= 0) {
+      _manualTotalController.clear();
     } else {
-      var amount = _parseAmount(_discountAmountController.text) ?? 0;
-      if (amount < 0) {
-        amount = 0;
-      }
-      if (amount > subtotal) {
-        amount = subtotal;
-      }
-      _discountAmountController.text = amount.toStringAsFixed(2);
-      if (amount == 0) {
-        _discountPercentController.clear();
-      } else {
-        final percent = (amount / subtotal) * 100;
-        _discountPercentController.text = percent.toStringAsFixed(
-          percent.abs() < 10 ? 1 : 0,
-        );
-      }
+      _manualTotalController.text = target.toStringAsFixed(2);
     }
-    _programmaticDiscountUpdate = false;
-    setState(() {});
-  }
-
-  void _toggleManualTotal(
-    bool enabled,
-    double subtotal,
-    double manualDiscount,
-  ) {
-    if (_manualTotalEnabled == enabled) {
-      return;
-    }
-    setState(() {
-      _manualTotalEnabled = enabled;
-      if (enabled) {
-        final current = subtotal - manualDiscount;
-        final base = current > 0 ? current : subtotal;
-        _manualTotalController.text = base > 0 ? base.toStringAsFixed(2) : '';
-      } else {
-        _manualTotalController.clear();
-        _syncDiscountControllers(force: true);
-      }
-    });
-    _recalculateLoyalty();
+    _programmaticManualUpdate = false;
+    _manualTotalOverridden = false;
   }
 
   double _computeSubtotal() {
@@ -2005,28 +1924,16 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     if (subtotal <= 0) {
       return 0;
     }
-    if (_manualTotalEnabled) {
-      final manual = _parseAmount(_manualTotalController.text) ?? subtotal;
-      final clamped = manual.clamp(0, subtotal);
-      final discount = subtotal - clamped;
-      return double.parse(discount.toStringAsFixed(2));
+    final manual = _parseAmount(_manualTotalController.text);
+    if (manual == null) {
+      return 0;
     }
-    var amount = _parseAmount(_discountAmountController.text) ?? 0;
-    if (amount < 0) {
-      amount = 0;
-    }
-    if (amount > subtotal) {
-      amount = subtotal;
-    }
-    return double.parse(amount.toStringAsFixed(2));
+    final num clamped = manual.clamp(0, subtotal);
+    final discount = subtotal - clamped.toDouble();
+    return double.parse(discount.toStringAsFixed(2));
   }
 
   double _currentTotal(double subtotal, double discount) {
-    if (_manualTotalEnabled) {
-      final manual = _parseAmount(_manualTotalController.text) ?? subtotal;
-      final clamped = manual.clamp(0, subtotal);
-      return double.parse(clamped.toStringAsFixed(2));
-    }
     final total = subtotal - discount;
     if (total <= 0) {
       return 0;
@@ -2041,57 +1948,36 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     return total <= 0 ? 0 : double.parse(total.toStringAsFixed(2));
   }
 
-  void _pickDateTime() async {
-    final selectedDate = await showDatePicker(
-      context: context,
-      initialDate: _date,
-      firstDate: DateTime.now().subtract(const Duration(days: 120)),
-      lastDate: DateTime.now().add(const Duration(days: 30)),
-    );
-    if (selectedDate == null) {
-      return;
-    }
-    if (!mounted) {
-      return;
-    }
-    final selectedTime = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(_date),
-    );
-    if (selectedTime == null) {
-      return;
-    }
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _date = DateTime(
-        selectedDate.year,
-        selectedDate.month,
-        selectedDate.day,
-        selectedTime.hour,
-        selectedTime.minute,
-      );
-    });
-  }
-
-  void _submit() {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+  bool _validateSaleBasics() {
     if (_salonId == null) {
       _showSnackBar(_associateSalonHint);
-      return;
+      return false;
     }
     if (_clientId == null) {
       _showSnackBar('Seleziona il cliente.');
-      return;
+      return false;
     }
     if (_lines.isEmpty) {
       _showSnackBar('Aggiungi almeno un elemento alla vendita.');
-      return;
+      return false;
     }
+    final subtotal = _computeSubtotal();
+    if (subtotal <= 0) {
+      _showSnackBar('Inserisci importi validi per la vendita.');
+      return false;
+    }
+    final manualDiscount = _currentManualDiscount(subtotal);
+    final baseTotal = _currentTotal(subtotal, manualDiscount);
+    final loyaltyValue = _normalizeCurrency(_loyaltySummary.redeemedValue);
+    final total = _normalizeCurrency(baseTotal - loyaltyValue);
+    if (total <= 0) {
+      _showSnackBar('Il totale della vendita deve essere positivo.');
+      return false;
+    }
+    return true;
+  }
 
+  List<SaleItem>? _collectSaleItems() {
     final items = <SaleItem>[];
     final Map<String, double> inventoryUsage = {};
     for (final line in _lines) {
@@ -2102,7 +1988,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       final unitPrice = double.parse(unitPriceValue.toStringAsFixed(2));
       if (description.isEmpty || quantity <= 0 || unitPrice <= 0) {
         _showSnackBar('Controlla le voci inserite: valori non validi.');
-        return;
+        return null;
       }
       final referencedInventoryId = line.referenceId;
       if (line.referenceType == SaleReferenceType.product &&
@@ -2112,13 +1998,13 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
           _showSnackBar(
             'Il prodotto selezionato non è più presente in magazzino.',
           );
-          return;
+          return null;
         }
         final alreadyReserved = inventoryUsage[referencedInventoryId] ?? 0;
         final remaining = inventoryItem.quantity - alreadyReserved;
         if (remaining <= 0) {
           _showSnackBar('Prodotto esaurito: ${inventoryItem.name}.');
-          return;
+          return null;
         }
         if (quantity > remaining + 0.000001) {
           final availableText =
@@ -2129,7 +2015,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
             'Quantità non disponibile per ${inventoryItem.name}. '
             'Disponibili: $availableText ${inventoryItem.unit}.',
           );
-          return;
+          return null;
         }
         inventoryUsage[referencedInventoryId] = alreadyReserved + quantity;
       }
@@ -2159,20 +2045,49 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
               );
       items.add(saleItem);
     }
+    return items;
+  }
 
-    final subtotal = _computeSubtotal();
-    if (subtotal <= 0) {
-      _showSnackBar('Inserisci importi validi per la vendita.');
+  void _continueToPaymentStep() {
+    FocusScope.of(context).unfocus();
+    if (_isPaymentStep) {
       return;
     }
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+    if (!_validateSaleBasics()) {
+      return;
+    }
+    if (_collectSaleItems() == null) {
+      return;
+    }
+    setState(() {
+      _isPaymentStep = true;
+    });
+  }
+
+  void _submit() {
+    if (!_isPaymentStep) {
+      _continueToPaymentStep();
+      return;
+    }
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+    if (!_validateSaleBasics()) {
+      return;
+    }
+
+    final items = _collectSaleItems();
+    if (items == null) {
+      return;
+    }
+    final subtotal = _computeSubtotal();
     final manualDiscount = _currentManualDiscount(subtotal);
     final baseTotal = _currentTotal(subtotal, manualDiscount);
     final loyaltyValue = _normalizeCurrency(_loyaltySummary.redeemedValue);
     final total = _normalizeCurrency(baseTotal - loyaltyValue);
-    if (total <= 0) {
-      _showSnackBar('Il totale della vendita deve essere positivo.');
-      return;
-    }
     final totalDiscount = _normalizeCurrency(manualDiscount + loyaltyValue);
 
     final invoice = _invoiceController.text.trim();
