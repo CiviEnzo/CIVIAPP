@@ -1472,7 +1472,7 @@ class _WeekSchedule extends StatelessWidget {
                                                 : dayGap,
                                       ),
                                       padding: const EdgeInsets.symmetric(
-                                        vertical: 10,
+                                        vertical: 6,
                                       ),
                                       decoration: BoxDecoration(
                                         color: headerColor,
@@ -1538,7 +1538,46 @@ class _WeekSchedule extends StatelessWidget {
                                                   crossAxisAlignment:
                                                       CrossAxisAlignment.center,
                                                   children: [
+                                                    if (summaryChips
+                                                        .isNotEmpty) ...[
+                                                      Flexible(
+                                                        flex: 2,
+                                                        child:
+                                                            ScrollConfiguration(
+                                                          behavior:
+                                                              const _CompactMacScrollBehavior(),
+                                                          child:
+                                                              SingleChildScrollView(
+                                                            scrollDirection:
+                                                                Axis.horizontal,
+                                                            child: Row(
+                                                              mainAxisSize:
+                                                                  MainAxisSize
+                                                                      .min,
+                                                              children: [
+                                                                for (
+                                                                  var i = 0;
+                                                                  i <
+                                                                      summaryChips
+                                                                          .length;
+                                                                  i++
+                                                                ) ...[
+                                                                  if (i != 0)
+                                                                    const SizedBox(
+                                                                      width: 8,
+                                                                    ),
+                                                                  summaryChips[
+                                                                      i],
+                                                                ],
+                                                              ],
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 12),
+                                                    ],
                                                     Flexible(
+                                                      flex: 3,
                                                       fit: FlexFit.loose,
                                                       child: Text(
                                                         dayLabelFormat.format(
@@ -1579,38 +1618,7 @@ class _WeekSchedule extends StatelessWidget {
                                                     ],
                                                   ],
                                                 ),
-                                                const SizedBox(height: 6),
-                                                if (summaryChips
-                                                    .isNotEmpty) ...[
-                                                  const SizedBox(height: 8),
-                                                  ScrollConfiguration(
-                                                    behavior:
-                                                        const _CompactMacScrollBehavior(),
-                                                    child: SingleChildScrollView(
-                                                      scrollDirection:
-                                                          Axis.horizontal,
-                                                      child: Row(
-                                                        mainAxisSize:
-                                                            MainAxisSize.min,
-                                                        children: [
-                                                          for (
-                                                            var i = 0;
-                                                            i <
-                                                                summaryChips
-                                                                    .length;
-                                                            i++
-                                                          ) ...[
-                                                            if (i != 0)
-                                                              const SizedBox(
-                                                                width: 8,
-                                                              ),
-                                                            summaryChips[i],
-                                                          ],
-                                                        ],
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
+                                                const SizedBox(height: 4),
                                               ],
                                             ),
                                           ),
@@ -2923,7 +2931,6 @@ class _WeekCompactView extends StatelessWidget {
     final dayLabelFormat = DateFormat('EEE dd MMM', 'it_IT');
     final timeFormat = DateFormat('HH:mm');
     final rolesById = {for (final role in roles) role.id: role};
-    final staffById = {for (final member in staff) member.id: member};
     final slotCount = max(1, ((maxMinute - minMinute) / slotMinutes).ceil());
     final referenceDate = dayData.first.date;
     final referenceTimelineStart = referenceDate.add(
@@ -2966,7 +2973,6 @@ class _WeekCompactView extends StatelessWidget {
               now,
               dayLabelFormat,
               dayHeaderColor,
-              staffById,
               contentWidth,
               dayWidth,
             ),
@@ -3091,7 +3097,6 @@ class _WeekCompactView extends StatelessWidget {
     DateTime now,
     DateFormat dayLabelFormat,
     Color dayHeaderColor,
-    Map<String, StaffMember> staffById,
     double contentWidth,
     double dayWidth,
   ) {
@@ -3126,7 +3131,6 @@ class _WeekCompactView extends StatelessWidget {
                       dayLabelFormat,
                       dayData[dayIndex],
                       dayHeaderColor,
-                      staffById,
                     ),
                   ),
                   if (dayIndex != dayData.length - 1)
@@ -3147,37 +3151,9 @@ class _WeekCompactView extends StatelessWidget {
     DateFormat dayLabelFormat,
     _WeekDayData data,
     Color background,
-    Map<String, StaffMember> staffById,
   ) {
     final normalizedDate = DateUtils.dateOnly(data.date);
     final isToday = DateUtils.isSameDay(normalizedDate, now);
-    final totalAppointments = data.appointmentsByStaff.values.fold<int>(
-      0,
-      (running, list) => running + list.length,
-    );
-    final totalDurationMinutes = data.appointmentsByStaff.values
-        .expand((list) => list)
-        .fold<int>(
-          0,
-          (running, appointment) =>
-              running + appointment.end.difference(appointment.start).inMinutes,
-        );
-    final scheduledStaffIds = data.shiftsByStaff.entries
-        .where((entry) => entry.value.isNotEmpty)
-        .map((entry) => entry.key)
-        .toList(growable: false);
-    final absenceStaffIds = data.absencesByStaff.entries
-        .where((entry) => entry.value.isNotEmpty)
-        .map((entry) => entry.key)
-        .toList(growable: false);
-    final scheduledNames = scheduledStaffIds
-        .map((id) => staffById[id]?.fullName)
-        .whereType<String>()
-        .toList(growable: false);
-    final absenceNames = absenceStaffIds
-        .map((id) => staffById[id]?.fullName)
-        .whereType<String>()
-        .toList(growable: false);
     final dayChecklist = dayChecklists[data.date];
     final checklistTotal = dayChecklist?.items.length ?? 0;
     final checklistCompleted =
@@ -3189,55 +3165,6 @@ class _WeekCompactView extends StatelessWidget {
         onRenameChecklistItem != null ||
         onDeleteChecklistItem != null;
     final showChecklistLauncher = hasChecklistItems || canManageChecklist;
-
-    final summaryChips = <Widget>[
-      _WeekSchedule._summaryChip(
-        theme: theme,
-        icon: Icons.event_available_rounded,
-        label: '$totalAppointments appuntamenti',
-        background: theme.colorScheme.tertiaryContainer.withValues(alpha: 0.6),
-        foreground: theme.colorScheme.onTertiaryContainer,
-      ),
-    ];
-
-    if (totalDurationMinutes >= slotMinutes) {
-      final totalHours = totalDurationMinutes / 60;
-      final durationLabel =
-          totalHours >= 5
-              ? '${totalHours.round()}h prenotate'
-              : '${totalHours.toStringAsFixed(1)}h prenotate';
-      summaryChips.add(
-        _WeekSchedule._summaryChip(
-          theme: theme,
-          icon: Icons.schedule_rounded,
-          label: durationLabel,
-        ),
-      );
-    }
-
-    if (scheduledNames.isNotEmpty) {
-      summaryChips.add(
-        _WeekSchedule._summaryChip(
-          theme: theme,
-          icon: Icons.badge_rounded,
-          label: '${scheduledNames.length} in servizio',
-          tooltip: scheduledNames.join('\n'),
-        ),
-      );
-    }
-
-    if (absenceNames.isNotEmpty) {
-      summaryChips.add(
-        _WeekSchedule._summaryChip(
-          theme: theme,
-          icon: Icons.event_busy_rounded,
-          label: '${absenceNames.length} assenze',
-          background: theme.colorScheme.errorContainer.withValues(alpha: 0.45),
-          foreground: theme.colorScheme.onErrorContainer,
-          tooltip: absenceNames.join('\n'),
-        ),
-      );
-    }
 
     final borderColor =
         isToday
@@ -3325,10 +3252,6 @@ class _WeekCompactView extends StatelessWidget {
               ],
             ],
           ),
-          if (summaryChips.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Wrap(spacing: 8, runSpacing: 8, children: summaryChips),
-          ],
         ],
       ),
     );
@@ -5758,7 +5681,7 @@ class _AppointmentCard extends StatelessWidget {
             return const SizedBox.shrink();
           }
 
-          if (hidePastCompletedContent && !hideContent) {
+          if (hidePastCompletedContent) {
             final IconData iconData;
             final Color iconColor;
             if (isNoShow) {
@@ -5914,7 +5837,7 @@ class _AppointmentCard extends StatelessWidget {
     );
 
     final overlayWidgets = <Widget>[];
-    if (hasOutstandingPayments && !hideContent) {
+    if (hasOutstandingPayments) {
       final outstandingBackground = theme.colorScheme.tertiaryContainer;
       final outstandingIconColor = theme.colorScheme.onTertiaryContainer;
       final outstandingShadow = theme.colorScheme.tertiary.withValues(
