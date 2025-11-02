@@ -1,7 +1,9 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show SystemMouseCursors;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
@@ -265,13 +267,15 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
     final data = ref.watch(appDataProvider.select((state) => state));
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
     final dateFormatter = DateFormat('dd/MM/yyyy');
+    final trendDateFormatter = DateFormat('EEE dd MMM', 'it_IT');
 
     final filters = _filters;
     final activeSalonId = filters.salonId;
 
     final availableServices = data.services
         .where(
-          (service) => activeSalonId == null || service.salonId == activeSalonId,
+          (service) =>
+              activeSalonId == null || service.salonId == activeSalonId,
         )
         .toList(growable: false);
     final serviceLookup = {
@@ -281,7 +285,9 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
       store.reportingSales(salonId: activeSalonId),
       serviceLookup,
     );
-    final baseAppointments = store.reportingAppointments(salonId: activeSalonId);
+    final baseAppointments = store.reportingAppointments(
+      salonId: activeSalonId,
+    );
     final appointments = _filterAppointments(baseAppointments, serviceLookup);
     final clients = _filterClients(
       store.reportingClients(salonId: activeSalonId),
@@ -291,18 +297,21 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
           (member) => activeSalonId == null || member.salonId == activeSalonId,
         )
         .toList(growable: false);
-    final categories = data.serviceCategories
-        .where(
-          (category) => activeSalonId == null || category.salonId == activeSalonId,
-        )
-        .sortedByDisplayOrder();
-    final bookingChannels = baseAppointments
-        .map((appointment) => appointment.bookingChannel?.trim())
-        .whereType<String>()
-        .where((channel) => channel.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final categories =
+        data.serviceCategories
+            .where(
+              (category) =>
+                  activeSalonId == null || category.salonId == activeSalonId,
+            )
+            .sortedByDisplayOrder();
+    final bookingChannels =
+        baseAppointments
+            .map((appointment) => appointment.bookingChannel?.trim())
+            .whereType<String>()
+            .where((channel) => channel.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     final salons = data.salons;
     final selectedOperatorId = filters.operatorIds.singleOrNull;
     final selectedCategoryId = filters.categoryIds.singleOrNull;
@@ -321,7 +330,8 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
       categories: categories,
       services: availableServices,
     );
-    final hasActiveFilters = filters.operatorIds.isNotEmpty ||
+    final hasActiveFilters =
+        filters.operatorIds.isNotEmpty ||
         filters.serviceIds.isNotEmpty ||
         filters.categoryIds.isNotEmpty ||
         filters.bookingChannels.isNotEmpty;
@@ -333,10 +343,10 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
     );
 
     final revenueTrend = _groupRevenueByDate(filteredSales, filters.range);
-    final topServices = _calculateTopServices(
-      filteredSales,
-      serviceLookup,
-    );
+    final appointmentTrend =
+        _groupAppointmentsByDate(appointments, filters.range);
+    final newClientsTrend = _groupClientsByDate(clients, filters.range);
+    final topServices = _calculateTopServices(filteredSales, serviceLookup);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -372,17 +382,18 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
           LayoutBuilder(
             builder: (context, constraints) {
               const spacing = 16.0;
-              final maxWidth = constraints.maxWidth.isFinite
-                  ? constraints.maxWidth
-                  : MediaQuery.of(context).size.width;
+              final maxWidth =
+                  constraints.maxWidth.isFinite
+                      ? constraints.maxWidth
+                      : MediaQuery.of(context).size.width;
               final columns =
                   maxWidth >= 1180
                       ? 4
                       : maxWidth >= 880
-                          ? 3
-                          : maxWidth >= 560
-                              ? 2
-                              : 1;
+                      ? 3
+                      : maxWidth >= 560
+                      ? 2
+                      : 1;
               final cards = <Widget>[
                 if (kReportingCutoff != null)
                   _ReportCard(
@@ -431,44 +442,116 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
                   drillDownLabel: 'Vai ad Appuntamenti',
                 ),
               ];
-              final tileWidth = columns == 1
-                  ? maxWidth
-                  : ((maxWidth - spacing * (columns - 1)) / columns)
-                      .clamp(240.0, 360.0)
-                      .toDouble();
+              final tileWidth =
+                  columns == 1
+                      ? maxWidth
+                      : ((maxWidth - spacing * (columns - 1)) / columns)
+                          .clamp(240.0, 360.0)
+                          .toDouble();
 
               return Wrap(
                 spacing: spacing,
                 runSpacing: spacing,
-                children: cards
-                    .map(
-                      (card) => SizedBox(
-                        width: tileWidth,
-                        child: card,
-                      ),
-                    )
-                    .toList(),
+                children:
+                    cards
+                        .map((card) => SizedBox(width: tileWidth, child: card))
+                        .toList(),
               );
             },
           ),
           const SizedBox(height: 24),
-          _SectionHeader(title: 'Andamento incassi'),
+          _SectionHeader(title: 'Andamento generale'),
           const SizedBox(height: 12),
-          revenueTrend.isEmpty
-              ? _EmptyState(
-                message: 'Nessuna vendita nel periodo selezionato',
-                description:
-                    hasActiveFilters
-                        ? 'Prova a rimuovere i filtri o amplia l\'intervallo temporale.'
-                        : 'Non sono state registrate vendite in questo intervallo.',
-                actionLabel: hasActiveFilters ? 'Azzera filtri' : null,
-                onAction: hasActiveFilters ? _clearFilterSelections : null,
-              )
-              : _RevenueTrendCard(
-                trend: revenueTrend,
-                currency: currency,
-                onOpenDetails: () => _openAdminModule('sales'),
-              ),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const spacing = 16.0;
+              final maxWidth =
+                  constraints.maxWidth.isFinite
+                      ? constraints.maxWidth
+                      : MediaQuery.of(context).size.width;
+              final columns =
+                  maxWidth >= 1180
+                      ? 3
+                      : maxWidth >= 880
+                      ? 2
+                      : 1;
+              final tileWidth =
+                  columns == 1
+                      ? maxWidth
+                      : ((maxWidth - spacing * (columns - 1)) / columns)
+                          .clamp(280.0, 420.0)
+                          .toDouble();
+              final definitions = <_TrendCardData>[
+                _TrendCardData(
+                  title: 'Incassi giornalieri',
+                  points: revenueTrend,
+                  valueLabelBuilder: currency.format,
+                  tooltipBuilder: currency.format,
+                  emptyMessage: 'Nessuna vendita nel periodo selezionato',
+                  emptyDescription:
+                      hasActiveFilters
+                          ? 'Prova a rimuovere i filtri o amplia l\'intervallo temporale.'
+                          : 'Non sono state registrate vendite in questo intervallo.',
+                  emptyActionLabel: hasActiveFilters ? 'Azzera filtri' : null,
+                  onEmptyAction:
+                      hasActiveFilters ? _clearFilterSelections : null,
+                ),
+                _TrendCardData(
+                  title: 'Appuntamenti giornalieri',
+                  points: appointmentTrend,
+                  valueLabelBuilder: (value) => value.toInt().toString(),
+                  tooltipBuilder: (value) => '${value.toInt()} appuntamenti',
+                  emptyMessage: 'Nessun appuntamento registrato',
+                  emptyDescription:
+                      hasActiveFilters
+                          ? 'I filtri correnti non restituiscono appuntamenti.'
+                          : 'Non sono stati pianificati appuntamenti per il periodo selezionato.',
+                  emptyActionLabel: hasActiveFilters ? 'Azzera filtri' : null,
+                  onEmptyAction:
+                      hasActiveFilters ? _clearFilterSelections : null,
+                ),
+                _TrendCardData(
+                  title: 'Nuovi clienti giornalieri',
+                  points: newClientsTrend,
+                  valueLabelBuilder: (value) => value.toInt().toString(),
+                  tooltipBuilder: (value) => '${value.toInt()} nuovi clienti',
+                  emptyMessage: 'Nessuna nuova registrazione',
+                  emptyDescription:
+                      hasActiveFilters
+                          ? 'I filtri correnti non restituiscono nuovi clienti.'
+                          : 'Non sono stati acquisiti nuovi clienti nel periodo selezionato.',
+                  emptyActionLabel: hasActiveFilters ? 'Azzera filtri' : null,
+                  onEmptyAction:
+                      hasActiveFilters ? _clearFilterSelections : null,
+                ),
+              ];
+              final visibleDefinitions = _removeRedundantTrendCards(definitions);
+
+              return Wrap(
+                spacing: spacing,
+                runSpacing: spacing,
+                children:
+                    visibleDefinitions
+                        .map(
+                          (definition) => SizedBox(
+                            width: tileWidth,
+                            child: _TrendCard(
+                              title: definition.title,
+                              points: definition.points,
+                              dateFormatter: trendDateFormatter,
+                              valueLabelBuilder: definition.valueLabelBuilder,
+                              tooltipBuilder: definition.tooltipBuilder,
+                              emptyMessage: definition.emptyMessage,
+                              emptyDescription: definition.emptyDescription,
+                              emptyActionLabel: definition.emptyActionLabel,
+                              onEmptyAction: definition.onEmptyAction,
+                            ),
+                          ),
+                        )
+                        .toList(),
+              );
+            },
+          ),
           const SizedBox(height: 24),
           _SectionHeader(title: 'Appuntamenti'),
           const SizedBox(height: 12),
@@ -510,11 +593,13 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
     _updateFilters(_filters.copyWith(range: normalized));
   }
 
-  void _openAdminModule(String moduleId, {Map<String, Object?> payload = const {}}) {
-    ref.read(adminDashboardIntentProvider.notifier).state = AdminDashboardIntent(
-      moduleId: moduleId,
-      payload: payload,
-    );
+  void _openAdminModule(
+    String moduleId, {
+    Map<String, Object?> payload = const {},
+  }) {
+    ref
+        .read(adminDashboardIntentProvider.notifier)
+        .state = AdminDashboardIntent(moduleId: moduleId, payload: payload);
   }
 
   void _handleSalonChanged(String? salonId) {
@@ -531,24 +616,27 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
 
   void _handleOperatorChanged(String? operatorId) {
     final selection =
-        operatorId == null || operatorId.isEmpty ? <String>{} : <String>{operatorId};
+        operatorId == null || operatorId.isEmpty
+            ? <String>{}
+            : <String>{operatorId};
     _updateFilters(_filters.copyWith(operatorIds: selection));
   }
 
   void _handleCategoryChanged(String? categoryId) {
     final selection =
-        categoryId == null || categoryId.isEmpty ? <String>{} : <String>{categoryId};
+        categoryId == null || categoryId.isEmpty
+            ? <String>{}
+            : <String>{categoryId};
     _updateFilters(
-      _filters.copyWith(
-        categoryIds: selection,
-        serviceIds: <String>{},
-      ),
+      _filters.copyWith(categoryIds: selection, serviceIds: <String>{}),
     );
   }
 
   void _handleServiceChanged(String? serviceId) {
     final selection =
-        serviceId == null || serviceId.isEmpty ? <String>{} : <String>{serviceId};
+        serviceId == null || serviceId.isEmpty
+            ? <String>{}
+            : <String>{serviceId};
     _updateFilters(_filters.copyWith(serviceIds: selection));
   }
 
@@ -577,69 +665,6 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
     required List<Service> services,
   }) {
     final badges = <Widget>[];
-    if (filters.salonId != null) {
-      final salon = salons.firstWhereOrNull((item) => item.id == filters.salonId);
-      if (salon != null) {
-        badges.add(
-          _FilterBadge(
-            label: 'Salone • ${salon.name}',
-            icon: Icons.apartment_rounded,
-          ),
-        );
-      }
-    } else if (salons.length > 1) {
-      badges.add(
-        const _FilterBadge(
-          label: 'Saloni • Tutti',
-          icon: Icons.apartment_rounded,
-        ),
-      );
-    }
-
-    final staffById = {for (final member in staff) member.id: member};
-    for (final operatorId in filters.operatorIds) {
-      final member = staffById[operatorId];
-      final name = member?.fullName ?? operatorId;
-      badges.add(
-        _FilterBadge(
-          label: 'Operatore • $name',
-          icon: Icons.badge_rounded,
-        ),
-      );
-    }
-
-    final categoriesById = {for (final category in categories) category.id: category};
-    for (final categoryId in filters.categoryIds) {
-      final category = categoriesById[categoryId];
-      final name = category?.name ?? categoryId;
-      badges.add(
-        _FilterBadge(
-          label: 'Categoria • $name',
-          icon: Icons.category_rounded,
-        ),
-      );
-    }
-
-    final servicesById = {for (final service in services) service.id: service};
-    for (final serviceId in filters.serviceIds) {
-      final service = servicesById[serviceId];
-      final name = service?.name ?? serviceId;
-      badges.add(
-        _FilterBadge(
-          label: 'Servizio • $name',
-          icon: Icons.design_services_rounded,
-        ),
-      );
-    }
-
-    for (final channel in filters.bookingChannels) {
-      badges.add(
-        _FilterBadge(
-          label: 'Canale • ${_formatChannelLabel(channel)}',
-          icon: Icons.auto_awesome_motion_rounded,
-        ),
-      );
-    }
 
     return badges;
   }
@@ -662,9 +687,10 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
     final router = GoRouter.of(context);
     final state = GoRouterState.of(context);
     final currentParams = Map<String, String>.from(state.uri.queryParameters);
-    final nextParams = Map<String, String>.from(currentParams)
-      ..removeWhere((key, _) => key.startsWith(_ReportsQueryKeys.prefix))
-      ..addAll(filters.toQueryParameters());
+    final nextParams =
+        Map<String, String>.from(currentParams)
+          ..removeWhere((key, _) => key.startsWith(_ReportsQueryKeys.prefix))
+          ..addAll(filters.toQueryParameters());
 
     const equality = MapEquality<String, String>();
     if (equality.equals(currentParams, nextParams)) {
@@ -679,7 +705,11 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
   }
 
   DateTimeRange _normalizeRange(DateTimeRange range) {
-    final start = DateTime(range.start.year, range.start.month, range.start.day);
+    final start = DateTime(
+      range.start.year,
+      range.start.month,
+      range.start.day,
+    );
     final end = DateTime(
       range.end.year,
       range.end.month,
@@ -699,9 +729,8 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
     final operatorFilter = filters.operatorIds;
     final serviceFilter = filters.serviceIds;
     final categoryFilter = filters.categoryIds;
-    final channelFilter = filters.bookingChannels
-        .map((channel) => channel.toLowerCase())
-        .toSet();
+    final channelFilter =
+        filters.bookingChannels.map((channel) => channel.toLowerCase()).toSet();
 
     final results = <_FilteredSale>[];
     for (final sale in sales) {
@@ -728,22 +757,24 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
       if (serviceFilter.isEmpty && categoryFilter.isEmpty) {
         relevantItems = serviceItems;
       } else {
-        relevantItems = serviceItems.where((item) {
-          final serviceId = item.referenceId;
-          final matchesService =
-              serviceFilter.isEmpty || serviceFilter.contains(serviceId);
-          if (!matchesService) {
-            return false;
-          }
-          if (categoryFilter.isEmpty) {
-            return true;
-          }
-          final categoryId = serviceLookup[serviceId]?.categoryId;
-          if (categoryId == null) {
-            return false;
-          }
-          return categoryFilter.contains(categoryId);
-        }).toList(growable: false);
+        relevantItems = serviceItems
+            .where((item) {
+              final serviceId = item.referenceId;
+              final matchesService =
+                  serviceFilter.isEmpty || serviceFilter.contains(serviceId);
+              if (!matchesService) {
+                return false;
+              }
+              if (categoryFilter.isEmpty) {
+                return true;
+              }
+              final categoryId = serviceLookup[serviceId]?.categoryId;
+              if (categoryId == null) {
+                return false;
+              }
+              return categoryFilter.contains(categoryId);
+            })
+            .toList(growable: false);
         if (relevantItems.isEmpty) {
           continue;
         }
@@ -752,19 +783,12 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
       final amount =
           (serviceFilter.isEmpty && categoryFilter.isEmpty)
               ? sale.total
-              : relevantItems.fold<double>(
-                0,
-                (sum, item) => sum + item.amount,
-              );
+              : relevantItems.fold<double>(0, (sum, item) => sum + item.amount);
       if (amount <= 0) {
         continue;
       }
       results.add(
-        _FilteredSale(
-          sale: sale,
-          amount: amount,
-          items: relevantItems,
-        ),
+        _FilteredSale(sale: sale, amount: amount, items: relevantItems),
       );
     }
     return results;
@@ -778,44 +802,45 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
     final operatorFilter = filters.operatorIds;
     final serviceFilter = filters.serviceIds;
     final categoryFilter = filters.categoryIds;
-    final channelFilter = filters.bookingChannels
-        .map((channel) => channel.toLowerCase())
-        .toSet();
+    final channelFilter =
+        filters.bookingChannels.map((channel) => channel.toLowerCase()).toSet();
 
-    return appointments.where((appointment) {
-      if (!_isInRange(appointment.createdAt ?? appointment.start)) {
-        return false;
-      }
-      if (operatorFilter.isNotEmpty &&
-          !operatorFilter.contains(appointment.staffId)) {
-        return false;
-      }
-      if (channelFilter.isNotEmpty) {
-        final bookingChannel = appointment.bookingChannel?.toLowerCase();
-        if (bookingChannel == null ||
-            !channelFilter.contains(bookingChannel)) {
-          return false;
-        }
-      }
-      final servicesForAppointment = appointment.serviceIds;
-      if (serviceFilter.isNotEmpty &&
-          !servicesForAppointment.any(serviceFilter.contains)) {
-        return false;
-      }
-      if (categoryFilter.isNotEmpty) {
-        final matchesCategory = servicesForAppointment.any((serviceId) {
-          final categoryId = serviceLookup[serviceId]?.categoryId;
-          if (categoryId == null) {
+    return appointments
+        .where((appointment) {
+          if (!_isInRange(appointment.createdAt ?? appointment.start)) {
             return false;
           }
-          return categoryFilter.contains(categoryId);
-        });
-        if (!matchesCategory) {
-          return false;
-        }
-      }
-      return true;
-    }).toList(growable: false);
+          if (operatorFilter.isNotEmpty &&
+              !operatorFilter.contains(appointment.staffId)) {
+            return false;
+          }
+          if (channelFilter.isNotEmpty) {
+            final bookingChannel = appointment.bookingChannel?.toLowerCase();
+            if (bookingChannel == null ||
+                !channelFilter.contains(bookingChannel)) {
+              return false;
+            }
+          }
+          final servicesForAppointment = appointment.serviceIds;
+          if (serviceFilter.isNotEmpty &&
+              !servicesForAppointment.any(serviceFilter.contains)) {
+            return false;
+          }
+          if (categoryFilter.isNotEmpty) {
+            final matchesCategory = servicesForAppointment.any((serviceId) {
+              final categoryId = serviceLookup[serviceId]?.categoryId;
+              if (categoryId == null) {
+                return false;
+              }
+              return categoryFilter.contains(categoryId);
+            });
+            if (!matchesCategory) {
+              return false;
+            }
+          }
+          return true;
+        })
+        .toList(growable: false);
   }
 
   List<Client> _filterClients(List<Client> clients) {
@@ -926,12 +951,20 @@ class _FiltersBar extends StatelessWidget {
         items: [
           const DropdownMenuItem<String?>(
             value: null,
-            child: Text('Tutti i saloni'),
+            child: Text(
+              'Tutti i saloni',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
           ...salons.map(
             (salon) => DropdownMenuItem<String?>(
               value: salon.id,
-              child: Text(salon.name),
+              child: Text(
+                salon.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ),
         ],
@@ -939,20 +972,25 @@ class _FiltersBar extends StatelessWidget {
       _buildDropdown(
         context: context,
         label: 'Operatore',
-        value: _ensureValue(
-          selectedOperatorId,
-          staffMembers.map((e) => e.id),
-        ),
+        value: _ensureValue(selectedOperatorId, staffMembers.map((e) => e.id)),
         onChanged: onOperatorChanged,
         items: [
           const DropdownMenuItem<String?>(
             value: null,
-            child: Text('Tutti gli operatori'),
+            child: Text(
+              'Tutti gli operatori',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
           ...staffMembers.sortedByDisplayOrder().map(
             (member) => DropdownMenuItem<String?>(
               value: member.id,
-              child: Text(member.fullName),
+              child: Text(
+                member.fullName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ),
         ],
@@ -968,12 +1006,20 @@ class _FiltersBar extends StatelessWidget {
         items: [
           const DropdownMenuItem<String?>(
             value: null,
-            child: Text('Tutte le categorie'),
+            child: Text(
+              'Tutte le categorie',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
           ...categories.map(
             (category) => DropdownMenuItem<String?>(
               value: category.id,
-              child: Text(category.name),
+              child: Text(
+                category.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ),
         ],
@@ -981,17 +1027,28 @@ class _FiltersBar extends StatelessWidget {
       _buildDropdown(
         context: context,
         label: 'Servizio',
-        value: _ensureValue(selectedServiceId, services.map((service) => service.id)),
+        value: _ensureValue(
+          selectedServiceId,
+          services.map((service) => service.id),
+        ),
         onChanged: onServiceChanged,
         items: [
           const DropdownMenuItem<String?>(
             value: null,
-            child: Text('Tutti i servizi'),
+            child: Text(
+              'Tutti i servizi',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
           ..._sortedServices().map(
             (service) => DropdownMenuItem<String?>(
               value: service.id,
-              child: Text(service.name),
+              child: Text(
+                service.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ),
         ],
@@ -999,20 +1056,25 @@ class _FiltersBar extends StatelessWidget {
       _buildDropdown(
         context: context,
         label: 'Canale prenotazione',
-        value: _ensureValue(
-          selectedBookingChannel,
-          bookingChannels,
-        ),
+        value: _ensureValue(selectedBookingChannel, bookingChannels),
         onChanged: onBookingChannelChanged,
         items: [
           const DropdownMenuItem<String?>(
             value: null,
-            child: Text('Tutti i canali'),
+            child: Text(
+              'Tutti i canali',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
           ...bookingChannels.map(
             (channel) => DropdownMenuItem<String?>(
               value: channel,
-              child: Text(_formatChannelLabel(channel)),
+              child: Text(
+                _formatChannelLabel(channel),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ),
         ],
@@ -1021,20 +1083,17 @@ class _FiltersBar extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        return Wrap(
-          spacing: 16,
-          runSpacing: 16,
-          children: controls,
-        );
+        return Wrap(spacing: 16, runSpacing: 16, children: controls);
       },
     );
   }
 
   Widget _buildRangeField(BuildContext context) {
     final theme = Theme.of(context);
-    final label = '${dateFormatter.format(range.start)} → ${dateFormatter.format(range.end)}';
-    return SizedBox(
-      width: 260,
+    final label =
+        '${dateFormatter.format(range.start)} → ${dateFormatter.format(range.end)}';
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 260),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -1056,7 +1115,10 @@ class _FiltersBar extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.calendar_month_rounded, color: theme.colorScheme.primary),
+                Icon(
+                  Icons.calendar_month_rounded,
+                  color: theme.colorScheme.primary,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -1081,23 +1143,22 @@ class _FiltersBar extends StatelessWidget {
     required ValueChanged<String?> onChanged,
   }) {
     final isEnabled = items.length > 1;
-    return SizedBox(
-      width: 220,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 220),
       child: DropdownButtonFormField<String?>(
         value: value,
         items: items,
         onChanged: isEnabled ? onChanged : null,
         decoration: InputDecoration(
           labelText: label,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 16,
             vertical: 12,
           ),
         ),
         icon: const Icon(Icons.keyboard_arrow_down_rounded),
+        isExpanded: true,
         isDense: true,
       ),
     );
@@ -1111,10 +1172,10 @@ class _FiltersBar extends StatelessWidget {
   }
 
   List<Service> _sortedServices() {
-    final list = services.toList()
-      ..sort(
-        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-      );
+    final list =
+        services.toList()..sort(
+          (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+        );
     return list;
   }
 }
@@ -1148,19 +1209,11 @@ List<_TopService> _calculateTopServices(
     ..sort((a, b) => b.revenue.compareTo(a.revenue));
 }
 
-List<_RevenuePoint> _groupRevenueByDate(
+List<_TrendPoint> _groupRevenueByDate(
   List<_FilteredSale> sales,
   DateTimeRange range,
 ) {
-  final bucket = <DateTime, double>{};
-  final startDate =
-      DateTime(range.start.year, range.start.month, range.start.day);
-  final endDate = DateTime(range.end.year, range.end.month, range.end.day);
-  for (var cursor = startDate;
-      !cursor.isAfter(endDate);
-      cursor = cursor.add(const Duration(days: 1))) {
-    bucket[cursor] = 0;
-  }
+  final bucket = _createDailyBucket(range);
   for (final sale in sales) {
     final local = sale.sale.createdAt.toLocal();
     final key = DateTime(local.year, local.month, local.day);
@@ -1169,10 +1222,61 @@ List<_RevenuePoint> _groupRevenueByDate(
     }
     bucket[key] = (bucket[key] ?? 0) + sale.amount;
   }
+  return _mapBucketToTrend(bucket);
+}
+
+List<_TrendPoint> _groupAppointmentsByDate(
+  List<Appointment> appointments,
+  DateTimeRange range,
+) {
+  final bucket = _createDailyBucket(range);
+  for (final appointment in appointments) {
+    final anchor = (appointment.createdAt ?? appointment.start).toLocal();
+    final key = DateTime(anchor.year, anchor.month, anchor.day);
+    if (!bucket.containsKey(key)) {
+      continue;
+    }
+    bucket[key] = (bucket[key] ?? 0) + 1;
+  }
+  return _mapBucketToTrend(bucket);
+}
+
+List<_TrendPoint> _groupClientsByDate(
+  List<Client> clients,
+  DateTimeRange range,
+) {
+  final bucket = _createDailyBucket(range);
+  for (final client in clients) {
+    final raw = client.createdAt ?? client.firstLoginAt ?? client.invitationSentAt;
+    if (raw == null) {
+      continue;
+    }
+    final local = raw.toLocal();
+    final key = DateTime(local.year, local.month, local.day);
+    if (!bucket.containsKey(key)) {
+      continue;
+    }
+    bucket[key] = (bucket[key] ?? 0) + 1;
+  }
+  return _mapBucketToTrend(bucket);
+}
+
+Map<DateTime, double> _createDailyBucket(DateTimeRange range) {
+  final bucket = <DateTime, double>{};
+  var cursor = DateTime(range.start.year, range.start.month, range.start.day);
+  final endDate = DateTime(range.end.year, range.end.month, range.end.day);
+  while (!cursor.isAfter(endDate)) {
+    bucket[cursor] = 0;
+    cursor = cursor.add(const Duration(days: 1));
+  }
+  return bucket;
+}
+
+List<_TrendPoint> _mapBucketToTrend(Map<DateTime, double> bucket) {
   final entries =
       bucket.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
   return entries
-      .map((entry) => _RevenuePoint(date: entry.key, value: entry.value))
+      .map((entry) => _TrendPoint(date: entry.key, value: entry.value))
       .toList(growable: false);
 }
 
@@ -1233,11 +1337,7 @@ class _ReportCard extends StatelessWidget {
             Text(subtitle, style: subtitleStyle),
             if (badges.isNotEmpty) ...[
               const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: badges,
-              ),
+              Wrap(spacing: 8, runSpacing: 8, children: badges),
             ],
             if (onDrillDown != null) ...[
               const SizedBox(height: 12),
@@ -1260,10 +1360,7 @@ class _ReportCard extends StatelessWidget {
 }
 
 class _FilterBadge extends StatelessWidget {
-  const _FilterBadge({
-    required this.label,
-    this.icon,
-  });
+  const _FilterBadge({required this.label, this.icon});
 
   final String label;
   final IconData? icon;
@@ -1323,11 +1420,57 @@ class _TopService {
   final double revenue;
 }
 
-class _RevenuePoint {
-  const _RevenuePoint({required this.date, required this.value});
+class _TrendPoint {
+  const _TrendPoint({required this.date, required this.value});
 
   final DateTime date;
   final double value;
+}
+
+class _TrendCardData {
+  const _TrendCardData({
+    required this.title,
+    required this.points,
+    required this.valueLabelBuilder,
+    required this.tooltipBuilder,
+    required this.emptyMessage,
+    this.emptyDescription,
+    this.emptyActionLabel,
+    this.onEmptyAction,
+  });
+
+  final String title;
+  final List<_TrendPoint> points;
+  final _TrendValueFormatter valueLabelBuilder;
+  final _TrendValueFormatter tooltipBuilder;
+  final String emptyMessage;
+  final String? emptyDescription;
+  final String? emptyActionLabel;
+  final VoidCallback? onEmptyAction;
+}
+
+List<_TrendCardData> _removeRedundantTrendCards(
+  List<_TrendCardData> cards,
+) {
+  const equality = ListEquality<double>();
+  final seenValues = <List<double>>[];
+  final result = <_TrendCardData>[];
+  for (final card in cards) {
+    if (card.points.isEmpty) {
+      result.add(card);
+      continue;
+    }
+    final values =
+        card.points.map((point) => point.value).toList(growable: false);
+    final isDuplicate =
+        seenValues.any((existing) => equality.equals(existing, values));
+    if (isDuplicate) {
+      continue;
+    }
+    seenValues.add(values);
+    result.add(card);
+  }
+  return result;
 }
 
 class _SectionHeader extends StatelessWidget {
@@ -1386,10 +1529,7 @@ class _EmptyState extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    message,
-                    style: theme.textTheme.titleMedium,
-                  ),
+                  Text(message, style: theme.textTheme.titleMedium),
                   if (description != null) ...[
                     const SizedBox(height: 6),
                     Text(
@@ -1399,12 +1539,10 @@ class _EmptyState extends StatelessWidget {
                       ),
                     ),
                   ],
-                  if (onAction != null && (actionLabel?.isNotEmpty ?? false)) ...[
+                  if (onAction != null &&
+                      (actionLabel?.isNotEmpty ?? false)) ...[
                     const SizedBox(height: 12),
-                    TextButton(
-                      onPressed: onAction,
-                      child: Text(actionLabel!),
-                    ),
+                    TextButton(onPressed: onAction, child: Text(actionLabel!)),
                   ],
                 ],
               ),
@@ -1416,86 +1554,429 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-class _RevenueTrendCard extends StatelessWidget {
-  const _RevenueTrendCard({
-    required this.trend,
-    required this.currency,
-    this.onOpenDetails,
+typedef _TrendValueFormatter = String Function(double value);
+
+class _TrendCard extends StatelessWidget {
+  const _TrendCard({
+    required this.title,
+    required this.points,
+    required this.dateFormatter,
+    required this.valueLabelBuilder,
+    required this.tooltipBuilder,
+    required this.emptyMessage,
+    this.emptyDescription,
+    this.emptyActionLabel,
+    this.onEmptyAction,
   });
 
-  final List<_RevenuePoint> trend;
-  final NumberFormat currency;
-  final VoidCallback? onOpenDetails;
+  final String title;
+  final List<_TrendPoint> points;
+  final DateFormat dateFormatter;
+  final _TrendValueFormatter valueLabelBuilder;
+  final _TrendValueFormatter tooltipBuilder;
+  final String emptyMessage;
+  final String? emptyDescription;
+  final String? emptyActionLabel;
+  final VoidCallback? onEmptyAction;
 
   @override
   Widget build(BuildContext context) {
-    final maxValue = trend.fold<double>(
-      0,
-      (prev, point) => math.max(prev, point.value),
-    );
     final theme = Theme.of(context);
+    final hasPoints = points.isNotEmpty;
+    final headlineStyle =
+        (theme.textTheme.headlineMedium ??
+                theme.textTheme.headlineSmall ??
+                theme.textTheme.titleLarge)
+            ?.copyWith(fontWeight: FontWeight.w700, letterSpacing: -0.2);
+    final subtitleStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (onOpenDetails != null) ...[
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: onOpenDetails,
-                  style: TextButton.styleFrom(
-                    padding: EdgeInsets.zero,
-                    minimumSize: const Size(0, 36),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            Text(title, style: theme.textTheme.titleMedium),
+            const SizedBox(height: 12),
+            if (!hasPoints) ...[
+              Text(emptyMessage, style: theme.textTheme.bodyMedium),
+              if (emptyDescription != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  emptyDescription!,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
-                  icon: const Icon(Icons.outbond_rounded, size: 18),
-                  label: const Text('Apri vendite'),
                 ),
+              ],
+              if (onEmptyAction != null &&
+                  (emptyActionLabel?.isNotEmpty ?? false)) ...[
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: onEmptyAction,
+                  child: Text(emptyActionLabel!),
+                ),
+              ],
+            ] else ...[
+              Text(
+                valueLabelBuilder(points.last.value),
+                style: headlineStyle,
               ),
               const SizedBox(height: 4),
-            ],
-            for (final point in trend)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Row(
-                  children: [
-                    SizedBox(
-                      width: 112,
-                      child: Text(
-                        DateFormat('EEE dd MMM', 'it_IT').format(point.date),
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Tooltip(
-                        message: currency.format(point.value),
-                        triggerMode: TooltipTriggerMode.tap,
-                        child: LinearProgressIndicator(
-                          value:
-                              maxValue == 0
-                                  ? 0
-                                  : (point.value / maxValue).clamp(0.0, 1.0),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    SizedBox(
-                      width: 90,
-                      child: Text(
-                        currency.format(point.value),
-                        textAlign: TextAlign.end,
-                      ),
-                    ),
-                  ],
+              Text(
+                'Aggiornato al ${dateFormatter.format(points.last.date)}',
+                style: subtitleStyle,
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 220,
+                child: _TrendChart(
+                  points: points,
+                  dateFormatter: dateFormatter,
+                  valueLabelBuilder: valueLabelBuilder,
+                  tooltipBuilder: tooltipBuilder,
                 ),
               ),
+            ],
           ],
         ),
       ),
     );
+  }
+}
+
+class _TrendChart extends StatelessWidget {
+  const _TrendChart({
+    required this.points,
+    required this.dateFormatter,
+    required this.valueLabelBuilder,
+    required this.tooltipBuilder,
+  });
+
+  final List<_TrendPoint> points;
+  final DateFormat dateFormatter;
+  final _TrendValueFormatter valueLabelBuilder;
+  final _TrendValueFormatter tooltipBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final axisStyle = (theme.textTheme.labelSmall ?? theme.textTheme.bodySmall ??
+            const TextStyle(fontSize: 11))
+        .copyWith(color: theme.colorScheme.onSurfaceVariant.withOpacity(0.78));
+    final lineColor = theme.colorScheme.primary;
+    final pointColor = theme.colorScheme.primary;
+    final gridColor = theme.dividerColor.withOpacity(0.4);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        if (size.width <= 0 || size.height <= 0 || points.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        const leftPadding = 56.0;
+        const rightPadding = 16.0;
+        const topPadding = 16.0;
+        const bottomPadding = 48.0;
+        final chartWidth = size.width - leftPadding - rightPadding;
+        final chartHeight = size.height - topPadding - bottomPadding;
+        if (chartWidth <= 0 || chartHeight <= 0) {
+          return const SizedBox.shrink();
+        }
+
+        final chartRect = Rect.fromLTWH(
+          leftPadding,
+          topPadding,
+          chartWidth,
+          chartHeight,
+        );
+
+        var minValue = points.first.value;
+        var maxValue = points.first.value;
+        for (final point in points.skip(1)) {
+          minValue = math.min(minValue, point.value);
+          maxValue = math.max(maxValue, point.value);
+        }
+        final actualMin = minValue;
+        final actualMax = maxValue;
+
+        if ((maxValue - minValue).abs() < 1e-6) {
+          final padding = maxValue == 0 ? 1 : (maxValue.abs() * 0.1);
+          maxValue += padding;
+          minValue -= padding;
+          if (minValue < 0 && actualMin >= 0) {
+            minValue = 0;
+          }
+        }
+
+        final span = (maxValue - minValue).abs() < 1e-6
+            ? 1
+            : (maxValue - minValue);
+
+        final pointOffsets = <Offset>[];
+        for (var index = 0; index < points.length; index++) {
+          final point = points[index];
+          final ratioX = points.length == 1 ? 0.5 : index / (points.length - 1);
+          final ratioY = ((point.value - minValue) / span).clamp(0.0, 1.0);
+          final dx = chartRect.left + ratioX * chartRect.width;
+          final dy = chartRect.bottom - ratioY * chartRect.height;
+          pointOffsets.add(Offset(dx, dy));
+        }
+
+        final xAxisLabels = _buildXAxisLabels(
+          points: points,
+          chartRect: chartRect,
+          dateFormatter: dateFormatter,
+        );
+        final yAxisLabels = _buildYAxisLabels(
+          chartRect: chartRect,
+          minValue: minValue,
+          maxValue: maxValue,
+          actualMin: actualMin,
+          actualMax: actualMax,
+          valueLabelBuilder: valueLabelBuilder,
+        );
+
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            CustomPaint(
+              size: size,
+              painter: _TrendChartPainter(
+                chartRect: chartRect,
+                points: pointOffsets,
+                lineColor: lineColor,
+                pointColor: pointColor,
+                gridColor: gridColor,
+                axisLabelStyle: axisStyle,
+                xAxisLabels: xAxisLabels,
+                yAxisLabels: yAxisLabels,
+              ),
+            ),
+            for (var i = 0; i < pointOffsets.length; i++)
+              Positioned(
+                left: pointOffsets[i].dx - 12,
+                top: pointOffsets[i].dy - 12,
+                child: Tooltip(
+                  triggerMode: TooltipTriggerMode.tap,
+                  message:
+                      '${dateFormatter.format(points[i].date)} • ${tooltipBuilder(points[i].value)}',
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: Container(
+                      width: 24,
+                      height: 24,
+                      color: Colors.transparent,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _XAxisLabel {
+  const _XAxisLabel({required this.position, required this.text});
+
+  final double position;
+  final String text;
+}
+
+class _YAxisLabel {
+  const _YAxisLabel({required this.position, required this.text});
+
+  final double position;
+  final String text;
+}
+
+List<_XAxisLabel> _buildXAxisLabels({
+  required List<_TrendPoint> points,
+  required Rect chartRect,
+  required DateFormat dateFormatter,
+}) {
+  if (points.isEmpty) {
+    return const [];
+  }
+  final indexes = <int>{};
+  if (points.length <= 4) {
+    indexes.addAll(List<int>.generate(points.length, (index) => index));
+  } else {
+    indexes.addAll({
+      0,
+      math.max(0, (points.length - 1) ~/ 3),
+      math.max(0, ((points.length - 1) * 2) ~/ 3),
+      points.length - 1,
+    });
+  }
+  final sortedIndexes = indexes.toList()..sort();
+  return sortedIndexes
+      .map((index) {
+        final ratio = points.length == 1 ? 0.5 : index / (points.length - 1);
+        final position = chartRect.left + ratio * chartRect.width;
+        final label = dateFormatter.format(points[index].date);
+        return _XAxisLabel(position: position, text: label);
+      })
+      .toList(growable: false);
+}
+
+List<_YAxisLabel> _buildYAxisLabels({
+  required Rect chartRect,
+  required double minValue,
+  required double maxValue,
+  required double actualMin,
+  required double actualMax,
+  required _TrendValueFormatter valueLabelBuilder,
+}) {
+  final span = (maxValue - minValue).abs();
+  if (span <= 1e-6) {
+    final center = chartRect.center.dy;
+    return [
+      _YAxisLabel(
+        position: center,
+        text: valueLabelBuilder(actualMax),
+      ),
+    ];
+  }
+
+  final candidateValues = <double>[actualMax];
+  final midValue = (actualMax + actualMin) / 2;
+  if ((midValue - actualMax).abs() > 1e-6 &&
+      (midValue - actualMin).abs() > 1e-6) {
+    candidateValues.add(midValue);
+  }
+  if ((actualMin - actualMax).abs() > 1e-6) {
+    candidateValues.add(actualMin);
+  }
+
+  final uniqueValues = <double>[];
+  for (final value in candidateValues) {
+    final alreadyPresent =
+        uniqueValues.any((existing) => (existing - value).abs() < 1e-6);
+    if (!alreadyPresent) {
+      uniqueValues.add(value);
+    }
+  }
+  uniqueValues.sort((a, b) => b.compareTo(a));
+
+  return uniqueValues
+      .map((value) {
+        final ratio = ((value - minValue) / (maxValue - minValue)).clamp(0.0, 1.0);
+        final position = chartRect.bottom - ratio * chartRect.height;
+        return _YAxisLabel(
+          position: position,
+          text: valueLabelBuilder(value),
+        );
+      })
+      .toList(growable: false);
+}
+
+class _TrendChartPainter extends CustomPainter {
+  const _TrendChartPainter({
+    required this.chartRect,
+    required this.points,
+    required this.lineColor,
+    required this.pointColor,
+    required this.gridColor,
+    required this.axisLabelStyle,
+    required this.xAxisLabels,
+    required this.yAxisLabels,
+  });
+
+  final Rect chartRect;
+  final List<Offset> points;
+  final Color lineColor;
+  final Color pointColor;
+  final Color gridColor;
+  final TextStyle axisLabelStyle;
+  final List<_XAxisLabel> xAxisLabels;
+  final List<_YAxisLabel> yAxisLabels;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final axisPaint = Paint()
+      ..color = gridColor.withOpacity(0.9)
+      ..strokeWidth = 1;
+    final gridPaint = Paint()
+      ..color = gridColor
+      ..strokeWidth = 1;
+
+    for (final label in yAxisLabels) {
+      final y = label.position;
+      if ((y - chartRect.bottom).abs() < 0.5 ||
+          (y - chartRect.top).abs() < 0.5) {
+        continue;
+      }
+      canvas.drawLine(
+        Offset(chartRect.left, y),
+        Offset(chartRect.right, y),
+        gridPaint,
+      );
+    }
+
+    canvas.drawLine(chartRect.bottomLeft, chartRect.bottomRight, axisPaint);
+    canvas.drawLine(chartRect.bottomLeft, chartRect.topLeft, axisPaint);
+
+    if (points.length >= 2) {
+      final path = Path()..moveTo(points.first.dx, points.first.dy);
+      for (var i = 1; i < points.length; i++) {
+        path.lineTo(points[i].dx, points[i].dy);
+      }
+      final linePaint = Paint()
+        ..color = lineColor
+        ..strokeWidth = 2.2
+        ..style = PaintingStyle.stroke
+        ..strokeJoin = StrokeJoin.round
+        ..strokeCap = StrokeCap.round;
+      canvas.drawPath(path, linePaint);
+    }
+
+    final pointFill = Paint()
+      ..color = pointColor
+      ..style = PaintingStyle.fill;
+    final pointStroke = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+
+    for (final point in points) {
+      canvas.drawCircle(point, 4, pointFill);
+      canvas.drawCircle(point, 4, pointStroke);
+    }
+
+    for (final label in xAxisLabels) {
+      final textPainter = TextPainter(
+        text: TextSpan(text: label.text, style: axisLabelStyle),
+        textDirection: ui.TextDirection.ltr,
+      )..layout();
+      final offset = Offset(
+        label.position - textPainter.width / 2,
+        chartRect.bottom + 6,
+      );
+      textPainter.paint(canvas, offset);
+    }
+
+    for (final label in yAxisLabels) {
+      final textPainter = TextPainter(
+        text: TextSpan(text: label.text, style: axisLabelStyle),
+        textDirection: ui.TextDirection.ltr,
+      )..layout();
+      final offset = Offset(
+        chartRect.left - 8 - textPainter.width,
+        label.position - textPainter.height / 2,
+      );
+      textPainter.paint(canvas, offset);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _TrendChartPainter oldDelegate) {
+    return true;
   }
 }
 
@@ -1655,8 +2136,10 @@ class _ReportSummary {
     required List<Appointment> appointments,
     required List<Client> clients,
   }) {
-    final totalRevenue =
-        sales.fold<double>(0, (sum, entry) => sum + entry.amount);
+    final totalRevenue = sales.fold<double>(
+      0,
+      (sum, entry) => sum + entry.amount,
+    );
     final salesCount = sales.length;
     final averageTicket = salesCount == 0 ? 0 : totalRevenue / salesCount;
     final newClients = clients.length;

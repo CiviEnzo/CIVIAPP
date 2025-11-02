@@ -60,3 +60,18 @@ Flag utili:
 
 - `--dryRun` mostra le modifiche senza applicarle.
 - `--force` sovrascrive anche i saloni già configurati (di default vengono saltati).
+
+## Backfill createdAt/city clienti
+
+Per normalizzare i documenti `clients` aggiungendo `createdAt` dove mancante e valorizzando `city` a partire da dati esistenti usa:
+
+```bash
+node functions/scripts/backfill_clients_created_at_city.js [--salonIds=salon-001,salon-002] [--clientIds=client-001,client-002] [--batchSize=500] [--dryRun]
+```
+
+Parametri utili:
+
+- `--salonIds`: limita l'esecuzione ai clienti dei saloni indicati.
+- `--clientIds`: processa solo gli ID specificati (salta l'iterazione completa).
+- `--batchSize`: numero di documenti letti per batch (default 500).
+- `--dryRun`: logga gli aggiornamenti senza scriverli su Firestore.

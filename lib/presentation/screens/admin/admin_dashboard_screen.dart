@@ -3,6 +3,7 @@ import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/presentation/common/theme_mode_action.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/clients_module.dart';
+import 'package:you_book/presentation/screens/admin/modules/client_app_movements_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/inventory_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/messages_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/overview_module.dart';
@@ -71,6 +72,14 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       title: 'Clienti',
       icon: Icons.people_alt_rounded,
       builder: (context, ref, salonId) => ClientsModule(salonId: salonId),
+    ),
+    AdminModuleDefinition(
+      id: 'app_movements',
+      title: 'Movimenti App',
+      icon: Icons.timeline_rounded,
+      builder:
+          (context, ref, salonId) =>
+              ClientAppMovementsModule(salonId: salonId),
     ),
     AdminModuleDefinition(
       id: 'appointments',
@@ -295,25 +304,46 @@ class _RailNavigationState extends State<_RailNavigation> {
       builder: (context, constraints) {
         const double destinationExtent = 72;
         const double extraHeight = 128;
+        final railTheme = theme.copyWith(
+          splashFactory: NoSplash.splashFactory,
+          highlightColor: Colors.transparent,
+          splashColor: Colors.transparent,
+        );
         final requiredHeight =
             widget.modules.length * destinationExtent + extraHeight;
-        final rail = NavigationRail(
-          selectedIndex: widget.selectedIndex,
-          onDestinationSelected: widget.onSelect,
-          labelType: NavigationRailLabelType.all,
-          leading: Padding(
-            padding: const EdgeInsets.only(top: 16),
-            child: Text('Moduli', style: theme.textTheme.titleMedium),
+        final rail = Theme(
+          data: railTheme,
+          child: NavigationRail(
+            selectedIndex: widget.selectedIndex,
+            onDestinationSelected: widget.onSelect,
+            useIndicator: false,
+            labelType: NavigationRailLabelType.all,
+            leading: Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: Text('Moduli', style: theme.textTheme.titleMedium),
+            ),
+            destinations:
+                widget.modules
+                    .map(
+                      (module) => NavigationRailDestination(
+                        icon: _adminNavigationIcon(
+                          context,
+                          icon: module.icon,
+                          selected: false,
+                        ),
+                        selectedIcon: _adminNavigationIcon(
+                          context,
+                          icon: module.icon,
+                          selected: true,
+                        ),
+                        label: Text(
+                          module.title,
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    )
+                    .toList(),
           ),
-          destinations:
-              widget.modules
-                  .map(
-                    (module) => NavigationRailDestination(
-                      icon: Icon(module.icon),
-                      label: Text(module.title, textAlign: TextAlign.center),
-                    ),
-                  )
-                  .toList(),
         );
 
         if (constraints.maxHeight.isFinite &&
@@ -351,19 +381,85 @@ class _DrawerNavigation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView.builder(
-      itemCount: modules.length,
-      itemBuilder: (context, index) {
-        final module = modules[index];
-        return ListTile(
-          leading: Icon(module.icon),
-          title: Text(module.title),
-          selected: selectedIndex == index,
-          onTap: () => onSelect(index),
-        );
-      },
+    final baseTheme = Theme.of(context);
+    final colorScheme = baseTheme.colorScheme;
+    final navigationTheme = baseTheme.copyWith(
+      splashFactory: NoSplash.splashFactory,
+      highlightColor: Colors.transparent,
+      splashColor: Colors.transparent,
+    );
+    return Theme(
+      data: navigationTheme,
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        itemCount: modules.length,
+        itemBuilder: (context, index) {
+          final module = modules[index];
+          final selected = selectedIndex == index;
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: ListTile(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              tileColor:
+                  selected
+                      ? colorScheme.surfaceContainerHighest.withOpacity(0.6)
+                      : Colors.transparent,
+              selectedTileColor:
+                  colorScheme.surfaceContainerHighest.withOpacity(0.6),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              leading: _adminNavigationIcon(
+                context,
+                icon: module.icon,
+                selected: selected,
+              ),
+              title: Text(
+                module.title,
+                style: baseTheme.textTheme.bodyLarge?.copyWith(
+                  color: selected ? colorScheme.primary : colorScheme.onSurface,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                ),
+              ),
+              onTap: () => onSelect(index),
+              selected: selected,
+            ),
+          );
+        },
+      ),
     );
   }
+}
+
+Widget _adminNavigationIcon(
+  BuildContext context, {
+  required IconData icon,
+  required bool selected,
+}) {
+  final scheme = Theme.of(context).colorScheme;
+
+  if (!selected) {
+    return Icon(icon, size: 24, color: scheme.onSurfaceVariant);
+  }
+
+  return DecoratedBox(
+    decoration: BoxDecoration(
+      shape: BoxShape.circle,
+      color: scheme.primary,
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x33000000),
+          blurRadius: 16,
+          offset: Offset(0, 8),
+        ),
+      ],
+    ),
+    child: Padding(
+      padding: const EdgeInsets.all(8),
+      child: Icon(icon, size: 24, color: scheme.onPrimary),
+    ),
+  );
 }
 
 class _SalonSelector extends ConsumerWidget {

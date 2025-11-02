@@ -5610,8 +5610,17 @@ class _AppointmentCard extends StatelessWidget {
                 .toList()
             : const <String>[];
     final needsAttention = hasAnomalies || isCancelled;
+    final highlightCompactAttention = hideContent && needsAttention;
     final borderColor =
-        hasAnomalies
+        highlightCompactAttention
+            ? (
+                hasAnomalies
+                    ? theme.colorScheme.error
+                    : theme.colorScheme.secondary.withValues(
+                      alpha: theme.brightness == Brightness.dark ? 0.9 : 0.8,
+                    )
+              )
+            : hasAnomalies
             ? theme.colorScheme.error.withValues(
               alpha: theme.brightness == Brightness.dark ? 0.85 : 0.75,
             )
@@ -5625,7 +5634,9 @@ class _AppointmentCard extends StatelessWidget {
             ? theme.colorScheme.primary.withValues(alpha: 0.45)
             : baseBorder;
     final borderWidth =
-        needsAttention
+        highlightCompactAttention
+            ? 2.5
+            : needsAttention
             ? 2.0
             : isLocked
             ? 1.5
@@ -5682,6 +5693,17 @@ class _AppointmentCard extends StatelessWidget {
           }
 
           if (hidePastCompletedContent) {
+            if (hideContent) {
+              return Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  timeLabel,
+                  style: theme.textTheme.bodySmall,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              );
+            }
             final IconData iconData;
             final Color iconColor;
             if (isNoShow) {
@@ -5837,7 +5859,7 @@ class _AppointmentCard extends StatelessWidget {
     );
 
     final overlayWidgets = <Widget>[];
-    if (hasOutstandingPayments) {
+    if (hasOutstandingPayments && !hideContent) {
       final outstandingBackground = theme.colorScheme.tertiaryContainer;
       final outstandingIconColor = theme.colorScheme.onTertiaryContainer;
       final outstandingShadow = theme.colorScheme.tertiary.withValues(

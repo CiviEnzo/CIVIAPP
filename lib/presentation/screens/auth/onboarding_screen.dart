@@ -31,6 +31,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final _lastNameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
+  final _cityController = TextEditingController();
   final _professionController = TextEditingController();
   String? _referralSource;
   final _dateOfBirthController = TextEditingController();
@@ -49,6 +50,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _lastNameController.dispose();
     _phoneController.dispose();
     _addressController.dispose();
+    _cityController.dispose();
     _professionController.dispose();
     _dateOfBirthController.dispose();
     _salonSearchController.dispose();
@@ -154,13 +156,17 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           existingClient.phone != '-') {
         _phoneController.text = existingClient.phone;
       }
-      if (_addressController.text.isEmpty) {
+      if (_cityController.text.isEmpty) {
         final existingCity = existingClient.city;
         if (existingCity != null && existingCity.isNotEmpty) {
-          _addressController.text = existingCity;
+          _cityController.text = existingCity;
         } else if (existingClient.address?.isNotEmpty ?? false) {
-          _addressController.text = existingClient.address!;
+          _cityController.text = existingClient.address!;
         }
+      }
+      if (_addressController.text.isEmpty &&
+          (existingClient.address?.isNotEmpty ?? false)) {
+        _addressController.text = existingClient.address!;
       }
       if (_professionController.text.isEmpty &&
           (existingClient.profession?.isNotEmpty ?? false)) {
@@ -252,10 +258,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           (request) => request.salonId != userPendingSalonId,
         )) {
       final syntheticExtra = <String, dynamic>{};
+      final syntheticCity = _cityController.text.trim();
+      if (syntheticCity.isNotEmpty) {
+        syntheticExtra['city'] = syntheticCity;
+      }
       final syntheticAddress = _addressController.text.trim();
       if (syntheticAddress.isNotEmpty) {
         syntheticExtra['address'] = syntheticAddress;
-        syntheticExtra['city'] = syntheticAddress;
       }
       final syntheticProfession = _professionController.text.trim();
       if (syntheticProfession.isNotEmpty) {
@@ -820,11 +829,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     if (requiresAddress) {
       addField(
         TextFormField(
-          controller: _addressController,
+          controller: _cityController,
           decoration: const InputDecoration(
             labelText: 'Citta di residenza *',
             border: OutlineInputBorder(),
           ),
+          textCapitalization: TextCapitalization.words,
           minLines: 1,
           maxLines: 2,
           validator: (value) {
@@ -833,6 +843,18 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             }
             return null;
           },
+        ),
+      );
+      addField(
+        TextFormField(
+          controller: _addressController,
+          decoration: const InputDecoration(
+            labelText: 'Indirizzo (opzionale)',
+            border: OutlineInputBorder(),
+          ),
+          textCapitalization: TextCapitalization.sentences,
+          minLines: 1,
+          maxLines: 2,
         ),
       );
     }
@@ -964,11 +986,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     return options;
   }
 
-  bool _canAutoSubmit(
-    UserRole? role,
-    AppUser? user,
-    List<PublicSalon> salons,
-  ) {
+  bool _canAutoSubmit(UserRole? role, AppUser? user, List<PublicSalon> salons) {
     if (role == null) {
       return false;
     }
@@ -997,7 +1015,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       if (registrationSettings.extraFields.contains(
         ClientRegistrationExtraField.address,
       )) {
-        if (_addressController.text.trim().isEmpty) {
+        if (_cityController.text.trim().isEmpty) {
           return false;
         }
       }
@@ -1065,7 +1083,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       if (registrationSettings.extraFields.contains(
         ClientRegistrationExtraField.address,
       )) {
-        if (_addressController.text.trim().isEmpty) {
+        if (_cityController.text.trim().isEmpty) {
           _showMessage('Inserisci la città di residenza.');
           return;
         }
@@ -1195,6 +1213,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     sanitizedExistingPhone ??
                     _phoneController.text)
                 .trim();
+        final city = _cityController.text.trim();
         final address = _addressController.text.trim();
         final profession = _professionController.text.trim();
         final referral = (_referralSource ?? '').trim();
@@ -1205,9 +1224,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             _dateOfBirth;
 
         final extraData = <String, dynamic>{};
+        if (city.isNotEmpty) {
+          extraData['city'] = city;
+        }
         if (address.isNotEmpty) {
           extraData['address'] = address;
-          extraData['city'] = address;
         }
         if (profession.isNotEmpty) {
           extraData['profession'] = profession;

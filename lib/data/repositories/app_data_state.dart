@@ -3,6 +3,7 @@ import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/appointment_day_checklist.dart';
 import 'package:you_book/domain/entities/cash_flow_entry.dart';
 import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/domain/entities/client_app_movement.dart';
 import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
 import 'package:you_book/domain/entities/client_photo_collage.dart';
@@ -55,6 +56,7 @@ class AppDataState {
     required this.clientPhotoCollages,
     required this.clientQuestionnaireTemplates,
     required this.clientQuestionnaires,
+    required this.clientAppMovements,
     required this.promotions,
     required this.lastMinuteSlots,
     required this.salonAccessRequests,
@@ -90,6 +92,7 @@ class AppDataState {
       clientPhotoCollages: [],
       clientQuestionnaireTemplates: [],
       clientQuestionnaires: [],
+      clientAppMovements: [],
       promotions: [],
       lastMinuteSlots: [],
       salonAccessRequests: [],
@@ -124,6 +127,7 @@ class AppDataState {
   final List<ClientPhotoCollage> clientPhotoCollages;
   final List<ClientQuestionnaireTemplate> clientQuestionnaireTemplates;
   final List<ClientQuestionnaire> clientQuestionnaires;
+  final List<ClientAppMovement> clientAppMovements;
   final List<Promotion> promotions;
   final List<LastMinuteSlot> lastMinuteSlots;
   final List<SalonAccessRequest> salonAccessRequests;
@@ -157,6 +161,7 @@ class AppDataState {
     List<ClientPhotoCollage>? clientPhotoCollages,
     List<ClientQuestionnaireTemplate>? clientQuestionnaireTemplates,
     List<ClientQuestionnaire>? clientQuestionnaires,
+    List<ClientAppMovement>? clientAppMovements,
     List<Promotion>? promotions,
     List<LastMinuteSlot>? lastMinuteSlots,
     List<SalonAccessRequest>? salonAccessRequests,
@@ -191,6 +196,7 @@ class AppDataState {
       clientQuestionnaireTemplates:
           clientQuestionnaireTemplates ?? this.clientQuestionnaireTemplates,
       clientQuestionnaires: clientQuestionnaires ?? this.clientQuestionnaires,
+      clientAppMovements: clientAppMovements ?? this.clientAppMovements,
       promotions: promotions ?? this.promotions,
       lastMinuteSlots: lastMinuteSlots ?? this.lastMinuteSlots,
       salonAccessRequests: salonAccessRequests ?? this.salonAccessRequests,

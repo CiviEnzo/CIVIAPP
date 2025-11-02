@@ -4,6 +4,7 @@ import 'package:you_book/domain/entities/appointment_day_checklist.dart';
 import 'package:you_book/domain/entities/cash_flow_entry.dart';
 import 'package:you_book/domain/entities/app_notification.dart';
 import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/domain/entities/client_app_movement.dart';
 import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
 import 'package:you_book/domain/entities/client_photo_collage.dart';
@@ -264,9 +265,7 @@ Map<String, dynamic> salonToMap(Salon salon) {
   return map;
 }
 
-PublicSalon publicSalonFromDoc(
-  DocumentSnapshot<Map<String, dynamic>> doc,
-) {
+PublicSalon publicSalonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final data = doc.data() ?? <String, dynamic>{};
   return PublicSalon.fromMap(doc.id, data);
 }
@@ -533,9 +532,7 @@ LastMinuteSlot lastMinuteSlotFromDoc(
     windowEnd: _coerceToDateTime(data['windowEnd']),
     bookedClientId: data['bookedClientId'] as String?,
     bookedClientName: data['bookedClientName'] as String?,
-    paymentMode: lastMinutePaymentModeFromName(
-      data['paymentMode'] as String?,
-    ),
+    paymentMode: lastMinutePaymentModeFromName(data['paymentMode'] as String?),
   );
 }
 
@@ -977,11 +974,9 @@ Client clientFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
       data['channelPreferences'] as Map<String, dynamic>?;
   final fcmTokensRaw = data['fcmTokens'] as List<dynamic>?;
   final rawCity = data['city'];
-  final normalizedCity =
-      rawCity is String ? rawCity.trim() : '';
+  final normalizedCity = rawCity is String ? rawCity.trim() : '';
   final rawAddress = data['address'];
-  final normalizedAddress =
-      rawAddress is String ? rawAddress.trim() : '';
+  final normalizedAddress = rawAddress is String ? rawAddress.trim() : '';
 
   return Client(
     id: doc.id,
@@ -1738,6 +1733,8 @@ Map<String, dynamic> publicAppointmentToMap(Appointment appointment) {
     'status': appointment.status.name,
     'roomId': appointment.roomId,
     'lastMinuteSlotId': appointment.lastMinuteSlotId,
+    if (appointment.bookingChannel != null)
+      'bookingChannel': appointment.bookingChannel,
     'createdAt':
         appointment.createdAt != null
             ? Timestamp.fromDate(appointment.createdAt!)
@@ -1836,9 +1833,7 @@ Sale saleFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final metadata =
       metadataRaw is Map
           ? Map<String, dynamic>.from(
-            metadataRaw.map(
-              (key, value) => MapEntry(key.toString(), value),
-            ),
+            metadataRaw.map((key, value) => MapEntry(key.toString(), value)),
           )
           : const <String, dynamic>{};
 
@@ -2607,6 +2602,52 @@ AppNotification appNotificationFromDoc(
             ? readAtRaw.toDate()
             : (readAtRaw is DateTime ? readAtRaw : null),
   );
+}
+
+ClientAppMovement clientAppMovementFromDoc(
+  DocumentSnapshot<Map<String, dynamic>> doc,
+) {
+  final data = doc.data() ?? <String, dynamic>{};
+  final type =
+      clientAppMovementTypeFromName(data['type'] as String?) ??
+      ClientAppMovementType.registration;
+  return ClientAppMovement(
+    id: doc.id,
+    salonId: data['salonId'] as String? ?? '',
+    clientId: data['clientId'] as String? ?? '',
+    type: type,
+    timestamp: _timestampToDate(data['timestamp']) ?? DateTime.now(),
+    source: data['source'] as String?,
+    channel: data['channel'] as String?,
+    label: data['label'] as String?,
+    description: data['description'] as String?,
+    appointmentId: data['appointmentId'] as String?,
+    saleId: data['saleId'] as String?,
+    lastMinuteSlotId: data['lastMinuteSlotId'] as String?,
+    createdBy: data['createdBy'] as String?,
+    metadata: _mapFromDynamic(data['metadata']),
+  );
+}
+
+Map<String, dynamic> clientAppMovementToMap(ClientAppMovement movement) {
+  final map = <String, dynamic>{
+    'salonId': movement.salonId,
+    'clientId': movement.clientId,
+    'type': movement.type.name,
+    'timestamp': Timestamp.fromDate(movement.timestamp),
+    if (movement.source != null) 'source': movement.source,
+    if (movement.channel != null) 'channel': movement.channel,
+    if (movement.label != null) 'label': movement.label,
+    if (movement.description != null) 'description': movement.description,
+    if (movement.appointmentId != null)
+      'appointmentId': movement.appointmentId,
+    if (movement.saleId != null) 'saleId': movement.saleId,
+    if (movement.lastMinuteSlotId != null)
+      'lastMinuteSlotId': movement.lastMinuteSlotId,
+    if (movement.createdBy != null) 'createdBy': movement.createdBy,
+    if (movement.metadata.isNotEmpty) 'metadata': movement.metadata,
+  };
+  return map;
 }
 
 Shift shiftFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {

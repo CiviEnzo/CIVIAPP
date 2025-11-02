@@ -41,6 +41,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
   late TextEditingController _loyaltyPoints;
   late TextEditingController _clientNumber;
   late TextEditingController _address;
+  late TextEditingController _city;
   late TextEditingController _profession;
   String? _referralSource;
   late TextEditingController _dateOfBirthDisplay;
@@ -97,9 +98,11 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
       _clientNumber.text = _pendingClientNumberDisplay;
     }
     _refreshClientNumberForSalon(_salonId);
-    _address = TextEditingController(
-      text: initial?.city ?? initial?.address ?? '',
-    );
+    final initialAddress = initial?.address ?? '';
+    final initialCity =
+        initial?.city ?? (initialAddress.isNotEmpty ? initialAddress : '');
+    _address = TextEditingController(text: initialAddress);
+    _city = TextEditingController(text: initialCity);
     _profession = TextEditingController(text: initial?.profession ?? '');
     _referralSource = initial?.referralSource;
     _dateOfBirth = initial?.dateOfBirth;
@@ -129,6 +132,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     _loyaltyPoints.dispose();
     _clientNumber.dispose();
     _address.dispose();
+    _city.dispose();
     _profession.dispose();
     _dateOfBirthDisplay.dispose();
     super.dispose();
@@ -339,6 +343,15 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
             ),
             TextFormField(
               controller: _address,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                labelText: 'Indirizzo (opzionale)',
+              ),
+              textInputAction: TextInputAction.next,
+            ),
+            TextFormField(
+              controller: _city,
+              textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(
                 labelText: 'Città di residenza',
               ),
@@ -559,7 +572,8 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     final trimmedLastName = _lastName.text.trim();
     final trimmedPhone = _phone.text.trim();
     final trimmedEmail = _email.text.trim();
-    final trimmedCity = _address.text.trim();
+    final trimmedAddress = _address.text.trim();
+    final trimmedCity = _city.text.trim();
     final trimmedProfession = _profession.text.trim();
     final trimmedNotes = _notes.text.trim();
     final referral = _referralSource?.trim();
@@ -587,7 +601,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
           lastName: trimmedLastName,
           phone: trimmedPhone,
           email: trimmedEmail,
-          address: trimmedCity,
+          address: trimmedAddress,
           city: trimmedCity,
           profession: trimmedProfession,
           referralSource: referral,
@@ -634,6 +648,24 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     final int loyaltyTotalEarned = existing?.loyaltyTotalEarned ?? 0;
     final int loyaltyTotalRedeemed = existing?.loyaltyTotalRedeemed ?? 0;
 
+    final normalizedCity =
+        trimmedCity.isNotEmpty
+            ? trimmedCity
+            : () {
+              final existingCity = existing?.city?.trim();
+              if (existingCity != null && existingCity.isNotEmpty) {
+                return existingCity;
+              }
+              final existingAddress = existing?.address?.trim();
+              if (existingAddress != null && existingAddress.isNotEmpty) {
+                return existingAddress;
+              }
+              if (trimmedAddress.isNotEmpty) {
+                return trimmedAddress;
+              }
+              return null;
+            }();
+
     final client = Client(
       id: existing?.id ?? _uuid.v4(),
       salonId: salonId,
@@ -641,11 +673,8 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
       lastName: trimmedLastName,
       phone: trimmedPhone,
       dateOfBirth: _dateOfBirth,
-      address: trimmedCity.isEmpty ? null : trimmedCity,
-      city:
-          trimmedCity.isNotEmpty
-              ? trimmedCity
-              : (existing?.city ?? existing?.address),
+      address: trimmedAddress.isEmpty ? null : trimmedAddress,
+      city: normalizedCity,
       profession: trimmedProfession.isEmpty ? null : trimmedProfession,
       referralSource: referral == null || referral.isEmpty ? null : referral,
       email: trimmedEmail,
@@ -765,6 +794,8 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     required String notes,
     required DateTime? dateOfBirth,
   }) {
+    final sanitizedAddress = address.trim();
+    final sanitizedCity = city.trim();
     final mergedNotes = <String>[];
     final existingNotes = existing.notes?.trim();
     if (existingNotes != null && existingNotes.isNotEmpty) {
@@ -779,8 +810,25 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
       lastName: lastName.isNotEmpty ? lastName : existing.lastName,
       phone: phone.isNotEmpty ? phone : existing.phone,
       email: email.isNotEmpty ? email : existing.email,
-      address: address.isNotEmpty ? address : existing.address,
-      city: city.isNotEmpty ? city : (existing.city ?? existing.address),
+      address:
+          sanitizedAddress.isNotEmpty ? sanitizedAddress : existing.address,
+      city:
+          sanitizedCity.isNotEmpty
+              ? sanitizedCity
+              : () {
+                final existingCity = existing.city?.trim();
+                if (existingCity != null && existingCity.isNotEmpty) {
+                  return existingCity;
+                }
+                final existingAddress = existing.address?.trim();
+                if (existingAddress != null && existingAddress.isNotEmpty) {
+                  return existingAddress;
+                }
+                if (sanitizedAddress.isNotEmpty) {
+                  return sanitizedAddress;
+                }
+                return existing.city;
+              }(),
       profession: profession.isNotEmpty ? profession : existing.profession,
       referralSource:
           referralSource != null && referralSource.isNotEmpty

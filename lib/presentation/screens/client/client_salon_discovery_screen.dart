@@ -383,8 +383,8 @@ class _ClientSalonDiscoveryScreenState
         '';
     final initialEmail =
         registrationDraft?.email ?? existingClient?.email ?? user?.email ?? '';
-    final initialAddress =
-        existingClient?.city ?? existingClient?.address ?? '';
+    final initialCity = existingClient?.city ?? existingClient?.address ?? '';
+    final initialAddress = existingClient?.address ?? '';
     final initialProfession = existingClient?.profession ?? '';
     final initialNotes = existingClient?.notes ?? '';
     final initialReferral = existingClient?.referralSource ?? '';
@@ -406,6 +406,7 @@ class _ClientSalonDiscoveryScreenState
               initialLastName: initialLastName,
               initialEmail: initialEmail,
               initialPhone: initialPhone,
+              initialCity: initialCity,
               initialAddress: initialAddress,
               initialProfession: initialProfession,
               initialReferralSource: initialReferral,
@@ -619,7 +620,8 @@ class _ClientSalonDiscoveryScreenState
         );
         sessionController.updateUser(updatedUser);
       } else if (currentUid.isNotEmpty) {
-        final baseUser = sessionState.user ??
+        final baseUser =
+            sessionState.user ??
             AppUser.placeholder(
               currentUid,
               email: resolvedEmailFallback,
@@ -1112,6 +1114,7 @@ class _SalonAccessRequestSheet extends ConsumerStatefulWidget {
     required this.initialLastName,
     required this.initialEmail,
     required this.initialPhone,
+    required this.initialCity,
     required this.initialAddress,
     required this.initialProfession,
     required this.initialReferralSource,
@@ -1125,6 +1128,7 @@ class _SalonAccessRequestSheet extends ConsumerStatefulWidget {
   final String initialLastName;
   final String initialEmail;
   final String initialPhone;
+  final String initialCity;
   final String initialAddress;
   final String initialProfession;
   final String initialReferralSource;
@@ -1143,6 +1147,7 @@ class _SalonAccessRequestSheetState
   late final TextEditingController _lastNameController;
   late final TextEditingController _emailController;
   late final TextEditingController _phoneController;
+  late final TextEditingController _cityController;
   late final TextEditingController _addressController;
   late final TextEditingController _professionController;
   late final TextEditingController _notesController;
@@ -1159,6 +1164,11 @@ class _SalonAccessRequestSheetState
     _lastNameController = TextEditingController(text: widget.initialLastName);
     _emailController = TextEditingController(text: widget.initialEmail);
     _phoneController = TextEditingController(text: widget.initialPhone);
+    final resolvedCity =
+        widget.initialCity.isNotEmpty
+            ? widget.initialCity
+            : (widget.initialAddress.isNotEmpty ? widget.initialAddress : '');
+    _cityController = TextEditingController(text: resolvedCity);
     _addressController = TextEditingController(text: widget.initialAddress);
     _professionController = TextEditingController(
       text: widget.initialProfession,
@@ -1182,6 +1192,7 @@ class _SalonAccessRequestSheetState
     _lastNameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
+    _cityController.dispose();
     _addressController.dispose();
     _professionController.dispose();
     _notesController.dispose();
@@ -1323,8 +1334,8 @@ class _SalonAccessRequestSheetState
                 if (requiresAddress) ...[
                   const SizedBox(height: 12),
                   TextFormField(
-                    controller: _addressController,
-                    textCapitalization: TextCapitalization.sentences,
+                    controller: _cityController,
+                    textCapitalization: TextCapitalization.words,
                     decoration: const InputDecoration(
                       labelText: 'Città di residenza',
                     ),
@@ -1334,6 +1345,14 @@ class _SalonAccessRequestSheetState
                       }
                       return null;
                     },
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _addressController,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      labelText: 'Indirizzo (opzionale)',
+                    ),
                   ),
                 ],
                 if (requiresProfession) ...[
@@ -1446,9 +1465,13 @@ class _SalonAccessRequestSheetState
     final email = _emailController.text.trim();
     final phone = _phoneController.text.trim();
     final extraData = <String, dynamic>{};
-    if (_addressController.text.trim().isNotEmpty) {
-      extraData['address'] = _addressController.text.trim();
-      extraData['city'] = _addressController.text.trim();
+    final city = _cityController.text.trim();
+    final address = _addressController.text.trim();
+    if (city.isNotEmpty) {
+      extraData['city'] = city;
+    }
+    if (address.isNotEmpty) {
+      extraData['address'] = address;
     }
     if (_professionController.text.trim().isNotEmpty) {
       extraData['profession'] = _professionController.text.trim();

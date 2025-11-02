@@ -2,6 +2,7 @@ import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/appointment_day_checklist.dart';
 import 'package:you_book/domain/entities/cash_flow_entry.dart';
 import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/domain/entities/client_app_movement.dart';
 import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
 import 'package:you_book/domain/entities/client_photo_collage.dart';
@@ -1247,6 +1248,66 @@ class MockData {
             appointment.copyWith(clientId: '', notes: null, packageId: null),
       )
       .toList(growable: false);
+
+  static final clientAppMovements = <ClientAppMovement>[
+    ClientAppMovement(
+      id: 'app-mov-001',
+      salonId: 'salon-001',
+      clientId: 'client-001',
+      type: ClientAppMovementType.registration,
+      timestamp: _now.subtract(const Duration(days: 6, hours: 2)),
+      source: 'app',
+      channel: 'ios',
+      description: 'Registrazione completata dall\'app iOS.',
+    ),
+    ClientAppMovement(
+      id: 'app-mov-002',
+      salonId: 'salon-001',
+      clientId: 'client-001',
+      type: ClientAppMovementType.appointmentCreated,
+      timestamp: _now.subtract(const Duration(days: 1, hours: 5)),
+      appointmentId: 'app-002',
+      description: 'Prenotazione autonoma da parte del cliente.',
+      metadata: const {'bookingChannel': 'app'},
+    ),
+    ClientAppMovement(
+      id: 'app-mov-003',
+      salonId: 'salon-001',
+      clientId: 'client-002',
+      type: ClientAppMovementType.appointmentCancelled,
+      timestamp: _now.subtract(const Duration(hours: 18)),
+      appointmentId: 'app-004',
+      description: 'Annullamento effettuato via app mobile.',
+    ),
+    ClientAppMovement(
+      id: 'app-mov-004',
+      salonId: 'salon-001',
+      clientId: 'client-002',
+      type: ClientAppMovementType.purchase,
+      timestamp: _now.subtract(const Duration(hours: 6)),
+      saleId: 'sale-001',
+      description: 'Acquisto completato con carta salvata.',
+      metadata: const {'paymentMethod': 'card'},
+    ),
+    ClientAppMovement(
+      id: 'app-mov-005',
+      salonId: 'salon-001',
+      clientId: 'client-003',
+      type: ClientAppMovementType.reviewClick,
+      timestamp: _now.subtract(const Duration(hours: 3, minutes: 30)),
+      description: 'Il cliente ha aperto la pagina Google Reviews.',
+    ),
+    ClientAppMovement(
+      id: 'app-mov-006',
+      salonId: 'salon-001',
+      clientId: 'client-001',
+      type: ClientAppMovementType.lastMinutePurchase,
+      timestamp: _now.subtract(const Duration(hours: 2)),
+      lastMinuteSlotId: 'lm-slot-001',
+      description: 'Prenotazione last minute confermata.',
+      metadata: const {'price': 29.25},
+    ),
+  ];
 
   static final quotes = <Quote>[
     Quote(

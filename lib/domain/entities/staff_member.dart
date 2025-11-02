@@ -48,6 +48,20 @@ class StaffMember {
     return parts.join(' ');
   }
 
+  String get displayName {
+    final name = fullName.trim();
+    if (name.isNotEmpty) {
+      return name;
+    }
+    if (firstName.trim().isNotEmpty) {
+      return firstName.trim();
+    }
+    if (lastName.trim().isNotEmpty) {
+      return lastName.trim();
+    }
+    return 'Staff member';
+  }
+
   StaffMember copyWith({
     String? id,
     String? salonId,

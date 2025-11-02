@@ -24,6 +24,7 @@ export {
 export { bookLastMinuteSlot } from "./appointments/bookLastMinuteSlot";
 export { ensureLastMinutePaymentRecords } from "./appointments/ensureLastMinutePaymentRecords";
 export { syncAppointmentWithLastMinuteSlot } from "./appointments/onAppointmentWrite";
+export { logClientAppAppointmentMovements } from "./appointments/logAppointmentMovements";
 export { sendWhatsappTemplate } from "./wa/sendTemplate";
 export { onWhatsappWebhook } from "./wa/webhook";
 export { dispatchWhatsAppOutbox } from "./scheduler/dispatchOutbox";

@@ -19,6 +19,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
 
 class MessagesMarketingModule extends ConsumerStatefulWidget {
   const MessagesMarketingModule({super.key, this.salonId});
@@ -33,6 +34,15 @@ class MessagesMarketingModule extends ConsumerStatefulWidget {
 class _MessagesMarketingModuleState
     extends ConsumerState<MessagesMarketingModule> {
   final DateFormat _slotDateFormat = DateFormat('dd/MM HH:mm', 'it_IT');
+  final Uuid _uuid = const Uuid();
+  static const String _defaultBirthdayTitle = 'Auguri di buon compleanno';
+
+  String _defaultBirthdayBody(String? salonName) {
+    if (salonName != null && salonName.trim().isNotEmpty) {
+      return 'Lo staff di $salonName ti augura un felice compleanno!';
+    }
+    return 'Tutto lo staff ti augura un felice compleanno!';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -63,6 +73,11 @@ class _MessagesMarketingModuleState
           ..sort(
             (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
           );
+    final birthdayTemplate = templates.firstWhereOrNull(
+      (template) =>
+          template.usage == TemplateUsage.birthday &&
+          template.channel == MessageChannel.push,
+    );
     final reminderSettings =
         selectedSalonId == null
             ? null
@@ -133,6 +148,129 @@ class _MessagesMarketingModuleState
         defaultSalonId: selectedSalonId,
         existing: existing,
       );
+    }
+
+    Future<void> editBirthdayTemplate() async {
+      final currentSalonId = selectedSalonId;
+      if (currentSalonId == null) {
+        return;
+      }
+      final existingTemplate = birthdayTemplate;
+      final initialTitle =
+          existingTemplate == null || existingTemplate.title.trim().isEmpty
+              ? _defaultBirthdayTitle
+              : existingTemplate.title;
+      final initialBody =
+          existingTemplate == null || existingTemplate.body.trim().isEmpty
+              ? _defaultBirthdayBody(salonName)
+              : existingTemplate.body;
+      final titleController = TextEditingController(text: initialTitle);
+      final bodyController = TextEditingController(text: initialBody);
+      var isActive = existingTemplate?.isActive ?? true;
+      String? validationError;
+
+      final updated = await showDialog<MessageTemplate>(
+        context: context,
+        builder:
+            (dialogContext) => StatefulBuilder(
+              builder: (context, setState) {
+                final dialogTheme = Theme.of(context);
+                return AlertDialog(
+                  title: const Text('Messaggio di auguri'),
+                  content: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        TextField(
+                          controller: titleController,
+                          decoration: const InputDecoration(
+                            labelText: 'Titolo',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: bodyController,
+                          minLines: 3,
+                          maxLines: 6,
+                          decoration: const InputDecoration(
+                            labelText: 'Testo del messaggio',
+                            helperText:
+                                'Viene inviato automaticamente il giorno del compleanno.',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Template attivo'),
+                          value: isActive,
+                          onChanged:
+                              (value) => setState(() => isActive = value),
+                        ),
+                        if (validationError != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            validationError!,
+                            style: TextStyle(
+                              color: dialogTheme.colorScheme.error,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      child: const Text('Annulla'),
+                    ),
+                    FilledButton(
+                      onPressed: () {
+                        final title = titleController.text.trim();
+                        final body = bodyController.text.trim();
+                        if (title.isEmpty || body.isEmpty) {
+                          setState(() {
+                            validationError = 'Compila titolo e testo.';
+                          });
+                          return;
+                        }
+                        Navigator.of(dialogContext).pop(
+                          MessageTemplate(
+                            id: existingTemplate?.id ?? _uuid.v4(),
+                            salonId: currentSalonId,
+                            title: title,
+                            body: body,
+                            channel: MessageChannel.push,
+                            usage: TemplateUsage.birthday,
+                            isActive: isActive,
+                          ),
+                        );
+                      },
+                      child: const Text('Salva'),
+                    ),
+                  ],
+                );
+              },
+            ),
+      );
+      titleController.dispose();
+      bodyController.dispose();
+
+      if (updated == null) {
+        return;
+      }
+      try {
+        await ref.read(appDataProvider.notifier).upsertTemplate(updated);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Template di compleanno aggiornato.')),
+        );
+      } catch (error) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Impossibile salvare il template: $error')),
+        );
+      }
     }
 
     Future<void> togglePromotionVisibility(bool value) async {
@@ -219,162 +357,210 @@ class _MessagesMarketingModuleState
       await _confirmSlotDeletion(context, ref, slot);
     }
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 1080;
-        final double columnWidth =
-            isWide ? (constraints.maxWidth - 24) / 2 : constraints.maxWidth;
-
-        List<Widget> withSpacing(List<Widget> children) {
-          final spaced = <Widget>[];
-          for (var i = 0; i < children.length; i++) {
-            if (i > 0) {
-              spaced.add(const SizedBox(height: 24));
-            }
-            spaced.add(children[i]);
-          }
-          return spaced;
-        }
-
-        final analyticsChips = <Widget>[
-          _SummaryChip(
-            icon: Icons.chat_rounded,
-            label:
-                templates.isEmpty
-                    ? 'Nessun template'
-                    : '${templates.length} template',
-          ),
-          _SummaryChip(
-            icon: Icons.campaign_rounded,
-            label:
-                promotions.isEmpty
-                    ? 'Nessuna promozione'
-                    : '${promotions.where((promotion) => promotion.isActive).length}/${promotions.length} promozioni attive',
-          ),
-          _SummaryChip(
-            icon: Icons.flash_on_rounded,
-            label:
-                lastMinuteSlots.isEmpty
-                    ? 'Slot last-minute non presenti'
-                    : '${lastMinuteSlots.where((slot) => slot.isAvailable).length}/${lastMinuteSlots.length} slot liberi',
-          ),
-        ];
-
-        final leftColumn = <Widget>[
-          if (canViewReminderSettings)
-            _ReminderSettingsCard(
-              salonId: selectedSalonId,
-              salonName: salonName,
-              settings: effectiveSettings,
-              onChanged:
-                  canEditReminderSettings
-                      ? (updated) async {
-                        await ref
-                            .read(appDataProvider.notifier)
-                            .upsertReminderSettings(updated);
-                      }
-                      : null,
+    Future<void> deleteTemplate(MessageTemplate template) async {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('Elimina template'),
+            content: Text(
+              'Sei sicuro di voler eliminare il template "${template.title}"?',
             ),
-          _ManualNotificationCard(
-            salonId: selectedSalonId,
-            salonName: salonName,
-            clients: clients,
-          ),
-          _TemplatesLibraryCard(
-            templates: templates,
-            onCreate: salons.isEmpty ? null : () => openTemplateForm(),
-            onEdit:
-                salons.isEmpty
-                    ? null
-                    : (template) => openTemplateForm(existing: template),
-          ),
-        ];
-
-        final rightColumn = <Widget>[
-          _MarketingVisibilityCard(
-            salonName: salonName,
-            featureFlags: featureFlags,
-            onTogglePromotions:
-                salon == null
-                    ? null
-                    : (value) => togglePromotionVisibility(value),
-            onToggleLastMinute:
-                salon == null
-                    ? null
-                    : (value) => toggleLastMinuteVisibility(value),
-          ),
-          _PromotionsSection(
-            salonId: selectedSalonId,
-            promotions: promotions,
-            onCreate:
-                selectedSalonId == null ? null : () => openPromotionForm(),
-            onEdit:
-                selectedSalonId == null
-                    ? null
-                    : (promotion) => openPromotionForm(existing: promotion),
-            onToggleActive:
-                selectedSalonId == null ? null : togglePromotionActive,
-            onDelete: selectedSalonId == null ? null : deletePromotion,
-          ),
-          _LastMinuteSection(
-            salonId: selectedSalonId,
-            slots: lastMinuteSlots,
-            staff: salonStaff,
-            featureFlags: featureFlags,
-            dateFormat: _slotDateFormat,
-            onDelete: selectedSalonId == null ? null : deleteSlot,
-          ),
-        ];
-
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Messaggi & Marketing',
-                style: theme.textTheme.headlineSmall,
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Annulla'),
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Coordina automatismi, campagne e offerte flash da un’unica schermata.',
-                style: theme.textTheme.bodyMedium,
-              ),
-              if (salonName != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  'Salone attivo: $salonName',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
-              const SizedBox(height: 16),
-              Wrap(spacing: 12, runSpacing: 12, children: analyticsChips),
-              const SizedBox(height: 24),
-              Wrap(
-                spacing: 24,
-                runSpacing: 24,
-                crossAxisAlignment: WrapCrossAlignment.start,
-                children: [
-                  SizedBox(
-                    width: columnWidth,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: withSpacing(leftColumn),
-                    ),
-                  ),
-                  SizedBox(
-                    width: columnWidth,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: withSpacing(rightColumn),
-                    ),
-                  ),
-                ],
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Elimina'),
               ),
             ],
-          ),
+          );
+        },
+      );
+      if (confirmed != true) {
+        return;
+      }
+      try {
+        await ref.read(appDataProvider.notifier).deleteTemplate(template.id);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Template "${template.title}" eliminato.')),
         );
-      },
+      } catch (error) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Impossibile eliminare il template: $error')),
+        );
+      }
+    }
+
+    return DefaultTabController(
+      length: 4,
+      child: LayoutBuilder(
+        builder: (context, _) {
+          List<Widget> withSpacing(List<Widget> children) {
+            final spaced = <Widget>[];
+            for (var i = 0; i < children.length; i++) {
+              if (i > 0) {
+                spaced.add(const SizedBox(height: 24));
+              }
+              spaced.add(children[i]);
+            }
+            return spaced;
+          }
+
+          Widget buildTabContent(List<Widget> children, {String? emptyLabel}) {
+            if (children.isEmpty) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    emptyLabel ?? 'Nessun contenuto disponibile.',
+                    style: theme.textTheme.bodyMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              );
+            }
+
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: withSpacing(children),
+              ),
+            );
+          }
+
+          final automationContent = <Widget>[
+            if (canViewReminderSettings)
+              _ReminderSettingsCard(
+                salonId: selectedSalonId,
+                salonName: salonName,
+                settings: effectiveSettings,
+                birthdayTemplate: birthdayTemplate,
+                defaultBirthdayTitle: _defaultBirthdayTitle,
+                defaultBirthdayBody: _defaultBirthdayBody(salonName),
+                onEditBirthdayTemplate:
+                    canEditReminderSettings ? editBirthdayTemplate : null,
+                onChanged:
+                    canEditReminderSettings
+                        ? (updated) async {
+                          await ref
+                              .read(appDataProvider.notifier)
+                              .upsertReminderSettings(updated);
+                        }
+                        : null,
+              ),
+          ];
+
+          final manualContent = <Widget>[
+            _ManualNotificationCard(
+              salonId: selectedSalonId,
+              salonName: salonName,
+              clients: clients,
+              templates: templates,
+            ),
+            _TemplatesLibraryCard(
+              templates: templates,
+              onCreate: salons.isEmpty ? null : () => openTemplateForm(),
+              onEdit:
+                  salons.isEmpty
+                      ? null
+                      : (template) => openTemplateForm(existing: template),
+              onDelete:
+                  salons.isEmpty
+                      ? null
+                      : (template) => deleteTemplate(template),
+            ),
+          ];
+
+          final promotionsContent = <Widget>[
+            _PromotionsSection(
+              salonId: selectedSalonId,
+              promotions: promotions,
+              promotionsVisible: featureFlags.clientPromotions,
+              onCreate:
+                  selectedSalonId == null ? null : () => openPromotionForm(),
+              onEdit:
+                  selectedSalonId == null
+                      ? null
+                      : (promotion) => openPromotionForm(existing: promotion),
+              onToggleActive:
+                  selectedSalonId == null ? null : togglePromotionActive,
+              onDelete: selectedSalonId == null ? null : deletePromotion,
+              onToggleVisibility:
+                  selectedSalonId == null
+                      ? null
+                      : (value) => togglePromotionVisibility(value),
+            ),
+          ];
+
+          final lastMinuteContent = <Widget>[
+            if (canViewReminderSettings && effectiveSettings != null)
+              _LastMinuteDefaultsCard(
+                settings: effectiveSettings!,
+                onChanged:
+                    canEditReminderSettings
+                        ? (updated) async {
+                          await ref
+                              .read(appDataProvider.notifier)
+                              .upsertReminderSettings(updated);
+                        }
+                        : null,
+              ),
+            _LastMinuteSection(
+              salonId: selectedSalonId,
+              slots: lastMinuteSlots,
+              staff: salonStaff,
+              featureFlags: featureFlags,
+              dateFormat: _slotDateFormat,
+              onDelete: selectedSalonId == null ? null : deleteSlot,
+              onToggleVisibility:
+                  selectedSalonId == null
+                      ? null
+                      : (value) => toggleLastMinuteVisibility(value),
+            ),
+          ];
+
+          return Column(
+            children: [
+              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: TabBar(
+                  labelColor: theme.colorScheme.primary,
+                  tabs: const [
+                    Tab(text: 'Automazione'),
+                    Tab(text: 'Manuali'),
+                    Tab(text: 'Promozioni'),
+                    Tab(text: 'Last-minute'),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    buildTabContent(
+                      automationContent,
+                      emptyLabel:
+                          canViewReminderSettings
+                              ? 'Nessuna automazione disponibile.'
+                              : 'Seleziona un salone o verifica i permessi per configurare le automazioni.',
+                    ),
+                    buildTabContent(manualContent),
+                    buildTabContent(promotionsContent),
+                    buildTabContent(lastMinuteContent),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
@@ -488,11 +674,13 @@ class _TemplatesLibraryCard extends StatelessWidget {
     required this.templates,
     required this.onCreate,
     required this.onEdit,
+    required this.onDelete,
   });
 
   final List<MessageTemplate> templates;
   final Future<void> Function()? onCreate;
   final Future<void> Function(MessageTemplate template)? onEdit;
+  final Future<void> Function(MessageTemplate template)? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -542,7 +730,11 @@ class _TemplatesLibraryCard extends StatelessWidget {
                   return Column(
                     children: [
                       if (index > 0) const Divider(height: 24),
-                      _TemplateTile(template: template, onEdit: onEdit),
+                      _TemplateTile(
+                        template: template,
+                        onEdit: onEdit,
+                        onDelete: onDelete,
+                      ),
                     ],
                   );
                 }),
@@ -555,10 +747,15 @@ class _TemplatesLibraryCard extends StatelessWidget {
 }
 
 class _TemplateTile extends StatelessWidget {
-  const _TemplateTile({required this.template, required this.onEdit});
+  const _TemplateTile({
+    required this.template,
+    required this.onEdit,
+    required this.onDelete,
+  });
 
   final MessageTemplate template;
   final Future<void> Function(MessageTemplate template)? onEdit;
+  final Future<void> Function(MessageTemplate template)? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -601,14 +798,28 @@ class _TemplateTile extends StatelessWidget {
           child: Text(template.body),
         ),
         const SizedBox(height: 12),
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            onPressed:
-                onEdit == null ? null : () => unawaited(onEdit!(template)),
-            icon: const Icon(Icons.edit_rounded),
-            label: const Text('Modifica template'),
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            TextButton.icon(
+              onPressed:
+                  onEdit == null ? null : () => unawaited(onEdit!(template)),
+              icon: const Icon(Icons.edit_rounded),
+              label: const Text('Modifica'),
+            ),
+            const SizedBox(width: 8),
+            TextButton.icon(
+              onPressed:
+                  onDelete == null
+                      ? null
+                      : () => unawaited(onDelete!(template)),
+              style: TextButton.styleFrom(
+                foregroundColor: theme.colorScheme.error,
+              ),
+              icon: const Icon(Icons.delete_outline_rounded),
+              label: const Text('Elimina'),
+            ),
+          ],
         ),
       ],
     );
@@ -641,117 +852,27 @@ class _TemplateTile extends StatelessWidget {
   }
 }
 
-class _MarketingVisibilityCard extends StatelessWidget {
-  const _MarketingVisibilityCard({
-    required this.salonName,
-    required this.featureFlags,
-    required this.onTogglePromotions,
-    required this.onToggleLastMinute,
-  });
-
-  final String? salonName;
-  final SalonFeatureFlags featureFlags;
-  final Future<void> Function(bool value)? onTogglePromotions;
-  final Future<void> Function(bool value)? onToggleLastMinute;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final hasSalon = salonName != null;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Visibilità lato cliente',
-                    style: theme.textTheme.titleMedium,
-                  ),
-                ),
-                if (salonName != null)
-                  Chip(
-                    avatar: const Icon(Icons.storefront_rounded, size: 18),
-                    label: Text(salonName!),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (!hasSalon)
-              Text(
-                'Seleziona un salone per configurare cosa mostrare ai clienti.',
-                style: theme.textTheme.bodyMedium,
-              )
-            else ...[
-              SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Promozioni visibili ai clienti'),
-                subtitle: const Text(
-                  'Mostra le campagne attive nella home dell’app cliente.',
-                ),
-                value: featureFlags.clientPromotions,
-                onChanged:
-                    onTogglePromotions == null
-                        ? null
-                        : (value) => unawaited(onTogglePromotions!(value)),
-              ),
-              SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Slot last-minute visibili ai clienti'),
-                subtitle: const Text(
-                  'Permetti la prenotazione rapida delle offerte last-minute.',
-                ),
-                value: featureFlags.clientLastMinute,
-                onChanged:
-                    onToggleLastMinute == null
-                        ? null
-                        : (value) => unawaited(onToggleLastMinute!(value)),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SummaryChip extends StatelessWidget {
-  const _SummaryChip({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Chip(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      avatar: Icon(icon, size: 18, color: theme.colorScheme.primary),
-      label: Text(label),
-    );
-  }
-}
-
 class _PromotionsSection extends StatelessWidget {
   const _PromotionsSection({
     required this.salonId,
     required this.promotions,
+    required this.promotionsVisible,
     required this.onCreate,
     required this.onEdit,
     required this.onToggleActive,
     required this.onDelete,
+    this.onToggleVisibility,
   });
 
   final String? salonId;
   final List<Promotion> promotions;
+  final bool promotionsVisible;
   final Future<void> Function()? onCreate;
   final Future<void> Function(Promotion promotion)? onEdit;
   final Future<void> Function(Promotion promotion, bool isActive)?
   onToggleActive;
   final Future<void> Function(Promotion promotion)? onDelete;
+  final Future<void> Function(bool value)? onToggleVisibility;
 
   @override
   Widget build(BuildContext context) {
@@ -781,7 +902,22 @@ class _PromotionsSection extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+            if (hasSalon) ...[
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Promozioni visibili ai clienti'),
+                subtitle: const Text(
+                  'Mostra le campagne attive nella home dell’app cliente.',
+                ),
+                value: promotionsVisible,
+                onChanged:
+                    onToggleVisibility == null
+                        ? null
+                        : (value) => unawaited(onToggleVisibility!(value)),
+              ),
+              const SizedBox(height: 12),
+            ],
             if (!hasSalon)
               Text(
                 'Seleziona un salone per creare e gestire le promozioni.',
@@ -941,6 +1077,75 @@ class _PromotionTile extends StatelessWidget {
   }
 }
 
+class _LastMinuteDefaultsCard extends StatelessWidget {
+  const _LastMinuteDefaultsCard({required this.settings, this.onChanged});
+
+  final ReminderSettings settings;
+  final Future<void> Function(ReminderSettings updated)? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Impostazioni last-minute',
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<LastMinuteNotificationAudience>(
+              value: settings.lastMinuteNotificationAudience,
+              decoration: const InputDecoration(
+                labelText: 'Notifiche last-minute (predefinito)',
+                helperText:
+                    'Determina cosa proporre quando crei o modifichi uno slot express.',
+              ),
+              items:
+                  LastMinuteNotificationAudience.values.map((audience) {
+                    late final String label;
+                    switch (audience) {
+                      case LastMinuteNotificationAudience.none:
+                        label = 'Chiedi ogni volta';
+                        break;
+                      case LastMinuteNotificationAudience.everyone:
+                        label = 'Invia a tutti i clienti';
+                        break;
+                      case LastMinuteNotificationAudience.ownerSelection:
+                        label = 'Scegli manualmente i destinatari';
+                        break;
+                    }
+                    return DropdownMenuItem<LastMinuteNotificationAudience>(
+                      value: audience,
+                      child: Text(label),
+                    );
+                  }).toList(),
+              onChanged:
+                  onChanged == null
+                      ? null
+                      : (value) {
+                        if (value != null) {
+                          unawaited(
+                            onChanged!(
+                              settings.copyWith(
+                                lastMinuteNotificationAudience: value,
+                              ),
+                            ),
+                          );
+                        }
+                      },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _LastMinuteSection extends StatelessWidget {
   const _LastMinuteSection({
     required this.salonId,
@@ -949,6 +1154,7 @@ class _LastMinuteSection extends StatelessWidget {
     required this.featureFlags,
     required this.dateFormat,
     required this.onDelete,
+    this.onToggleVisibility,
   });
 
   final String? salonId;
@@ -957,6 +1163,7 @@ class _LastMinuteSection extends StatelessWidget {
   final SalonFeatureFlags featureFlags;
   final DateFormat dateFormat;
   final Future<void> Function(LastMinuteSlot slot)? onDelete;
+  final Future<void> Function(bool value)? onToggleVisibility;
 
   @override
   Widget build(BuildContext context) {
@@ -979,21 +1186,24 @@ class _LastMinuteSection extends StatelessWidget {
                     style: theme.textTheme.titleMedium,
                   ),
                 ),
-                if (!hasSalon)
-                  const SizedBox.shrink()
-                else if (featureFlags.clientLastMinute)
-                  const Chip(
-                    avatar: Icon(Icons.visibility_rounded, size: 18),
-                    label: Text('Visibili ai clienti'),
-                  )
-                else
-                  const Chip(
-                    avatar: Icon(Icons.visibility_off_rounded, size: 18),
-                    label: Text('Solo interno'),
-                  ),
               ],
             ),
             const SizedBox(height: 12),
+            if (hasSalon) ...[
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Slot last-minute visibili ai clienti'),
+                subtitle: const Text(
+                  'Permetti la prenotazione rapida delle offerte last-minute.',
+                ),
+                value: featureFlags.clientLastMinute,
+                onChanged:
+                    onToggleVisibility == null
+                        ? null
+                        : (value) => unawaited(onToggleVisibility!(value)),
+              ),
+              const SizedBox(height: 12),
+            ],
             if (!hasSalon)
               Text(
                 'Seleziona un salone per monitorare le offerte express.',
@@ -1073,22 +1283,10 @@ class _LastMinuteTile extends StatelessWidget {
       subtitle: Text(
         [timeLabel, operatorLabel, priceLabel, paymentLabel].join('\n'),
       ),
-      trailing: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            availabilityLabel,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: availabilityColor,
-            ),
-          ),
-          IconButton(
-            tooltip: 'Rimuovi',
-            onPressed:
-                onDelete == null ? null : () => unawaited(onDelete!(slot)),
-            icon: const Icon(Icons.delete_outline_rounded),
-          ),
-        ],
+      trailing: IconButton(
+        tooltip: 'Rimuovi',
+        onPressed: onDelete == null ? null : () => unawaited(onDelete!(slot)),
+        icon: const Icon(Icons.delete_outline_rounded),
       ),
     );
   }
@@ -1099,11 +1297,13 @@ class _ManualNotificationCard extends ConsumerStatefulWidget {
     required this.salonId,
     required this.salonName,
     required this.clients,
+    required this.templates,
   });
 
   final String? salonId;
   final String? salonName;
   final List<Client> clients;
+  final List<MessageTemplate> templates;
 
   @override
   ConsumerState<_ManualNotificationCard> createState() =>
@@ -1112,6 +1312,7 @@ class _ManualNotificationCard extends ConsumerStatefulWidget {
 
 class _ManualNotificationCardState
     extends ConsumerState<_ManualNotificationCard> {
+  static const String _manualTemplateOption = '__manual__';
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _bodyController = TextEditingController();
@@ -1119,6 +1320,7 @@ class _ManualNotificationCardState
   final FocusNode _bodyFocusNode = FocusNode();
   final ScrollController _clientScrollController = ScrollController();
   final Set<String> _selectedClientIds = <String>{};
+  String? _selectedTemplateId;
   static const String _defaultTitle = 'Messaggio di prova Civiapp';
   static const String _defaultBody =
       'Ciao {{nome}}, questo è un messaggio di prova inviato dal salone per verificare le notifiche.';
@@ -1151,6 +1353,11 @@ class _ManualNotificationCardState
   void didUpdateWidget(covariant _ManualNotificationCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.clients, widget.clients)) {
+      final wasSelectingAll =
+          oldWidget.clients.isNotEmpty &&
+          oldWidget.clients.every(
+            (client) => _selectedClientIds.contains(client.id),
+          );
       final currentIds = widget.clients.map((client) => client.id).toSet();
       var changed = false;
       _selectedClientIds.removeWhere((id) {
@@ -1160,9 +1367,28 @@ class _ManualNotificationCardState
         }
         return shouldRemove;
       });
+      if (wasSelectingAll && _selectedClientIds.length != currentIds.length) {
+        _selectedClientIds
+          ..clear()
+          ..addAll(currentIds);
+        changed = true;
+      }
       if (changed && mounted) {
         setState(() {});
       }
+    }
+
+    if (!identical(oldWidget.templates, widget.templates) &&
+        _selectedTemplateId != null &&
+        widget.templates.firstWhereOrNull(
+              (template) => template.id == _selectedTemplateId,
+            ) ==
+            null) {
+      _selectedTemplateId = null;
+      if (mounted) {
+        setState(() {});
+      }
+      _ensureDefaultMessage();
     }
   }
 
@@ -1180,6 +1406,7 @@ class _ManualNotificationCardState
       _selectedClientIds.clear();
       _statusMessage = null;
       _statusIsError = false;
+      _selectedTemplateId = null;
     });
     _ensureDefaultMessage(force: true);
   }
@@ -1231,6 +1458,67 @@ class _ManualNotificationCardState
     }
   }
 
+  void _toggleSelectAll(bool value) {
+    if (_sending) {
+      return;
+    }
+    setState(() {
+      if (value) {
+        _selectedClientIds
+          ..clear()
+          ..addAll(widget.clients.map((client) => client.id));
+      } else {
+        _selectedClientIds.clear();
+      }
+    });
+  }
+
+  void _handleTemplateSelection(String? value) {
+    if (value == null || value == _manualTemplateOption) {
+      if (_selectedTemplateId != null) {
+        setState(() {
+          _selectedTemplateId = null;
+        });
+      }
+      _ensureDefaultMessage();
+      return;
+    }
+    final template = widget.templates.firstWhereOrNull(
+      (element) => element.id == value,
+    );
+    if (template == null) {
+      if (_selectedTemplateId != null) {
+        setState(() {
+          _selectedTemplateId = null;
+        });
+      }
+      _ensureDefaultMessage();
+      return;
+    }
+    setState(() {
+      _selectedTemplateId = template.id;
+      _titleController.text = template.title;
+      _bodyController.text = template.body;
+    });
+  }
+
+  List<MessageTemplate> _availablePushTemplates() {
+    if (widget.templates.isEmpty) {
+      return const <MessageTemplate>[];
+    }
+    final templates =
+        widget.templates
+            .where(
+              (template) =>
+                  template.channel == MessageChannel.push && template.isActive,
+            )
+            .toList()
+          ..sort(
+            (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+          );
+    return templates;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1254,8 +1542,13 @@ class _ManualNotificationCardState
         ),
       );
     }
-
+    final isSearchActive = _searchController.text.trim().isNotEmpty;
     final filteredClients = _filteredClients();
+    final pushTemplates = _availablePushTemplates();
+    final dropdownValue = _selectedTemplateId ?? _manualTemplateOption;
+    final totalClients = widget.clients.length;
+    final allClientsSelected =
+        totalClients > 0 && _selectedClientIds.length == totalClients;
     final selectedClients =
         _selectedClientIds
             .map(
@@ -1268,6 +1561,8 @@ class _ManualNotificationCardState
             (a, b) =>
                 a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()),
           );
+    final showSelectedChips =
+        !allClientsSelected && selectedClients.length <= 25;
     final salonName = widget.salonName;
 
     return Card(
@@ -1308,50 +1603,91 @@ class _ManualNotificationCardState
               textInputAction: TextInputAction.search,
             ),
             const SizedBox(height: 12),
+            if (widget.clients.isNotEmpty)
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Seleziona tutti i clienti del salone'),
+
+                value: allClientsSelected,
+                onChanged: _sending ? null : (value) => _toggleSelectAll(value),
+              ),
+            if (widget.clients.isNotEmpty) const SizedBox(height: 12),
             if (selectedClients.isNotEmpty) ...[
               Text(
                 'Selezionati ${selectedClients.length} clienti',
                 style: theme.textTheme.bodySmall,
               ),
               const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children:
-                    selectedClients
-                        .map(
-                          (client) => InputChip(
-                            label: Text(client.fullName),
-                            onDeleted:
-                                _sending
-                                    ? null
-                                    : () => setState(() {
-                                      _selectedClientIds.remove(client.id);
-                                    }),
-                          ),
-                        )
-                        .toList(),
-              ),
+              if (showSelectedChips)
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children:
+                      selectedClients
+                          .map(
+                            (client) => InputChip(
+                              label: Text(client.fullName),
+                              onDeleted:
+                                  _sending
+                                      ? null
+                                      : () => setState(() {
+                                        _selectedClientIds.remove(client.id);
+                                      }),
+                            ),
+                          )
+                          .toList(),
+                )
+              else
+                Text(
+                  'Selezione completa. Usa la ricerca per rimuovere eventuali clienti.',
+                  style: theme.textTheme.bodySmall,
+                ),
               const SizedBox(height: 12),
             ],
-            _ClientSelectionList(
-              clients: filteredClients,
-              selectedIds: _selectedClientIds,
-              controller: _clientScrollController,
-              onToggle:
-                  _sending
-                      ? null
-                      : (clientId, shouldSelect) {
-                        setState(() {
-                          if (shouldSelect) {
-                            _selectedClientIds.add(clientId);
-                          } else {
-                            _selectedClientIds.remove(clientId);
-                          }
-                        });
-                      },
-            ),
+            if (isSearchActive)
+              _ClientSelectionList(
+                clients: filteredClients,
+                selectedIds: _selectedClientIds,
+                controller: _clientScrollController,
+                onToggle:
+                    _sending
+                        ? null
+                        : (clientId, shouldSelect) {
+                          setState(() {
+                            if (shouldSelect) {
+                              _selectedClientIds.add(clientId);
+                            } else {
+                              _selectedClientIds.remove(clientId);
+                            }
+                          });
+                        },
+              ),
+
             const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              value: dropdownValue,
+              decoration: InputDecoration(
+                labelText: 'Origine del contenuto',
+                helperText:
+                    pushTemplates.isEmpty
+                        ? 'Nessun template push attivo disponibile. Crea un template nella libreria per riutilizzarlo.'
+                        : null,
+              ),
+              items: [
+                const DropdownMenuItem<String>(
+                  value: _manualTemplateOption,
+                  child: Text('Scrivi manualmente'),
+                ),
+                ...pushTemplates.map(
+                  (template) => DropdownMenuItem<String>(
+                    value: template.id,
+                    child: Text(template.title),
+                  ),
+                ),
+              ],
+              onChanged: _sending ? null : _handleTemplateSelection,
+            ),
+            const SizedBox(height: 12),
             TextFormField(
               controller: _titleController,
               focusNode: _titleFocusNode,
@@ -1441,6 +1777,9 @@ class _ManualNotificationCardState
       return const <Client>[];
     }
     final query = _searchController.text.trim().toLowerCase();
+    if (query.isEmpty) {
+      return const <Client>[];
+    }
     final queryNoSpaces = query.replaceAll(RegExp(r'\s+'), '');
     Iterable<Client> source = widget.clients;
     if (query.isNotEmpty) {
@@ -1707,13 +2046,21 @@ class _ReminderSettingsCard extends StatelessWidget {
     required this.salonId,
     required this.salonName,
     required this.settings,
+    required this.defaultBirthdayTitle,
+    required this.defaultBirthdayBody,
     this.onChanged,
+    this.birthdayTemplate,
+    this.onEditBirthdayTemplate,
   });
 
   final String? salonId;
   final String? salonName;
   final ReminderSettings? settings;
+  final String defaultBirthdayTitle;
+  final String defaultBirthdayBody;
   final Future<void> Function(ReminderSettings)? onChanged;
+  final MessageTemplate? birthdayTemplate;
+  final Future<void> Function()? onEditBirthdayTemplate;
 
   @override
   Widget build(BuildContext context) {
@@ -1745,6 +2092,15 @@ class _ReminderSettingsCard extends StatelessWidget {
         reminder.updatedAt != null
             ? 'Ultimo aggiornamento: ${dateFormat.format(reminder.updatedAt!)}'
             : 'Mai configurato';
+    final template = birthdayTemplate;
+    final templatePresent =
+        template != null &&
+        template.title.trim().isNotEmpty &&
+        template.body.trim().isNotEmpty;
+    final templateTitle =
+        templatePresent ? template!.title : defaultBirthdayTitle;
+    final templateBody = templatePresent ? template!.body : defaultBirthdayBody;
+    final templateActive = template?.isActive ?? true;
 
     Future<void> emit(ReminderSettings updated) async {
       final callback = onChanged;
@@ -1790,12 +2146,6 @@ class _ReminderSettingsCard extends StatelessWidget {
       }
       final next = List<ReminderOffsetConfig>.from(current)..[index] = updated;
       await updateOffsets(next);
-    }
-
-    Future<void> updateLastMinuteAudience(
-      LastMinuteNotificationAudience audience,
-    ) async {
-      await emit(reminder.copyWith(lastMinuteNotificationAudience: audience));
     }
 
     Future<void> toggleBirthday(bool enabled) async {
@@ -1961,107 +2311,81 @@ class _ReminderSettingsCard extends StatelessWidget {
         return;
       }
       final offset = current[index];
-      final slugController = TextEditingController(text: offset.id);
       final titleController = TextEditingController(text: offset.title ?? '');
       final bodyController = TextEditingController(
         text: offset.bodyTemplate ?? '',
       );
-      String? errorText;
-
-      String sanitizeSlug(String value) {
-        final trimmed = value.trim().toUpperCase();
-        if (trimmed.isEmpty) {
-          return '';
-        }
-        final sanitized = trimmed.replaceAll(RegExp(r'[^A-Z0-9_-]'), '_');
-        return sanitized.replaceAll(RegExp(r'_+'), '_');
+      const defaultBodyTemplate =
+          'Promemoria per {{service_name}} il {{date}} alle {{time}} presso {{salon_name}}.';
+      if (bodyController.text.trim().isEmpty) {
+        bodyController.text = defaultBodyTemplate;
       }
 
       final updated = await showDialog<ReminderOffsetConfig>(
         context: context,
-        builder:
-            (dialogContext) => StatefulBuilder(
-              builder: (context, setState) {
-                return AlertDialog(
-                  title: const Text('Dettagli promemoria'),
-                  content: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        TextField(
-                          controller: slugController,
-                          textCapitalization: TextCapitalization.characters,
-                          decoration: InputDecoration(
-                            labelText: 'Identificativo',
-                            helperText: 'Usa lettere, numeri o _ -',
-                            errorText: errorText,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: titleController,
-                          decoration: const InputDecoration(
-                            labelText: 'Titolo (facoltativo)',
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: bodyController,
-                          minLines: 2,
-                          maxLines: 4,
-                          decoration: const InputDecoration(
-                            labelText: 'Testo (facoltativo)',
-                            helperText: 'Puoi usare segnaposto come {{time}}',
-                          ),
-                        ),
-                      ],
+        builder: (dialogContext) {
+          return AlertDialog(
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 24,
+            ),
+            title: const Text('Dettagli promemoria'),
+            content: SizedBox(
+              width: 480,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: titleController,
+                      decoration: const InputDecoration(
+                        labelText: 'Titolo (facoltativo)',
+                        hintText: 'Inserisci il titolo del promemoria',
+                      ),
                     ),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(dialogContext).pop(),
-                      child: const Text('Annulla'),
-                    ),
-                    FilledButton(
-                      onPressed: () {
-                        final slug = sanitizeSlug(slugController.text);
-                        if (slug.isEmpty) {
-                          setState(() {
-                            errorText = 'Inserisci un identificativo valido.';
-                          });
-                          return;
-                        }
-                        final conflict = reminder.offsets.any(
-                          (other) => other.id == slug && other.id != offset.id,
-                        );
-                        if (conflict) {
-                          setState(() {
-                            errorText =
-                                'Identificativo già in uso. Scegline uno diverso.';
-                          });
-                          return;
-                        }
-                        Navigator.of(dialogContext).pop(
-                          offset.copyWith(
-                            id: slug,
-                            title:
-                                titleController.text.trim().isEmpty
-                                    ? null
-                                    : titleController.text.trim(),
-                            bodyTemplate:
-                                bodyController.text.trim().isEmpty
-                                    ? null
-                                    : bodyController.text.trim(),
-                          ),
-                        );
-                      },
-                      child: const Text('Salva'),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: bodyController,
+                      minLines: 3,
+                      maxLines: 6,
+                      decoration: const InputDecoration(
+                        labelText: 'Testo (facoltativo)',
+                        hintText:
+                            'Es. Promemoria per {{service_name}} il {{date}} alle {{time}} presso {{salon_name}}',
+                        helperText:
+                            'Segnaposto disponibili: {{date}}, {{time}}, {{service_name}}, {{salon_name}}',
+                      ),
                     ),
                   ],
-                );
-              },
+                ),
+              ),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Annulla'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.of(dialogContext).pop(
+                    offset.copyWith(
+                      title:
+                          titleController.text.trim().isEmpty
+                              ? null
+                              : titleController.text.trim(),
+                      bodyTemplate:
+                          bodyController.text.trim().isEmpty
+                              ? null
+                              : bodyController.text.trim(),
+                    ),
+                  );
+                },
+                child: const Text('Salva'),
+              ),
+            ],
+          );
+        },
       );
 
       if (updated != null) {
@@ -2076,52 +2400,13 @@ class _ReminderSettingsCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Promemoria appuntamenti', style: theme.textTheme.titleMedium),
-            if (salonName != null) ...[
-              const SizedBox(height: 4),
-              Text(salonName!, style: theme.textTheme.bodySmall),
-            ],
+
             const SizedBox(height: 12),
             Text(
               'Seleziona fino a ${ReminderSettings.maxOffsetsCount} promemoria automatici. Gli offset sono espressi rispetto all\'inizio appuntamento.',
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<LastMinuteNotificationAudience>(
-              value: reminder.lastMinuteNotificationAudience,
-              decoration: const InputDecoration(
-                labelText: 'Notifiche last-minute (predefinito)',
-                helperText:
-                    'Determina cosa proporre quando crei o modifichi uno slot express.',
-              ),
-              items:
-                  LastMinuteNotificationAudience.values.map((audience) {
-                    late final String label;
-                    switch (audience) {
-                      case LastMinuteNotificationAudience.none:
-                        label = 'Chiedi ogni volta';
-                        break;
-                      case LastMinuteNotificationAudience.everyone:
-                        label = 'Invia a tutti i clienti';
-                        break;
-                      case LastMinuteNotificationAudience.ownerSelection:
-                        label = 'Scegli manualmente i destinatari';
-                        break;
-                    }
-                    return DropdownMenuItem<LastMinuteNotificationAudience>(
-                      value: audience,
-                      child: Text(label),
-                    );
-                  }).toList(),
-              onChanged:
-                  onChanged == null
-                      ? null
-                      : (value) {
-                        if (value != null) {
-                          unawaited(updateLastMinuteAudience(value));
-                        }
-                      },
-            ),
-            const SizedBox(height: 12),
             if (offsetsEntries.isEmpty)
               ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -2150,14 +2435,7 @@ class _ReminderSettingsCard extends StatelessWidget {
                     {...hourOptions, parts.hours}.toList()..sort();
                 final minutesValues =
                     {...minuteOptions, parts.minutes}.toList()..sort();
-                final defaultSlug = 'M$minutes';
-                final showSlugChip = config.id != defaultSlug;
                 final chips = <Widget>[
-                  if (showSlugChip)
-                    Chip(
-                      avatar: const Icon(Icons.tag, size: 18),
-                      label: Text(config.id),
-                    ),
                   if (config.title != null)
                     Chip(
                       avatar: const Icon(Icons.text_fields, size: 18),
@@ -2171,36 +2449,9 @@ class _ReminderSettingsCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              formatOffsetLabel(minutes),
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          Switch.adaptive(
-                            value: config.active,
-                            onChanged:
-                                canEditOffsets
-                                    ? (value) => unawaited(
-                                      toggleOffsetActive(originalIndex, value),
-                                    )
-                                    : null,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      if (chips.isNotEmpty)
-                        Wrap(spacing: 8, runSpacing: 4, children: chips),
-                      if (config.bodyTemplate != null) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          config.bodyTemplate!,
-                          style: theme.textTheme.bodySmall,
-                        ),
+                      if (chips.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Wrap(spacing: 8, runSpacing: 8, children: chips),
                       ],
                       const SizedBox(height: 8),
                       Row(
@@ -2386,6 +2637,87 @@ class _ReminderSettingsCard extends StatelessWidget {
                   onChanged == null
                       ? null
                       : (value) => unawaited(toggleBirthday(value)),
+            ),
+            const SizedBox(height: 12),
+            Text('Messaggio di auguri', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerLowest,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: theme.colorScheme.outlineVariant),
+              ),
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          templateTitle,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(templateBody, style: theme.textTheme.bodyMedium),
+                  if (!templatePresent) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      'Non hai ancora personalizzato il messaggio: verrà usato il testo predefinito.',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      Chip(
+                        avatar: const Icon(Icons.smartphone, size: 18),
+                        label: const Text('Push'),
+                      ),
+                      Chip(
+                        avatar: Icon(
+                          templatePresent
+                              ? (templateActive
+                                  ? Icons.check_circle
+                                  : Icons.cancel_outlined)
+                              : Icons.info_outline,
+                          size: 18,
+                        ),
+                        label: Text(
+                          templatePresent
+                              ? (templateActive ? 'Attivo' : 'Disattivato')
+                              : 'Da configurare',
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed:
+                    onEditBirthdayTemplate == null
+                        ? null
+                        : () => unawaited(onEditBirthdayTemplate!()),
+                icon: const Icon(Icons.edit_rounded),
+                label: Text(
+                  templatePresent
+                      ? 'Modifica messaggio'
+                      : 'Configura messaggio',
+                ),
+              ),
             ),
             const SizedBox(height: 8),
             Text(updatedLabel, style: theme.textTheme.bodySmall),

@@ -226,6 +226,7 @@ async function handlePaymentIntentSuccess(paymentIntent: Stripe.PaymentIntent): 
   let generatedAppointmentId: string | null = null;
   let cartCurrency: string | null = paymentIntent.currency ?? null;
   let saleDocumentExists = false;
+  let resolvedStaffId: string | null = resolveStaffIdFromMetadata(metadata);
 
   await db.runTransaction(async (tx) => {
     const cartRef = cartId ? db.collection(CARTS_COLLECTION).doc(cartId) : null;
@@ -264,8 +265,14 @@ async function handlePaymentIntentSuccess(paymentIntent: Stripe.PaymentIntent): 
       }
     }
 
-    // Capture last-minute slot id if present in cart items.
+    // Capture staff assignment and last-minute slot id if present in cart items.
     for (const item of rawCartItems) {
+      if (!resolvedStaffId) {
+        const candidateStaff = resolveStaffIdFromRecord(item.metadata);
+        if (candidateStaff) {
+          resolvedStaffId = candidateStaff;
+        }
+      }
       if (normalizeString(item.type) === 'lastMinute') {
         const candidateSlot = normalizeString(
           (item.metadata?.slotId as string | undefined) ?? item.referenceId,
@@ -325,6 +332,7 @@ async function handlePaymentIntentSuccess(paymentIntent: Stripe.PaymentIntent): 
         paymentStatus: 'paid',
         paidAmount: totalAmount,
         discountAmount: 0,
+        staffId: resolvedStaffId ?? 'auto-stripe',
         invoiceNumber,
         saleNumber,
         paymentHistory: [
@@ -363,6 +371,18 @@ async function handlePaymentIntentSuccess(paymentIntent: Stripe.PaymentIntent): 
       const existingSale = saleSnap.data() ?? {};
       const updates: FirebaseFirestore.DocumentData = {};
       let shouldUpdate = false;
+      const quoteExistingStaffIdRaw =
+        typeof existingSale.staffId === 'string' ? existingSale.staffId : '';
+      const existingStaffId = normalizeString(quoteExistingStaffIdRaw);
+      if (!resolvedStaffId && existingStaffId) {
+        resolvedStaffId = existingStaffId;
+      }
+      if (!existingStaffId) {
+        const staffIdForSale = resolvedStaffId ?? 'auto-stripe';
+        updates.staffId = staffIdForSale;
+        resolvedStaffId = staffIdForSale;
+        shouldUpdate = true;
+      }
       const normalizedPaidAmount =
         typeof existingSale.paidAmount === 'number'
           ? normalizeCurrency(existingSale.paidAmount)
@@ -442,6 +462,11 @@ async function handlePaymentIntentSuccess(paymentIntent: Stripe.PaymentIntent): 
         const staffId =
           normalizeString(slotData.operatorId) || 'auto-stripe';
         const roomId = normalizeString(slotData.roomId) || null;
+        if (!resolvedStaffId || resolvedStaffId === 'auto-stripe') {
+          if (staffId && staffId !== 'auto-stripe') {
+            resolvedStaffId = staffId;
+          }
+        }
         const clientDisplayName =
           (await fetchClientDisplayName(tx, resolvedClientId)) ||
           metadata.clientName ||
@@ -518,6 +543,15 @@ async function handlePaymentIntentSuccess(paymentIntent: Stripe.PaymentIntent): 
   // Reload sale document status after transaction (for orders payload).
   const saleSnapAfter = await saleRef.get();
   saleDocumentExists = saleSnapAfter.exists;
+  if (!resolvedStaffId && saleSnapAfter.exists) {
+    const saleData = saleSnapAfter.data() ?? {};
+    if (typeof saleData.staffId === 'string') {
+      const saleStaff = normalizeString(saleData.staffId);
+      if (saleStaff) {
+        resolvedStaffId = saleStaff;
+      }
+    }
+  }
   if (resolvedSalonId) {
     const cashFlowRef = db.collection(CASH_FLOWS_COLLECTION).doc(paymentIntent.id);
     const cashFlowSnapshot = await cashFlowRef.get();
@@ -551,7 +585,7 @@ async function handlePaymentIntentSuccess(paymentIntent: Stripe.PaymentIntent): 
       date: createdTimestamp,
       description: cashFlowDescription,
       category: 'Vendite',
-      staffId: 'auto-stripe',
+      staffId: resolvedStaffId ?? 'auto-stripe',
       source: 'stripe',
       updatedAt: FieldValue.serverTimestamp(),
     };
@@ -1006,6 +1040,7 @@ async function handleQuotePaymentIntentSuccess(
   let invoiceNumber: string | null = null;
   let saleItemsSummary: SaleItemSummary[] = [];
   let computedQuoteTotal = totalAmount;
+  let resolvedStaffId: string | null = resolveStaffIdFromMetadata(metadata);
 
   await db.runTransaction(async (tx) => {
     const quoteSnap = await tx.get(quoteRef);
@@ -1048,6 +1083,10 @@ async function handleQuotePaymentIntentSuccess(
     const ticketRef = ticketCollection.doc(defaultTicketId);
     const ticketSnap = await tx.get(ticketRef);
     const baseTicket = ticketSnap.exists ? ticketSnap.data() ?? {} : {};
+    const ticketStaffId = resolveStaffIdFromRecord(baseTicket);
+    if (ticketStaffId) {
+      resolvedStaffId = ticketStaffId;
+    }
 
     const cashFlowRef =
       resolvedSalonId
@@ -1108,6 +1147,7 @@ async function handleQuotePaymentIntentSuccess(
         paymentStatus: 'paid',
         paidAmount: totalAmount,
         discountAmount: 0,
+        staffId: resolvedStaffId ?? 'auto-stripe',
         invoiceNumber,
         saleNumber,
         paymentHistory: [
@@ -1367,7 +1407,7 @@ async function handleQuotePaymentIntentSuccess(
             : quoteNumber && quoteNumber.length > 0
                 ? `Preventivo ${quoteNumber}`
                 : 'Preventivo online',
-        staffId: 'auto-stripe',
+        staffId: resolvedStaffId ?? 'auto-stripe',
         source: 'stripe',
         updatedAt: FieldValue.serverTimestamp(),
         saleId: saleRef.id,
@@ -1387,6 +1427,12 @@ async function handleQuotePaymentIntentSuccess(
   const saleSnapAfter = await saleRef.get();
   if (saleSnapAfter.exists) {
     const saleData = saleSnapAfter.data() ?? {};
+    if (!resolvedStaffId && typeof saleData.staffId === 'string') {
+      const saleStaff = normalizeString(saleData.staffId);
+      if (saleStaff) {
+        resolvedStaffId = saleStaff;
+      }
+    }
     if (!resolvedSalonId && typeof saleData.salonId === 'string') {
       resolvedSalonId = saleData.salonId;
     }
@@ -1590,6 +1636,55 @@ function normalizeNumber(value: unknown, fallback = 0): number {
 function normalizeCurrency(value: unknown): number {
   const numeric = normalizeNumber(value, 0);
   return Math.round(numeric * 100) / 100;
+}
+
+function resolveStaffIdFromMetadata(metadata: Record<string, string>): string | null {
+  const candidateKeys = [
+    'staffId',
+    'staff_id',
+    'operatorId',
+    'operator_id',
+    'assignedStaffId',
+    'assigned_staff_id',
+  ];
+  for (const key of candidateKeys) {
+    const direct = normalizeString(metadata[key]);
+    if (direct) {
+      return direct;
+    }
+    const cartValue = normalizeString(metadata[`cart_${key}`]);
+    if (cartValue) {
+      return cartValue;
+    }
+  }
+  return null;
+}
+
+function resolveStaffIdFromRecord(
+  source: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!source) {
+    return null;
+  }
+  const candidateKeys = [
+    'staffId',
+    'staff_id',
+    'operatorId',
+    'operator_id',
+    'assignedStaffId',
+    'assigned_staff_id',
+  ];
+  for (const key of candidateKeys) {
+    if (Object.prototype.hasOwnProperty.call(source, key)) {
+      const value = normalizeString(
+        (source as Record<string, unknown>)[key],
+      );
+      if (value) {
+        return value;
+      }
+    }
+  }
+  return null;
 }
 
 function readTimestamp(value: unknown): Date | null {

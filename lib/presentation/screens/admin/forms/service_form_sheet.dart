@@ -227,21 +227,7 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
               },
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _category,
-              readOnly: _categoryId != null,
-              decoration: InputDecoration(
-                labelText:
-                    _categoryId != null
-                        ? 'Categoria selezionata'
-                        : 'Nome categoria',
-                helperText:
-                    _categoryId != null
-                        ? 'Modifica il nome dalla Gestione categorie.'
-                        : 'Inserisci il nome di una nuova categoria. Lascia vuoto per usare "Generale".',
-              ),
-            ),
-            const SizedBox(height: 12),
+
             TextFormField(
               controller: _price,
               decoration: const InputDecoration(labelText: 'Prezzo (€)'),

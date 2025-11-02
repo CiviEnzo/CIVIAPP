@@ -7,13 +7,13 @@ import 'package:you_book/services/notifications/notification_service.dart';
 
 const ColorScheme _lightAdminColorScheme = ColorScheme(
   brightness: Brightness.light,
-  primary: Color.fromARGB(255, 60, 206, 199),
+  primary: Color.fromARGB(255, 134, 27, 48),
   onPrimary: Colors.white,
   primaryContainer: Color.fromARGB(194, 255, 244, 221),
   onPrimaryContainer: Color(0xFF23005A),
   secondary: Color.fromARGB(226, 209, 175, 102),
   onSecondary: Colors.white,
-  secondaryContainer: Color(0xFFC5F4E6),
+  secondaryContainer: Color.fromARGB(207, 137, 38, 61),
   onSecondaryContainer: Color(0xFF062E24),
   tertiary: Color(0xFFE8873A),
   onTertiary: Colors.white,

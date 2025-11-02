@@ -13,6 +13,7 @@ import 'package:you_book/domain/entities/appointment_service_allocation.dart';
 import 'package:you_book/domain/entities/app_notification.dart';
 import 'package:you_book/domain/entities/cash_flow_entry.dart';
 import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/domain/entities/client_app_movement.dart';
 import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
 import 'package:you_book/domain/entities/client_photo_collage.dart';
@@ -101,6 +102,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
                ),
                clientQuestionnaires: List.unmodifiable(
                  MockData.clientQuestionnaires,
+               ),
+               clientAppMovements: List.unmodifiable(
+                 MockData.clientAppMovements,
                ),
                promotions: List.unmodifiable(MockData.promotions),
                lastMinuteSlots: List.unmodifiable(MockData.lastMinuteSlots),
@@ -240,6 +244,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
         discoverableSalons: const <PublicSalon>[],
         serviceCategories: const <ServiceCategory>[],
         quotes: const <Quote>[],
+        clientAppMovements: const <ClientAppMovement>[],
         promotions: const <Promotion>[],
         lastMinuteSlots: const <LastMinuteSlot>[],
         setupProgress: const <AdminSetupProgress>[],
@@ -496,6 +501,16 @@ class AppDataStore extends StateNotifier<AppDataState> {
       );
 
       addAll(
+        _listenCollectionBySalonIds<ClientAppMovement>(
+          firestore: firestore,
+          collectionPath: 'client_app_movements',
+          salonIds: salonIds,
+          fromDoc: clientAppMovementFromDoc,
+          onData: (items) => state = state.copyWith(clientAppMovements: items),
+        ),
+      );
+
+      addAll(
         _listenCollectionBySalonIds<ClientPhoto>(
           firestore: firestore,
           collectionPath: 'client_photos',
@@ -651,6 +666,21 @@ class AppDataStore extends StateNotifier<AppDataState> {
             (items) => state = state.copyWith(quotes: items),
           ),
         );
+        if (clientId.isNotEmpty) {
+          subscriptions.add(
+            _listenCollection<ClientAppMovement>(
+              firestore
+                  .collection('client_app_movements')
+                  .where('clientId', isEqualTo: clientId)
+                  .orderBy('timestamp', descending: true)
+                  .limit(200),
+              clientAppMovementFromDoc,
+              (items) => state = state.copyWith(clientAppMovements: items),
+            ),
+          );
+        } else {
+          state = state.copyWith(clientAppMovements: const []);
+        }
       } else {
         state = state.copyWith(clientNotifications: const []);
         state = state.copyWith(quotes: const []);
@@ -2382,19 +2412,26 @@ class AppDataStore extends StateNotifier<AppDataState> {
   Future<void> upsertClient(Client client) async {
     final prepared = await _ensureClientNumber(client);
     final now = DateTime.now();
-    final normalizedCity = () {
-      final rawCity = prepared.city?.trim();
-      if (rawCity != null && rawCity.isNotEmpty) {
-        return rawCity;
-      }
+    final sanitizedAddress = () {
       final rawAddress = prepared.address?.trim();
       if (rawAddress != null && rawAddress.isNotEmpty) {
         return rawAddress;
       }
       return null;
     }();
+    final normalizedCity = () {
+      final rawCity = prepared.city?.trim();
+      if (rawCity != null && rawCity.isNotEmpty) {
+        return rawCity;
+      }
+      if (sanitizedAddress != null && sanitizedAddress.isNotEmpty) {
+        return sanitizedAddress;
+      }
+      return null;
+    }();
     final enriched = prepared.copyWith(
       createdAt: prepared.createdAt ?? now,
+      address: sanitizedAddress,
       city: normalizedCity,
     );
     final firestore = _firestore;
@@ -5180,6 +5217,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     List<ClientPhotoCollage>? clientPhotoCollages,
     List<ClientQuestionnaireTemplate>? clientQuestionnaireTemplates,
     List<ClientQuestionnaire>? clientQuestionnaires,
+    List<ClientAppMovement>? clientAppMovements,
     List<Promotion>? promotions,
     List<LastMinuteSlot>? lastMinuteSlots,
     List<AdminSetupProgress>? setupProgress,
@@ -5322,6 +5360,14 @@ class AppDataStore extends StateNotifier<AppDataState> {
                 (e) => e.id,
               )
               : state.clientQuestionnaires,
+      clientAppMovements:
+          clientAppMovements != null
+              ? _merge(
+                state.clientAppMovements,
+                clientAppMovements,
+                (e) => e.id,
+              )
+              : state.clientAppMovements,
       promotions:
           promotions != null
               ? _merge(state.promotions, promotions, (e) => e.id)
@@ -5356,8 +5402,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
 
   void _removeDiscoverableSalon(String salonId) {
     final current = state.discoverableSalons;
-    final updated =
-        current.where((salon) => salon.id != salonId).toList(growable: false);
+    final updated = current
+        .where((salon) => salon.id != salonId)
+        .toList(growable: false);
     if (updated.length == current.length) {
       return;
     }
