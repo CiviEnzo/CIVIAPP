@@ -3,6 +3,7 @@ import * as functions from 'firebase-functions';
 import * as logger from 'firebase-functions/logger';
 
 import { db, FieldValue } from '../utils/firestore';
+import { renderTemplate, TemplateContext } from './placeholders';
 
 type CallableData = {
   salonId: unknown;
@@ -15,6 +16,7 @@ type CallableData = {
 interface Recipient {
   clientId: string;
   tokens: string[];
+  context: TemplateContext;
 }
 
 const INVALID_TOKEN_ERRORS = new Set([
@@ -218,9 +220,9 @@ export const sendManualPushNotification = functionsEU.https.onCall(async (data: 
     );
   }
 
-  const title = normalizeString(data?.title);
-  const body = normalizeString(data?.body);
-  if (!title || !body) {
+  const templateTitle = normalizeString(data?.title);
+  const templateBody = normalizeString(data?.body);
+  if (!templateTitle || !templateBody) {
     throw new functions.https.HttpsError(
       'invalid-argument',
       'Titolo e corpo della notifica sono obbligatori.',
@@ -232,6 +234,19 @@ export const sendManualPushNotification = functionsEU.https.onCall(async (data: 
     dataPayload.type = 'manual_notification';
   }
   dataPayload.salonId = salonId;
+
+  let salonName: string | undefined;
+  try {
+    const salonSnapshot = await db.collection('salons').doc(salonId).get();
+    if (salonSnapshot.exists) {
+      salonName = normalizeString((salonSnapshot.data() ?? {}).name);
+    }
+  } catch (error) {
+    logger.warn('Unable to load salon info for manual push', {
+      salonId,
+      error,
+    });
+  }
 
   const clientDocs = await Promise.all(
     clientIds.map((clientId) => db.collection('clients').doc(clientId).get()),
@@ -271,7 +286,19 @@ export const sendManualPushNotification = functionsEU.https.onCall(async (data: 
       skippedClients.push(clientId);
       return;
     }
-    recipients.push({ clientId, tokens });
+    const record = data as Record<string, unknown>;
+    const firstName = normalizeString(record['firstName'] ?? record['firstname']);
+    const lastName = normalizeString(record['lastName'] ?? record['lastname']);
+    const fullNameRaw =
+      normalizeString(record['fullName'] ?? record['fullname']) ||
+      [firstName, lastName].filter((value) => value.length > 0).join(' ');
+    const context: TemplateContext = {
+      firstName: firstName || undefined,
+      lastName: lastName || undefined,
+      clientName: fullNameRaw || undefined,
+      salonName: salonName || undefined,
+    };
+    recipients.push({ clientId, tokens, context });
   });
 
   if (!recipients.length) {
@@ -293,18 +320,24 @@ export const sendManualPushNotification = functionsEU.https.onCall(async (data: 
     success: number;
     failure: number;
     invalid: number;
+    title: string;
+    body: string;
   }> = [];
 
   for (const recipient of recipients) {
     const messageId = `manual_${Date.now()}_${recipient.clientId}_${Math.random()
       .toString(16)
       .slice(2, 8)}`;
+    const resolvedTitle = renderTemplate(templateTitle, recipient.context);
+    const resolvedBody = renderTemplate(templateBody, recipient.context);
+    const notificationTitle = resolvedTitle.trim();
+    const notificationBody = resolvedBody.trim();
     const payload = {
       ...dataPayload,
       clientId: recipient.clientId,
       messageId,
-      title,
-      body,
+      title: resolvedTitle,
+      body: resolvedBody,
       sentAt: new Date().toISOString(),
     };
 
@@ -317,7 +350,13 @@ export const sendManualPushNotification = functionsEU.https.onCall(async (data: 
       try {
         const response = await getMessaging().sendEachForMulticast({
           tokens: chunk,
-          notification: body ? { title, body } : undefined,
+          notification:
+            notificationTitle || notificationBody
+              ? {
+                  title: notificationTitle || undefined,
+                  body: notificationBody || undefined,
+                }
+              : undefined,
           data: payload,
           android: {
             priority: 'high',
@@ -380,6 +419,8 @@ export const sendManualPushNotification = functionsEU.https.onCall(async (data: 
       success: recipientSuccess,
       failure: recipientFailure,
       invalid: recipientInvalid,
+      title: resolvedTitle,
+      body: resolvedBody,
     });
   }
 
@@ -407,8 +448,8 @@ export const sendManualPushNotification = functionsEU.https.onCall(async (data: 
         channel: 'push',
         status: entry.success > 0 ? 'sent' : 'failed',
         type: dataPayload.type ?? 'manual_notification',
-        title,
-        body,
+        title: entry.title,
+        body: entry.body,
         payload: entry.payload,
         metadata: {
           source: 'manual_push',
