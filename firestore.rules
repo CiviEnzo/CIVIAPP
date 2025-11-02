@@ -340,8 +340,7 @@ service cloud.firestore {
 
       allow update: if isSignedIn() && isAdminOrStaff() &&
           canManageSalonDocument(resourceSalonId()) &&
-          requestSalonId() == resourceSalonId() &&
-          hasValidQuestionnaireTemplatePayload(request.resource.data);
+          requestSalonId() == resourceSalonId();
 
       allow delete: if isSignedIn() && isAdminOrStaff() &&
           canManageSalonDocument(resourceSalonId());
@@ -353,7 +352,7 @@ service cloud.firestore {
         (isClient() && isOwnClient(resource != null ? resource.data.clientId : null))
       );
 
-      allow list: if isSignedIn() && isAdminOrStaff();
+      allow list: if isSignedIn() && (isAdminOrStaff() || isClient());
 
       allow create: if isSignedIn() && isAdminOrStaff() &&
           canManageSalonDocument(requestSalonId()) &&

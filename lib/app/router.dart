@@ -78,6 +78,13 @@ GoRouter createRouter(Ref ref) {
       final onboarding = state.matchedLocation == '/onboarding';
       final requiresProfile = session.requiresProfile;
       final requiresEmailVerification = session.requiresEmailVerification;
+      final selectedSalonId = session.salonId;
+      final hasClientProfile = session.user?.clientId != null;
+      final canEnterClientDashboard =
+          session.role == UserRole.client &&
+          selectedSalonId != null &&
+          hasClientProfile &&
+          session.availableSalonIds.contains(selectedSalonId);
 
       if (registering && registrationInProgress) {
         return null;
@@ -94,10 +101,11 @@ GoRouter createRouter(Ref ref) {
         if (loggingIn) {
           return null;
         }
-        final verifyRedirect = Uri(
-          path: '/',
-          queryParameters: {verifyEmailQueryParam: '1'},
-        ).toString();
+        final verifyRedirect =
+            Uri(
+              path: '/',
+              queryParameters: {verifyEmailQueryParam: '1'},
+            ).toString();
         return verifyRedirect;
       }
 
@@ -107,6 +115,9 @@ GoRouter createRouter(Ref ref) {
 
       final destination = _pathForRole(session.role);
       if (loggingIn) {
+        if (canEnterClientDashboard) {
+          return '/client/dashboard';
+        }
         return destination;
       }
 
@@ -130,7 +141,7 @@ GoRouter createRouter(Ref ref) {
       }
       if (state.matchedLocation == '/client/dashboard' &&
           session.role == UserRole.client &&
-          session.availableSalonIds.isEmpty) {
+          !canEnterClientDashboard) {
         return '/client';
       }
 

@@ -669,10 +669,7 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
               keyboardType: TextInputType.emailAddress,
               validator: (value) {
                 final text = value?.trim() ?? '';
-                if (text.isEmpty) {
-                  return 'Inserisci l\'email';
-                }
-                if (!text.contains('@')) {
+                if (text.isNotEmpty && !text.contains('@')) {
                   return 'Inserisci un\'email valida';
                 }
                 return null;
