@@ -6,6 +6,7 @@ class AppUser {
     required this.uid,
     required this.role,
     required this.salonIds,
+    this.isEmailVerified = false,
     this.staffId,
     this.clientId,
     this.displayName,
@@ -21,6 +22,7 @@ class AppUser {
   final String uid;
   final UserRole? role;
   final List<String> salonIds;
+  final bool isEmailVerified;
   final String? staffId;
   final String? clientId;
   final String? displayName;
@@ -92,6 +94,7 @@ class AppUser {
       clientId: data['clientId'] as String?,
       displayName: data['displayName'] as String?,
       email: data['email'] as String?,
+      isEmailVerified: (data['emailVerified'] as bool?) ?? false,
       availableRoles: availableRoles,
       pendingSalonId: _stringOrNull(data['pendingSalonId']),
       pendingFirstName: _stringOrNull(data['pendingFirstName']),
@@ -105,6 +108,7 @@ class AppUser {
     String uid, {
     String? email,
     String? displayName,
+    bool isEmailVerified = false,
   }) {
     return AppUser(
       uid: uid,
@@ -112,6 +116,7 @@ class AppUser {
       salonIds: const [],
       email: email,
       displayName: displayName,
+      isEmailVerified: isEmailVerified,
       availableRoles: const <UserRole>[],
       pendingSalonId: null,
       pendingFirstName: null,

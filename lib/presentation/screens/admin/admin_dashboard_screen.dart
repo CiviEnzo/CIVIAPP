@@ -5,7 +5,6 @@ import 'package:you_book/presentation/screens/admin/modules/appointments_module.
 import 'package:you_book/presentation/screens/admin/modules/clients_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/inventory_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/messages_module.dart';
-import 'package:you_book/presentation/screens/admin/modules/marketing_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/overview_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/reports_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/sales_module.dart';
@@ -99,21 +98,16 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     ),
     AdminModuleDefinition(
       id: 'messages',
-      title: 'Messaggi',
+      title: 'Messaggi & Marketing',
       icon: Icons.chat_rounded,
-      builder: (context, ref, salonId) => MessagesModule(salonId: salonId),
+      builder:
+          (context, ref, salonId) => MessagesMarketingModule(salonId: salonId),
     ),
     AdminModuleDefinition(
       id: 'whatsapp',
       title: 'WhatsApp',
       icon: Icons.phone_android_rounded,
       builder: (context, ref, salonId) => WhatsAppModule(salonId: salonId),
-    ),
-    AdminModuleDefinition(
-      id: 'marketing',
-      title: 'Marketing',
-      icon: Icons.campaign_rounded,
-      builder: (context, ref, salonId) => MarketingModule(salonId: salonId),
     ),
     AdminModuleDefinition(
       id: 'reports',

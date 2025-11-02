@@ -77,6 +77,7 @@ GoRouter createRouter(Ref ref) {
       final registering = state.matchedLocation == '/register';
       final onboarding = state.matchedLocation == '/onboarding';
       final requiresProfile = session.requiresProfile;
+      final requiresEmailVerification = session.requiresEmailVerification;
 
       if (registering && registrationInProgress) {
         return null;
@@ -87,6 +88,17 @@ GoRouter createRouter(Ref ref) {
           return null;
         }
         return '/';
+      }
+
+      if (requiresEmailVerification) {
+        if (loggingIn) {
+          return null;
+        }
+        final verifyRedirect = Uri(
+          path: '/',
+          queryParameters: {verifyEmailQueryParam: '1'},
+        ).toString();
+        return verifyRedirect;
       }
 
       if (requiresProfile) {

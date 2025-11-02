@@ -887,6 +887,7 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
         uid: user.uid,
         role: user.role,
         salonIds: const [],
+        isEmailVerified: user.isEmailVerified,
         staffId: user.staffId,
         clientId: null,
         displayName: user.displayName,

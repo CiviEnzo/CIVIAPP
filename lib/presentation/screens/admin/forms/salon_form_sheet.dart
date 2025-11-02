@@ -46,6 +46,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
   late LoyaltyRoundingMode _loyaltyRounding;
   late ClientRegistrationAccessMode _registrationAccessMode;
   late Set<ClientRegistrationExtraField> _registrationExtraFields;
+  late bool _isPublished;
   static const int _minutesInDay = 24 * 60;
   static const int _defaultOpeningMinutes = 9 * 60;
   static const int _defaultClosingMinutes = 19 * 60;
@@ -111,6 +112,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
     _closures = closuresList.map(_ClosureFormData.fromClosure).toList();
 
     _status = initial?.status ?? SalonStatus.active;
+    _isPublished = initial?.isPublished ?? false;
 
     final scheduleMap = {
       for (final entry in initial?.schedule ?? const <SalonDailySchedule>[])
@@ -318,6 +320,16 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
                   setState(() => _status = value);
                 }
               },
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: _isPublished,
+              title: const Text('Pubblica salone'),
+              subtitle: const Text(
+                'Mostra le informazioni principali ai clienti nella directory pubblica.',
+              ),
+              onChanged: (value) => setState(() => _isPublished = value),
             ),
             const SizedBox(height: 12),
             _buildClientRegistrationSection(context),
@@ -991,6 +1003,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
       schedule: schedule,
       status: _status,
       loyaltySettings: loyaltySettings,
+      isPublished: _isPublished,
       dashboardSections: dashboardSections,
       clientRegistration: ClientRegistrationSettings(
         accessMode: _registrationAccessMode,

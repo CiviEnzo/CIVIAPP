@@ -17,6 +17,7 @@ import 'package:you_book/domain/entities/quote.dart';
 import 'package:you_book/domain/entities/payment_ticket.dart';
 import 'package:you_book/domain/entities/sale.dart';
 import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/public_salon.dart';
 import 'package:you_book/domain/entities/salon_setup_progress.dart';
 import 'package:you_book/domain/entities/salon_access_request.dart';
 import 'package:you_book/domain/entities/service.dart';
@@ -153,6 +154,7 @@ Salon salonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
             .toList(),
     loyaltySettings: _mapToLoyaltySettings(loyaltyRaw),
     featureFlags: SalonFeatureFlags.fromMap(featureFlagsRaw),
+    isPublished: _coerceToBool(data['isPublished']),
     dashboardSections: SalonDashboardSections.fromMap(dashboardSectionsRaw),
     clientRegistration: _mapToClientRegistrationSettings(clientRegistrationRaw),
     stripeAccountId: data['stripeAccountId'] as String?,
@@ -178,6 +180,7 @@ Map<String, dynamic> salonToMap(Salon salon) {
     'socialLinks': salon.socialLinks,
     'description': salon.description,
     'status': salon.status.name,
+    'isPublished': salon.isPublished,
     'rooms':
         salon.rooms
             .map(
@@ -259,6 +262,13 @@ Map<String, dynamic> salonToMap(Salon salon) {
   };
 
   return map;
+}
+
+PublicSalon publicSalonFromDoc(
+  DocumentSnapshot<Map<String, dynamic>> doc,
+) {
+  final data = doc.data() ?? <String, dynamic>{};
+  return PublicSalon.fromMap(doc.id, data);
 }
 
 AdminSetupProgress adminSetupProgressFromDoc(

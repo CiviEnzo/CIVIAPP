@@ -8,10 +8,12 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import 'package:you_book/app/providers.dart';
+import 'package:you_book/app/router_constants.dart';
 import 'package:you_book/data/models/app_user.dart';
 import 'package:you_book/data/repositories/auth_repository.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/client_registration_draft.dart';
+import 'package:you_book/domain/entities/public_salon.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/salon_access_request.dart';
 import 'package:you_book/domain/entities/user_role.dart';
@@ -29,6 +31,7 @@ class _ClientSalonDiscoveryScreenState
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   String? _joiningSalonId;
+  bool _redirectingToSignIn = false;
 
   @override
   void initState() {
@@ -52,7 +55,7 @@ class _ClientSalonDiscoveryScreenState
     setState(() => _searchQuery = next);
   }
 
-  bool _matchesQuery(Salon salon) {
+  bool _matchesQuery(PublicSalon salon) {
     final query = _searchQuery.toLowerCase();
     if (query.isEmpty) {
       return true;
@@ -74,11 +77,36 @@ class _ClientSalonDiscoveryScreenState
     final session = ref.watch(sessionControllerProvider);
     final user = session.user;
     final userId = session.uid;
+    final requiresEmailVerification = session.requiresEmailVerification;
 
+    if (user == null || requiresEmailVerification) {
+      if (!_redirectingToSignIn) {
+        _redirectingToSignIn = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) {
+            return;
+          }
+          final hasDraft = ref.read(clientRegistrationDraftProvider) != null;
+          final shouldShowNotice = hasDraft || requiresEmailVerification;
+          context.goNamed(
+            'sign_in',
+            queryParameters:
+                shouldShowNotice
+                    ? const {verifyEmailQueryParam: '1'}
+                    : const <String, String>{},
+          );
+        });
+      }
+      return const SizedBox.shrink();
+    }
+
+    final discoverableSalons = data.discoverableSalons;
+    final fallbackSalons = data.salons
+        .where((salon) => salon.isPublished)
+        .map(PublicSalon.fromSalon)
+        .toList(growable: false);
     final availableSalons =
-        data.discoverableSalons.isNotEmpty
-            ? data.discoverableSalons
-            : data.salons;
+        discoverableSalons.isNotEmpty ? discoverableSalons : fallbackSalons;
     final salons = availableSalons
         .where((salon) => salon.status != SalonStatus.archived)
         .where(_matchesQuery)
@@ -203,7 +231,7 @@ class _ClientSalonDiscoveryScreenState
                             rejectedRequest: rejectedRequest,
                             onRequestAccess:
                                 () => _startRequestFlow(context, salon, user),
-                            onEnter: () => _enterSalon(context, salon.id),
+                            onEnter: () => _enterSalon(salon.id),
                           );
                         },
                       );
@@ -228,7 +256,7 @@ class _ClientSalonDiscoveryScreenState
                         rejectedRequest: rejectedRequest,
                         onRequestAccess:
                             () => _startRequestFlow(context, salon, user),
-                        onEnter: () => _enterSalon(context, salon.id),
+                        onEnter: () => _enterSalon(salon.id),
                       );
                     },
                   ),
@@ -260,6 +288,32 @@ class _ClientSalonDiscoveryScreenState
   }
 
   Future<void> _signOut(BuildContext context) async {
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) {
+            return AlertDialog(
+              title: const Text('Confermi il logout?'),
+              content: const Text(
+                'Verrai riportato alla schermata di accesso e dovrai reinserire le tue credenziali.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Annulla'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  child: const Text('Esci'),
+                ),
+              ],
+            );
+          },
+        ) ??
+        false;
+    if (!confirmed) {
+      return;
+    }
     try {
       await performSignOut(ref);
       if (!mounted) {
@@ -278,7 +332,7 @@ class _ClientSalonDiscoveryScreenState
 
   Future<void> _startRequestFlow(
     BuildContext context,
-    Salon salon,
+    PublicSalon salon,
     AppUser? user,
   ) async {
     final session = ref.read(sessionControllerProvider);
@@ -380,7 +434,7 @@ class _ClientSalonDiscoveryScreenState
     );
   }
 
-  Future<void> _enterSalon(BuildContext context, String? salonId) async {
+  Future<void> _enterSalon(String? salonId) async {
     if (salonId == null || salonId.isEmpty) {
       return;
     }
@@ -390,12 +444,13 @@ class _ClientSalonDiscoveryScreenState
       }
       return;
     }
+    final rootContext = context;
     if (mounted) {
       setState(() => _joiningSalonId = salonId);
     } else {
       _joiningSalonId = salonId;
     }
-    final navigator = Navigator.of(context, rootNavigator: true);
+    final navigator = Navigator.of(rootContext, rootNavigator: true);
     final overlayContext = navigator.context;
     var loadingDialogVisible = true;
     unawaited(
@@ -553,6 +608,7 @@ class _ClientSalonDiscoveryScreenState
           uid: currentUser.uid,
           role: UserRole.client,
           salonIds: updatedSalonIds.toList(growable: false),
+          isEmailVerified: currentUser.isEmailVerified,
           staffId: currentUser.staffId,
           clientId: targetClientId,
           displayName: resolvedDisplayName,
@@ -570,6 +626,8 @@ class _ClientSalonDiscoveryScreenState
           uid: currentUid,
           role: UserRole.client,
           salonIds: <String>[salonId],
+          isEmailVerified:
+              sessionState.user?.isEmailVerified ?? currentUser?.isEmailVerified ?? true,
           staffId: null,
           clientId: targetClientId,
           displayName: resolvedDisplayName,
@@ -634,6 +692,7 @@ class _ClientSalonDiscoveryScreenState
             uid: stabilizedUser.uid,
             role: UserRole.client,
             salonIds: updatedSalonIds.toList(growable: false),
+            isEmailVerified: stabilizedUser.isEmailVerified,
             staffId: stabilizedUser.staffId,
             clientId: targetClientId,
             displayName: resolvedDisplayName,
@@ -650,16 +709,14 @@ class _ClientSalonDiscoveryScreenState
       }
 
       closeLoadingDialog();
-      if (mounted) {
-        context.go('/client/dashboard');
-      }
+      ref.read(appRouterProvider).go('/client/dashboard');
     } catch (error) {
       closeLoadingDialog();
       if (!mounted) {
         return;
       }
       if (!navigator.mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        ScaffoldMessenger.maybeOf(rootContext)?.showSnackBar(
           SnackBar(content: Text('Cambio salone non riuscito: $error')),
         );
         return;
@@ -762,7 +819,7 @@ class _SalonCard extends StatelessWidget {
     required this.onEnter,
   });
 
-  final Salon salon;
+  final PublicSalon salon;
   final bool isApproved;
   final bool isProcessing;
   final SalonAccessRequest? pendingRequest;
@@ -1066,7 +1123,7 @@ class _SalonAccessRequestSheet extends ConsumerStatefulWidget {
     required this.initialBirthDate,
   });
 
-  final Salon salon;
+  final PublicSalon salon;
   final ClientRegistrationSettings settings;
   final String initialFirstName;
   final String initialLastName;
@@ -1445,6 +1502,7 @@ class _SalonAccessRequestSheetState
           uid: user.uid,
           role: currentRole,
           salonIds: user.salonIds,
+          isEmailVerified: user.isEmailVerified,
           staffId: user.staffId,
           clientId: user.clientId,
           displayName:

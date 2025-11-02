@@ -16,6 +16,7 @@ import 'package:you_book/domain/entities/quote.dart';
 import 'package:you_book/domain/entities/payment_ticket.dart';
 import 'package:you_book/domain/entities/sale.dart';
 import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/public_salon.dart';
 import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/service_category.dart';
 import 'package:you_book/domain/entities/shift.dart';
@@ -98,7 +99,7 @@ class AppDataState {
   }
 
   final List<Salon> salons;
-  final List<Salon> discoverableSalons;
+  final List<PublicSalon> discoverableSalons;
   final List<StaffMember> staff;
   final List<StaffRole> staffRoles;
   final List<Client> clients;
@@ -131,7 +132,7 @@ class AppDataState {
 
   AppDataState copyWith({
     List<Salon>? salons,
-    List<Salon>? discoverableSalons,
+    List<PublicSalon>? discoverableSalons,
     List<StaffMember>? staff,
     List<StaffRole>? staffRoles,
     List<Client>? clients,

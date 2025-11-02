@@ -14,6 +14,7 @@ import 'package:you_book/domain/entities/quote.dart';
 import 'package:you_book/domain/entities/payment_ticket.dart';
 import 'package:you_book/domain/entities/sale.dart';
 import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/public_salon.dart';
 import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/service_category.dart';
 import 'package:you_book/domain/entities/shift.dart';
@@ -105,6 +106,7 @@ class MockData {
         clientPromotions: true,
         clientLastMinute: true,
       ),
+      isPublished: true,
       stripeAccountId: 'acct_mock_salon001',
       stripeAccount: const StripeAccountSnapshot(
         chargesEnabled: true,
@@ -154,6 +156,7 @@ class MockData {
         clientPromotions: false,
         clientLastMinute: true,
       ),
+      isPublished: true,
       stripeAccountId: 'acct_mock_salon002',
       stripeAccount: const StripeAccountSnapshot(
         chargesEnabled: true,
@@ -162,6 +165,10 @@ class MockData {
       ),
     ),
   ];
+
+  static final publicSalons = List<PublicSalon>.unmodifiable(
+    salons.where((salon) => salon.isPublished).map(PublicSalon.fromSalon),
+  );
 
   static final appointmentDayChecklists = <AppointmentDayChecklist>[
     AppointmentDayChecklist(

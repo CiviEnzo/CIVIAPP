@@ -281,6 +281,10 @@ class _ClientRegistrationScreenState
             password: password,
             displayName:
                 composedDisplayName.isEmpty ? null : composedDisplayName,
+            firstName: firstName,
+            lastName: lastName,
+            phone: phone.isEmpty ? null : phone,
+            dateOfBirth: dateOfBirth,
           );
       if (!mounted) {
         return;
@@ -296,6 +300,8 @@ class _ClientRegistrationScreenState
               dateOfBirth: dateOfBirth,
             ),
           );
+      // Forza la sessione locale in stato non autenticato prima del redirect.
+      ref.read(sessionControllerProvider.notifier).updateUser(null);
       if (!mounted) return;
       context.goNamed(
         'sign_in',

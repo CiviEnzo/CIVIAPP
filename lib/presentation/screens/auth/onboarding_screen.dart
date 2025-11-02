@@ -2,6 +2,7 @@ import 'package:you_book/app/providers.dart';
 import 'package:you_book/data/models/app_user.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/public_salon.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/domain/entities/staff_role.dart';
 import 'package:you_book/domain/entities/salon_access_request.dart';
@@ -113,7 +114,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final salons =
         data.discoverableSalons.isNotEmpty
             ? data.discoverableSalons
-            : data.salons;
+            : data.salons
+                .where((salon) => salon.isPublished)
+                .map(PublicSalon.fromSalon)
+                .toList(growable: false);
     final staffRoles = data.staffRoles;
     final user = session.user;
     final roleLocked = user?.role != null;
@@ -557,7 +561,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   Widget _buildPendingRequestCard(
     ThemeData theme,
     List<SalonAccessRequest> requests,
-    List<Salon> salons,
+    List<PublicSalon> salons,
   ) {
     final pending = requests
         .where((request) => request.isPending)
@@ -960,7 +964,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     return options;
   }
 
-  bool _canAutoSubmit(UserRole? role, AppUser? user, List<Salon> salons) {
+  bool _canAutoSubmit(
+    UserRole? role,
+    AppUser? user,
+    List<PublicSalon> salons,
+  ) {
     if (role == null) {
       return false;
     }
@@ -1244,6 +1252,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             uid: user.uid,
             role: role,
             salonIds: const [],
+            isEmailVerified: user.isEmailVerified,
             staffId: staffId,
             clientId: null,
             displayName: fallbackDisplayName,
@@ -1302,6 +1311,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               role == UserRole.admin
                   ? const []
                   : [if (salonId != null) salonId],
+          isEmailVerified: firebaseUser.isEmailVerified,
           staffId: staffId,
           clientId: clientId,
           displayName: fallbackDisplayName,

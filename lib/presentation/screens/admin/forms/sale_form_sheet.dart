@@ -22,6 +22,8 @@ const saleFormLoyaltyRedeemFieldKey = Key('saleForm.loyaltyRedeemField');
 
 enum _ClientSearchMode { general, number }
 
+enum ReviewAmountEmphasis { normal, secondary, primary }
+
 class SaleFormSheet extends StatefulWidget {
   const SaleFormSheet({
     super.key,
@@ -185,6 +187,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     double total,
   ) {
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final buttonLabel = _isPaymentStep ? 'Salva' : 'Conferma';
     final onPressed =
         total > 0 ? (_isPaymentStep ? _submit : _continueToPaymentStep) : null;
@@ -192,7 +195,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       alignment: Alignment.bottomCenter,
       child: Material(
         elevation: 8,
-        color: theme.colorScheme.surface,
+        color: colorScheme.surface,
+        shadowColor: colorScheme.primary.withAlpha((0.25 * 255).round()),
         child: SafeArea(
           top: false,
           child: Padding(
@@ -207,7 +211,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                       Text(
                         'Totale da pagare',
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
+                          color: colorScheme.primary,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -215,18 +219,560 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                         currency.format(total),
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w600,
+                          color: colorScheme.onSurface,
                         ),
                       ),
                     ],
                   ),
                 ),
-                FilledButton(onPressed: onPressed, child: Text(buttonLabel)),
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: colorScheme.primary,
+                    foregroundColor: colorScheme.onPrimary,
+                  ),
+                  onPressed: onPressed,
+                  child: Text(buttonLabel),
+                ),
               ],
             ),
           ),
         ),
       ),
     );
+  }
+
+  List<Widget> _buildEditingContent({
+    required ThemeData theme,
+    required DateFormat dateFormat,
+    required NumberFormat currency,
+    required List<Client> filteredClients,
+    required List<StaffMember> staff,
+    required double subtotal,
+    required double manualDiscount,
+    required double loyaltyDiscount,
+    required double total,
+    required Salon? salon,
+    required Client? client,
+  }) {
+    return [
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: Text(
+              'Registra una vendita',
+              style: theme.textTheme.titleLarge,
+            ),
+          ),
+          const SizedBox(width: 16),
+          SizedBox(
+            width: 280,
+            child: DropdownButtonFormField<String>(
+              value: _staffId,
+              decoration: const InputDecoration(
+                labelText: 'Operatore',
+                floatingLabelBehavior: FloatingLabelBehavior.always,
+              ),
+              items:
+                  staff
+                      .map(
+                        (member) => DropdownMenuItem(
+                          value: member.id,
+                          child: Text(member.fullName),
+                        ),
+                      )
+                      .toList(),
+              onChanged: _onStaffChanged,
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 320),
+        child: _buildDateTimeField(dateFormat),
+      ),
+      const SizedBox(height: 24),
+      _buildSectionHeader(
+        icon: Icons.store_outlined,
+        title: 'Cliente e operatore',
+        subtitle:
+            'Cerca il cliente e collega l\'operatore per associare il salone automaticamente',
+      ),
+      const SizedBox(height: 12),
+      _buildClientSelector(filteredClients),
+      const SizedBox(height: 24),
+      _buildSectionHeader(
+        icon: Icons.receipt_long,
+        title: 'Elementi vendita',
+        subtitle: 'Aggiungi servizi, pacchetti o prodotti',
+      ),
+      const SizedBox(height: 12),
+      _buildSaleLinesSection(theme, currency),
+      const SizedBox(height: 16),
+      Wrap(
+        spacing: 12,
+        runSpacing: 8,
+        children: [
+          FilledButton.tonalIcon(
+            onPressed: _onAddPackage,
+            icon: const Icon(Icons.card_giftcard_rounded),
+            label: const Text('Aggiungi pacchetto'),
+          ),
+          FilledButton.tonalIcon(
+            onPressed: _onAddCustomPackage,
+            icon: const Icon(Icons.auto_fix_high_rounded),
+            label: const Text('Aggiungi Servizi'),
+          ),
+          FilledButton.tonalIcon(
+            onPressed: _onAddInventoryItem,
+            icon: const Icon(Icons.inventory_2_rounded),
+            label: const Text('Aggiungi prodotto'),
+          ),
+          FilledButton.tonal(
+            onPressed: _onAddManualItem,
+            child: const Icon(Icons.add_circle_outline),
+          ),
+        ],
+      ),
+      const SizedBox(height: 24),
+      _buildSectionHeader(
+        icon: Icons.loyalty,
+        title: 'Programma fedeltà',
+        subtitle: 'Gestisci punti e riscatto prima del totale',
+        isExpandable: true,
+        isExpanded: _isLoyaltyExpanded,
+        onTap: () {
+          setState(() {
+            _isLoyaltyExpanded = !_isLoyaltyExpanded;
+          });
+        },
+      ),
+      if (_isLoyaltyExpanded) ...[
+        const SizedBox(height: 12),
+        _buildLoyaltySection(currency, salon, client),
+      ],
+      const SizedBox(height: 24),
+    ];
+  }
+
+  List<Widget> _buildReviewContent({
+    required ThemeData theme,
+    required DateFormat dateFormat,
+    required NumberFormat currency,
+    required double subtotal,
+    required double manualDiscount,
+    required double loyaltyDiscount,
+    required double total,
+    required Salon? salon,
+    required Client? client,
+  }) {
+    return [
+      Row(
+        children: [
+          Expanded(
+            child: Text('Riepilogo vendita', style: theme.textTheme.titleLarge),
+          ),
+          TextButton.icon(
+            onPressed: _exitPaymentStep,
+            icon: const Icon(Icons.edit),
+            label: const Text('Modifica'),
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildReviewMainSection(
+        theme: theme,
+        dateFormat: dateFormat,
+        currency: currency,
+        subtotal: subtotal,
+        manualDiscount: manualDiscount,
+        loyaltyDiscount: loyaltyDiscount,
+        total: total,
+        salon: salon,
+        client: client,
+      ),
+    ];
+  }
+
+  Widget _buildReviewMainSection({
+    required ThemeData theme,
+    required DateFormat dateFormat,
+    required NumberFormat currency,
+    required double subtotal,
+    required double manualDiscount,
+    required double loyaltyDiscount,
+    required double total,
+    required Salon? salon,
+    required Client? client,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 900;
+        final summaryCard = _buildReviewSummaryCard(
+          theme: theme,
+          dateFormat: dateFormat,
+          currency: currency,
+          subtotal: subtotal,
+          manualDiscount: manualDiscount,
+          loyaltyDiscount: loyaltyDiscount,
+          total: total,
+          salon: salon,
+          client: client,
+        );
+        final paymentSection = _buildPaymentSection(
+          theme: theme,
+          currency: currency,
+          total: total,
+        );
+        if (!isWide) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [summaryCard, const SizedBox(height: 24), paymentSection],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: summaryCard),
+            const SizedBox(width: 24),
+            Expanded(child: paymentSection),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildReviewSummaryCard({
+    required ThemeData theme,
+    required DateFormat dateFormat,
+    required NumberFormat currency,
+    required double subtotal,
+    required double manualDiscount,
+    required double loyaltyDiscount,
+    required double total,
+    required Salon? salon,
+    required Client? client,
+  }) {
+    final staffName =
+        widget.staff
+            .firstWhereOrNull((member) => member.id == _staffId)
+            ?.fullName ??
+        'Non assegnato';
+    final salonName = salon?.name ?? 'Non associato';
+    final clientName = () {
+      if (client == null) {
+        return 'Non selezionato';
+      }
+      final buffer = StringBuffer(client.fullName);
+      if (client.clientNumber != null && client.clientNumber!.isNotEmpty) {
+        buffer.write(' · N° ${client.clientNumber}');
+      }
+      return buffer.toString();
+    }();
+    final note = _notesController.text.trim();
+    final manualBase = subtotal - manualDiscount;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Dettagli principali', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 12),
+            _buildReviewInfoTile(
+              theme: theme,
+              label: 'Data',
+              value: dateFormat.format(_date),
+            ),
+            _buildReviewInfoTile(
+              theme: theme,
+              label: 'Cliente',
+              value: clientName,
+            ),
+            _buildReviewInfoTile(
+              theme: theme,
+              label: 'Operatore',
+              value: staffName,
+            ),
+            _buildReviewInfoTile(
+              theme: theme,
+              label: 'Salone',
+              value: salonName,
+            ),
+            const SizedBox(height: 12),
+            Text('Elementi', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 8),
+            if (_lines.isEmpty)
+              Text(
+                'Nessun elemento aggiunto.',
+                style: theme.textTheme.bodyMedium,
+              )
+            else ...[
+              for (var i = 0; i < _lines.length; i++) ...[
+                _buildReviewLineSummary(
+                  theme: theme,
+                  currency: currency,
+                  line: _lines[i],
+                  index: i,
+                ),
+                if (i != _lines.length - 1)
+                  const Divider(height: 16, thickness: 1),
+              ],
+            ],
+            if (subtotal > 0) ...[
+              const SizedBox(height: 16),
+              Divider(color: theme.colorScheme.outlineVariant),
+              const SizedBox(height: 12),
+              _buildReviewAmountRow(
+                theme: theme,
+                label: 'Subtotale',
+                value: currency.format(subtotal),
+              ),
+              if (manualDiscount > 0) ...[
+                const SizedBox(height: 4),
+                _buildReviewAmountRow(
+                  theme: theme,
+                  label: 'Adeguamento manuale',
+                  value: '-${currency.format(manualDiscount)}',
+                ),
+                const SizedBox(height: 4),
+                _buildReviewAmountRow(
+                  theme: theme,
+                  label: 'Totale dopo adeguamento',
+                  value: currency.format(manualBase),
+                  emphasis: ReviewAmountEmphasis.secondary,
+                ),
+              ],
+              if (loyaltyDiscount > 0) ...[
+                const SizedBox(height: 4),
+                _buildReviewAmountRow(
+                  theme: theme,
+                  label: 'Riscatto punti',
+                  value: '-${currency.format(loyaltyDiscount)}',
+                ),
+              ],
+              const SizedBox(height: 8),
+              _buildReviewAmountRow(
+                theme: theme,
+                label: 'Totale da pagare',
+                value: currency.format(total),
+                emphasis: ReviewAmountEmphasis.primary,
+              ),
+            ],
+            if (note.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text('Note', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 4),
+              Text(note, style: theme.textTheme.bodyMedium),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReviewInfoTile({
+    required ThemeData theme,
+    required String label,
+    required String value,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(value, style: theme.textTheme.bodyMedium),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReviewAmountRow({
+    required ThemeData theme,
+    required String label,
+    required String value,
+    ReviewAmountEmphasis emphasis = ReviewAmountEmphasis.normal,
+  }) {
+    final labelStyle = theme.textTheme.bodyMedium?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    final valueStyle = switch (emphasis) {
+      ReviewAmountEmphasis.primary => theme.textTheme.titleMedium?.copyWith(
+        fontWeight: FontWeight.w700,
+      ),
+      ReviewAmountEmphasis.secondary => theme.textTheme.bodyMedium?.copyWith(
+        fontWeight: FontWeight.w600,
+      ),
+      ReviewAmountEmphasis.normal => theme.textTheme.bodyMedium?.copyWith(
+        fontWeight: FontWeight.w500,
+      ),
+    };
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: labelStyle),
+        Text(value, style: valueStyle),
+      ],
+    );
+  }
+
+  Widget _buildPaymentSection({
+    required ThemeData theme,
+    required NumberFormat currency,
+    required double total,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader(
+          icon: Icons.credit_card,
+          title: 'Pagamenti',
+          subtitle: 'Definisci metodo, stato e incassi',
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<PaymentMethod>(
+          value: _payment,
+          decoration: const InputDecoration(labelText: 'Metodo di pagamento'),
+          items:
+              PaymentMethod.values
+                  .map(
+                    (method) => DropdownMenuItem(
+                      value: method,
+                      child: Text(_paymentLabel(method)),
+                    ),
+                  )
+                  .toList(),
+          validator:
+              (value) =>
+                  value == null ? 'Seleziona il metodo di pagamento' : null,
+          onChanged: (value) => setState(() => _payment = value),
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<SalePaymentStatus>(
+          value: _paymentStatus,
+          decoration: const InputDecoration(labelText: 'Stato pagamento'),
+          items:
+              SalePaymentStatus.values
+                  .map(
+                    (status) => DropdownMenuItem(
+                      value: status,
+                      child: Text(status.label),
+                    ),
+                  )
+                  .toList(),
+          validator:
+              (value) =>
+                  value == null ? 'Seleziona lo stato del pagamento' : null,
+          onChanged: (value) {
+            setState(() {
+              _paymentStatus = value;
+            });
+            if (value != SalePaymentStatus.deposit) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) {
+                  return;
+                }
+                _setPaidAmountText('');
+              });
+            }
+          },
+        ),
+        if (_paymentStatus == SalePaymentStatus.deposit) ...[
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _paidAmountController,
+            decoration: const InputDecoration(
+              labelText: 'Importo incassato (€)',
+            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: (value) {
+              if (_paymentStatus != SalePaymentStatus.deposit) {
+                return null;
+              }
+              final amount = _parseAmount(value);
+              if (amount == null || amount <= 0) {
+                return 'Inserisci un importo valido';
+              }
+              if (amount > total + 0.01) {
+                return 'L\'acconto supera il totale';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Residuo da incassare: ${currency.format(_remainingBalance(total))}',
+            style: theme.textTheme.bodyMedium,
+          ),
+        ],
+        const SizedBox(height: 24),
+      ],
+    );
+  }
+
+  Widget _buildReviewLineSummary({
+    required ThemeData theme,
+    required NumberFormat currency,
+    required _SaleLineDraft line,
+    required int index,
+  }) {
+    final description = () {
+      final text = line.descriptionController.text.trim();
+      return text.isEmpty ? 'Voce ${index + 1}' : text;
+    }();
+    final catalog = line.catalogLabel;
+    final quantity = _parseAmount(line.quantityController.text) ?? 0;
+    final unitPrice = _parseAmount(line.priceController.text) ?? 0;
+    final total = _lineTotal(line);
+    final quantityText = _formatQuantity(quantity);
+    final priceText = currency.format(unitPrice);
+    final typeLabel = _lineTypeLabel(line.referenceType);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (catalog != null && catalog.isNotEmpty) ...[
+          Text(catalog, style: theme.textTheme.bodySmall),
+          const SizedBox(height: 2),
+        ],
+        Text(
+          description,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          '$typeLabel • $quantityText × $priceText',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          currency.format(total),
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatQuantity(double value) {
+    if (value == value.roundToDouble()) {
+      return value.toStringAsFixed(0);
+    }
+    return value.toStringAsFixed(2);
   }
 
   @override
@@ -302,203 +848,32 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                 key: _formKey,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'Registra una vendita',
-                            style: theme.textTheme.titleLarge,
+                  children:
+                      _isPaymentStep
+                          ? _buildReviewContent(
+                            theme: theme,
+                            dateFormat: dateFormat,
+                            currency: currency,
+                            subtotal: subtotal,
+                            manualDiscount: manualDiscount,
+                            loyaltyDiscount: loyaltyDiscount,
+                            total: total,
+                            salon: salon,
+                            client: currentClient,
+                          )
+                          : _buildEditingContent(
+                            theme: theme,
+                            dateFormat: dateFormat,
+                            currency: currency,
+                            filteredClients: filteredClients,
+                            staff: staff,
+                            subtotal: subtotal,
+                            manualDiscount: manualDiscount,
+                            loyaltyDiscount: loyaltyDiscount,
+                            total: total,
+                            salon: salon,
+                            client: currentClient,
                           ),
-                        ),
-                        const SizedBox(width: 16),
-                        SizedBox(
-                          width: 280,
-                          child: DropdownButtonFormField<String>(
-                            value: _staffId,
-                            decoration: const InputDecoration(
-                              labelText: 'Operatore',
-                              floatingLabelBehavior:
-                                  FloatingLabelBehavior.always,
-                            ),
-                            items:
-                                staff
-                                    .map(
-                                      (member) => DropdownMenuItem(
-                                        value: member.id,
-                                        child: Text(member.fullName),
-                                      ),
-                                    )
-                                    .toList(),
-                            onChanged: _onStaffChanged,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 320),
-                      child: _buildDateTimeField(dateFormat),
-                    ),
-                    const SizedBox(height: 24),
-                    _buildSectionHeader(
-                      icon: Icons.store_outlined,
-                      title: 'Cliente e operatore',
-                      subtitle:
-                          'Cerca il cliente e collega l\'operatore per associare il salone automaticamente',
-                    ),
-                    const SizedBox(height: 12),
-                    _buildClientSelector(filteredClients),
-                    const SizedBox(height: 24),
-                    _buildSectionHeader(
-                      icon: Icons.receipt_long,
-                      title: 'Elementi vendita',
-                      subtitle: 'Aggiungi servizi, pacchetti o prodotti',
-                    ),
-                    const SizedBox(height: 12),
-                    _buildSaleLinesSection(theme, currency),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 8,
-                      children: [
-                        FilledButton.tonalIcon(
-                          onPressed: _onAddPackage,
-                          icon: const Icon(Icons.card_giftcard_rounded),
-                          label: const Text('Aggiungi pacchetto'),
-                        ),
-                        FilledButton.tonalIcon(
-                          onPressed: _onAddCustomPackage,
-                          icon: const Icon(Icons.auto_fix_high_rounded),
-                          label: const Text('Aggiungi Servizi'),
-                        ),
-                        FilledButton.tonalIcon(
-                          onPressed: _onAddInventoryItem,
-                          icon: const Icon(Icons.inventory_2_rounded),
-                          label: const Text('Aggiungi prodotto'),
-                        ),
-                        FilledButton.tonal(
-                          onPressed: _onAddManualItem,
-                          child: Icon(Icons.add_circle_outline),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    _buildSectionHeader(
-                      icon: Icons.loyalty,
-                      title: 'Programma fedeltà',
-                      subtitle: 'Gestisci punti e riscatto prima del totale',
-                      isExpandable: true,
-                      isExpanded: _isLoyaltyExpanded,
-                      onTap: () {
-                        setState(() {
-                          _isLoyaltyExpanded = !_isLoyaltyExpanded;
-                        });
-                      },
-                    ),
-                    if (_isLoyaltyExpanded) ...[
-                      const SizedBox(height: 12),
-                      _buildLoyaltySection(currency, salon, currentClient),
-                    ],
-                    const SizedBox(height: 24),
-
-                    if (_isPaymentStep) ...[
-                      const SizedBox(height: 24),
-                      _buildSectionHeader(
-                        icon: Icons.credit_card,
-                        title: 'Pagamenti',
-                        subtitle: 'Definisci metodo, stato e incassi',
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<PaymentMethod>(
-                        value: _payment,
-                        decoration: const InputDecoration(
-                          labelText: 'Metodo di pagamento',
-                        ),
-                        items:
-                            PaymentMethod.values
-                                .map(
-                                  (method) => DropdownMenuItem(
-                                    value: method,
-                                    child: Text(_paymentLabel(method)),
-                                  ),
-                                )
-                                .toList(),
-                        validator:
-                            (value) =>
-                                value == null
-                                    ? 'Seleziona il metodo di pagamento'
-                                    : null,
-                        onChanged: (value) => setState(() => _payment = value),
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<SalePaymentStatus>(
-                        value: _paymentStatus,
-                        decoration: const InputDecoration(
-                          labelText: 'Stato pagamento',
-                        ),
-                        items:
-                            SalePaymentStatus.values
-                                .map(
-                                  (status) => DropdownMenuItem(
-                                    value: status,
-                                    child: Text(status.label),
-                                  ),
-                                )
-                                .toList(),
-                        validator:
-                            (value) =>
-                                value == null
-                                    ? 'Seleziona lo stato del pagamento'
-                                    : null,
-                        onChanged: (value) {
-                          setState(() {
-                            _paymentStatus = value;
-                          });
-                          if (value != SalePaymentStatus.deposit) {
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              if (!mounted) {
-                                return;
-                              }
-                              _setPaidAmountText('');
-                            });
-                          }
-                        },
-                      ),
-                      if (_paymentStatus == SalePaymentStatus.deposit) ...[
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _paidAmountController,
-                          decoration: const InputDecoration(
-                            labelText: 'Importo incassato (€)',
-                          ),
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          validator: (value) {
-                            if (_paymentStatus != SalePaymentStatus.deposit) {
-                              return null;
-                            }
-                            final amount = _parseAmount(value);
-                            if (amount == null || amount <= 0) {
-                              return 'Inserisci un importo valido';
-                            }
-                            if (amount > total + 0.01) {
-                              return 'L\'acconto supera il totale';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Residuo da incassare: ${currency.format(_remainingBalance(total))}',
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                      ],
-                    ],
-                    const SizedBox(height: 24),
-                  ],
                 ),
               ),
             ),
@@ -525,7 +900,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceVariant,
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: borderRadius,
       ),
       child: Row(
@@ -917,8 +1292,9 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     double subtotal,
     double manualDiscount,
     double loyaltyDiscount,
-    double total,
-  ) {
+    double total, {
+    bool editable = true,
+  }) {
     final theme = Theme.of(context);
     final manualBase = subtotal - manualDiscount;
     return Card(
@@ -964,35 +1340,52 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
               ),
             ],
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _manualTotalController,
-              decoration: const InputDecoration(
-                labelText: 'Totale vendita (€)',
-                helperText:
-                    'Modifica l\'importo per impostare manualmente il totale prima dei punti fedeltà.',
-              ),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              validator: (value) {
-                if (_lines.isEmpty) {
+            if (editable) ...[
+              TextFormField(
+                controller: _manualTotalController,
+                decoration: const InputDecoration(
+                  labelText: 'Totale vendita (€)',
+                  helperText:
+                      'Modifica l\'importo per impostare manualmente il totale prima dei punti fedeltà.',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                validator: (value) {
+                  if (_lines.isEmpty) {
+                    return null;
+                  }
+                  final manual = _parseAmount(value);
+                  if (manual == null) {
+                    return 'Inserisci un importo valido';
+                  }
+                  if (manual < 0.01) {
+                    return 'Il totale deve essere positivo';
+                  }
+                  final currentSubtotal = _computeSubtotal();
+                  if (manual > currentSubtotal + 0.01) {
+                    return 'Non può superare il subtotale';
+                  }
                   return null;
-                }
-                final manual = _parseAmount(value);
-                if (manual == null) {
-                  return 'Inserisci un importo valido';
-                }
-                if (manual < 0.01) {
-                  return 'Il totale deve essere positivo';
-                }
-                final currentSubtotal = _computeSubtotal();
-                if (manual > currentSubtotal + 0.01) {
-                  return 'Non può superare il subtotale';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
+                },
+              ),
+              const SizedBox(height: 16),
+            ] else ...[
+              Text(
+                'Totale vendita impostato',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                currency.format(manualBase),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -2064,6 +2457,16 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     }
     setState(() {
       _isPaymentStep = true;
+    });
+  }
+
+  void _exitPaymentStep() {
+    FocusScope.of(context).unfocus();
+    if (!_isPaymentStep) {
+      return;
+    }
+    setState(() {
+      _isPaymentStep = false;
     });
   }
 

@@ -27,6 +27,7 @@ import 'package:you_book/domain/entities/quote.dart';
 import 'package:you_book/domain/entities/payment_ticket.dart';
 import 'package:you_book/domain/entities/sale.dart';
 import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/public_salon.dart';
 import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/service_category.dart';
 import 'package:you_book/domain/entities/shift.dart';
@@ -64,7 +65,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
              ? AppDataState.initial()
              : AppDataState(
                salons: List.unmodifiable(MockData.salons),
-               discoverableSalons: List.unmodifiable(MockData.salons),
+               discoverableSalons: List.unmodifiable(MockData.publicSalons),
                staff: List.unmodifiable(
                  MockData.staffMembers.sortedByDisplayOrder(),
                ),
@@ -162,12 +163,11 @@ class AppDataStore extends StateNotifier<AppDataState> {
 
     if (role == null) {
       subscriptions.add(
-        _listenCollection<Salon>(firestore.collection('salons'), salonFromDoc, (
-          items,
-        ) {
-          state = state.copyWith(salons: items, discoverableSalons: items);
-          _refreshFeatureFilteredCollections();
-        }),
+        _listenCollection<PublicSalon>(
+          firestore.collection('public_salons'),
+          publicSalonFromDoc,
+          (items) => state = state.copyWith(discoverableSalons: items),
+        ),
       );
       subscriptions.add(
         _listenCollection<ServiceCategory>(
@@ -211,15 +211,11 @@ class AppDataStore extends StateNotifier<AppDataState> {
       );
     } else if (role == UserRole.client) {
       subscriptions.add(
-        _listenCollection<Salon>(firestore.collection('salons'), salonFromDoc, (
-          items,
-        ) {
-          state = state.copyWith(discoverableSalons: items);
-          if (salonIds.isEmpty) {
-            state = state.copyWith(salons: items);
-            _refreshFeatureFilteredCollections();
-          }
-        }),
+        _listenCollection<PublicSalon>(
+          firestore.collection('public_salons'),
+          publicSalonFromDoc,
+          (items) => state = state.copyWith(discoverableSalons: items),
+        ),
       );
 
       if (salonIds.isEmpty) {
@@ -241,7 +237,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     } else if (salonIds.isEmpty) {
       state = state.copyWith(
         salons: const <Salon>[],
-        discoverableSalons: const <Salon>[],
+        discoverableSalons: const <PublicSalon>[],
         serviceCategories: const <ServiceCategory>[],
         quotes: const <Quote>[],
         promotions: const <Promotion>[],
@@ -1707,12 +1703,14 @@ class AppDataStore extends StateNotifier<AppDataState> {
   Future<void> upsertSalon(Salon salon) async {
     final firestore = _firestore;
     if (firestore == null) {
-      _upsertLocal(salons: [salon], discoverableSalons: [salon]);
+      _upsertLocal(salons: [salon]);
+      _syncPublicSalonLocally(salon);
       return;
     }
     await firestore.collection('salons').doc(salon.id).set(salonToMap(salon));
     await _ensureCurrentUserLinkedToSalon(salon.id);
-    _upsertLocal(salons: <Salon>[salon], discoverableSalons: <Salon>[salon]);
+    _upsertLocal(salons: <Salon>[salon]);
+    _syncPublicSalonLocally(salon);
     _refreshFeatureFilteredCollections();
   }
 
@@ -1870,10 +1868,8 @@ class AppDataStore extends StateNotifier<AppDataState> {
     );
     if (currentSalon != null) {
       final updatedSalon = currentSalon.copyWith(featureFlags: featureFlags);
-      _upsertLocal(
-        salons: <Salon>[updatedSalon],
-        discoverableSalons: <Salon>[updatedSalon],
-      );
+      _upsertLocal(salons: <Salon>[updatedSalon]);
+      _syncPublicSalonLocally(updatedSalon);
       _refreshFeatureFilteredCollections();
     }
   }
@@ -5160,7 +5156,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
 
   void _upsertLocal({
     List<Salon>? salons,
-    List<Salon>? discoverableSalons,
+    List<PublicSalon>? discoverableSalons,
     List<StaffMember>? staff,
     List<StaffRole>? staffRoles,
     List<Client>? clients,
@@ -5346,6 +5342,27 @@ class AppDataStore extends StateNotifier<AppDataState> {
                 (e) => e.id,
               )
               : state.appointmentDayChecklists,
+    );
+  }
+
+  void _syncPublicSalonLocally(Salon salon) {
+    if (!salon.isPublished) {
+      _removeDiscoverableSalon(salon.id);
+      return;
+    }
+    final publicSalon = PublicSalon.fromSalon(salon);
+    _upsertLocal(discoverableSalons: <PublicSalon>[publicSalon]);
+  }
+
+  void _removeDiscoverableSalon(String salonId) {
+    final current = state.discoverableSalons;
+    final updated =
+        current.where((salon) => salon.id != salonId).toList(growable: false);
+    if (updated.length == current.length) {
+      return;
+    }
+    state = state.copyWith(
+      discoverableSalons: List<PublicSalon>.unmodifiable(updated),
     );
   }
 
@@ -6455,10 +6472,8 @@ class AppDataStore extends StateNotifier<AppDataState> {
     );
     if (currentSalon != null) {
       final updatedSalon = currentSalon.copyWith(setupChecklist: statuses);
-      _upsertLocal(
-        salons: <Salon>[updatedSalon],
-        discoverableSalons: <Salon>[updatedSalon],
-      );
+      _upsertLocal(salons: <Salon>[updatedSalon]);
+      _syncPublicSalonLocally(updatedSalon);
     }
   }
 

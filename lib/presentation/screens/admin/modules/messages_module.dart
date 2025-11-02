@@ -1,13 +1,18 @@
 import 'dart:async';
 
 import 'package:you_book/app/providers.dart';
+import 'package:you_book/data/repositories/app_data_store.dart';
 import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/domain/entities/last_minute_slot.dart';
 import 'package:you_book/domain/entities/message_template.dart';
+import 'package:you_book/domain/entities/promotion.dart';
 import 'package:you_book/domain/entities/reminder_settings.dart';
 import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/domain/entities/user_role.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/screens/admin/forms/message_template_form_sheet.dart';
+import 'package:you_book/presentation/screens/admin/promotions/promotion_editor_dialog.dart';
 import 'package:collection/collection.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
@@ -15,43 +20,64 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-class MessagesModule extends ConsumerWidget {
-  const MessagesModule({super.key, this.salonId});
+class MessagesMarketingModule extends ConsumerStatefulWidget {
+  const MessagesMarketingModule({super.key, this.salonId});
 
   final String? salonId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MessagesMarketingModule> createState() =>
+      _MessagesMarketingModuleState();
+}
+
+class _MessagesMarketingModuleState
+    extends ConsumerState<MessagesMarketingModule> {
+  final DateFormat _slotDateFormat = DateFormat('dd/MM HH:mm', 'it_IT');
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final data = ref.watch(appDataProvider);
+    final session = ref.watch(sessionControllerProvider);
+    final salons = data.salons;
+
+    final selectedSalonId =
+        widget.salonId ?? (salons.length == 1 ? salons.first.id : null);
+    final salon =
+        selectedSalonId == null
+            ? null
+            : salons.firstWhereOrNull(
+              (element) => element.id == selectedSalonId,
+            );
+    final salonName = salon?.name;
+    final featureFlags = salon?.featureFlags ?? const SalonFeatureFlags();
+
     final templates =
         data.messageTemplates
-            .where((template) => salonId == null || template.salonId == salonId)
+            .where(
+              (template) =>
+                  selectedSalonId == null ||
+                  template.salonId == selectedSalonId,
+            )
             .toList()
-          ..sort((a, b) => a.title.compareTo(b.title));
-    final salons = data.salons;
-    final currentSalonId =
-        salonId ?? (salons.length == 1 ? salons.first.id : null);
+          ..sort(
+            (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+          );
     final reminderSettings =
-        currentSalonId == null
+        selectedSalonId == null
             ? null
             : data.reminderSettings.firstWhereOrNull(
-              (settings) => settings.salonId == currentSalonId,
+              (settings) => settings.salonId == selectedSalonId,
             );
     final effectiveSettings =
-        currentSalonId == null
+        selectedSalonId == null
             ? null
-            : (reminderSettings ?? ReminderSettings(salonId: currentSalonId));
-    final salonName =
-        currentSalonId == null
-            ? null
-            : salons
-                .firstWhereOrNull((salon) => salon.id == currentSalonId)
-                ?.name;
+            : (reminderSettings ?? ReminderSettings(salonId: selectedSalonId));
     final clients =
         data.clients
             .where(
               (client) =>
-                  currentSalonId == null || client.salonId == currentSalonId,
+                  selectedSalonId == null || client.salonId == selectedSalonId,
             )
             .toList()
           ..sort(
@@ -59,134 +85,536 @@ class MessagesModule extends ConsumerWidget {
                 a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()),
           );
 
-    final session = ref.watch(sessionControllerProvider);
+    final promotions =
+        selectedSalonId == null
+            ? <Promotion>[]
+            : (data.promotions
+                .where((promotion) => promotion.salonId == selectedSalonId)
+                .toList()
+              ..sort((a, b) {
+                final aEnds = a.endsAt ?? DateTime.utc(2100);
+                final bEnds = b.endsAt ?? DateTime.utc(2100);
+                return aEnds.compareTo(bEnds);
+              }));
+    final lastMinuteSlots =
+        selectedSalonId == null
+            ? <LastMinuteSlot>[]
+            : (data.lastMinuteSlots
+                .where((slot) => slot.salonId == selectedSalonId)
+                .toList()
+              ..sort((a, b) => a.start.compareTo(b.start)));
+    final salonStaff =
+        selectedSalonId == null
+            ? <StaffMember>[]
+            : data.staff
+                .where(
+                  (member) =>
+                      member.salonId == selectedSalonId && member.isActive,
+                )
+                .sortedBy((member) => member.fullName.toLowerCase())
+                .toList();
+
     final canViewReminderSettings =
-        currentSalonId != null &&
+        selectedSalonId != null &&
         session.role != null &&
         (session.role == UserRole.admin ||
             session.role == UserRole.staff ||
             session.role == UserRole.client);
     final canEditReminderSettings =
-        currentSalonId != null &&
+        selectedSalonId != null &&
         session.role != null &&
         (session.role == UserRole.admin || session.role == UserRole.staff);
 
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemCount: templates.length + 3,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        if (index == 0) {
-          if (!canViewReminderSettings) {
-            return const SizedBox.shrink();
+    Future<void> openTemplateForm({MessageTemplate? existing}) async {
+      await _openForm(
+        context,
+        ref,
+        salons: salons,
+        defaultSalonId: selectedSalonId,
+        existing: existing,
+      );
+    }
+
+    Future<void> togglePromotionVisibility(bool value) async {
+      final currentSalon = salon;
+      if (currentSalon == null) {
+        return;
+      }
+      final AppDataStore store = ref.read(appDataProvider.notifier);
+      await store.updateSalonFeatureFlags(
+        currentSalon.id,
+        featureFlags.copyWith(clientPromotions: value),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            value
+                ? 'Le promozioni sono ora visibili nella dashboard cliente.'
+                : 'Promozioni nascoste alla dashboard cliente.',
+          ),
+        ),
+      );
+    }
+
+    Future<void> toggleLastMinuteVisibility(bool value) async {
+      final currentSalon = salon;
+      if (currentSalon == null) {
+        return;
+      }
+      final AppDataStore store = ref.read(appDataProvider.notifier);
+      await store.updateSalonFeatureFlags(
+        currentSalon.id,
+        featureFlags.copyWith(clientLastMinute: value),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            value
+                ? 'Gli slot last-minute sono visibili ai clienti.'
+                : 'Slot last-minute nascosti ai clienti.',
+          ),
+        ),
+      );
+    }
+
+    Future<void> togglePromotionActive(
+      Promotion promotion,
+      bool isActive,
+    ) async {
+      await ref
+          .read(appDataProvider.notifier)
+          .upsertPromotion(promotion.copyWith(isActive: isActive));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isActive ? 'Promozione attivata.' : 'Promozione disattivata.',
+          ),
+        ),
+      );
+    }
+
+    Future<void> openPromotionForm({Promotion? existing}) async {
+      final currentSalon = salon;
+      final salonId = selectedSalonId;
+      if (currentSalon == null || salonId == null) {
+        return;
+      }
+      await _openPromotionForm(
+        context,
+        ref,
+        salonId: salonId,
+        salon: currentSalon,
+        existing: existing,
+      );
+    }
+
+    Future<void> deletePromotion(Promotion promotion) async {
+      await _confirmPromotionDeletion(context, ref, promotion);
+    }
+
+    Future<void> deleteSlot(LastMinuteSlot slot) async {
+      await _confirmSlotDeletion(context, ref, slot);
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 1080;
+        final double columnWidth =
+            isWide ? (constraints.maxWidth - 24) / 2 : constraints.maxWidth;
+
+        List<Widget> withSpacing(List<Widget> children) {
+          final spaced = <Widget>[];
+          for (var i = 0; i < children.length; i++) {
+            if (i > 0) {
+              spaced.add(const SizedBox(height: 24));
+            }
+            spaced.add(children[i]);
           }
-          return _ReminderSettingsCard(
-            salonId: currentSalonId,
-            salonName: salonName,
-            settings: effectiveSettings,
-            onChanged:
-                canEditReminderSettings
-                    ? (updated) async {
-                      await ref
-                          .read(appDataProvider.notifier)
-                          .upsertReminderSettings(updated);
-                    }
-                    : null,
-          );
+          return spaced;
         }
-        if (index == 1) {
-          return _ManualNotificationCard(
-            salonId: currentSalonId,
+
+        final analyticsChips = <Widget>[
+          _SummaryChip(
+            icon: Icons.chat_rounded,
+            label:
+                templates.isEmpty
+                    ? 'Nessun template'
+                    : '${templates.length} template',
+          ),
+          _SummaryChip(
+            icon: Icons.campaign_rounded,
+            label:
+                promotions.isEmpty
+                    ? 'Nessuna promozione'
+                    : '${promotions.where((promotion) => promotion.isActive).length}/${promotions.length} promozioni attive',
+          ),
+          _SummaryChip(
+            icon: Icons.flash_on_rounded,
+            label:
+                lastMinuteSlots.isEmpty
+                    ? 'Slot last-minute non presenti'
+                    : '${lastMinuteSlots.where((slot) => slot.isAvailable).length}/${lastMinuteSlots.length} slot liberi',
+          ),
+        ];
+
+        final leftColumn = <Widget>[
+          if (canViewReminderSettings)
+            _ReminderSettingsCard(
+              salonId: selectedSalonId,
+              salonName: salonName,
+              settings: effectiveSettings,
+              onChanged:
+                  canEditReminderSettings
+                      ? (updated) async {
+                        await ref
+                            .read(appDataProvider.notifier)
+                            .upsertReminderSettings(updated);
+                      }
+                      : null,
+            ),
+          _ManualNotificationCard(
+            salonId: selectedSalonId,
             salonName: salonName,
             clients: clients,
-          );
-        }
-        if (index == 2) {
-          return Align(
-            alignment: Alignment.centerLeft,
-            child: FilledButton.icon(
-              onPressed:
-                  () => _openForm(
-                    context,
-                    ref,
-                    salons: salons,
-                    defaultSalonId: salonId,
-                  ),
-              icon: const Icon(Icons.add_comment_rounded),
-              label: const Text('Nuovo template'),
-            ),
-          );
-        }
-        final template = templates[index - 3];
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        template.title,
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                    ),
-                    Switch(value: template.isActive, onChanged: (_) {}),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 12,
-                  children: [
-                    _Badge(
-                      label: _channelLabel(template.channel),
-                      icon: Icons.chat_rounded,
-                    ),
-                    _Badge(
-                      label: _usageLabel(template.usage),
-                      icon: Icons.campaign_rounded,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerLowest,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Theme.of(context).colorScheme.outlineVariant,
-                    ),
-                  ),
-                  padding: const EdgeInsets.all(16),
-                  child: Text(template.body),
-                ),
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    onPressed:
-                        () => _openForm(
-                          context,
-                          ref,
-                          salons: salons,
-                          defaultSalonId: salonId,
-                          existing: template,
-                        ),
-                    icon: const Icon(Icons.edit_rounded),
-                    label: const Text('Modifica template'),
-                  ),
+          ),
+          _TemplatesLibraryCard(
+            templates: templates,
+            onCreate: salons.isEmpty ? null : () => openTemplateForm(),
+            onEdit:
+                salons.isEmpty
+                    ? null
+                    : (template) => openTemplateForm(existing: template),
+          ),
+        ];
+
+        final rightColumn = <Widget>[
+          _MarketingVisibilityCard(
+            salonName: salonName,
+            featureFlags: featureFlags,
+            onTogglePromotions:
+                salon == null
+                    ? null
+                    : (value) => togglePromotionVisibility(value),
+            onToggleLastMinute:
+                salon == null
+                    ? null
+                    : (value) => toggleLastMinuteVisibility(value),
+          ),
+          _PromotionsSection(
+            salonId: selectedSalonId,
+            promotions: promotions,
+            onCreate:
+                selectedSalonId == null ? null : () => openPromotionForm(),
+            onEdit:
+                selectedSalonId == null
+                    ? null
+                    : (promotion) => openPromotionForm(existing: promotion),
+            onToggleActive:
+                selectedSalonId == null ? null : togglePromotionActive,
+            onDelete: selectedSalonId == null ? null : deletePromotion,
+          ),
+          _LastMinuteSection(
+            salonId: selectedSalonId,
+            slots: lastMinuteSlots,
+            staff: salonStaff,
+            featureFlags: featureFlags,
+            dateFormat: _slotDateFormat,
+            onDelete: selectedSalonId == null ? null : deleteSlot,
+          ),
+        ];
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Messaggi & Marketing',
+                style: theme.textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Coordina automatismi, campagne e offerte flash da un’unica schermata.',
+                style: theme.textTheme.bodyMedium,
+              ),
+              if (salonName != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Salone attivo: $salonName',
+                  style: theme.textTheme.bodySmall,
                 ),
               ],
-            ),
+              const SizedBox(height: 16),
+              Wrap(spacing: 12, runSpacing: 12, children: analyticsChips),
+              const SizedBox(height: 24),
+              Wrap(
+                spacing: 24,
+                runSpacing: 24,
+                crossAxisAlignment: WrapCrossAlignment.start,
+                children: [
+                  SizedBox(
+                    width: columnWidth,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: withSpacing(leftColumn),
+                    ),
+                  ),
+                  SizedBox(
+                    width: columnWidth,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: withSpacing(rightColumn),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         );
       },
     );
   }
 
-  String _channelLabel(MessageChannel channel) {
+  Future<void> _openPromotionForm(
+    BuildContext context,
+    WidgetRef ref, {
+    required String salonId,
+    required Salon salon,
+    Promotion? existing,
+  }) async {
+    final result = await showDialog<Promotion>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return PromotionEditorDialog(
+          salonId: salonId,
+          salon: salon,
+          initialPromotion: existing,
+        );
+      },
+    );
+    if (result == null) {
+      return;
+    }
+    await ref.read(appDataProvider.notifier).upsertPromotion(result);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          existing == null
+              ? 'Promozione creata con successo.'
+              : 'Promozione aggiornata con successo.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmPromotionDeletion(
+    BuildContext context,
+    WidgetRef ref,
+    Promotion promotion,
+  ) async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Elimina promozione'),
+          content: Text('Vuoi eliminare la promozione "${promotion.title}"?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Annulla'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Elimina'),
+            ),
+          ],
+        );
+      },
+    );
+    if (shouldDelete != true) {
+      return;
+    }
+    await ref.read(appDataProvider.notifier).deletePromotion(promotion.id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Promozione eliminata.')));
+  }
+
+  Future<void> _confirmSlotDeletion(
+    BuildContext context,
+    WidgetRef ref,
+    LastMinuteSlot slot,
+  ) async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Rimuovi slot last-minute'),
+          content: Text(
+            'Vuoi rimuovere lo slot last-minute delle ${_slotDateFormat.format(slot.start)}?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Annulla'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Rimuovi'),
+            ),
+          ],
+        );
+      },
+    );
+    if (shouldDelete != true) {
+      return;
+    }
+    await ref.read(appDataProvider.notifier).deleteLastMinuteSlot(slot.id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Slot last-minute rimosso.')));
+  }
+}
+
+class _TemplatesLibraryCard extends StatelessWidget {
+  const _TemplatesLibraryCard({
+    required this.templates,
+    required this.onCreate,
+    required this.onEdit,
+  });
+
+  final List<MessageTemplate> templates;
+  final Future<void> Function()? onCreate;
+  final Future<void> Function(MessageTemplate template)? onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Libreria template',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed:
+                      onCreate == null ? null : () => unawaited(onCreate!()),
+                  icon: const Icon(Icons.add_comment_rounded),
+                  label: const Text('Nuovo template'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (templates.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 32),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerLowest,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  'Crea il primo messaggio predefinito per iniziare.',
+                  style: theme.textTheme.bodyMedium,
+                  textAlign: TextAlign.center,
+                ),
+              )
+            else
+              Column(
+                children: List.generate(templates.length, (index) {
+                  final template = templates[index];
+                  return Column(
+                    children: [
+                      if (index > 0) const Divider(height: 24),
+                      _TemplateTile(template: template, onEdit: onEdit),
+                    ],
+                  );
+                }),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TemplateTile extends StatelessWidget {
+  const _TemplateTile({required this.template, required this.onEdit});
+
+  final MessageTemplate template;
+  final Future<void> Function(MessageTemplate template)? onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(template.title, style: theme.textTheme.titleMedium),
+            ),
+            Switch.adaptive(value: template.isActive, onChanged: null),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _Badge(
+              label: _channelLabel(template.channel),
+              icon: Icons.chat_rounded,
+            ),
+            _Badge(
+              label: _usageLabel(template.usage),
+              icon: Icons.campaign_rounded,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerLowest,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: theme.colorScheme.outlineVariant),
+          ),
+          padding: const EdgeInsets.all(16),
+          child: Text(template.body),
+        ),
+        const SizedBox(height: 12),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed:
+                onEdit == null ? null : () => unawaited(onEdit!(template)),
+            icon: const Icon(Icons.edit_rounded),
+            label: const Text('Modifica template'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  static String _channelLabel(MessageChannel channel) {
     switch (channel) {
       case MessageChannel.push:
         return 'Push';
@@ -199,7 +627,7 @@ class MessagesModule extends ConsumerWidget {
     }
   }
 
-  String _usageLabel(TemplateUsage usage) {
+  static String _usageLabel(TemplateUsage usage) {
     switch (usage) {
       case TemplateUsage.reminder:
         return 'Promemoria';
@@ -210,6 +638,459 @@ class MessagesModule extends ConsumerWidget {
       case TemplateUsage.birthday:
         return 'Compleanno';
     }
+  }
+}
+
+class _MarketingVisibilityCard extends StatelessWidget {
+  const _MarketingVisibilityCard({
+    required this.salonName,
+    required this.featureFlags,
+    required this.onTogglePromotions,
+    required this.onToggleLastMinute,
+  });
+
+  final String? salonName;
+  final SalonFeatureFlags featureFlags;
+  final Future<void> Function(bool value)? onTogglePromotions;
+  final Future<void> Function(bool value)? onToggleLastMinute;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasSalon = salonName != null;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Visibilità lato cliente',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+                if (salonName != null)
+                  Chip(
+                    avatar: const Icon(Icons.storefront_rounded, size: 18),
+                    label: Text(salonName!),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (!hasSalon)
+              Text(
+                'Seleziona un salone per configurare cosa mostrare ai clienti.',
+                style: theme.textTheme.bodyMedium,
+              )
+            else ...[
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Promozioni visibili ai clienti'),
+                subtitle: const Text(
+                  'Mostra le campagne attive nella home dell’app cliente.',
+                ),
+                value: featureFlags.clientPromotions,
+                onChanged:
+                    onTogglePromotions == null
+                        ? null
+                        : (value) => unawaited(onTogglePromotions!(value)),
+              ),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Slot last-minute visibili ai clienti'),
+                subtitle: const Text(
+                  'Permetti la prenotazione rapida delle offerte last-minute.',
+                ),
+                value: featureFlags.clientLastMinute,
+                onChanged:
+                    onToggleLastMinute == null
+                        ? null
+                        : (value) => unawaited(onToggleLastMinute!(value)),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SummaryChip extends StatelessWidget {
+  const _SummaryChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Chip(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      avatar: Icon(icon, size: 18, color: theme.colorScheme.primary),
+      label: Text(label),
+    );
+  }
+}
+
+class _PromotionsSection extends StatelessWidget {
+  const _PromotionsSection({
+    required this.salonId,
+    required this.promotions,
+    required this.onCreate,
+    required this.onEdit,
+    required this.onToggleActive,
+    required this.onDelete,
+  });
+
+  final String? salonId;
+  final List<Promotion> promotions;
+  final Future<void> Function()? onCreate;
+  final Future<void> Function(Promotion promotion)? onEdit;
+  final Future<void> Function(Promotion promotion, bool isActive)?
+  onToggleActive;
+  final Future<void> Function(Promotion promotion)? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasSalon = salonId != null;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Campagne promozionali',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed:
+                      hasSalon && onCreate != null
+                          ? () => unawaited(onCreate!())
+                          : null,
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('Nuova promo'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (!hasSalon)
+              Text(
+                'Seleziona un salone per creare e gestire le promozioni.',
+                style: theme.textTheme.bodyMedium,
+              )
+            else if (promotions.isEmpty)
+              Text(
+                'Nessuna promozione salvata. Crea una proposta irresistibile per i tuoi clienti.',
+                style: theme.textTheme.bodyMedium,
+              )
+            else
+              Column(
+                children: List.generate(promotions.length, (index) {
+                  final promotion = promotions[index];
+                  return Column(
+                    children: [
+                      if (index > 0) const Divider(height: 24),
+                      _PromotionTile(
+                        promotion: promotion,
+                        onEdit: onEdit,
+                        onToggleActive: onToggleActive,
+                        onDelete: onDelete,
+                      ),
+                    ],
+                  );
+                }),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PromotionTile extends StatelessWidget {
+  const _PromotionTile({
+    required this.promotion,
+    required this.onEdit,
+    required this.onToggleActive,
+    required this.onDelete,
+  });
+
+  final Promotion promotion;
+  final Future<void> Function(Promotion promotion)? onEdit;
+  final Future<void> Function(Promotion promotion, bool isActive)?
+  onToggleActive;
+  final Future<void> Function(Promotion promotion)? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final chips = <Widget>[
+      _Badge(label: _promotionPeriod(promotion), icon: Icons.schedule_rounded),
+      _Badge(
+        label: _statusLabel(promotion.status),
+        icon: _statusIcon(promotion.status),
+      ),
+      if (promotion.discountPercentage > 0)
+        _Badge(
+          label: '-${promotion.discountPercentage.toStringAsFixed(0)}%',
+          icon: Icons.local_offer_rounded,
+        ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(promotion.title, style: theme.textTheme.titleMedium),
+            ),
+            Switch.adaptive(
+              value: promotion.isActive,
+              onChanged:
+                  onToggleActive == null
+                      ? null
+                      : (value) => unawaited(onToggleActive!(promotion, value)),
+            ),
+          ],
+        ),
+        if (promotion.subtitle?.isNotEmpty == true) ...[
+          const SizedBox(height: 4),
+          Text(promotion.subtitle!, style: theme.textTheme.bodyMedium),
+        ],
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, runSpacing: 8, children: chips),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            TextButton.icon(
+              onPressed:
+                  onEdit == null ? null : () => unawaited(onEdit!(promotion)),
+              icon: const Icon(Icons.edit_rounded),
+              label: const Text('Modifica'),
+            ),
+            const SizedBox(width: 8),
+            TextButton.icon(
+              onPressed:
+                  onDelete == null
+                      ? null
+                      : () => unawaited(onDelete!(promotion)),
+              style: TextButton.styleFrom(
+                foregroundColor: theme.colorScheme.error,
+              ),
+              icon: const Icon(Icons.delete_outline_rounded),
+              label: const Text('Elimina'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  String _promotionPeriod(Promotion promotion) {
+    final start = promotion.startsAt;
+    final end = promotion.endsAt;
+    if (start == null && end == null) {
+      return promotion.isActive ? 'Attiva senza scadenza' : 'Inattiva';
+    }
+    final buffer = StringBuffer();
+    if (start != null) {
+      buffer.write('Dal ${DateFormat('dd/MM').format(start)}');
+    }
+    if (end != null) {
+      if (buffer.isNotEmpty) buffer.write(' ');
+      buffer.write('al ${DateFormat('dd/MM').format(end)}');
+    }
+    return buffer.toString();
+  }
+
+  String _statusLabel(PromotionStatus status) {
+    switch (status) {
+      case PromotionStatus.draft:
+        return 'Bozza';
+      case PromotionStatus.scheduled:
+        return 'Programmato';
+      case PromotionStatus.published:
+        return 'Pubblicato';
+      case PromotionStatus.expired:
+        return 'Scaduto';
+    }
+  }
+
+  IconData _statusIcon(PromotionStatus status) {
+    switch (status) {
+      case PromotionStatus.draft:
+        return Icons.pending_outlined;
+      case PromotionStatus.scheduled:
+        return Icons.schedule_rounded;
+      case PromotionStatus.published:
+        return Icons.play_arrow_rounded;
+      case PromotionStatus.expired:
+        return Icons.history_rounded;
+    }
+  }
+}
+
+class _LastMinuteSection extends StatelessWidget {
+  const _LastMinuteSection({
+    required this.salonId,
+    required this.slots,
+    required this.staff,
+    required this.featureFlags,
+    required this.dateFormat,
+    required this.onDelete,
+  });
+
+  final String? salonId;
+  final List<LastMinuteSlot> slots;
+  final List<StaffMember> staff;
+  final SalonFeatureFlags featureFlags;
+  final DateFormat dateFormat;
+  final Future<void> Function(LastMinuteSlot slot)? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasSalon = salonId != null;
+    final staffById = {for (final member in staff) member.id: member};
+    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Slot last-minute',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+                if (!hasSalon)
+                  const SizedBox.shrink()
+                else if (featureFlags.clientLastMinute)
+                  const Chip(
+                    avatar: Icon(Icons.visibility_rounded, size: 18),
+                    label: Text('Visibili ai clienti'),
+                  )
+                else
+                  const Chip(
+                    avatar: Icon(Icons.visibility_off_rounded, size: 18),
+                    label: Text('Solo interno'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (!hasSalon)
+              Text(
+                'Seleziona un salone per monitorare le offerte express.',
+                style: theme.textTheme.bodyMedium,
+              )
+            else if (slots.isEmpty)
+              Text(
+                'Trasforma una disponibilità libera in offerta express dal calendario appuntamenti.',
+                style: theme.textTheme.bodyMedium,
+              )
+            else
+              Column(
+                children: List.generate(slots.length, (index) {
+                  final slot = slots[index];
+                  final staffName =
+                      slot.operatorId != null
+                          ? staffById[slot.operatorId!]?.fullName
+                          : null;
+                  return Column(
+                    children: [
+                      if (index > 0) const Divider(height: 24),
+                      _LastMinuteTile(
+                        slot: slot,
+                        staffName: staffName,
+                        currency: currency,
+                        dateFormat: dateFormat,
+                        onDelete: onDelete,
+                      ),
+                    ],
+                  );
+                }),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LastMinuteTile extends StatelessWidget {
+  const _LastMinuteTile({
+    required this.slot,
+    required this.staffName,
+    required this.currency,
+    required this.dateFormat,
+    required this.onDelete,
+  });
+
+  final LastMinuteSlot slot;
+  final String? staffName;
+  final NumberFormat currency;
+  final DateFormat dateFormat;
+  final Future<void> Function(LastMinuteSlot slot)? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final timeLabel =
+        '${dateFormat.format(slot.start)} · ${slot.duration.inMinutes} min';
+    final operatorLabel = staffName ?? 'Operatore non assegnato';
+    final priceLabel =
+        '${currency.format(slot.priceNow)} · base ${currency.format(slot.basePrice)}';
+    final paymentLabel =
+        slot.paymentMode == LastMinutePaymentMode.online
+            ? 'Pagamento online immediato'
+            : 'Pagamento in sede';
+    final availabilityLabel =
+        slot.isAvailable
+            ? 'Disponibile'
+            : 'Prenotato da ${slot.bookedClientName?.isNotEmpty == true ? slot.bookedClientName : 'cliente'}';
+    final availabilityColor =
+        slot.isAvailable ? theme.colorScheme.primary : theme.colorScheme.error;
+
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(slot.serviceName),
+      subtitle: Text(
+        [timeLabel, operatorLabel, priceLabel, paymentLabel].join('\n'),
+      ),
+      trailing: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            availabilityLabel,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: availabilityColor,
+            ),
+          ),
+          IconButton(
+            tooltip: 'Rimuovi',
+            onPressed:
+                onDelete == null ? null : () => unawaited(onDelete!(slot)),
+            icon: const Icon(Icons.delete_outline_rounded),
+          ),
+        ],
+      ),
+    );
   }
 }
 

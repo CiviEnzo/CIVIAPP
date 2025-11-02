@@ -22,11 +22,13 @@ class _SalonOperationsSheetState extends State<SalonOperationsSheet> {
   late SalonStatus _status;
   late List<_ScheduleEntry> _schedule;
   late List<_ClosureFormData> _closures;
+  late bool _isPublished;
 
   @override
   void initState() {
     super.initState();
     _status = widget.salon.status;
+    _isPublished = widget.salon.isPublished;
 
     final scheduleMap = {
       for (final entry in widget.salon.schedule) entry.weekday: entry,
@@ -109,6 +111,7 @@ class _SalonOperationsSheetState extends State<SalonOperationsSheet> {
 
     final updated = widget.salon.copyWith(
       status: _status,
+      isPublished: _isPublished,
       schedule: schedule,
       closures: closures,
     );
@@ -271,6 +274,16 @@ class _SalonOperationsSheetState extends State<SalonOperationsSheet> {
                 setState(() => _status = value);
               }
             },
+          ),
+          const SizedBox(height: 16),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            value: _isPublished,
+            title: const Text('Pubblica salone'),
+            subtitle: const Text(
+              'Rendi visibili ai clienti le informazioni principali di questo salone.',
+            ),
+            onChanged: (value) => setState(() => _isPublished = value),
           ),
           const SizedBox(height: 24),
           Text('Giorni di apertura', style: theme.textTheme.titleMedium),

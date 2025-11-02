@@ -19,6 +19,7 @@ import 'package:you_book/services/payments/stripe_payments_service.dart';
 import 'package:you_book/services/notifications/notification_service.dart';
 import 'package:you_book/services/whatsapp_service.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_in_app_messaging/firebase_in_app_messaging.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -252,12 +253,10 @@ final appointmentClipboardProvider = StateProvider<AppointmentClipboard?>(
 );
 
 Future<void> performSignOut(WidgetRef ref) async {
-  final router = ref.read(appRouterProvider);
   await ref.read(authRepositoryProvider).signOut();
   ref.invalidate(appDataProvider);
   ref.invalidate(appBootstrapProvider);
   ref.read(sessionControllerProvider.notifier).updateUser(null);
-  router.go('/');
 }
 
 class SessionState {
@@ -272,6 +271,26 @@ class SessionState {
   List<String> get availableSalonIds => user?.salonIds ?? const [];
 
   List<UserRole> get availableRoles => user?.availableRoles ?? const [];
+
+  bool get isEmailVerified => user?.isEmailVerified ?? false;
+
+  bool get requiresEmailVerification {
+    final currentUser = user;
+    if (currentUser == null) {
+      return false;
+    }
+    if (currentUser.role != UserRole.client) {
+      return false;
+    }
+    if (currentUser.isEmailVerified) {
+      return false;
+    }
+    final authUser = FirebaseAuth.instance.currentUser;
+    if (authUser != null && authUser.emailVerified) {
+      return false;
+    }
+    return true;
+  }
 
   String? get salonId => selectedSalonId ?? user?.defaultSalonId;
 

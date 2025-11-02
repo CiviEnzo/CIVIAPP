@@ -2236,6 +2236,7 @@ Future<void> _startCreateFlow(BuildContext context, WidgetRef ref) async {
       uid: currentUser.uid,
       role: currentUser.role,
       salonIds: [...currentUser.salonIds, created.id],
+      isEmailVerified: currentUser.isEmailVerified,
       staffId: currentUser.staffId,
       clientId: currentUser.clientId,
       displayName: currentUser.displayName,

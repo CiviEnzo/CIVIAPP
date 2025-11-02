@@ -378,6 +378,7 @@ void main() {
       uid: 'admin-test',
       role: UserRole.admin,
       salonIds: ['salon-001'],
+      isEmailVerified: true,
       displayName: 'Admin Test',
       availableRoles: [UserRole.admin],
     );

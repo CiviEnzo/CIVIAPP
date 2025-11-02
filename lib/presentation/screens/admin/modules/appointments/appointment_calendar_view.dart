@@ -5758,7 +5758,7 @@ class _AppointmentCard extends StatelessWidget {
             return const SizedBox.shrink();
           }
 
-          if (hidePastCompletedContent) {
+          if (hidePastCompletedContent && !hideContent) {
             final IconData iconData;
             final Color iconColor;
             if (isNoShow) {
@@ -5914,7 +5914,7 @@ class _AppointmentCard extends StatelessWidget {
     );
 
     final overlayWidgets = <Widget>[];
-    if (hasOutstandingPayments) {
+    if (hasOutstandingPayments && !hideContent) {
       final outstandingBackground = theme.colorScheme.tertiaryContainer;
       final outstandingIconColor = theme.colorScheme.onTertiaryContainer;
       final outstandingShadow = theme.colorScheme.tertiary.withValues(

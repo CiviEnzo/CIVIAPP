@@ -34,11 +34,13 @@ class AuthRepository {
             firebaseUser.uid,
             email: firebaseUser.email,
             displayName: firebaseUser.displayName,
+            isEmailVerified: firebaseUser.emailVerified,
           );
         }
         final data = doc.data() ?? <String, dynamic>{};
         data.putIfAbsent('email', () => firebaseUser.email);
         data.putIfAbsent('displayName', () => firebaseUser.displayName);
+        data['emailVerified'] = firebaseUser.emailVerified;
         return AppUser.fromMap(firebaseUser.uid, data);
       });
     });
@@ -53,7 +55,15 @@ class AuthRepository {
       email: email,
       password: password,
     );
-    final user = credential.user;
+    final signedInUser = credential.user;
+    if (signedInUser != null) {
+      try {
+        await signedInUser.reload();
+      } catch (_) {
+        // Ignora errori di reload: user.emailVerified verrà comunque verificato.
+      }
+    }
+    final user = auth.currentUser ?? signedInUser;
     if (user != null && !user.emailVerified) {
       final primaryRole = await _fetchPrimaryRole(user.uid);
       if (primaryRole == UserRole.admin) {
@@ -77,6 +87,10 @@ class AuthRepository {
     required String email,
     required String password,
     String? displayName,
+    String? firstName,
+    String? lastName,
+    String? phone,
+    DateTime? dateOfBirth,
   }) async {
     final auth = _auth;
     final firestore = _firestore;
@@ -91,11 +105,23 @@ class AuthRepository {
     if (displayName != null && displayName.trim().isNotEmpty) {
       await credential.user!.updateDisplayName(displayName.trim());
     }
+    final sanitizedFirstName = firstName?.trim();
+    final sanitizedLastName = lastName?.trim();
+    final sanitizedPhone = phone?.trim();
     final userData = {
       'role': UserRole.client.name,
       'salonIds': const <String>[],
       'displayName': displayName ?? credential.user?.displayName,
       'email': email,
+      'pendingFirstName': sanitizedFirstName?.isEmpty ?? true
+          ? null
+          : sanitizedFirstName,
+      'pendingLastName': sanitizedLastName?.isEmpty ?? true
+          ? null
+          : sanitizedLastName,
+      'pendingPhone': sanitizedPhone?.isEmpty ?? true ? null : sanitizedPhone,
+      'pendingDateOfBirth':
+          dateOfBirth != null ? Timestamp.fromDate(dateOfBirth) : null,
     };
     userData.removeWhere((key, value) => value == null);
     await firestore.collection('users').doc(uid).set(userData);
