@@ -73,9 +73,17 @@ final appUserProvider = StreamProvider<AppUser?>((ref) {
 final sessionControllerProvider =
     StateNotifierProvider<SessionController, SessionState>((ref) {
       final controller = SessionController();
-      ref.listen<AsyncValue<AppUser?>>(appUserProvider, (previous, next) {
-        controller.updateUser(next.value);
-      }, fireImmediately: true);
+      ref.listen<AsyncValue<AppUser?>>(
+        appUserProvider,
+        (previous, next) {
+          next.when(
+            data: controller.updateUser,
+            loading: () {},
+            error: (_, __) => controller.updateUser(null),
+          );
+        },
+        fireImmediately: true,
+      );
       return controller;
     });
 
@@ -256,7 +264,8 @@ Future<void> performSignOut(WidgetRef ref) async {
   await ref.read(authRepositoryProvider).signOut();
   ref.invalidate(appDataProvider);
   ref.invalidate(appBootstrapProvider);
-  ref.read(sessionControllerProvider.notifier).updateUser(null);
+  ref.invalidate(appUserProvider);
+  ref.invalidate(sessionControllerProvider);
 }
 
 class SessionState {

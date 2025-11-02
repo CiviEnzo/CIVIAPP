@@ -300,8 +300,7 @@ class _ClientRegistrationScreenState
               dateOfBirth: dateOfBirth,
             ),
           );
-      // Forza la sessione locale in stato non autenticato prima del redirect.
-      ref.read(sessionControllerProvider.notifier).updateUser(null);
+      await _resetLocalSession();
       if (!mounted) return;
       context.goNamed(
         'sign_in',
@@ -346,6 +345,14 @@ class _ClientRegistrationScreenState
     } catch (_) {
       return null;
     }
+  }
+
+  Future<void> _resetLocalSession() async {
+    await ref.read(authRepositoryProvider).signOut();
+    ref.invalidate(appUserProvider);
+    ref.invalidate(appDataProvider);
+    ref.invalidate(appBootstrapProvider);
+    ref.invalidate(sessionControllerProvider);
   }
 }
 

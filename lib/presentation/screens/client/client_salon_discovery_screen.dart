@@ -604,12 +604,9 @@ class _ClientSalonDiscoveryScreenState
             currentUser.availableRoles.contains(UserRole.client)
                 ? currentUser.availableRoles
                 : <UserRole>[...currentUser.availableRoles, UserRole.client];
-        final updatedUser = AppUser(
-          uid: currentUser.uid,
+        final updatedUser = currentUser.copyWith(
           role: UserRole.client,
           salonIds: updatedSalonIds.toList(growable: false),
-          isEmailVerified: currentUser.isEmailVerified,
-          staffId: currentUser.staffId,
           clientId: targetClientId,
           displayName: resolvedDisplayName,
           email: resolvedEmailFallback ?? currentUser.email,
@@ -622,16 +619,18 @@ class _ClientSalonDiscoveryScreenState
         );
         sessionController.updateUser(updatedUser);
       } else if (currentUid.isNotEmpty) {
-        final fallbackUser = AppUser(
-          uid: currentUid,
+        final baseUser = sessionState.user ??
+            AppUser.placeholder(
+              currentUid,
+              email: resolvedEmailFallback,
+              isEmailVerified: true,
+            );
+        final updatedUser = baseUser.copyWith(
           role: UserRole.client,
           salonIds: <String>[salonId],
-          isEmailVerified:
-              sessionState.user?.isEmailVerified ?? currentUser?.isEmailVerified ?? true,
-          staffId: null,
           clientId: targetClientId,
           displayName: resolvedDisplayName,
-          email: resolvedEmailFallback,
+          email: resolvedEmailFallback ?? baseUser.email,
           availableRoles: const <UserRole>[UserRole.client],
           pendingSalonId: null,
           pendingFirstName: null,
@@ -639,7 +638,7 @@ class _ClientSalonDiscoveryScreenState
           pendingPhone: null,
           pendingDateOfBirth: null,
         );
-        sessionController.updateUser(fallbackUser);
+        sessionController.updateUser(updatedUser);
       }
 
       sessionController.setSalon(salonId);
@@ -688,12 +687,9 @@ class _ClientSalonDiscoveryScreenState
             resolvedLastName,
             fallback: stabilizedUser.displayName,
           );
-          final updatedUser = AppUser(
-            uid: stabilizedUser.uid,
+          final updatedUser = stabilizedUser.copyWith(
             role: UserRole.client,
             salonIds: updatedSalonIds.toList(growable: false),
-            isEmailVerified: stabilizedUser.isEmailVerified,
-            staffId: stabilizedUser.staffId,
             clientId: targetClientId,
             displayName: resolvedDisplayName,
             email: resolvedEmail ?? stabilizedUser.email,
@@ -1498,11 +1494,9 @@ class _SalonAccessRequestSheetState
             user.availableRoles.contains(currentRole)
                 ? user.availableRoles
                 : <UserRole>[...user.availableRoles, currentRole];
-        final updatedUser = AppUser(
-          uid: user.uid,
+        final updatedUser = user.copyWith(
           role: currentRole,
           salonIds: user.salonIds,
-          isEmailVerified: user.isEmailVerified,
           staffId: user.staffId,
           clientId: user.clientId,
           displayName:

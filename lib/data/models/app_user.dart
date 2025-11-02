@@ -34,6 +34,8 @@ class AppUser {
   final String? pendingPhone;
   final DateTime? pendingDateOfBirth;
 
+  static const Object _undefined = Object();
+
   String? get defaultSalonId => salonIds.isNotEmpty ? salonIds.first : null;
 
   String? get linkedEntityId {
@@ -123,6 +125,68 @@ class AppUser {
       pendingLastName: null,
       pendingPhone: null,
       pendingDateOfBirth: null,
+    );
+  }
+
+  AppUser copyWith({
+    Object? role = _undefined,
+    Object? salonIds = _undefined,
+    Object? isEmailVerified = _undefined,
+    Object? staffId = _undefined,
+    Object? clientId = _undefined,
+    Object? displayName = _undefined,
+    Object? email = _undefined,
+    Object? availableRoles = _undefined,
+    Object? pendingSalonId = _undefined,
+    Object? pendingFirstName = _undefined,
+    Object? pendingLastName = _undefined,
+    Object? pendingPhone = _undefined,
+    Object? pendingDateOfBirth = _undefined,
+  }) {
+    return AppUser(
+      uid: uid,
+      role: role == _undefined ? this.role : role as UserRole?,
+      salonIds:
+          salonIds == _undefined
+              ? this.salonIds
+              : List<String>.from(salonIds as List<String>),
+      isEmailVerified:
+          isEmailVerified == _undefined
+              ? this.isEmailVerified
+              : isEmailVerified as bool,
+      staffId:
+          staffId == _undefined ? this.staffId : staffId as String?,
+      clientId:
+          clientId == _undefined ? this.clientId : clientId as String?,
+      displayName:
+          displayName == _undefined
+              ? this.displayName
+              : displayName as String?,
+      email: email == _undefined ? this.email : email as String?,
+      availableRoles:
+          availableRoles == _undefined
+              ? this.availableRoles
+              : List<UserRole>.from(availableRoles as List<UserRole>),
+      pendingSalonId:
+          pendingSalonId == _undefined
+              ? this.pendingSalonId
+              : pendingSalonId as String?,
+      pendingFirstName:
+          pendingFirstName == _undefined
+              ? this.pendingFirstName
+              : pendingFirstName as String?,
+      pendingLastName:
+          pendingLastName == _undefined
+              ? this.pendingLastName
+              : pendingLastName as String?,
+      pendingPhone:
+          pendingPhone == _undefined
+              ? this.pendingPhone
+              : pendingPhone as String?,
+      pendingDateOfBirth:
+          pendingDateOfBirth == _undefined
+              ? this.pendingDateOfBirth
+              : pendingDateOfBirth as DateTime?,
     );
   }
 }

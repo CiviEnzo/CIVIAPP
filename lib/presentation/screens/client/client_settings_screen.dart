@@ -883,16 +883,9 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
           );
       ref.read(sessionControllerProvider.notifier).setSalon(null);
       ref.read(sessionControllerProvider.notifier).setUser(null);
-      final updatedUser = AppUser(
-        uid: user.uid,
-        role: user.role,
+      final updatedUser = user.copyWith(
         salonIds: const [],
-        isEmailVerified: user.isEmailVerified,
-        staffId: user.staffId,
         clientId: null,
-        displayName: user.displayName,
-        email: user.email,
-        availableRoles: user.availableRoles,
         pendingSalonId: user.pendingSalonId,
         pendingFirstName: user.pendingFirstName,
         pendingLastName: user.pendingLastName,

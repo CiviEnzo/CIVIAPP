@@ -180,6 +180,9 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
     if (!_formKey.currentState!.validate()) {
       return;
     }
+    if (!mounted) {
+      return;
+    }
     if (_handleExistingSession()) {
       return;
     }
@@ -192,6 +195,9 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
     var didFail = false;
     try {
       await ref.read(authRepositoryProvider).signInWithEmail(email, password);
+      if (!mounted) {
+        return;
+      }
       if (_handleExistingSession()) {
         return;
       }
@@ -218,6 +224,10 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
     _sessionSubscription = ref.listenManual<SessionState>(
       sessionControllerProvider,
       (previous, next) {
+        if (!mounted) {
+          _closeSessionSubscription();
+          return;
+        }
         if (next.user == null) {
           return;
         }
@@ -227,6 +237,9 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
   }
 
   bool _handleExistingSession() {
+    if (!mounted) {
+      return false;
+    }
     final session = ref.read(sessionControllerProvider);
     if (session.user == null) {
       return false;
@@ -236,6 +249,10 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
   }
 
   void _navigateForSession(SessionState session) {
+    if (!mounted) {
+      _closeSessionSubscription();
+      return;
+    }
     final router = ref.read(appRouterProvider);
     router.go(_destinationForSession(session));
     _closeSessionSubscription();

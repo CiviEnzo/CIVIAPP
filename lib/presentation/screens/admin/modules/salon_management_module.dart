@@ -2232,21 +2232,8 @@ Future<void> _startCreateFlow(BuildContext context, WidgetRef ref) async {
   if (currentUser != null &&
       currentUser.role == UserRole.admin &&
       !currentUser.salonIds.contains(created.id)) {
-    final updatedUser = AppUser(
-      uid: currentUser.uid,
-      role: currentUser.role,
+    final updatedUser = currentUser.copyWith(
       salonIds: [...currentUser.salonIds, created.id],
-      isEmailVerified: currentUser.isEmailVerified,
-      staffId: currentUser.staffId,
-      clientId: currentUser.clientId,
-      displayName: currentUser.displayName,
-      email: currentUser.email,
-      availableRoles: currentUser.availableRoles,
-      pendingSalonId: currentUser.pendingSalonId,
-      pendingFirstName: currentUser.pendingFirstName,
-      pendingLastName: currentUser.pendingLastName,
-      pendingPhone: currentUser.pendingPhone,
-      pendingDateOfBirth: currentUser.pendingDateOfBirth,
     );
     ref.read(sessionControllerProvider.notifier).updateUser(updatedUser);
   }

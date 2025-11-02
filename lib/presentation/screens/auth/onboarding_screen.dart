@@ -1248,15 +1248,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         final fallbackDisplayName =
             displayName.isNotEmpty ? displayName : user?.displayName;
         if (user != null) {
-          final updatedUser = AppUser(
-            uid: user.uid,
+          final updatedUser = user.copyWith(
             role: role,
             salonIds: const [],
-            isEmailVerified: user.isEmailVerified,
             staffId: staffId,
             clientId: null,
             displayName: fallbackDisplayName,
-            email: user.email,
             availableRoles: user.availableRoles,
             pendingSalonId: selectedSalonId,
             pendingFirstName: normalizedFirst,
@@ -1304,14 +1301,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             fallbackDisplayNameCandidate.isNotEmpty
                 ? fallbackDisplayNameCandidate
                 : (composedName.isNotEmpty ? composedName : user?.displayName);
-        final updatedUser = AppUser(
-          uid: firebaseUser.uid,
+        final updatedUser = firebaseUser.copyWith(
           role: role,
           salonIds:
               role == UserRole.admin
                   ? const []
                   : [if (salonId != null) salonId],
-          isEmailVerified: firebaseUser.isEmailVerified,
           staffId: staffId,
           clientId: clientId,
           displayName: fallbackDisplayName,
