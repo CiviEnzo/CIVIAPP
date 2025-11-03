@@ -202,14 +202,16 @@ class CiviApp extends ConsumerWidget {
   ThemeData _buildTheme(Brightness brightness) {
     final palette = _AdminPalette.resolve(brightness);
     final colorScheme = palette.scheme;
-
-    return ThemeData(
+    final baseTheme = ThemeData(
       colorScheme: colorScheme,
       useMaterial3: true,
+      brightness: brightness,
+    );
+
+    return baseTheme.copyWith(
       scaffoldBackgroundColor: palette.background,
       canvasColor: palette.background,
-
-      appBarTheme: AppBarTheme(
+      appBarTheme: baseTheme.appBarTheme.copyWith(
         backgroundColor: palette.surface,
         elevation: 4,
         scrolledUnderElevation: 8,
@@ -217,10 +219,8 @@ class CiviApp extends ConsumerWidget {
         surfaceTintColor: Colors.transparent,
         shadowColor: palette.shadow,
       ),
-
-      iconTheme: IconThemeData(color: palette.icon, size: 24),
-
-      cardTheme: CardTheme(
+      iconTheme: baseTheme.iconTheme.copyWith(color: palette.icon, size: 24),
+      cardTheme: baseTheme.cardTheme.copyWith(
         elevation: 6,
         margin: const EdgeInsets.all(12),
         color: palette.card,
@@ -228,7 +228,6 @@ class CiviApp extends ConsumerWidget {
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
-
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           foregroundColor: colorScheme.onSecondaryContainer,
@@ -241,14 +240,12 @@ class CiviApp extends ConsumerWidget {
           textStyle: const TextStyle(fontWeight: FontWeight.w600),
         ),
       ),
-
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: colorScheme.primary,
           textStyle: const TextStyle(fontWeight: FontWeight.w600),
         ),
       ),
-
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: colorScheme.primary,
@@ -260,7 +257,6 @@ class CiviApp extends ConsumerWidget {
           textStyle: const TextStyle(fontWeight: FontWeight.w600),
         ),
       ),
-
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           foregroundColor: colorScheme.onPrimary,
@@ -272,8 +268,7 @@ class CiviApp extends ConsumerWidget {
           textStyle: const TextStyle(fontWeight: FontWeight.w600),
         ),
       ),
-
-      inputDecorationTheme: InputDecorationTheme(
+      inputDecorationTheme: baseTheme.inputDecorationTheme.copyWith(
         filled: true,
         fillColor: palette.fieldFill,
         labelStyle: TextStyle(color: palette.iconMuted),
@@ -294,7 +289,6 @@ class CiviApp extends ConsumerWidget {
           borderSide: BorderSide(color: colorScheme.primary, width: 1.5),
         ),
       ),
-
       dropdownMenuTheme: DropdownMenuThemeData(
         inputDecorationTheme: InputDecorationTheme(
           border: OutlineInputBorder(
@@ -318,8 +312,7 @@ class CiviApp extends ConsumerWidget {
           surfaceTintColor: MaterialStateProperty.all(Colors.transparent),
         ),
       ),
-
-      drawerTheme: DrawerThemeData(
+      drawerTheme: baseTheme.drawerTheme.copyWith(
         backgroundColor: palette.drawerBackground,
         surfaceTintColor: Colors.transparent,
         elevation: 16,

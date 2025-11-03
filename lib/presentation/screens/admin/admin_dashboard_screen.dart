@@ -1,4 +1,5 @@
 import 'package:you_book/app/providers.dart';
+import 'package:you_book/app/theme_constants.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/presentation/common/theme_mode_action.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments_module.dart';
@@ -78,8 +79,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       title: 'Movimenti App',
       icon: Icons.timeline_rounded,
       builder:
-          (context, ref, salonId) =>
-              ClientAppMovementsModule(salonId: salonId),
+          (context, ref, salonId) => ClientAppMovementsModule(salonId: salonId),
     ),
     AdminModuleDefinition(
       id: 'appointments',
@@ -202,67 +202,74 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     }
     final selectedModule = _modules[_selectedIndex];
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final theme = Theme.of(context);
-        final isLargeScreen = constraints.maxWidth >= 1080;
-        final moduleBackground = theme.colorScheme.surfaceContainerLowest;
-        final content = selectedModule.builder(context, ref, selectedSalonId);
+    final mediaQuery = MediaQuery.of(context);
+    final baseScale = mediaQuery.textScaleFactor;
+    final effectiveScale = baseScale * adminTextScaleFactor;
 
-        return Scaffold(
-          key: _scaffoldKey,
-          drawer:
-              isLargeScreen
-                  ? null
-                  : Drawer(
-                    child: SafeArea(
-                      child: _DrawerNavigation(
-                        modules: _modules,
-                        selectedIndex: _selectedIndex,
-                        onSelect: (index) {
-                          setState(() => _selectedIndex = index);
-                          Navigator.of(context).maybePop();
-                        },
+    return MediaQuery(
+      data: mediaQuery.copyWith(textScaleFactor: effectiveScale),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final theme = Theme.of(context);
+          final isLargeScreen = constraints.maxWidth >= 1080;
+          final moduleBackground = theme.colorScheme.surfaceContainerLowest;
+          final content = selectedModule.builder(context, ref, selectedSalonId);
+
+          return Scaffold(
+            key: _scaffoldKey,
+            drawer:
+                isLargeScreen
+                    ? null
+                    : Drawer(
+                      child: SafeArea(
+                        child: _DrawerNavigation(
+                          modules: _modules,
+                          selectedIndex: _selectedIndex,
+                          onSelect: (index) {
+                            setState(() => _selectedIndex = index);
+                            Navigator.of(context).maybePop();
+                          },
+                        ),
                       ),
                     ),
+            appBar: AppBar(
+              automaticallyImplyLeading: !isLargeScreen,
+              title: Text(selectedModule.title),
+              actions: [
+                if (salons.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _SalonSelector(
+                      salons: salons,
+                      selectedSalonId: selectedSalonId,
+                    ),
                   ),
-          appBar: AppBar(
-            automaticallyImplyLeading: !isLargeScreen,
-            title: Text(selectedModule.title),
-            actions: [
-              if (salons.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: _SalonSelector(
-                    salons: salons,
-                    selectedSalonId: selectedSalonId,
+                const ThemeModeAction(),
+                IconButton(
+                  tooltip: 'Esci',
+                  onPressed: () async {
+                    await performSignOut(ref);
+                  },
+                  icon: const Icon(Icons.logout_rounded),
+                ),
+              ],
+            ),
+            body: Row(
+              children: [
+                if (isLargeScreen)
+                  _RailNavigation(
+                    modules: _modules,
+                    selectedIndex: _selectedIndex,
+                    onSelect: (index) => setState(() => _selectedIndex = index),
                   ),
+                Expanded(
+                  child: ColoredBox(color: moduleBackground, child: content),
                 ),
-              const ThemeModeAction(),
-              IconButton(
-                tooltip: 'Esci',
-                onPressed: () async {
-                  await performSignOut(ref);
-                },
-                icon: const Icon(Icons.logout_rounded),
-              ),
-            ],
-          ),
-          body: Row(
-            children: [
-              if (isLargeScreen)
-                _RailNavigation(
-                  modules: _modules,
-                  selectedIndex: _selectedIndex,
-                  onSelect: (index) => setState(() => _selectedIndex = index),
-                ),
-              Expanded(
-                child: ColoredBox(color: moduleBackground, child: content),
-              ),
-            ],
-          ),
-        );
-      },
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 }
@@ -336,10 +343,7 @@ class _RailNavigationState extends State<_RailNavigation> {
                           icon: module.icon,
                           selected: true,
                         ),
-                        label: Text(
-                          module.title,
-                          textAlign: TextAlign.center,
-                        ),
+                        label: Text(module.title, textAlign: TextAlign.center),
                       ),
                     )
                     .toList(),
@@ -406,10 +410,12 @@ class _DrawerNavigation extends StatelessWidget {
                   selected
                       ? colorScheme.surfaceContainerHighest.withOpacity(0.6)
                       : Colors.transparent,
-              selectedTileColor:
-                  colorScheme.surfaceContainerHighest.withOpacity(0.6),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              selectedTileColor: colorScheme.surfaceContainerHighest
+                  .withOpacity(0.6),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 8,
+              ),
               leading: _adminNavigationIcon(
                 context,
                 icon: module.icon,

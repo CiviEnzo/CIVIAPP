@@ -108,6 +108,7 @@ class AppointmentCalendarView extends StatefulWidget {
     required this.statusColor,
     this.weekLayout = AppointmentWeekLayoutMode.detailed,
     this.slotMinutes = 15,
+    this.interactionSlotMinutes = 15,
     this.onTapLastMinuteSlot,
     required this.lastMinuteSlots,
     this.onAddChecklistItem,
@@ -142,6 +143,7 @@ class AppointmentCalendarView extends StatefulWidget {
   final Color Function(AppointmentStatus status) statusColor;
   final AppointmentWeekLayoutMode weekLayout;
   final int slotMinutes;
+  final int interactionSlotMinutes;
   final Future<void> Function(LastMinuteSlot slot)? onTapLastMinuteSlot;
   final Future<void> Function(DateTime day, String label)? onAddChecklistItem;
   final Future<void> Function(
@@ -161,7 +163,7 @@ class AppointmentCalendarView extends StatefulWidget {
 }
 
 class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
-  static const _slotExtent = 52.0;
+  static const _slotExtent = 72.0;
   static const _timeScaleExtent = 74.0;
 
   final ScrollController _horizontalHeaderController = ScrollController();
@@ -265,6 +267,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           horizontalBodyController: _horizontalBodyController,
           verticalController: _verticalController,
           slotMinutes: widget.slotMinutes,
+          interactionSlotMinutes: widget.interactionSlotMinutes,
           onAddChecklistItem: widget.onAddChecklistItem,
           onToggleChecklistItem: widget.onToggleChecklistItem,
           onRenameChecklistItem: widget.onRenameChecklistItem,
@@ -302,6 +305,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           horizontalBodyController: _horizontalBodyController,
           verticalController: _verticalController,
           slotMinutes: widget.slotMinutes,
+          interactionSlotMinutes: widget.interactionSlotMinutes,
           onAddChecklistItem: widget.onAddChecklistItem,
           onToggleChecklistItem: widget.onToggleChecklistItem,
           onRenameChecklistItem: widget.onRenameChecklistItem,
@@ -367,6 +371,7 @@ class _DaySchedule extends StatelessWidget {
     required this.horizontalBodyController,
     required this.verticalController,
     required this.slotMinutes,
+    required this.interactionSlotMinutes,
     this.onAddChecklistItem,
     this.onToggleChecklistItem,
     this.onRenameChecklistItem,
@@ -401,6 +406,7 @@ class _DaySchedule extends StatelessWidget {
   final ScrollController horizontalBodyController;
   final ScrollController verticalController;
   final int slotMinutes;
+  final int interactionSlotMinutes;
   final Future<void> Function(DateTime day, String label)? onAddChecklistItem;
   final Future<void> Function(
     String checklistId,
@@ -801,6 +807,8 @@ class _DaySchedule extends StatelessWidget {
                                                 timelineStart: bounds.start,
                                                 timelineEnd: bounds.end,
                                                 slotMinutes: slotMinutes,
+                                                interactionSlotMinutes:
+                                                    interactionSlotMinutes,
                                                 slotExtent: _slotExtent,
                                                 clientsWithOutstandingPayments:
                                                     clientsWithOutstandingPayments,
@@ -949,6 +957,7 @@ class _WeekSchedule extends StatelessWidget {
     required this.verticalController,
     required this.anomalies,
     required this.slotMinutes,
+    required this.interactionSlotMinutes,
     this.onAddChecklistItem,
     this.onToggleChecklistItem,
     this.onRenameChecklistItem,
@@ -988,6 +997,7 @@ class _WeekSchedule extends StatelessWidget {
   final ScrollController verticalController;
   final Map<String, Set<AppointmentAnomalyType>> anomalies;
   final int slotMinutes;
+  final int interactionSlotMinutes;
   final Map<DateTime, AppointmentDayChecklist> dayChecklists;
   final Future<void> Function(DateTime day, String label)? onAddChecklistItem;
   final Future<void> Function(
@@ -1177,7 +1187,7 @@ class _WeekSchedule extends StatelessWidget {
     final totalMinutes = maxMinute - minMinute;
     final slotCount = max(1, (totalMinutes / slotMinutes).ceil());
     const double staffHeaderHeight = 44.0;
-    const double compactSlotExtent = 40.0;
+    const double compactSlotExtent = 120.0;
     const double detailedSlotExtent = _slotExtent;
     final referenceDate = dayData.first.date;
     final referenceTimelineStart = referenceDate.add(
@@ -1210,7 +1220,6 @@ class _WeekSchedule extends StatelessWidget {
     }
 
     if (layout == AppointmentWeekLayoutMode.compact) {
-      final gridHeight = slotCount * compactSlotExtent;
       return _WeekCompactView(
         dayData: dayData,
         staff: staff,
@@ -1235,10 +1244,10 @@ class _WeekSchedule extends StatelessWidget {
         statusColor: statusColor,
         slotMinutes: slotMinutes,
         slotExtent: compactSlotExtent,
-        gridHeight: gridHeight,
         minMinute: minMinute!,
         maxMinute: maxMinute!,
         verticalController: verticalController,
+        interactionSlotMinutes: interactionSlotMinutes,
         onAddChecklistItem: onAddChecklistItem,
         onToggleChecklistItem: onToggleChecklistItem,
         onRenameChecklistItem: onRenameChecklistItem,
@@ -1965,6 +1974,8 @@ class _WeekSchedule extends StatelessWidget {
                                                         ),
                                                       ),
                                                   slotMinutes: slotMinutes,
+                                                  interactionSlotMinutes:
+                                                      interactionSlotMinutes,
                                                   slotExtent: _slotExtent,
                                                   clientsWithOutstandingPayments:
                                                       clientsWithOutstandingPayments,
@@ -2854,10 +2865,10 @@ class _WeekCompactView extends StatelessWidget {
     required this.statusColor,
     required this.slotMinutes,
     required this.slotExtent,
-    required this.gridHeight,
     required this.minMinute,
     required this.maxMinute,
     required this.verticalController,
+    required this.interactionSlotMinutes,
     this.onAddChecklistItem,
     this.onToggleChecklistItem,
     this.onRenameChecklistItem,
@@ -2887,10 +2898,10 @@ class _WeekCompactView extends StatelessWidget {
   final Color Function(AppointmentStatus status) statusColor;
   final int slotMinutes;
   final double slotExtent;
-  final double gridHeight;
   final int minMinute;
   final int maxMinute;
   final ScrollController verticalController;
+  final int interactionSlotMinutes;
   final Future<void> Function(DateTime day, String label)? onAddChecklistItem;
   final Future<void> Function(
     String checklistId,
@@ -2916,7 +2927,6 @@ class _WeekCompactView extends StatelessWidget {
       _kStaffHeaderHeight + _kStaffHeaderSpacing;
   static const double _kMinStaffColumnWidth = 44;
   static const double _kScrollVerticalPadding = 20;
-  static const double _kMinSlotExtent = 14;
 
   @override
   Widget build(BuildContext context) {
@@ -2978,6 +2988,7 @@ class _WeekCompactView extends StatelessWidget {
                 builder: (context, expandedConstraints) {
                   final bool hasBoundedHeight =
                       expandedConstraints.maxHeight.isFinite;
+                  final double resolvedGridHeight = slotCount * slotExtent;
                   final double availableGridHeight =
                       hasBoundedHeight
                           ? max(
@@ -2987,19 +2998,7 @@ class _WeekCompactView extends StatelessWidget {
                                     _kDayBodyBottomPadding +
                                     _kScrollVerticalPadding),
                           )
-                          : this.gridHeight;
-                  final double effectiveSlotExtent =
-                      hasBoundedHeight
-                          ? _computeEffectiveSlotExtent(
-                            slotCount: slotCount,
-                            baseSlotExtent: slotExtent,
-                            availableGridHeight: availableGridHeight,
-                          )
-                          : slotExtent;
-                  final double resolvedGridHeight =
-                      hasBoundedHeight
-                          ? slotCount * effectiveSlotExtent
-                          : this.gridHeight;
+                          : resolvedGridHeight;
                   final bool enableScroll =
                       !hasBoundedHeight ||
                       resolvedGridHeight > availableGridHeight + 0.5;
@@ -3029,7 +3028,7 @@ class _WeekCompactView extends StatelessWidget {
                                 timeSlots,
                                 timeFormat,
                                 resolvedGridHeight,
-                                effectiveSlotExtent,
+                                slotExtent,
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -3042,7 +3041,7 @@ class _WeekCompactView extends StatelessWidget {
                                 dayWidth,
                                 dayInnerWidth,
                                 resolvedGridHeight,
-                                effectiveSlotExtent,
+                                slotExtent,
                               ),
                             ),
                           ],
@@ -3070,22 +3069,6 @@ class _WeekCompactView extends StatelessWidget {
     }
     final double width = available / dayCount;
     return width;
-  }
-
-  static double _computeEffectiveSlotExtent({
-    required int slotCount,
-    required double baseSlotExtent,
-    required double availableGridHeight,
-  }) {
-    if (slotCount <= 0) {
-      return baseSlotExtent;
-    }
-    if (!availableGridHeight.isFinite || availableGridHeight <= 0) {
-      return baseSlotExtent;
-    }
-    final double fittedExtent = availableGridHeight / slotCount;
-    final double clamped = fittedExtent.clamp(_kMinSlotExtent, baseSlotExtent);
-    return clamped;
   }
 
   Widget _buildHeaderRow(
@@ -3494,6 +3477,7 @@ class _WeekCompactView extends StatelessWidget {
                     timelineStart: data.date.add(Duration(minutes: minMinute)),
                     timelineEnd: data.date.add(Duration(minutes: maxMinute)),
                     slotMinutes: slotMinutes,
+                    interactionSlotMinutes: interactionSlotMinutes,
                     slotExtent: slotExtent,
                     clientsWithOutstandingPayments:
                         clientsWithOutstandingPayments,
@@ -4369,6 +4353,7 @@ class _StaffDayColumn extends StatefulWidget {
     required this.timelineStart,
     required this.timelineEnd,
     required this.slotMinutes,
+    required this.interactionSlotMinutes,
     required this.slotExtent,
     required this.clientsWithOutstandingPayments,
     required this.clientsById,
@@ -4400,6 +4385,7 @@ class _StaffDayColumn extends StatefulWidget {
   final DateTime timelineStart;
   final DateTime timelineEnd;
   final int slotMinutes;
+  final int interactionSlotMinutes;
   final double slotExtent;
   final Set<String> clientsWithOutstandingPayments;
   final Map<String, Client> clientsById;
@@ -4463,12 +4449,13 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
     }
     final dy = event.localPosition.dy.clamp(0.0, gridHeight);
     var minuteOffset = (dy / gridHeight) * totalMinutes;
-    final slotDuration = widget.slotMinutes.toDouble();
+    final slotDuration = widget.interactionSlotMinutes.toDouble();
     if (totalMinutes > slotDuration) {
       minuteOffset = minuteOffset.clamp(0.0, totalMinutes - slotDuration);
     }
     final snappedMinutes =
-        (minuteOffset / widget.slotMinutes).round() * widget.slotMinutes;
+        (minuteOffset / widget.interactionSlotMinutes).round() *
+        widget.interactionSlotMinutes;
     final hoverStart = widget.timelineStart.add(
       Duration(minutes: snappedMinutes.toInt()),
     );
@@ -4493,12 +4480,13 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
     }
     final localDy = details.localPosition.dy.clamp(0.0, gridHeight);
     var minuteOffset = (localDy / gridHeight) * totalMinutes;
-    final slotDuration = widget.slotMinutes.toDouble();
+    final slotDuration = widget.interactionSlotMinutes.toDouble();
     if (totalMinutes > slotDuration) {
       minuteOffset = minuteOffset.clamp(0.0, totalMinutes - slotDuration);
     }
     final snappedMinutes =
-        (minuteOffset / widget.slotMinutes).round() * widget.slotMinutes;
+        (minuteOffset / widget.interactionSlotMinutes).round() *
+        widget.interactionSlotMinutes;
     final tapMoment = widget.timelineStart.add(
       Duration(minutes: minuteOffset.round()),
     );
@@ -4524,7 +4512,9 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
     final newStart = widget.timelineStart.add(
       Duration(minutes: snappedMinutes.toInt()),
     );
-    final newEnd = newStart.add(Duration(minutes: widget.slotMinutes));
+    final newEnd = newStart.add(
+      Duration(minutes: widget.interactionSlotMinutes),
+    );
     final hasOverlap = widget.appointments.any(
       (appointment) =>
           appointment.start.isBefore(newEnd) &&
@@ -4612,6 +4602,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
     final totalSlots = max(1, (totalMinutes / widget.slotMinutes).ceil());
     final gridHeight = totalSlots * widget.slotExtent;
     final theme = Theme.of(context);
+    final double pixelsPerMinute = widget.slotExtent / widget.slotMinutes;
 
     Widget? openOverlay;
     if (widget.openStart != null && widget.openEnd != null) {
@@ -4623,14 +4614,11 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
       );
       if (segment != null) {
         final top =
-            segment.start.difference(widget.timelineStart).inMinutes /
-            widget.slotMinutes *
-            widget.slotExtent;
+            segment.start.difference(widget.timelineStart).inMinutes *
+            pixelsPerMinute;
         final height = max(
           widget.slotExtent,
-          segment.end.difference(segment.start).inMinutes /
-              widget.slotMinutes *
-              widget.slotExtent,
+          segment.end.difference(segment.start).inMinutes * pixelsPerMinute,
         );
         openOverlay = Positioned(
           top: top,
@@ -4660,14 +4648,11 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
       );
       if (segment != null) {
         final top =
-            segment.start.difference(widget.timelineStart).inMinutes /
-            widget.slotMinutes *
-            widget.slotExtent;
+            segment.start.difference(widget.timelineStart).inMinutes *
+            pixelsPerMinute;
         final height = max(
           widget.slotExtent,
-          segment.end.difference(segment.start).inMinutes /
-              widget.slotMinutes *
-              widget.slotExtent,
+          segment.end.difference(segment.start).inMinutes * pixelsPerMinute,
         );
         final previewed = dragAppointment.copyWith(
           start: dragStart,
@@ -4712,7 +4697,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                 highlight: true,
                 categoriesById: widget.categoriesById,
                 categoriesByName: widget.categoriesByName,
-                hideContent: widget.compact,
+                hideContent: false,
                 hasOutstandingPayments: hasOutstandingPayments,
               ),
             ),
@@ -4724,7 +4709,9 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
     final hoverStart = _hoverStart;
     Widget? hoverOverlay;
     if (hoverStart != null) {
-      final hoverEnd = hoverStart.add(Duration(minutes: widget.slotMinutes));
+      final hoverEnd = hoverStart.add(
+        Duration(minutes: widget.interactionSlotMinutes),
+      );
       final segment = _segmentWithinTimeline(
         hoverStart,
         hoverEnd,
@@ -4733,9 +4720,8 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
       );
       if (segment != null) {
         final top =
-            segment.start.difference(widget.timelineStart).inMinutes /
-            widget.slotMinutes *
-            widget.slotExtent;
+            segment.start.difference(widget.timelineStart).inMinutes *
+            pixelsPerMinute;
         final isBusyAppointments = widget.appointments.any(
           (appointment) =>
               appointment.start.isBefore(hoverEnd) &&
@@ -4763,10 +4749,13 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
         final labelBackground = theme.colorScheme.surface.withValues(
           alpha: 0.94,
         );
-        final slotLabel =
-            widget.compact
-                ? _timeLabel.format(hoverStart)
-                : '${_timeLabel.format(hoverStart)} - ${_timeLabel.format(hoverEnd)}';
+        final slotLabel = _timeLabel.format(hoverStart);
+        final hoverDurationMinutes =
+            segment.end.difference(segment.start).inMinutes;
+        final hoverHeight = max(
+          pixelsPerMinute * widget.interactionSlotMinutes,
+          hoverDurationMinutes * pixelsPerMinute,
+        );
         hoverOverlay = Positioned(
           top: top,
           left: 0,
@@ -4775,7 +4764,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
             clipBehavior: Clip.none,
             children: [
               Container(
-                height: widget.slotExtent,
+                height: hoverHeight,
                 decoration: BoxDecoration(
                   color: fillColor,
                   borderRadius: BorderRadius.circular(12),
@@ -4846,7 +4835,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
             } else {
               minuteOffset = 0.0;
             }
-            final slotMinutes = widget.slotMinutes;
+            final slotMinutes = widget.interactionSlotMinutes;
             final snappedMinutes =
                 (minuteOffset / slotMinutes).round() * slotMinutes;
             final maxStartMinutesInt = maxStartMinutes.floor();
@@ -5281,7 +5270,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                               anomalies: issues,
                               previewStart: _dragPreviewStart,
                               previewDuration: _dragPreviewDuration,
-                              slotMinutes: widget.slotMinutes,
+                              slotMinutes: widget.interactionSlotMinutes,
                               lastMinuteSlot: matchingSlot,
                               categoriesById: widget.categoriesById,
                               categoriesByName: widget.categoriesByName,
@@ -5365,7 +5354,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
             } else {
               minuteOffset = 0.0;
             }
-            final slotMinutes = widget.slotMinutes;
+            final slotMinutes = widget.interactionSlotMinutes;
             final snappedMinutes =
                 (minuteOffset / slotMinutes).round() * slotMinutes;
             final maxStartMinutesInt = maxStartMinutes.floor();
