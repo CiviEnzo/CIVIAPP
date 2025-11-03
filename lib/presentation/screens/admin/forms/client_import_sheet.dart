@@ -848,34 +848,22 @@ class _CandidateControllers {
     final normalizedEmail = email.text.trim();
     final normalizedNotes = notes.text.trim();
 
-    var resolvedFirst = normalizedFirst;
-    var resolvedLast = normalizedLast;
-
-    if (resolvedFirst.isEmpty) {
-      resolvedFirst = 'Cliente';
-      issues.add(
-        const ClientImportIssue(
-          severity: ClientImportIssueSeverity.warning,
-          message: 'Nome mancante, uso del valore predefinito.',
-        ),
-      );
-    }
-
-    if (resolvedLast.isEmpty) {
-      resolvedLast = 'Cliente';
-      issues.add(
-        const ClientImportIssue(
-          severity: ClientImportIssueSeverity.warning,
-          message: 'Cognome mancante, uso del valore predefinito.',
-        ),
-      );
-    }
-
-    if (normalizedPhone.isEmpty) {
+    final hasName = normalizedFirst.isNotEmpty || normalizedLast.isNotEmpty;
+    if (!hasName) {
       issues.add(
         const ClientImportIssue(
           severity: ClientImportIssueSeverity.error,
-          message: 'Telefono mancante.',
+          message: 'Inserisci almeno uno tra nome e cognome.',
+        ),
+      );
+    }
+
+    final hasContact = normalizedPhone.isNotEmpty || normalizedEmail.isNotEmpty;
+    if (!hasContact) {
+      issues.add(
+        const ClientImportIssue(
+          severity: ClientImportIssueSeverity.error,
+          message: 'Inserisci almeno un recapito (telefono o email).',
         ),
       );
     }
@@ -891,8 +879,8 @@ class _CandidateControllers {
 
     return ClientImportCandidate(
       index: index,
-      firstName: resolvedFirst,
-      lastName: resolvedLast,
+      firstName: normalizedFirst,
+      lastName: normalizedLast,
       phone: normalizedPhone,
       rawName: rawName,
       email: normalizedEmail.isEmpty ? null : normalizedEmail,

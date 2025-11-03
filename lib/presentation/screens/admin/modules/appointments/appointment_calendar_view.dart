@@ -1542,12 +1542,10 @@ class _WeekSchedule extends StatelessWidget {
                                                         .isNotEmpty) ...[
                                                       Flexible(
                                                         flex: 2,
-                                                        child:
-                                                            ScrollConfiguration(
+                                                        child: ScrollConfiguration(
                                                           behavior:
                                                               const _CompactMacScrollBehavior(),
-                                                          child:
-                                                              SingleChildScrollView(
+                                                          child: SingleChildScrollView(
                                                             scrollDirection:
                                                                 Axis.horizontal,
                                                             child: Row(
@@ -1566,8 +1564,7 @@ class _WeekSchedule extends StatelessWidget {
                                                                     const SizedBox(
                                                                       width: 8,
                                                                     ),
-                                                                  summaryChips[
-                                                                      i],
+                                                                  summaryChips[i],
                                                                 ],
                                                               ],
                                                             ),
@@ -5613,13 +5610,11 @@ class _AppointmentCard extends StatelessWidget {
     final highlightCompactAttention = hideContent && needsAttention;
     final borderColor =
         highlightCompactAttention
-            ? (
-                hasAnomalies
-                    ? theme.colorScheme.error
-                    : theme.colorScheme.secondary.withValues(
-                      alpha: theme.brightness == Brightness.dark ? 0.9 : 0.8,
-                    )
-              )
+            ? (hasAnomalies
+                ? theme.colorScheme.error
+                : theme.colorScheme.secondary.withValues(
+                  alpha: theme.brightness == Brightness.dark ? 0.9 : 0.8,
+                ))
             : hasAnomalies
             ? theme.colorScheme.error.withValues(
               alpha: theme.brightness == Brightness.dark ? 0.85 : 0.75,
@@ -5697,7 +5692,7 @@ class _AppointmentCard extends StatelessWidget {
               return Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  timeLabel,
+                  "",
                   style: theme.textTheme.bodySmall,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -5736,7 +5731,7 @@ class _AppointmentCard extends StatelessWidget {
             return Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                timeLabel,
+                "",
                 style: theme.textTheme.bodySmall,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,

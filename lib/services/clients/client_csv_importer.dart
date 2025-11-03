@@ -46,12 +46,12 @@ class ClientCsvImporter {
     final mapping = _ColumnMapping.fromHeader(headerRow);
     final issues = <ClientImportIssue>[];
 
-    if (mapping.phoneIndex == null) {
+    if (mapping.phoneIndex == null && mapping.emailIndex == null) {
       issues.add(
         const ClientImportIssue(
           severity: ClientImportIssueSeverity.error,
           message:
-              'Colonna telefono non trovata. Aggiungi una colonna "Telefono".',
+              'Aggiungi una colonna "Telefono" o "Email" per procedere con l\'import.',
         ),
       );
     }
@@ -95,34 +95,39 @@ class ClientCsvImporter {
       final emailRaw = _resolveValue(row, mapping.emailIndex);
       final notesRaw = _resolveValue(row, mapping.notesIndex);
 
-      if (phoneRaw.trim().isEmpty) {
-        localIssues.add(
-          const ClientImportIssue(
-            severity: ClientImportIssueSeverity.error,
-            message: 'Telefono mancante.',
-          ),
-        );
-      }
+      final trimmedPhone = phoneRaw.trim();
+      final trimmedEmail = emailRaw.trim();
+      final hasContact = trimmedPhone.isNotEmpty || trimmedEmail.isNotEmpty;
 
       final nameParts = _splitName(
         firstName: firstNameRaw,
         lastName: lastNameRaw,
         fullName: fullName,
       );
-      var resolvedFirstName = nameParts.first;
-      var resolvedLastName = nameParts.last;
+      final resolvedFirstName = nameParts.first.trim();
+      final resolvedLastName = nameParts.last.trim();
 
-      if (resolvedFirstName.trim().isEmpty || resolvedLastName.trim().isEmpty) {
+      if (resolvedFirstName.isEmpty && resolvedLastName.isEmpty) {
         localIssues.add(
           const ClientImportIssue(
-            severity: ClientImportIssueSeverity.warning,
+            severity: ClientImportIssueSeverity.error,
             message:
-                'Nome incompleto. Modifica manualmente o verrà usato un valore di fallback.',
+                'Nome e cognome mancanti. Compila almeno uno dei due campi.',
           ),
         );
       }
 
-      final email = emailRaw.trim().isEmpty ? null : emailRaw.trim();
+      if (!hasContact) {
+        localIssues.add(
+          const ClientImportIssue(
+            severity: ClientImportIssueSeverity.error,
+            message:
+                'Telefono ed email mancanti. Inserisci almeno un recapito.',
+          ),
+        );
+      }
+
+      final email = trimmedEmail.isEmpty ? null : trimmedEmail;
       if (email != null && !_looksLikeEmail(email)) {
         localIssues.add(
           const ClientImportIssue(
@@ -132,12 +137,7 @@ class ClientCsvImporter {
         );
       }
 
-      resolvedFirstName =
-          resolvedFirstName.trim().isEmpty ? '' : resolvedFirstName.trim();
-      resolvedLastName =
-          resolvedLastName.trim().isEmpty ? '' : resolvedLastName.trim();
-
-      final phone = phoneRaw.trim();
+      final phone = trimmedPhone;
 
       final candidate = ClientImportCandidate(
         index: rowIndex + 1,
@@ -234,19 +234,17 @@ class ClientCsvImporter {
     }
 
     if (resolvedFirstName.isEmpty && resolvedLastName.isNotEmpty) {
-      final tokens = resolvedLastName.split(RegExp(r'\s+'));
-      resolvedFirstName = tokens.first;
-      resolvedLastName =
-          tokens.length > 1 ? tokens.sublist(1).join(' ') : 'Cliente';
-    } else if (resolvedLastName.isEmpty && resolvedFirstName.isNotEmpty) {
-      resolvedLastName = 'Cliente';
-    }
-
-    if (resolvedFirstName.isEmpty) {
-      resolvedFirstName = 'Cliente';
-    }
-    if (resolvedLastName.isEmpty) {
-      resolvedLastName = 'Cliente';
+      final tokens =
+          resolvedLastName
+              .split(RegExp(r'\s+'))
+              .where((value) => value.isNotEmpty)
+              .toList();
+      if (tokens.length > 1) {
+        resolvedFirstName = tokens.first;
+        resolvedLastName = tokens.sublist(1).join(' ');
+      } else {
+        resolvedLastName = tokens.isEmpty ? '' : tokens.first;
+      }
     }
 
     return [resolvedFirstName, resolvedLastName];

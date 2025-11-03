@@ -209,10 +209,16 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     if (_generalQuery.isEmpty) {
       return true;
     }
-    bool contains(String? value) =>
-        value != null && value.toLowerCase().contains(_generalQuery);
+    bool contains(String? value) {
+      final normalized = value?.trim();
+      if (normalized == null || normalized.isEmpty) {
+        return false;
+      }
+      return normalized.toLowerCase().contains(_generalQuery);
+    }
 
-    return contains(client.firstName) ||
+    return contains(client.fullName) ||
+        contains(client.firstName) ||
         contains(client.lastName) ||
         contains(client.phone) ||
         contains(client.email);
@@ -227,6 +233,39 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
       return false;
     }
     return number.toLowerCase() == _clientNumberQuery;
+  }
+
+  String _displayName(Client client) {
+    final first = client.firstName.trim();
+    final last = client.lastName.trim();
+    if (first.isNotEmpty && last.isNotEmpty) {
+      return '$first $last';
+    }
+    if (first.isNotEmpty) {
+      return first;
+    }
+    if (last.isNotEmpty) {
+      return last;
+    }
+    return 'Cliente senza nome';
+  }
+
+  String _clientInitial(Client client) {
+    final first = client.firstName.trim();
+    if (first.isNotEmpty) {
+      final value = first.characters.firstOrNull;
+      if (value != null && value.isNotEmpty) {
+        return value.toUpperCase();
+      }
+    }
+    final last = client.lastName.trim();
+    if (last.isNotEmpty) {
+      final value = last.characters.firstOrNull;
+      if (value != null && value.isNotEmpty) {
+        return value.toUpperCase();
+      }
+    }
+    return '?';
   }
 
   Widget _buildPlaceholder({
@@ -669,11 +708,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                       children: [
                         CircleAvatar(
                           radius: 26,
-                          child: Text(
-                            client.firstName.characters.firstOrNull
-                                    ?.toUpperCase() ??
-                                '?',
-                          ),
+                          child: Text(_clientInitial(client)),
                         ),
                         const SizedBox(width: 16),
                         Expanded(
@@ -683,7 +718,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                               Row(
                                 children: [
                                   Text(
-                                    client.fullName,
+                                    _displayName(client),
                                     style: theme.textTheme.titleMedium,
                                   ),
                                   SizedBox(width: 8),

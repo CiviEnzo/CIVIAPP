@@ -2572,16 +2572,24 @@ class AppDataStore extends StateNotifier<AppDataState> {
       }
 
       final normalizedPhone = _normalizePhoneForComparison(draft.phone);
-      if (normalizedPhone.isEmpty) {
+      final rawEmail = draft.email?.trim();
+      final normalizedEmail =
+          rawEmail != null && rawEmail.isNotEmpty
+              ? rawEmail.toLowerCase()
+              : null;
+
+      if (normalizedPhone.isEmpty && normalizedEmail == null) {
         failures.add(
           ClientImportFailure(
             draft: draft,
-            message: 'Telefono mancante o non valido.',
+            message:
+                'Telefono ed email mancanti. Inserisci almeno un recapito.',
           ),
         );
         continue;
       }
-      if (knownPhones.contains(normalizedPhone)) {
+
+      if (normalizedPhone.isNotEmpty && knownPhones.contains(normalizedPhone)) {
         failures.add(
           ClientImportFailure(
             draft: draft,
@@ -2590,12 +2598,6 @@ class AppDataStore extends StateNotifier<AppDataState> {
         );
         continue;
       }
-
-      final rawEmail = draft.email?.trim();
-      final normalizedEmail =
-          rawEmail != null && rawEmail.isNotEmpty
-              ? rawEmail.toLowerCase()
-              : null;
       if (normalizedEmail != null && knownEmails.contains(normalizedEmail)) {
         failures.add(
           ClientImportFailure(
@@ -2606,8 +2608,18 @@ class AppDataStore extends StateNotifier<AppDataState> {
         continue;
       }
 
-      final firstName = _normalizeName(draft.firstName);
-      final lastName = _normalizeName(draft.lastName, fallback: 'Cliente');
+      final firstName = draft.firstName.trim();
+      final lastName = draft.lastName.trim();
+      if (firstName.isEmpty && lastName.isEmpty) {
+        failures.add(
+          ClientImportFailure(
+            draft: draft,
+            message:
+                'Nome e cognome mancanti. Compila almeno uno dei due campi.',
+          ),
+        );
+        continue;
+      }
       final phone = _normalizePhoneDisplay(draft.phone);
       final notes = _resolveImportNotes(draft.notes);
 
@@ -2637,7 +2649,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
         }
         processedClients.add(prepared);
         successes.add(ClientImportSuccess(client: prepared));
-        knownPhones.add(normalizedPhone);
+        if (normalizedPhone.isNotEmpty) {
+          knownPhones.add(normalizedPhone);
+        }
         if (normalizedEmail != null) {
           knownEmails.add(normalizedEmail);
         }
@@ -2694,14 +2708,6 @@ class AppDataStore extends StateNotifier<AppDataState> {
   String _normalizePhoneDisplay(String value) {
     final trimmed = value.trim();
     return trimmed.replaceAll(RegExp(r'\s+'), ' ');
-  }
-
-  String _normalizeName(String value, {String fallback = 'Cliente'}) {
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) {
-      return fallback;
-    }
-    return trimmed;
   }
 
   String? _resolveImportNotes(String? raw) {
