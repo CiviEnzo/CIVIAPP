@@ -1,1 +1,1 @@
-const double adminTextScaleFactor = 1.3;
+const double adminTextScaleFactor = 1.2;

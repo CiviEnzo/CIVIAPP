@@ -4421,6 +4421,15 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
   double get _totalMinutes =>
       widget.timelineEnd.difference(widget.timelineStart).inMinutes.toDouble();
 
+  bool _hasShiftDuring(DateTime start, DateTime end) {
+    for (final shift in widget.shifts) {
+      if (_overlapsRange(shift.start, shift.end, start, end)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   void _setDragging(bool value) {
     if (_isDragging != value) {
       setState(() {
@@ -4677,6 +4686,10 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                 : widget.servicesById[previewed.serviceId];
         final hasOutstandingPayments = widget.clientsWithOutstandingPayments
             .contains(previewed.clientId);
+        final visibleMinutes = max(
+          1,
+          segment.end.difference(segment.start).inMinutes,
+        );
         dragOverlay = Positioned(
           top: top,
           left: 0,
@@ -4693,6 +4706,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                 staff: widget.staffMember,
                 roomName: roomName,
                 height: height,
+                visibleDurationMinutes: visibleMinutes,
                 anomalies: anomalies,
                 lockReason: null,
                 highlight: true,
@@ -4883,24 +4897,52 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                 child: Stack(
                   children: [
                     Column(
-                      children: List.generate(
-                        totalSlots,
-                        (index) => Container(
+                      children: List.generate(totalSlots, (index) {
+                        final DateTime slotStart = widget.timelineStart.add(
+                          Duration(minutes: index * widget.slotMinutes),
+                        );
+                        final bool isHourBoundary = slotStart.minute == 0;
+                        final DateTime slotEnd = slotStart.add(
+                          Duration(minutes: widget.slotMinutes),
+                        );
+                        final bool hasShift = _hasShiftDuring(
+                          slotStart,
+                          slotEnd,
+                        );
+                        BorderSide topBorder = BorderSide.none;
+                        BorderSide bottomBorder = BorderSide.none;
+                        if (hasShift) {
+                          final bool isDark =
+                              theme.brightness == Brightness.dark;
+                          final double hourTopAlpha = isDark ? 0.45 : 0.32;
+                          final double hourBottomAlpha = isDark ? 0.34 : 0.24;
+                          final double minorTopAlpha = isDark ? 0.28 : 0.18;
+                          final double minorBottomAlpha = isDark ? 0.21 : 0.12;
+                          final Color baseHourColor = theme
+                              .colorScheme
+                              .outlineVariant
+                              .withValues(alpha: hourTopAlpha);
+                          final Color baseMinorColor = theme.dividerColor
+                              .withValues(alpha: minorTopAlpha);
+                          final Color hourBottomColor = baseHourColor
+                              .withValues(alpha: hourBottomAlpha);
+                          final Color minorBottomColor = baseMinorColor
+                              .withValues(alpha: minorBottomAlpha);
+                          bottomBorder = BorderSide(
+                            color: isDark ? Colors.white24 : Colors.black26,
+                            width: 1,
+                          );
+                        }
+                        return Container(
                           height: widget.slotExtent,
                           decoration: BoxDecoration(
                             border: Border(
-                              top: BorderSide(
-                                color:
-                                    index.isOdd
-                                        ? theme.dividerColor.withValues(
-                                          alpha: 0.05,
-                                        )
-                                        : Colors.transparent,
-                              ),
+                              top: topBorder,
+                              bottom: bottomBorder,
                             ),
                           ),
-                        ),
-                      ),
+                        );
+                      }),
                     ),
                     if (openOverlay != null) openOverlay,
                     if (dragOverlay != null) dragOverlay,
@@ -5187,11 +5229,13 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                               .inMinutes /
                           widget.slotMinutes *
                           widget.slotExtent;
-                      final height = max(
-                        widget.slotExtent * 0.75,
-                        segment.end.difference(segment.start).inMinutes /
-                            widget.slotMinutes *
-                            widget.slotExtent,
+                      final height =
+                          segment.end.difference(segment.start).inMinutes /
+                          widget.slotMinutes *
+                          widget.slotExtent;
+                      final visibleMinutes = max(
+                        1,
+                        segment.end.difference(segment.start).inMinutes,
                       );
                       final client = widget.clientsById[appointment.clientId];
                       final services =
@@ -5232,6 +5276,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                         roomName: roomName,
                         onTap: () => widget.onEdit(appointment),
                         height: height,
+                        visibleDurationMinutes: visibleMinutes,
                         anomalies: issues,
                         lockReason: lockReason,
                         lastMinuteSlot: matchingSlot,
@@ -5288,6 +5333,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                               staff: widget.staffMember,
                               roomName: roomName,
                               height: height,
+                              visibleDurationMinutes: visibleMinutes,
                               anomalies: issues,
                               lockReason: lockReason,
                               lastMinuteSlot: matchingSlot,
@@ -5502,6 +5548,7 @@ class _AppointmentCard extends StatelessWidget {
     required this.categoriesById,
     required this.categoriesByName,
     this.hideContent = false,
+    this.visibleDurationMinutes,
     this.hasOutstandingPayments = false,
   });
 
@@ -5520,6 +5567,7 @@ class _AppointmentCard extends StatelessWidget {
   final Map<String, ServiceCategory> categoriesById;
   final Map<String, ServiceCategory> categoriesByName;
   final bool hideContent;
+  final int? visibleDurationMinutes;
   final bool hasOutstandingPayments;
 
   @override
@@ -5544,6 +5592,12 @@ class _AppointmentCard extends StatelessWidget {
             ? servicesToDisplay.map((service) => service.name).join(' + ')
             : null;
     final isLastMinute = lastMinuteSlot != null;
+    final int contentDurationMinutes = max(
+      1,
+      visibleDurationMinutes ?? appointment.duration.inMinutes,
+    );
+    final bool showServiceInfo = contentDurationMinutes >= 30;
+    final bool showClientInfo = contentDurationMinutes >= 45;
     final categoryLabel = _primaryCategoryLabel(servicesToDisplay, service);
     final categoryColor = _resolveCategoryColor(
       servicesToDisplay,
@@ -5559,6 +5613,14 @@ class _AppointmentCard extends StatelessWidget {
             : categoryColor ?? theme.colorScheme.primary;
     Color backgroundColor = baseColor;
     Color borderBlendColor = baseColor;
+    if (!isCancelled && !hideNoShowColor && baseColor.opacity > 0.0) {
+      final double fillAlpha =
+          theme.brightness == Brightness.dark ? 0.22 : 0.60;
+      final double borderAlpha =
+          theme.brightness == Brightness.dark ? 0.38 : 0.90;
+      backgroundColor = baseColor.withValues(alpha: fillAlpha);
+      borderBlendColor = baseColor.withValues(alpha: borderAlpha);
+    }
     final highlightAnomalies = hasAnomalies && !hideNoShowColor;
     if (highlightAnomalies) {
       final double startAlpha =
@@ -5574,6 +5636,13 @@ class _AppointmentCard extends StatelessWidget {
       );
     }
 
+    final Color surfaceTint = theme.colorScheme.surfaceVariant.withValues(
+      alpha: theme.brightness == Brightness.dark ? 0.28 : 0.16,
+    );
+    final Color elegantBorder =
+        borderBlendColor.opacity > 0.0
+            ? Color.alphaBlend(borderBlendColor, surfaceTint)
+            : surfaceTint;
     final baseBorder =
         isCancelled
             ? theme.colorScheme.outlineVariant.withValues(
@@ -5581,11 +5650,9 @@ class _AppointmentCard extends StatelessWidget {
             )
             : hideNoShowColor
             ? theme.colorScheme.outlineVariant.withValues(
-              alpha: theme.brightness == Brightness.dark ? 0.35 : 0.25,
+              alpha: theme.brightness == Brightness.dark ? 0.28 : 0.18,
             )
-            : theme.colorScheme.surfaceVariant.withValues(
-              alpha: theme.brightness == Brightness.dark ? 0.85 : 0.65,
-            );
+            : elegantBorder;
     final List<String> issueDescriptions =
         hasAnomalies
             ? (anomalies.toList()..sort((a, b) => a.index.compareTo(b.index)))
@@ -5643,16 +5710,43 @@ class _AppointmentCard extends StatelessWidget {
       horizontal: 12,
       vertical: verticalPadding,
     );
+    final bool hasTranslucentFill = backgroundColor.opacity > 0.0;
+    final List<Color>? fillGradient =
+        hasTranslucentFill
+            ? [
+              backgroundColor,
+              Color.alphaBlend(
+                theme.colorScheme.surface.withValues(
+                  alpha: theme.brightness == Brightness.dark ? 0.05 : 0.08,
+                ),
+                backgroundColor,
+              ),
+            ]
+            : null;
     final card = Container(
       height: height,
       decoration: BoxDecoration(
-        color: backgroundColor,
+        color: hasTranslucentFill ? null : backgroundColor,
+        gradient:
+            hasTranslucentFill
+                ? LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: fillGradient!,
+                )
+                : null,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
+          if (hasTranslucentFill)
+            BoxShadow(
+              color: borderBlendColor.withValues(alpha: 0.1),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
+            ),
           if (highlight)
             BoxShadow(
-              color: theme.colorScheme.shadow.withValues(alpha: 0.25),
-              blurRadius: 12,
+              color: theme.colorScheme.shadow.withValues(alpha: 0.28),
+              blurRadius: 14,
               offset: const Offset(0, 6),
             ),
         ],
@@ -5721,51 +5815,52 @@ class _AppointmentCard extends StatelessWidget {
             );
           }
 
-          if (availableHeight < 36) {
-            final compactLabel = timeLabel;
-            return Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                compactLabel,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            );
-          }
-
-          if (availableHeight < 72) {
-            return Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                timeLabel,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            );
-          }
-
           final showRoom = roomName != null && availableHeight >= 120;
           final hasBottomSection = showRoom;
 
-          final children = <Widget>[
-            Text(
-              timeLabel,
-              style: theme.textTheme.labelLarge?.copyWith(
+          final timeStyle =
+              theme.textTheme.bodySmall?.copyWith(
                 color: Colors.white,
-                fontWeight: FontWeight.w600,
+                fontSize: 11,
+              ) ??
+              const TextStyle(color: Colors.white, fontSize: 11);
+          final detailStyle =
+              theme.textTheme.bodySmall?.copyWith(
+                color: Colors.white,
+                fontSize: 10,
+              ) ??
+              const TextStyle(color: Colors.white, fontSize: 10);
+          final List<Widget> children = [];
+
+          void addDetail(String? value, TextStyle style, {double gap = 2}) {
+            final text = value?.trim();
+            if (text == null || text.isEmpty) {
+              return;
+            }
+            if (children.isNotEmpty) {
+              children.add(SizedBox(height: gap));
+            }
+            children.add(
+              Text(
+                text,
+                style: style,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ];
+            );
+          }
+
+          addDetail(timeLabel, timeStyle);
+          if (showServiceInfo) {
+            addDetail(serviceLabel, detailStyle);
+          }
+          if (showClientInfo) {
+            addDetail(client?.fullName, detailStyle);
+          }
+
+          if (children.isEmpty) {
+            return const SizedBox.shrink();
+          }
 
           if (hasBottomSection) {
             if (availableHeight >= 88) {
@@ -5953,10 +6048,14 @@ class _AppointmentCard extends StatelessWidget {
     final normalizedClientName = clientName?.trim();
     final normalizedServiceName = serviceLabel?.trim();
     final notes = appointment.notes?.trim();
-    if (normalizedClientName != null && normalizedClientName.isNotEmpty) {
+    if (showClientInfo &&
+        normalizedClientName != null &&
+        normalizedClientName.isNotEmpty) {
       hoverLines.add('Cliente: $normalizedClientName');
     }
-    if (normalizedServiceName != null && normalizedServiceName.isNotEmpty) {
+    if (showServiceInfo &&
+        normalizedServiceName != null &&
+        normalizedServiceName.isNotEmpty) {
       hoverLines.add('Servizio: $normalizedServiceName');
     }
     if (appointment.packageId != null) {
@@ -6282,6 +6381,8 @@ class _DragPreviewCard extends StatelessWidget {
     final normalizedEnd =
         end.isBefore(start) ? start.add(Duration(minutes: slotMinutes)) : end;
     final previewed = appointment.copyWith(start: start, end: normalizedEnd);
+    final visibleMinutes =
+        previewDuration?.inMinutes ?? previewed.duration.inMinutes;
     return _AppointmentCard(
       appointment: previewed,
       client: client,
@@ -6290,6 +6391,7 @@ class _DragPreviewCard extends StatelessWidget {
       staff: staff,
       roomName: roomName,
       height: height,
+      visibleDurationMinutes: visibleMinutes,
       anomalies: anomalies,
       lockReason: null,
       highlight: true,

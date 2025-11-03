@@ -188,9 +188,23 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   ) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final buttonLabel = _isPaymentStep ? 'Salva' : 'Conferma';
-    final onPressed =
-        total > 0 ? (_isPaymentStep ? _submit : _continueToPaymentStep) : null;
+    final requiresPayment = total > 0.009;
+    final canProceed = _lines.isNotEmpty;
+    final buttonLabel =
+        _isPaymentStep || !requiresPayment ? 'Salva' : 'Conferma';
+    final VoidCallback? onPressed = canProceed
+        ? () {
+            if (_isPaymentStep) {
+              _submit();
+              return;
+            }
+            if (requiresPayment) {
+              _continueToPaymentStep();
+              return;
+            }
+            _submit(skipReview: true);
+          }
+        : null;
     return Align(
       alignment: Alignment.bottomCenter,
       child: Material(
@@ -639,80 +653,89 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
           subtitle: 'Definisci metodo, stato e incassi',
         ),
         const SizedBox(height: 12),
-        DropdownButtonFormField<PaymentMethod>(
-          value: _payment,
-          decoration: const InputDecoration(labelText: 'Metodo di pagamento'),
-          items:
-              PaymentMethod.values
-                  .map(
-                    (method) => DropdownMenuItem(
-                      value: method,
-                      child: Text(_paymentLabel(method)),
-                    ),
-                  )
-                  .toList(),
-          validator:
-              (value) =>
-                  value == null ? 'Seleziona il metodo di pagamento' : null,
-          onChanged: (value) => setState(() => _payment = value),
-        ),
-        const SizedBox(height: 12),
-        DropdownButtonFormField<SalePaymentStatus>(
-          value: _paymentStatus,
-          decoration: const InputDecoration(labelText: 'Stato pagamento'),
-          items:
-              SalePaymentStatus.values
-                  .map(
-                    (status) => DropdownMenuItem(
-                      value: status,
-                      child: Text(status.label),
-                    ),
-                  )
-                  .toList(),
-          validator:
-              (value) =>
-                  value == null ? 'Seleziona lo stato del pagamento' : null,
-          onChanged: (value) {
-            setState(() {
-              _paymentStatus = value;
-            });
-            if (value != SalePaymentStatus.deposit) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted) {
-                  return;
-                }
-                _setPaidAmountText('');
-              });
-            }
-          },
-        ),
-        if (_paymentStatus == SalePaymentStatus.deposit) ...[
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _paidAmountController,
-            decoration: const InputDecoration(
-              labelText: 'Importo incassato (€)',
-            ),
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            validator: (value) {
-              if (_paymentStatus != SalePaymentStatus.deposit) {
-                return null;
-              }
-              final amount = _parseAmount(value);
-              if (amount == null || amount <= 0) {
-                return 'Inserisci un importo valido';
-              }
-              if (amount > total + 0.01) {
-                return 'L\'acconto supera il totale';
-              }
-              return null;
-            },
-          ),
-          const SizedBox(height: 8),
+        if (total <= 0.009) ...[
           Text(
-            'Residuo da incassare: ${currency.format(_remainingBalance(total))}',
+            'Il totale è pari a 0 €, nessun pagamento è richiesto. '
+            'La vendita sarà registrata come saldata senza movimenti.',
             style: theme.textTheme.bodyMedium,
           ),
+        ] else ...[
+          DropdownButtonFormField<PaymentMethod>(
+            value: _payment,
+            decoration: const InputDecoration(labelText: 'Metodo di pagamento'),
+            items:
+                PaymentMethod.values
+                    .map(
+                      (method) => DropdownMenuItem(
+                        value: method,
+                        child: Text(_paymentLabel(method)),
+                      ),
+                    )
+                    .toList(),
+            validator:
+                (value) =>
+                    value == null ? 'Seleziona il metodo di pagamento' : null,
+            onChanged: (value) => setState(() => _payment = value),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<SalePaymentStatus>(
+            value: _paymentStatus,
+            decoration: const InputDecoration(labelText: 'Stato pagamento'),
+            items:
+                SalePaymentStatus.values
+                    .map(
+                      (status) => DropdownMenuItem(
+                        value: status,
+                        child: Text(status.label),
+                      ),
+                    )
+                    .toList(),
+            validator:
+                (value) =>
+                    value == null ? 'Seleziona lo stato del pagamento' : null,
+            onChanged: (value) {
+              setState(() {
+                _paymentStatus = value;
+              });
+              if (value != SalePaymentStatus.deposit) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!mounted) {
+                    return;
+                  }
+                  _setPaidAmountText('');
+                });
+              }
+            },
+          ),
+          if (_paymentStatus == SalePaymentStatus.deposit) ...[
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _paidAmountController,
+              decoration: const InputDecoration(
+                labelText: 'Importo incassato (€)',
+              ),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              validator: (value) {
+                if (_paymentStatus != SalePaymentStatus.deposit) {
+                  return null;
+                }
+                final amount = _parseAmount(value);
+                if (amount == null || amount <= 0) {
+                  return 'Inserisci un importo valido';
+                }
+                if (amount > total + 0.01) {
+                  return 'L\'acconto supera il totale';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Residuo da incassare: ${currency.format(_remainingBalance(total))}',
+              style: theme.textTheme.bodyMedium,
+            ),
+          ],
         ],
         const SizedBox(height: 24),
       ],
@@ -1264,7 +1287,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                     ),
                     validator: (value) {
                       final price = _parseAmount(value);
-                      if (price == null || price <= 0) {
+                      if (price == null || price < 0) {
                         return 'Prezzo non valido';
                       }
                       return null;
@@ -2355,16 +2378,12 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       return false;
     }
     final subtotal = _computeSubtotal();
-    if (subtotal <= 0) {
-      _showSnackBar('Inserisci importi validi per la vendita.');
-      return false;
-    }
     final manualDiscount = _currentManualDiscount(subtotal);
     final baseTotal = _currentTotal(subtotal, manualDiscount);
     final loyaltyValue = _normalizeCurrency(_loyaltySummary.redeemedValue);
     final total = _normalizeCurrency(baseTotal - loyaltyValue);
-    if (total <= 0) {
-      _showSnackBar('Il totale della vendita deve essere positivo.');
+    if (total < -0.009) {
+      _showSnackBar('Il totale della vendita non può essere negativo.');
       return false;
     }
     return true;
@@ -2379,7 +2398,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       final unitPriceValue = _parseAmount(line.priceController.text) ?? 0;
       final quantity = double.parse(quantityValue.toStringAsFixed(2));
       final unitPrice = double.parse(unitPriceValue.toStringAsFixed(2));
-      if (description.isEmpty || quantity <= 0 || unitPrice <= 0) {
+      if (description.isEmpty || quantity <= 0 || unitPrice < 0) {
         _showSnackBar('Controlla le voci inserite: valori non validi.');
         return null;
       }
@@ -2470,8 +2489,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     });
   }
 
-  void _submit() {
-    if (!_isPaymentStep) {
+  void _submit({bool skipReview = false}) {
+    if (!_isPaymentStep && !skipReview) {
       _continueToPaymentStep();
       return;
     }
@@ -2496,36 +2515,46 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     final invoice = _invoiceController.text.trim();
     final notes = _notesController.text.trim();
 
-    final paymentMethod = _payment;
-    if (paymentMethod == null) {
-      _showSnackBar('Seleziona il metodo di pagamento.');
-      return;
-    }
-    final selectedStatus = _paymentStatus;
-    if (selectedStatus == null) {
-      _showSnackBar('Seleziona lo stato del pagamento.');
-      return;
-    }
+    final requiresPayment = total > 0.009;
 
-    var paymentStatus = selectedStatus;
+    final PaymentMethod paymentMethod;
+    SalePaymentStatus paymentStatus;
     double paidAmount;
-    if (paymentStatus == SalePaymentStatus.deposit) {
-      final amount = _parseAmount(_paidAmountController.text) ?? 0;
-      if (amount <= 0) {
-        _showSnackBar('Inserisci un importo valido per l\'acconto.');
+    if (requiresPayment) {
+      final selectedMethod = _payment;
+      if (selectedMethod == null) {
+        _showSnackBar('Seleziona il metodo di pagamento.');
         return;
       }
-      if (amount > total + 0.01) {
-        _showSnackBar('L\'acconto supera il totale della vendita.');
+      final selectedStatus = _paymentStatus;
+      if (selectedStatus == null) {
+        _showSnackBar('Seleziona lo stato del pagamento.');
         return;
       }
-      if ((total - amount).abs() < 0.01) {
-        paymentStatus = SalePaymentStatus.paid;
-        paidAmount = total;
+      paymentMethod = selectedMethod;
+      paymentStatus = selectedStatus;
+      if (paymentStatus == SalePaymentStatus.deposit) {
+        final amount = _parseAmount(_paidAmountController.text) ?? 0;
+        if (amount <= 0) {
+          _showSnackBar('Inserisci un importo valido per l\'acconto.');
+          return;
+        }
+        if (amount > total + 0.01) {
+          _showSnackBar('L\'acconto supera il totale della vendita.');
+          return;
+        }
+        if ((total - amount).abs() < 0.01) {
+          paymentStatus = SalePaymentStatus.paid;
+          paidAmount = total;
+        } else {
+          paidAmount = double.parse(amount.toStringAsFixed(2));
+        }
       } else {
-        paidAmount = double.parse(amount.toStringAsFixed(2));
+        paidAmount = total;
       }
     } else {
+      paymentMethod = _payment ?? PaymentMethod.pos;
+      paymentStatus = SalePaymentStatus.paid;
       paidAmount = total;
     }
 

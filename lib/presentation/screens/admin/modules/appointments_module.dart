@@ -105,12 +105,6 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
           icon: const Icon(Icons.table_chart_rounded),
         ),
       ];
-  static const List<ButtonSegment<int>> _slotDurationSegments =
-      <ButtonSegment<int>>[
-        const ButtonSegment<int>(value: 15, label: const Text('15 min')),
-        const ButtonSegment<int>(value: 30, label: const Text('30 min')),
-        const ButtonSegment<int>(value: 60, label: const Text('60 min')),
-      ];
   static const String _agendaModeKey = 'admin_appointments_agenda_mode';
   static const String _agendaScopeKey = 'admin_appointments_agenda_scope';
   static const String _agendaSlotMinutesKey =
@@ -125,7 +119,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   late DateTime _anchorDate;
   Set<String> _selectedStaffIds = <String>{};
   bool _isRescheduling = false;
-  int _calendarSlotMinutes = 15;
+  int _calendarSlotMinutes = 30;
   bool _checklistEditingEnabled = true;
   _WeekLayoutMode _weekLayoutMode = _WeekLayoutMode.detailed;
   final Set<int> _visibleWeekdays = {
@@ -161,6 +155,22 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       case _WeekLayoutMode.detailed:
       default:
         return AppointmentWeekLayoutMode.detailed;
+    }
+  }
+
+  int _resolveSlotMinutes({
+    required AppointmentCalendarScope scope,
+    required _WeekLayoutMode weekLayout,
+  }) {
+    if (scope == AppointmentCalendarScope.day) {
+      return 30;
+    }
+    switch (weekLayout) {
+      case _WeekLayoutMode.compact:
+        return 60;
+      case _WeekLayoutMode.detailed:
+      case _WeekLayoutMode.operators:
+        return 30;
     }
   }
 
@@ -308,7 +318,6 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       final prefs = await _ensureAgendaPreferences();
       final restoredMode = _decodeDisplayMode(prefs.getString(_agendaModeKey));
       final restoredScope = _decodeScope(prefs.getString(_agendaScopeKey));
-      final storedMinutes = prefs.getInt(_agendaSlotMinutesKey);
       final restoredLayout = _decodeWeekLayout(
         prefs.getString(_agendaWeekLayoutKey),
       );
@@ -335,18 +344,15 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         nextScope = restoredScope;
       }
 
-      var nextSlotMinutes = _calendarSlotMinutes;
-      if (storedMinutes != null &&
-          _slotDurationSegments.any(
-            (segment) => segment.value == storedMinutes,
-          )) {
-        nextSlotMinutes = storedMinutes;
-      }
-
       var nextWeekLayout = _weekLayoutMode;
       if (restoredLayout != null) {
         nextWeekLayout = restoredLayout;
       }
+
+      final nextSlotMinutes = _resolveSlotMinutes(
+        scope: nextScope,
+        weekLayout: nextWeekLayout,
+      );
 
       final shouldApplyStaff = restoredStaff != null;
       final shouldApplyWeekdays =
@@ -737,20 +743,6 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                             refresh();
                           },
                         ),
-                        if (_mode == _AppointmentDisplayMode.calendar) ...[
-                          const SizedBox(height: 12),
-                          SegmentedButton<int>(
-                            style: segmentedStyle,
-                            segments: _slotDurationSegments,
-                            selected: {_calendarSlotMinutes},
-                            onSelectionChanged: (selection) {
-                              final minutes = selection.first;
-                              setState(() => _calendarSlotMinutes = minutes);
-                              unawaited(_persistAgendaPreferences());
-                              refresh();
-                            },
-                          ),
-                        ],
                         if (_mode == _AppointmentDisplayMode.calendar &&
                             _scope == AppointmentCalendarScope.week) ...[
                           const SizedBox(height: 12),
@@ -760,8 +752,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                             selected: {_weekLayoutMode},
                             onSelectionChanged: (selection) {
                               final newLayout = selection.first;
-                              setState(() => _weekLayoutMode = newLayout);
-                              unawaited(_persistAgendaPreferences());
+                              _updateWeekLayout(newLayout);
                               refresh();
                             },
                           ),
@@ -1648,11 +1639,29 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     }
     setState(() {
       _scope = scope;
+      _calendarSlotMinutes = _resolveSlotMinutes(
+        scope: _scope,
+        weekLayout: _weekLayoutMode,
+      );
       if (_scope == AppointmentCalendarScope.week) {
         _anchorDate = _startOfWeek(_anchorDate);
       } else {
         _anchorDate = _findNextVisibleDay(_anchorDate, 1);
       }
+    });
+    unawaited(_persistAgendaPreferences());
+  }
+
+  void _updateWeekLayout(_WeekLayoutMode layout) {
+    if (layout == _weekLayoutMode) {
+      return;
+    }
+    setState(() {
+      _weekLayoutMode = layout;
+      _calendarSlotMinutes = _resolveSlotMinutes(
+        scope: _scope,
+        weekLayout: _weekLayoutMode,
+      );
     });
     unawaited(_persistAgendaPreferences());
   }
