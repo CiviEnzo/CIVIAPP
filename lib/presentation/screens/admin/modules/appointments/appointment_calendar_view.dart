@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:you_book/app/providers.dart';
@@ -5533,8 +5534,7 @@ class _AppointmentCard extends StatelessWidget {
     final bool hideNoShowColor = hidePastCompletedContent && isNoShow;
 
     final startTimeLabel = DateFormat('HH:mm').format(appointment.start);
-    final endTimeLabel = DateFormat('HH:mm').format(appointment.end);
-    final timeLabel = '$startTimeLabel - $endTimeLabel';
+    final timeLabel = startTimeLabel;
     final hasAnomalies = anomalies.isNotEmpty;
     final isLocked = lockReason != null;
     final servicesToDisplay =
@@ -5557,25 +5557,20 @@ class _AppointmentCard extends StatelessWidget {
         (isCancelled || hideNoShowColor)
             ? Colors.transparent
             : categoryColor ?? theme.colorScheme.primary;
-    Color gradientStart = baseColor;
-    Color gradientEnd =
-        (isCancelled || hideNoShowColor)
-            ? baseColor
-            : Colors.white.withValues(
-              alpha: theme.brightness == Brightness.dark ? 0.2 : 0.95,
-            );
+    Color backgroundColor = baseColor;
+    Color borderBlendColor = baseColor;
     final highlightAnomalies = hasAnomalies && !hideNoShowColor;
     if (highlightAnomalies) {
       final double startAlpha =
           theme.brightness == Brightness.dark ? 0.45 : 0.25;
       final double endAlpha = theme.brightness == Brightness.dark ? 0.3 : 0.12;
-      gradientStart = Color.alphaBlend(
+      backgroundColor = Color.alphaBlend(
         theme.colorScheme.error.withValues(alpha: startAlpha),
-        gradientStart,
+        backgroundColor,
       );
-      gradientEnd = Color.alphaBlend(
+      borderBlendColor = Color.alphaBlend(
         theme.colorScheme.error.withValues(alpha: endAlpha),
-        gradientEnd,
+        borderBlendColor,
       );
     }
 
@@ -5588,7 +5583,9 @@ class _AppointmentCard extends StatelessWidget {
             ? theme.colorScheme.outlineVariant.withValues(
               alpha: theme.brightness == Brightness.dark ? 0.35 : 0.25,
             )
-            : Color.alphaBlend(baseColor.withValues(alpha: 0.35), gradientEnd);
+            : theme.colorScheme.surfaceVariant.withValues(
+              alpha: theme.brightness == Brightness.dark ? 0.85 : 0.65,
+            );
     final List<String> issueDescriptions =
         hasAnomalies
             ? (anomalies.toList()..sort((a, b) => a.index.compareTo(b.index)))
@@ -5624,8 +5621,8 @@ class _AppointmentCard extends StatelessWidget {
             ? 2.0
             : isLocked
             ? 1.5
-            : 1.0;
-    final showBorder = !hasEnded || isNoShow;
+            : 1.2;
+    final showBorder = true;
     final attentionTooltipLines = <String>[
       if (isCancelled) 'Appuntamento annullato',
       ...issueDescriptions,
@@ -5649,11 +5646,7 @@ class _AppointmentCard extends StatelessWidget {
     final card = Container(
       height: height,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [gradientStart, gradientEnd],
-        ),
+        color: backgroundColor,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           if (highlight)
@@ -5729,13 +5722,15 @@ class _AppointmentCard extends StatelessWidget {
           }
 
           if (availableHeight < 36) {
-            final compactLabel =
-                '$timeLabel · ${client?.fullName ?? 'Cliente'}';
+            final compactLabel = timeLabel;
             return Align(
               alignment: Alignment.centerLeft,
               child: Text(
                 compactLabel,
-                style: theme.textTheme.labelSmall,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -5743,73 +5738,34 @@ class _AppointmentCard extends StatelessWidget {
           }
 
           if (availableHeight < 72) {
-            final serviceLabelShouldShow =
-                serviceLabel != null && availableHeight >= 64;
-            return Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  timeLabel,
-                  style: theme.textTheme.bodySmall,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+            return Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                timeLabel,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
                 ),
-                SizedBox(height: availableHeight < 52 ? 2 : 4),
-                Text(
-                  client?.fullName ?? 'Cliente',
-                  style: theme.textTheme.labelSmall,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (serviceLabelShouldShow) ...[
-                  SizedBox(height: availableHeight < 68 ? 2 : 4),
-                  Text(
-                    serviceLabel,
-                    style: theme.textTheme.bodySmall,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ],
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             );
           }
 
-          final showService =
-              serviceLabel != null &&
-              serviceLabel.isNotEmpty &&
-              availableHeight >= 96;
           final showRoom = roomName != null && availableHeight >= 120;
           final hasBottomSection = showRoom;
 
           final children = <Widget>[
             Text(
               timeLabel,
-              style: theme.textTheme.labelLarge,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              client?.fullName ?? 'Cliente',
-              style: theme.textTheme.titleSmall,
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
           ];
-
-          if (showService) {
-            children
-              ..add(const SizedBox(height: 4))
-              ..add(
-                Text(
-                  serviceLabel,
-                  style: theme.textTheme.bodySmall,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              );
-          }
 
           if (hasBottomSection) {
             if (availableHeight >= 88) {
@@ -5992,10 +5948,7 @@ class _AppointmentCard extends StatelessWidget {
             ? card
             : Stack(children: [card, ...overlayWidgets]);
 
-    final hoverLines = <String>[
-      'Inizio: $startTimeLabel',
-      'Fine: $endTimeLabel',
-    ];
+    final hoverLines = <String>['Inizio: $startTimeLabel'];
     final clientName = client?.fullName;
     final normalizedClientName = clientName?.trim();
     final normalizedServiceName = serviceLabel?.trim();
@@ -6024,7 +5977,7 @@ class _AppointmentCard extends StatelessWidget {
     );
 
     if (hoverTooltip != null) {
-      interactiveCard = Tooltip(
+      interactiveCard = _SideTooltip(
         message: hoverTooltip,
         waitDuration: const Duration(milliseconds: 250),
         child: interactiveCard,
@@ -6047,6 +6000,240 @@ class _DragFeedback extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 240),
         child: child,
+      ),
+    );
+  }
+}
+
+enum _SideTooltipDirection { auto, left, right }
+
+class _SideTooltip extends StatefulWidget {
+  const _SideTooltip({
+    required this.message,
+    required this.child,
+    this.direction = _SideTooltipDirection.auto,
+    this.waitDuration = const Duration(milliseconds: 250),
+    this.verticalOffset = 0.0,
+    this.gap = 12.0,
+  });
+
+  final String message;
+  final Widget child;
+  final _SideTooltipDirection direction;
+  final Duration waitDuration;
+  final double verticalOffset;
+  final double gap;
+
+  @override
+  State<_SideTooltip> createState() => _SideTooltipState();
+}
+
+class _SideTooltipState extends State<_SideTooltip> {
+  final LayerLink _layerLink = LayerLink();
+  OverlayEntry? _overlayEntry;
+  Timer? _showTimer;
+  _SideTooltipDirection _resolvedDirection = _SideTooltipDirection.right;
+
+  @override
+  void dispose() {
+    _cancelShowTimer();
+    _removeOverlay();
+    super.dispose();
+  }
+
+  void _handlePointerEnter(PointerEnterEvent event) {
+    if (widget.message.trim().isEmpty) {
+      return;
+    }
+    _scheduleShow();
+  }
+
+  void _handlePointerExit(PointerExitEvent event) {
+    _cancelShowTimer();
+    _removeOverlay();
+  }
+
+  void _scheduleShow() {
+    _cancelShowTimer();
+    if (widget.waitDuration <= Duration.zero) {
+      _showTooltip();
+    } else {
+      _showTimer = Timer(widget.waitDuration, _showTooltip);
+    }
+  }
+
+  void _cancelShowTimer() {
+    _showTimer?.cancel();
+    _showTimer = null;
+  }
+
+  void _showTooltip() {
+    if (!mounted || widget.message.trim().isEmpty) {
+      return;
+    }
+    if (_overlayEntry != null) {
+      return;
+    }
+    final overlay = Overlay.of(context);
+    if (overlay == null) {
+      return;
+    }
+
+    _resolvedDirection = _resolveDirection(overlay);
+    _overlayEntry = OverlayEntry(
+      builder:
+          (context) => _SideTooltipOverlay(
+            link: _layerLink,
+            message: widget.message,
+            direction: _resolvedDirection,
+            verticalOffset: widget.verticalOffset,
+            gap: widget.gap,
+          ),
+    );
+    overlay.insert(_overlayEntry!);
+  }
+
+  _SideTooltipDirection _resolveDirection(OverlayState overlay) {
+    if (widget.direction != _SideTooltipDirection.auto) {
+      return widget.direction;
+    }
+
+    final targetRenderObject = context.findRenderObject() as RenderBox?;
+    final overlayRenderObject =
+        overlay.context.findRenderObject() as RenderBox?;
+    if (targetRenderObject == null || overlayRenderObject == null) {
+      return _SideTooltipDirection.right;
+    }
+
+    final targetOffset = targetRenderObject.localToGlobal(
+      Offset.zero,
+      ancestor: overlayRenderObject,
+    );
+    final targetWidth = targetRenderObject.size.width;
+    final spaceLeft = targetOffset.dx;
+    final spaceRight =
+        overlayRenderObject.size.width - (targetOffset.dx + targetWidth);
+
+    return spaceRight >= spaceLeft
+        ? _SideTooltipDirection.right
+        : _SideTooltipDirection.left;
+  }
+
+  void _removeOverlay() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+  }
+
+  void _handlePointerDown(PointerDownEvent event) {
+    _cancelShowTimer();
+    _removeOverlay();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      tooltip: widget.message,
+      child: CompositedTransformTarget(
+        link: _layerLink,
+        child: Listener(
+          onPointerDown: _handlePointerDown,
+          child: MouseRegion(
+            onEnter: _handlePointerEnter,
+            onExit: _handlePointerExit,
+            child: widget.child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SideTooltipOverlay extends StatelessWidget {
+  const _SideTooltipOverlay({
+    required this.link,
+    required this.message,
+    required this.direction,
+    required this.verticalOffset,
+    required this.gap,
+  });
+
+  final LayerLink link;
+  final String message;
+  final _SideTooltipDirection direction;
+  final double verticalOffset;
+  final double gap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tooltipTheme = TooltipTheme.of(context);
+    final theme = Theme.of(context);
+    final decoration =
+        tooltipTheme.decoration ??
+        BoxDecoration(
+          color: theme.colorScheme.inverseSurface.withValues(alpha: 0.95),
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: [
+            BoxShadow(
+              color: theme.colorScheme.shadow.withValues(alpha: 0.2),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        );
+    final textStyle =
+        tooltipTheme.textStyle ??
+        theme.textTheme.labelSmall?.copyWith(
+          color: theme.colorScheme.onInverseSurface,
+          fontSize: 12,
+          height: 1.1,
+        ) ??
+        TextStyle(
+          color: theme.colorScheme.onInverseSurface,
+          fontSize: 12,
+          height: 1.1,
+        );
+    final padding =
+        tooltipTheme.padding ??
+        const EdgeInsets.symmetric(horizontal: 8, vertical: 4);
+    final margin = tooltipTheme.margin ?? EdgeInsets.zero;
+    final textAlign = tooltipTheme.textAlign ?? TextAlign.start;
+
+    final targetAnchor =
+        direction == _SideTooltipDirection.right
+            ? Alignment.centerRight
+            : Alignment.centerLeft;
+    final followerAnchor =
+        direction == _SideTooltipDirection.right
+            ? Alignment.centerLeft
+            : Alignment.centerRight;
+    final horizontalOffset =
+        direction == _SideTooltipDirection.right ? gap : -gap;
+
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Padding(
+          padding: margin,
+          child: Align(
+            alignment: Alignment.topLeft,
+            widthFactor: 1,
+            heightFactor: 1,
+            child: CompositedTransformFollower(
+              link: link,
+              targetAnchor: targetAnchor,
+              followerAnchor: followerAnchor,
+              offset: Offset(horizontalOffset, verticalOffset),
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 200),
+                  padding: padding,
+                  decoration: decoration,
+                  child: Text(message, style: textStyle, textAlign: textAlign),
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
