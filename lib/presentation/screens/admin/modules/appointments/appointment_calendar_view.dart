@@ -25,6 +25,24 @@ import 'package:intl/intl.dart';
 const double _kStaffColumnWidth = 220.0;
 const double _kStaffHeaderHeight = 48.0;
 
+final DateFormat _calendarWeekdayFormat = DateFormat('EEEE', 'it_IT');
+final DateFormat _calendarDayNumberFormat = DateFormat('dd', 'it_IT');
+final DateFormat _calendarMonthAbbrevFormat = DateFormat('MMM', 'it_IT');
+
+String _formatCalendarDayLabel(DateTime date) {
+  final weekday = _capitalizeItalianWord(_calendarWeekdayFormat.format(date));
+  final dayNumber = _calendarDayNumberFormat.format(date);
+  final month = _capitalizeItalianWord(_calendarMonthAbbrevFormat.format(date));
+  return '$weekday $dayNumber $month';
+}
+
+String _capitalizeItalianWord(String value) {
+  if (value.isEmpty) {
+    return value;
+  }
+  return value[0].toUpperCase() + value.substring(1);
+}
+
 String _firstNameOnly(String fullName) {
   final trimmed = fullName.trim();
   if (trimmed.isEmpty) {
@@ -44,6 +62,19 @@ bool _hasAllowedRole(StaffMember staff, List<String> allowedRoles) {
 enum AppointmentCalendarScope { day, week }
 
 enum AppointmentWeekLayoutMode { detailed, compact, operatorBoard }
+
+String _appointmentStatusLabel(AppointmentStatus status) {
+  switch (status) {
+    case AppointmentStatus.scheduled:
+      return 'Programmato';
+    case AppointmentStatus.completed:
+      return 'Completato';
+    case AppointmentStatus.cancelled:
+      return 'Annullato';
+    case AppointmentStatus.noShow:
+      return 'No show';
+  }
+}
 
 class AppointmentRescheduleRequest {
   AppointmentRescheduleRequest({
@@ -164,7 +195,7 @@ class AppointmentCalendarView extends StatefulWidget {
 }
 
 class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
-  static const _slotExtent = 72.0;
+  static const _slotExtent = 84.0;
   static const _timeScaleExtent = 74.0;
 
   final ScrollController _horizontalHeaderController = ScrollController();
@@ -505,7 +536,7 @@ class _DaySchedule extends StatelessWidget {
       (absence) => absence.staffId,
     );
 
-    final dateLabel = DateFormat('EEEE dd MMMM', 'it_IT').format(dayStart);
+    final dateLabel = _formatCalendarDayLabel(dayStart);
     final normalizedDay = DateTime(dayStart.year, dayStart.month, dayStart.day);
     final dayChecklist = dayChecklists[normalizedDay];
     final hasChecklistItems =
@@ -1257,7 +1288,6 @@ class _WeekSchedule extends StatelessWidget {
     }
 
     final gridHeight = slotCount * detailedSlotExtent;
-    final dayLabelFormat = DateFormat('EEE dd MMM', 'it_IT');
     final timeFormat = DateFormat('HH:mm');
 
     final dayHeaderColor = theme.colorScheme.surfaceContainerHighest.withValues(
@@ -1348,6 +1378,9 @@ class _WeekSchedule extends StatelessWidget {
                                 Builder(
                                   builder: (context) {
                                     final data = dayData[dayIndex];
+                                    final dateLabel = _formatCalendarDayLabel(
+                                      data.date,
+                                    );
                                     final normalizedDate = DateUtils.dateOnly(
                                       data.date,
                                     );
@@ -1587,9 +1620,7 @@ class _WeekSchedule extends StatelessWidget {
                                                       flex: 3,
                                                       fit: FlexFit.loose,
                                                       child: Text(
-                                                        dayLabelFormat.format(
-                                                          data.date,
-                                                        ),
+                                                        dateLabel,
                                                         style:
                                                             theme
                                                                 .textTheme
@@ -1600,11 +1631,7 @@ class _WeekSchedule extends StatelessWidget {
                                                       const SizedBox(width: 8),
                                                       _ChecklistDialogLauncher(
                                                         day: data.date,
-                                                        dateLabel:
-                                                            dayLabelFormat
-                                                                .format(
-                                                                  data.date,
-                                                                ),
+                                                        dateLabel: dateLabel,
                                                         checklist: dayChecklist,
                                                         total: checklistTotal,
                                                         completed:
@@ -2936,7 +2963,6 @@ class _WeekCompactView extends StatelessWidget {
     }
     final theme = Theme.of(context);
     final now = DateTime.now();
-    final dayLabelFormat = DateFormat('EEE dd MMM', 'it_IT');
     final timeFormat = DateFormat('HH:mm');
     final rolesById = {for (final role in roles) role.id: role};
     final slotCount = max(1, ((maxMinute - minMinute) / slotMinutes).ceil());
@@ -2979,7 +3005,6 @@ class _WeekCompactView extends StatelessWidget {
               context,
               theme,
               now,
-              dayLabelFormat,
               dayHeaderColor,
               contentWidth,
               dayWidth,
@@ -3076,7 +3101,6 @@ class _WeekCompactView extends StatelessWidget {
     BuildContext context,
     ThemeData theme,
     DateTime now,
-    DateFormat dayLabelFormat,
     Color dayHeaderColor,
     double contentWidth,
     double dayWidth,
@@ -3109,7 +3133,6 @@ class _WeekCompactView extends StatelessWidget {
                       context,
                       theme,
                       now,
-                      dayLabelFormat,
                       dayData[dayIndex],
                       dayHeaderColor,
                     ),
@@ -3129,12 +3152,12 @@ class _WeekCompactView extends StatelessWidget {
     BuildContext context,
     ThemeData theme,
     DateTime now,
-    DateFormat dayLabelFormat,
     _WeekDayData data,
     Color background,
   ) {
     final normalizedDate = DateUtils.dateOnly(data.date);
     final isToday = DateUtils.isSameDay(normalizedDate, now);
+    final dateLabel = _formatCalendarDayLabel(data.date);
     final dayChecklist = dayChecklists[data.date];
     final checklistTotal = dayChecklist?.items.length ?? 0;
     final checklistCompleted =
@@ -3210,16 +3233,13 @@ class _WeekCompactView extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
-                child: Text(
-                  dayLabelFormat.format(data.date),
-                  style: theme.textTheme.titleMedium,
-                ),
+                child: Text(dateLabel, style: theme.textTheme.titleMedium),
               ),
               if (showChecklistLauncher) ...[
                 const SizedBox(width: 8),
                 _ChecklistDialogLauncher(
                   day: data.date,
-                  dateLabel: dayLabelFormat.format(data.date),
+                  dateLabel: dateLabel,
                   checklist: dayChecklist,
                   total: checklistTotal,
                   completed: checklistCompleted,
@@ -3605,8 +3625,6 @@ class _WeekOperatorBoardView extends StatelessWidget {
   static const double _kOperatorColumnMinWidth = 240;
   static const double _kDayColumnMinWidth = 200;
   static const double _kDayGap = 12;
-  static final DateFormat _dayHeaderFormat = DateFormat('EEE dd MMM', 'it_IT');
-  static final DateFormat _dayLabelFormat = DateFormat('EEEE dd MMMM', 'it_IT');
   static final DateFormat _timeLabelFormat = DateFormat('HH:mm', 'it_IT');
 
   @override
@@ -3724,22 +3742,6 @@ class _WeekOperatorBoardView extends StatelessWidget {
             ),
           ),
         ),
-        for (var index = 0; index < dayData.length; index++) ...[
-          SizedBox(
-            width: dayWidth,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Text(
-                _dayHeaderFormat.format(dayData[index].date),
-                style: theme.textTheme.labelLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.3,
-                ),
-              ),
-            ),
-          ),
-          if (index != dayData.length - 1) const SizedBox(width: _kDayGap),
-        ],
       ],
     );
   }
@@ -3944,8 +3946,6 @@ class _OperatorDayCell extends StatelessWidget {
   final int minMinute;
   final Set<String> placeholderIds;
 
-  static final DateFormat _dayLabelFormat =
-      _WeekOperatorBoardView._dayLabelFormat;
   static final DateFormat _timeLabelFormat =
       _WeekOperatorBoardView._timeLabelFormat;
 
@@ -4073,7 +4073,7 @@ class _OperatorDayCell extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _dayLabelFormat.format(day.date),
+                      _formatCalendarDayLabel(day.date),
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
@@ -5570,6 +5570,8 @@ class _AppointmentCard extends StatelessWidget {
   final int? visibleDurationMinutes;
   final bool hasOutstandingPayments;
 
+  static final DateFormat _timeFormat = DateFormat('HH:mm', 'it_IT');
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -5581,7 +5583,7 @@ class _AppointmentCard extends StatelessWidget {
     final bool hidePastCompletedContent = hasEnded && (isCompleted || isNoShow);
     final bool hideNoShowColor = hidePastCompletedContent && isNoShow;
 
-    final startTimeLabel = DateFormat('HH:mm').format(appointment.start);
+    final startTimeLabel = _timeFormat.format(appointment.start);
     final timeLabel = startTimeLabel;
     final hasAnomalies = anomalies.isNotEmpty;
     final isLocked = lockReason != null;
@@ -5699,15 +5701,15 @@ class _AppointmentCard extends StatelessWidget {
             ? attentionTooltipLines.join('\n')
             : null;
     final double verticalPadding;
-    if (height < 56) {
-      verticalPadding = 4;
-    } else if (height < 88) {
-      verticalPadding = 8;
+    if (height < 72) {
+      verticalPadding = 6;
+    } else if (height < 120) {
+      verticalPadding = 10;
     } else {
-      verticalPadding = 12;
+      verticalPadding = 14;
     }
     final padding = EdgeInsets.symmetric(
-      horizontal: 12,
+      horizontal: 14,
       vertical: verticalPadding,
     );
     final bool hasTranslucentFill = backgroundColor.opacity > 0.0;
@@ -5819,17 +5821,22 @@ class _AppointmentCard extends StatelessWidget {
           final hasBottomSection = showRoom;
 
           final timeStyle =
+              theme.textTheme.bodyMedium?.copyWith(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ) ??
+              const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              );
+          final detailStyle =
               theme.textTheme.bodySmall?.copyWith(
                 color: Colors.white,
                 fontSize: 11,
               ) ??
               const TextStyle(color: Colors.white, fontSize: 11);
-          final detailStyle =
-              theme.textTheme.bodySmall?.copyWith(
-                color: Colors.white,
-                fontSize: 10,
-              ) ??
-              const TextStyle(color: Colors.white, fontSize: 10);
           final List<Widget> children = [];
 
           void addDetail(String? value, TextStyle style, {double gap = 2}) {
@@ -6043,28 +6050,49 @@ class _AppointmentCard extends StatelessWidget {
             ? card
             : Stack(children: [card, ...overlayWidgets]);
 
-    final hoverLines = <String>['Inizio: $startTimeLabel'];
+    final durationMinutes = max(1, appointment.duration.inMinutes);
+    final hoverLines = <String>['Durata: $durationMinutes minuti'];
+
     final clientName = client?.fullName;
     final normalizedClientName = clientName?.trim();
-    final normalizedServiceName = serviceLabel?.trim();
-    final notes = appointment.notes?.trim();
-    if (showClientInfo &&
-        normalizedClientName != null &&
-        normalizedClientName.isNotEmpty) {
+    if (normalizedClientName != null && normalizedClientName.isNotEmpty) {
       hoverLines.add('Cliente: $normalizedClientName');
     }
-    if (showServiceInfo &&
-        normalizedServiceName != null &&
-        normalizedServiceName.isNotEmpty) {
+    final normalizedServiceName = serviceLabel?.trim();
+    if (normalizedServiceName != null && normalizedServiceName.isNotEmpty) {
       hoverLines.add('Servizio: $normalizedServiceName');
     }
+
     if (appointment.packageId != null) {
       hoverLines.add('Scalato da sessione');
     }
+    if (hasOutstandingPayments) {
+      hoverLines.add('Pagamenti: da saldare');
+    }
+    if (lastMinuteSlot != null) {
+      hoverLines.add(
+        lastMinuteSlot!.isAvailable
+            ? 'Slot last-minute disponibile'
+            : 'Appuntamento last-minute',
+      );
+    }
+    if (lockReason != null && lockReason!.trim().isNotEmpty) {
+      hoverLines.add('Bloccato: ${lockReason!.trim()}');
+    }
+    for (final description in issueDescriptions) {
+      final normalizedDescription = description.trim();
+      if (normalizedDescription.isNotEmpty) {
+        hoverLines.add('Anomalia: $normalizedDescription');
+      }
+    }
+    final notes = appointment.notes?.trim();
     if (notes != null && notes.isNotEmpty) {
       hoverLines.add('Note: $notes');
     }
-    final hoverTooltip = hoverLines.isEmpty ? null : hoverLines.join('\n');
+    final hoverTooltipLines =
+        hoverLines.where((line) => line.trim().isNotEmpty).toList();
+    final hoverTooltip =
+        hoverTooltipLines.isEmpty ? null : hoverTooltipLines.join('\n');
 
     Widget interactiveCard = Material(
       color: Colors.transparent,
@@ -6281,15 +6309,15 @@ class _SideTooltipOverlay extends StatelessWidget {
         );
     final textStyle =
         tooltipTheme.textStyle ??
-        theme.textTheme.labelSmall?.copyWith(
+        theme.textTheme.labelMedium?.copyWith(
           color: theme.colorScheme.onInverseSurface,
-          fontSize: 12,
-          height: 1.1,
+          fontSize: 13,
+          height: 1.2,
         ) ??
         TextStyle(
           color: theme.colorScheme.onInverseSurface,
-          fontSize: 12,
-          height: 1.1,
+          fontSize: 13,
+          height: 1.2,
         );
     final padding =
         tooltipTheme.padding ??

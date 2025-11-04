@@ -25,6 +25,7 @@ class StaffOrderSheet extends ConsumerStatefulWidget {
   }) {
     return showAppModalSheet<void>(
       context: context,
+      includeCloseButton: false,
       builder:
           (ctx) =>
               StaffOrderSheet(salons: salons, selectedSalonId: selectedSalonId),

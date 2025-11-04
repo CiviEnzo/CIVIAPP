@@ -432,6 +432,7 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
   }) {
     return showAppModalSheet<T>(
       context: context,
+      includeCloseButton: false,
       builder: (ctx) {
         final theme = Theme.of(ctx);
         return SafeArea(

@@ -25,6 +25,7 @@ class ServiceCategoryManagerSheet extends ConsumerStatefulWidget {
   }) {
     return showAppModalSheet<void>(
       context: context,
+      includeCloseButton: false,
       builder:
           (ctx) => ServiceCategoryManagerSheet(
             salons: salons,

@@ -612,6 +612,7 @@ class StaffModule extends ConsumerWidget {
     final selectedSalonId = salonId ?? ref.read(currentSalonIdProvider);
     await showAppModalSheet<void>(
       context: context,
+      includeCloseButton: false,
       builder:
           (_) => StaffRoleManagerSheet(
             canManageRoles: canManageRoles,
@@ -703,6 +704,7 @@ class StaffModule extends ConsumerWidget {
     }
     final ids = await showAppModalSheet<List<String>>(
       context: context,
+      includeCloseButton: false,
       builder:
           (_) => ShiftBulkDeleteSheet(
             shifts: shifts,

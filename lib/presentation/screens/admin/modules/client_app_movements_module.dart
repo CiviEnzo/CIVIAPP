@@ -1109,6 +1109,7 @@ class _FiltersBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final rangeLabel =
         '${DateFormat('dd/MM/yy').format(range.start)} → ${DateFormat('dd/MM/yy').format(range.end)}';
     return Padding(
@@ -1119,6 +1120,10 @@ class _FiltersBar extends StatelessWidget {
           Row(
             children: [
               ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: scheme.primary,
+                  foregroundColor: scheme.onPrimary,
+                ),
                 onPressed: () => _pickRange(context),
                 icon: const Icon(Icons.calendar_month_rounded, size: 18),
                 label: Text(rangeLabel),
@@ -1149,10 +1154,19 @@ class _FiltersBar extends StatelessWidget {
                 final isSelected = selectedTypes.contains(type);
                 final count = counts[type] ?? 0;
                 final label = count > 0 ? '${type.label} ($count)' : type.label;
+                final scheme = Theme.of(context).colorScheme;
                 return Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: FilterChip(
                     selected: isSelected,
+                    backgroundColor: scheme.surfaceContainerHighest,
+                    selectedColor: scheme.primary,
+                    checkmarkColor: scheme.onPrimary,
+                    labelStyle: TextStyle(
+                      color: isSelected
+                          ? scheme.onPrimary
+                          : scheme.onSurface,
+                    ),
                     label: Text(label),
                     onSelected: (value) => onToggleType(type, value),
                   ),

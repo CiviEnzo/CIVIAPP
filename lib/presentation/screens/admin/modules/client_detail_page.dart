@@ -3766,22 +3766,34 @@ class _AppointmentGroup extends StatelessWidget {
     switch (status) {
       case AppointmentStatus.scheduled:
         return Chip(
-          label: const Text('Programmato'),
+          label: Text(
+            'Programmato',
+            style: TextStyle(color: scheme.onPrimaryContainer),
+          ),
           backgroundColor: scheme.primaryContainer,
         );
       case AppointmentStatus.completed:
         return Chip(
-          label: const Text('Completato'),
+          label: Text(
+            'Completato',
+            style: TextStyle(color: scheme.onTertiaryContainer),
+          ),
           backgroundColor: scheme.tertiaryContainer,
         );
       case AppointmentStatus.cancelled:
         return Chip(
-          label: const Text('Annullato'),
+          label: Text(
+            'Annullato',
+            style: TextStyle(color: scheme.onErrorContainer),
+          ),
           backgroundColor: scheme.errorContainer,
         );
       case AppointmentStatus.noShow:
         return Chip(
-          label: const Text('No show'),
+          label: Text(
+            'No show',
+            style: TextStyle(color: scheme.error),
+          ),
           backgroundColor: scheme.error.withValues(alpha: 0.1),
         );
     }
@@ -7780,8 +7792,11 @@ class _ChipOverlay extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Chip(
       backgroundColor: scheme.primaryFixedDim,
-      avatar: Icon(icon, size: 18, color: scheme.onSurfaceVariant),
-      label: Text(label),
+      avatar: Icon(icon, size: 18, color: scheme.onPrimaryFixed),
+      label: Text(
+        label,
+        style: TextStyle(color: scheme.onPrimaryFixed),
+      ),
     );
   }
 }

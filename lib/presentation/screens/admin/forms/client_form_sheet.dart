@@ -36,7 +36,6 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
   late TextEditingController _lastName;
   late TextEditingController _phone;
   late TextEditingController _email;
-  late TextEditingController _notes;
   late TextEditingController _loyaltyInitialPoints;
   late TextEditingController _loyaltyPoints;
   late TextEditingController _clientNumber;
@@ -71,7 +70,6 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     _lastName = TextEditingController(text: initial?.lastName ?? '');
     _phone = TextEditingController(text: initial?.phone ?? '');
     _email = TextEditingController(text: initial?.email ?? '');
-    _notes = TextEditingController(text: initial?.notes ?? '');
     _salonId =
         initial?.salonId ??
         widget.defaultSalonId ??
@@ -127,7 +125,6 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     _lastName.dispose();
     _phone.dispose();
     _email.dispose();
-    _notes.dispose();
     _loyaltyInitialPoints.dispose();
     _loyaltyPoints.dispose();
     _clientNumber.dispose();
@@ -341,14 +338,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
               textInputAction: TextInputAction.next,
               validator: _validateEmail,
             ),
-            TextFormField(
-              controller: _address,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(
-                labelText: 'Indirizzo (opzionale)',
-              ),
-              textInputAction: TextInputAction.next,
-            ),
+
             TextFormField(
               controller: _city,
               textCapitalization: TextCapitalization.words,
@@ -468,34 +458,22 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
           ],
         );
 
-        final noteSection = _FormSection(
-          icon: Icons.sticky_note_2_rounded,
-          title: 'Note',
-          subtitle: 'Annotazioni visibili allo staff',
-          children: [
-            TextFormField(
-              controller: _notes,
-              decoration: const InputDecoration(labelText: 'Note interne'),
-              maxLines: 4,
-            ),
-          ],
+        final saveButton = FilledButton(
+          onPressed: _submit,
+          child: const Text('Salva'),
         );
 
-        final saveButton = Align(
-          alignment: Alignment.centerRight,
-          child: FilledButton(onPressed: _submit, child: const Text('Salva')),
-        );
+        final sections = <Widget>[
+          anagraficaSection,
+          contattiSection,
+          if (_isEditing) preferenzeSection,
+          if (_isEditing) loyaltySection,
+        ];
 
         final narrowChildren = <Widget>[
           header,
           const SizedBox(height: 24),
-          anagraficaSection,
-          contattiSection,
-          preferenzeSection,
-          loyaltySection,
-          noteSection,
-          const SizedBox(height: 12),
-          saveButton,
+          ..._withSectionDividers(sections),
         ];
 
         final wideLayout = Column(
@@ -511,11 +489,11 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
-                    children: [
+                    children: _withSectionDividers([
                       anagraficaSection,
                       contattiSection,
-                      loyaltySection,
-                    ],
+                      if (_isEditing) loyaltySection,
+                    ]),
                   ),
                 ),
                 const SizedBox(width: 24),
@@ -524,12 +502,9 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
-                    children: [
-                      preferenzeSection,
-                      noteSection,
-                      const SizedBox(height: 12),
-                      saveButton,
-                    ],
+                    children: _withSectionDividers([
+                      if (_isEditing) preferenzeSection,
+                    ]),
                   ),
                 ),
               ],
@@ -537,19 +512,54 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
           ],
         );
 
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Form(
-            key: _formKey,
-            child:
-                isWide
-                    ? wideLayout
-                    : Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: narrowChildren,
-                    ),
-          ),
+        return Stack(
+          children: [
+            SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 120),
+              child: Form(
+                key: _formKey,
+                child:
+                    isWide
+                        ? wideLayout
+                        : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: narrowChildren,
+                        ),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: SafeArea(
+                top: false,
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface,
+                    boxShadow: [
+                      BoxShadow(
+                        color: theme.colorScheme.shadow.withValues(alpha: 0.06),
+                        blurRadius: 12,
+                        offset: const Offset(0, -4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Align(
+                        alignment: Alignment.bottomRight,
+                        child: saveButton,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
         );
       },
     );
@@ -575,7 +585,6 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     final trimmedAddress = _address.text.trim();
     final trimmedCity = _city.text.trim();
     final trimmedProfession = _profession.text.trim();
-    final trimmedNotes = _notes.text.trim();
     final referral = _referralSource?.trim();
 
     _updateDateOfBirthFromText();
@@ -605,7 +614,6 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
           city: trimmedCity,
           profession: trimmedProfession,
           referralSource: referral,
-          notes: trimmedNotes,
           dateOfBirth: _dateOfBirth,
         );
         Navigator.of(context).pop(mergedClient);
@@ -678,7 +686,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
       profession: trimmedProfession.isEmpty ? null : trimmedProfession,
       referralSource: referral == null || referral.isEmpty ? null : referral,
       email: trimmedEmail,
-      notes: trimmedNotes.isEmpty ? null : trimmedNotes,
+      notes: existing?.notes,
       loyaltyInitialPoints: initialPoints,
       loyaltyPoints: loyaltyPoints,
       loyaltyUpdatedAt: loyaltyUpdatedAt,
@@ -791,19 +799,10 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     required String city,
     required String profession,
     required String? referralSource,
-    required String notes,
     required DateTime? dateOfBirth,
   }) {
     final sanitizedAddress = address.trim();
     final sanitizedCity = city.trim();
-    final mergedNotes = <String>[];
-    final existingNotes = existing.notes?.trim();
-    if (existingNotes != null && existingNotes.isNotEmpty) {
-      mergedNotes.add(existingNotes);
-    }
-    if (notes.trim().isNotEmpty) {
-      mergedNotes.add(notes.trim());
-    }
 
     return existing.copyWith(
       firstName: firstName.isNotEmpty ? firstName : existing.firstName,
@@ -834,16 +833,25 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
           referralSource != null && referralSource.isNotEmpty
               ? referralSource
               : existing.referralSource,
-      notes:
-          mergedNotes.isEmpty
-              ? existing.notes
-              : mergedNotes.toSet().toList().join('\n'),
       dateOfBirth: dateOfBirth ?? existing.dateOfBirth,
     );
   }
 
   String _normalizePhoneForComparison(String value) {
     return value.replaceAll(RegExp(r'[^0-9]'), '');
+  }
+
+  List<Widget> _withSectionDividers(List<Widget> sections) {
+    final result = <Widget>[];
+    for (var i = 0; i < sections.length; i++) {
+      if (i != 0) {
+        result.add(
+          const Divider(height: 32, thickness: 1, color: Colors.white24),
+        );
+      }
+      result.add(sections[i]);
+    }
+    return result;
   }
 
   void _updatePreference(VoidCallback updater) {
@@ -901,7 +909,7 @@ class _FormSection extends StatelessWidget {
     final theme = Theme.of(context);
     final headerColor = theme.colorScheme.secondaryContainer;
     final borderColor = theme.colorScheme.outlineVariant;
-    final onHeaderColor = theme.colorScheme.onSecondaryContainer;
+    final onHeaderColor = theme.colorScheme.onPrimary;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
