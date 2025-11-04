@@ -186,6 +186,7 @@ class SaleItem {
     double? depositAmount,
     List<PackageDeposit>? deposits,
     Map<String, int>? packageServiceSessions,
+    Map<String, int>? remainingPackageServiceSessions,
   }) : deposits =
            deposits == null
                ? const <PackageDeposit>[]
@@ -194,6 +195,9 @@ class SaleItem {
            depositAmount ?? _sumDeposits(deposits ?? const <PackageDeposit>[]),
        packageServiceSessions = Map.unmodifiable(
          packageServiceSessions ?? const <String, int>{},
+       ),
+       remainingPackageServiceSessions = Map.unmodifiable(
+         remainingPackageServiceSessions ?? const <String, int>{},
        );
 
   final String referenceId;
@@ -209,6 +213,7 @@ class SaleItem {
   final double depositAmount;
   final List<PackageDeposit> deposits;
   final Map<String, int> packageServiceSessions;
+  final Map<String, int> remainingPackageServiceSessions;
 
   double get amount => quantity * unitPrice;
 
@@ -226,10 +231,14 @@ class SaleItem {
     Object? depositAmount = _unset,
     List<PackageDeposit>? deposits,
     Map<String, int>? packageServiceSessions,
+    Map<String, int>? remainingPackageServiceSessions,
   }) {
     final nextDeposits = deposits ?? this.deposits;
     final nextPackageServices =
         packageServiceSessions ?? this.packageServiceSessions;
+    final nextRemainingServices =
+        remainingPackageServiceSessions ??
+        this.remainingPackageServiceSessions;
     return SaleItem(
       referenceId: referenceId ?? this.referenceId,
       referenceType: referenceType ?? this.referenceType,
@@ -260,6 +269,7 @@ class SaleItem {
               : depositAmount as double,
       deposits: nextDeposits,
       packageServiceSessions: nextPackageServices,
+      remainingPackageServiceSessions: nextRemainingServices,
     );
   }
 }

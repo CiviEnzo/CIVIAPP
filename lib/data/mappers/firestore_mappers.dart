@@ -1897,6 +1897,9 @@ Sale saleFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
             packageServiceSessions: _mapToIntMap(
               map['packageServiceSessions'] as Map<String, dynamic>?,
             ),
+            remainingPackageServiceSessions: _mapToIntMap(
+              map['remainingPackageServiceSessions'] as Map<String, dynamic>?,
+            ),
           );
         }).toList(),
     total: total,
@@ -1961,6 +1964,10 @@ Map<String, dynamic> saleToMap(Sale sale) {
           }
           if (item.packageServiceSessions.isNotEmpty) {
             map['packageServiceSessions'] = item.packageServiceSessions;
+          }
+          if (item.remainingPackageServiceSessions.isNotEmpty) {
+            map['remainingPackageServiceSessions'] =
+                item.remainingPackageServiceSessions;
           }
           return map;
         }).toList(),

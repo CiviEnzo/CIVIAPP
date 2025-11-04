@@ -75,6 +75,7 @@ class AppointmentFormSheet extends ConsumerStatefulWidget {
 
 class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
   static const _slotIntervalMinutes = 15;
+  static String? _lastSavedClientId;
   final _formKey = GlobalKey<FormState>();
   final _clientFieldKey = GlobalKey<FormFieldState<String>>();
   final _uuid = const Uuid();
@@ -220,6 +221,24 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         widget.initial?.staffId != null && selectedStaffMember != null;
     final bool showStaffDropdown = !hasLockedStaffSelection;
     final operatorSectionTitle = 'Cliente';
+    final lastClient = clients.firstWhereOrNull(
+      (client) => client.id == _lastSavedClientId,
+    );
+    final canApplyLastClient = lastClient != null && lastClient.id != _clientId;
+    final Widget? lastClientButton =
+        lastClient == null
+            ? null
+            : TextButton.icon(
+              onPressed:
+                  canApplyLastClient
+                      ? () {
+                        FocusScope.of(context).unfocus();
+                        _applyClientSelection(lastClient!);
+                      }
+                      : null,
+              icon: const Icon(Icons.history_rounded),
+              label: const Text('Ultimo cliente'),
+            );
     final filteredServices =
         services.where((service) {
           if (_salonId != null && service.salonId != _salonId) {
@@ -601,6 +620,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                             title: operatorSectionTitle,
                             subtitle:
                                 "Seleziona l'operatore e collega il cliente per l'appuntamento",
+                            trailing: lastClientButton,
                           ),
                           const SizedBox(height: 12),
                           Row(
@@ -632,6 +652,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                             ? const <Client>[]
                                             : _clientSuggestions;
                                     final theme = Theme.of(context);
+                                    final colorScheme = theme.colorScheme;
                                     final clientNumberText =
                                         selectedClient?.clientNumber;
                                     return Column(
@@ -703,16 +724,41 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                                                           vertical:
                                                                               12,
                                                                         ),
-                                                                    child: Text(
-                                                                      selectedClient
-                                                                          .fullName,
-                                                                      style:
-                                                                          theme
-                                                                              .textTheme
-                                                                              .bodyLarge ??
-                                                                          theme
-                                                                              .textTheme
-                                                                              .bodyMedium,
+                                                                    child: Column(
+                                                                      crossAxisAlignment:
+                                                                          CrossAxisAlignment
+                                                                              .start,
+                                                                      mainAxisSize:
+                                                                          MainAxisSize
+                                                                              .min,
+                                                                      children: [
+                                                                        Text(
+                                                                          selectedClient
+                                                                              .fullName,
+                                                                          style:
+                                                                              theme.textTheme.bodyLarge ??
+                                                                              theme.textTheme.bodyMedium,
+                                                                        ),
+                                                                        if (selectedClient
+                                                                            .phone
+                                                                            .trim()
+                                                                            .isNotEmpty)
+                                                                          Padding(
+                                                                            padding: const EdgeInsets.only(
+                                                                              top:
+                                                                                  4,
+                                                                            ),
+                                                                            child: Text(
+                                                                              selectedClient.phone,
+                                                                              style:
+                                                                                  theme.textTheme.bodyMedium?.copyWith(
+                                                                                    color:
+                                                                                        colorScheme.onSurfaceVariant,
+                                                                                  ) ??
+                                                                                  theme.textTheme.bodyMedium,
+                                                                            ),
+                                                                          ),
+                                                                      ],
                                                                     ),
                                                                   ),
                                                                 )
@@ -1239,6 +1285,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     required IconData icon,
     required String title,
     String? subtitle,
+    Widget? trailing,
   }) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -1271,6 +1318,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
               ],
             ),
           ),
+          if (trailing != null) ...[const SizedBox(width: 12), trailing],
         ],
       ),
     );
@@ -2458,6 +2506,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     if (appointment == null) {
       return;
     }
+
+    _lastSavedClientId = appointment.clientId;
 
     Navigator.of(context).pop(
       AppointmentFormResult(

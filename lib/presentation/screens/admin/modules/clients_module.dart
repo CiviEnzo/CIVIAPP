@@ -947,18 +947,18 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
         icon = Icons.hourglass_empty_rounded;
         break;
       case ClientOnboardingStatus.invitationSent:
-        background = scheme.primaryContainer;
-        foreground = scheme.onPrimaryContainer;
+        background = scheme.primary;
+        foreground = scheme.onPrimary;
         icon = Icons.outgoing_mail;
         break;
       case ClientOnboardingStatus.firstLogin:
-        background = scheme.tertiaryContainer;
-        foreground = scheme.onTertiaryContainer;
+        background = scheme.tertiary;
+        foreground = scheme.onTertiary;
         icon = Icons.login_rounded;
         break;
       case ClientOnboardingStatus.onboardingCompleted:
-        background = scheme.secondaryContainer;
-        foreground = scheme.onSecondaryContainer;
+        background = scheme.secondary;
+        foreground = scheme.onSecondary;
         icon = Icons.verified_rounded;
         break;
     }

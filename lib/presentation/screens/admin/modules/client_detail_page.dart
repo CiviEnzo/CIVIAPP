@@ -4098,6 +4098,7 @@ class _PackagesTabState extends ConsumerState<_PackagesTab> {
             initialItem: purchase.item,
             purchaseDate: purchase.sale.createdAt,
             package: purchase.package,
+            usedSessionsByService: purchase.usedSessionsByService,
           ),
     );
     if (updatedItem == null) {
@@ -7727,6 +7728,7 @@ class _PackageTile extends StatelessWidget {
   List<_ServiceUsageSummary> _resolveServiceUsage() {
     final serviceIds = <String>{
       ...purchase.item.packageServiceSessions.keys,
+      ...purchase.item.remainingPackageServiceSessions.keys,
       ...purchase.package?.serviceSessionCounts?.keys ?? const <String>{},
       ...purchase.package?.serviceIds ?? const <String>[],
       ...purchase.usedSessionsByService.keys,

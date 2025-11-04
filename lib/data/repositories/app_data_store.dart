@@ -4250,26 +4250,53 @@ class AppDataStore extends StateNotifier<AppDataState> {
         if (candidate == null) {
           break;
         }
-        final available = candidate.remainingSessions;
+        final hasServiceBreakdown =
+            candidate.item.remainingPackageServiceSessions.isNotEmpty;
+        final remainingByService = hasServiceBreakdown
+            ? Map<String, int>.from(
+                candidate.item.remainingPackageServiceSessions,
+              )
+            : const <String, int>{};
+        final available = hasServiceBreakdown
+            ? remainingByService[plan.serviceId] ?? 0
+            : candidate.remainingSessionsForService;
         if (available <= 0) {
           break;
         }
         final sessionsToConsume = remaining < available ? remaining : available;
-        final updatedRemaining = available - sessionsToConsume;
-        final clampedRemaining = updatedRemaining < 0 ? 0 : updatedRemaining;
+        int nextOverallRemaining;
+        Map<String, int>? nextRemainingByService;
+        if (hasServiceBreakdown) {
+          final nextServiceRemaining = available - sessionsToConsume;
+          remainingByService[plan.serviceId] =
+              nextServiceRemaining < 0 ? 0 : nextServiceRemaining;
+          nextOverallRemaining = remainingByService.values.fold<int>(
+            0,
+            (sum, value) => sum + value,
+          );
+          nextRemainingByService = remainingByService;
+        } else {
+          final updatedRemaining =
+              candidate.remainingSessions - sessionsToConsume;
+          nextOverallRemaining =
+              updatedRemaining < 0 ? 0 : updatedRemaining;
+        }
         final currentStatus = candidate.item.packageStatus;
         PackagePurchaseStatus? nextStatus;
         if (currentStatus == PackagePurchaseStatus.cancelled) {
           nextStatus = PackagePurchaseStatus.cancelled;
-        } else if (clampedRemaining <= 0) {
+        } else if (nextOverallRemaining <= 0) {
           nextStatus = PackagePurchaseStatus.completed;
         } else if (currentStatus == null) {
           nextStatus = PackagePurchaseStatus.active;
         }
 
         final updatedItem = candidate.item.copyWith(
-          remainingSessions: clampedRemaining,
+          remainingSessions: nextOverallRemaining,
           packageStatus: nextStatus ?? currentStatus,
+          remainingPackageServiceSessions:
+              nextRemainingByService ??
+              candidate.item.remainingPackageServiceSessions,
         );
 
         final baseSale = updatedSales[candidate.sale.id] ?? candidate.sale;
@@ -4324,8 +4351,17 @@ class AppDataStore extends StateNotifier<AppDataState> {
           continue;
         }
 
-        final remainingSessions = item.remainingSessions ?? totalSessions;
-        if (remainingSessions <= 0) {
+        final baseRemaining = item.remainingSessions ?? totalSessions;
+        if (baseRemaining <= 0) {
+          continue;
+        }
+
+        final remainingByService = item.remainingPackageServiceSessions;
+        final remainingForService =
+            remainingByService.isNotEmpty
+                ? remainingByService[serviceId] ?? 0
+                : baseRemaining;
+        if (remainingForService <= 0) {
           continue;
         }
 
@@ -4341,7 +4377,8 @@ class AppDataStore extends StateNotifier<AppDataState> {
             item: item,
             itemIndex: index,
             totalSessions: totalSessions,
-            remainingSessions: remainingSessions,
+            remainingSessions: baseRemaining,
+            remainingSessionsForService: remainingForService,
             expirationDate: expirationDate,
             servicePackage: matchedPackage,
           ),
@@ -6600,6 +6637,7 @@ class _PackageConsumptionCandidate {
     required this.itemIndex,
     required this.totalSessions,
     required this.remainingSessions,
+    required this.remainingSessionsForService,
     required this.expirationDate,
     required this.servicePackage,
   });
@@ -6609,6 +6647,7 @@ class _PackageConsumptionCandidate {
   final int itemIndex;
   final int totalSessions;
   final int remainingSessions;
+  final int remainingSessionsForService;
   final DateTime? expirationDate;
   final ServicePackage? servicePackage;
 }

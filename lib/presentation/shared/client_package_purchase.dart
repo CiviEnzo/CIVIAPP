@@ -57,6 +57,12 @@ class ClientPackagePurchase {
   }
 
   int? get remainingSessions {
+    if (item.remainingPackageServiceSessions.isNotEmpty) {
+      return item.remainingPackageServiceSessions.values.fold<int>(
+        0,
+        (sum, value) => sum + value,
+      );
+    }
     if (item.remainingSessions != null) {
       return item.remainingSessions;
     }
@@ -69,6 +75,13 @@ class ClientPackagePurchase {
   }
 
   int remainingSessionsForService(String serviceId) {
+    final manualByService = item.remainingPackageServiceSessions;
+    if (manualByService.isNotEmpty) {
+      final manual = manualByService[serviceId];
+      if (manual != null) {
+        return manual;
+      }
+    }
     final total = totalSessionsForService(serviceId);
     if (total == null) {
       return effectiveRemainingSessions;
