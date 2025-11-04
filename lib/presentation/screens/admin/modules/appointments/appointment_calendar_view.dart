@@ -20,6 +20,7 @@ import 'package:collection/collection.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 const double _kStaffColumnWidth = 220.0;
@@ -5531,7 +5532,7 @@ Color _onColorFor(Color background, ThemeData theme) {
   return theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.92);
 }
 
-class _AppointmentCard extends StatelessWidget {
+class _AppointmentCard extends StatefulWidget {
   const _AppointmentCard({
     required this.appointment,
     required this.client,
@@ -5570,11 +5571,44 @@ class _AppointmentCard extends StatelessWidget {
   final int? visibleDurationMinutes;
   final bool hasOutstandingPayments;
 
+  @override
+  State<_AppointmentCard> createState() => _AppointmentCardState();
+}
+
+class _AppointmentCardState extends State<_AppointmentCard> {
   static final DateFormat _timeFormat = DateFormat('HH:mm', 'it_IT');
+
+  bool _isHovering = false;
+
+  void _updateHovering(bool hovering) {
+    if (_isHovering == hovering) {
+      return;
+    }
+    setState(() {
+      _isHovering = hovering;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final appointment = widget.appointment;
+    final client = widget.client;
+    final service = widget.service;
+    final services = widget.services;
+    final height = widget.height;
+    final roomName = widget.roomName;
+    final onTap = widget.onTap;
+    final anomalies = widget.anomalies;
+    final lockReason = widget.lockReason;
+    final highlight = widget.highlight;
+    final lastMinuteSlot = widget.lastMinuteSlot;
+    final categoriesById = widget.categoriesById;
+    final categoriesByName = widget.categoriesByName;
+    final hideContent = widget.hideContent;
+    final visibleDurationMinutes = widget.visibleDurationMinutes;
+    final hasOutstandingPayments = widget.hasOutstandingPayments;
+
     final status = appointment.status;
     final now = DateTime.now();
     final bool hasEnded = !appointment.end.isAfter(now);
@@ -5725,19 +5759,13 @@ class _AppointmentCard extends StatelessWidget {
               ),
             ]
             : null;
+    final borderRadius = BorderRadius.circular(12);
+    final bool showAccentStripe =
+        categoryColor != null && !isCancelled && !hideNoShowColor;
+
     final card = Container(
       height: height,
       decoration: BoxDecoration(
-        color: hasTranslucentFill ? null : backgroundColor,
-        gradient:
-            hasTranslucentFill
-                ? LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: fillGradient!,
-                )
-                : null,
-        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           if (hasTranslucentFill)
             BoxShadow(
@@ -5756,189 +5784,286 @@ class _AppointmentCard extends StatelessWidget {
             showBorder
                 ? Border.all(color: borderColor, width: borderWidth)
                 : null,
+        borderRadius: borderRadius,
       ),
-      padding: padding,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final availableHeight = constraints.maxHeight;
-          if (availableHeight <= 0) {
-            return const SizedBox.shrink();
-          }
-
-          if (hidePastCompletedContent) {
-            if (hideContent) {
-              return Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  "",
-                  style: theme.textTheme.bodySmall,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: hasTranslucentFill ? null : backgroundColor,
+              gradient:
+                  hasTranslucentFill
+                      ? LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: fillGradient!,
+                      )
+                      : null,
+            ),
+          ),
+          if (showAccentStripe)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: ClipPath(
+                  clipper: const _DiagonalAccentClipper(),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topRight,
+                        end: Alignment.bottomLeft,
+                        colors: [
+                          categoryColor!.withValues(
+                            alpha:
+                                theme.brightness == Brightness.dark
+                                    ? 0.28
+                                    : 0.32,
+                          ),
+                          categoryColor!.withValues(alpha: 0.08),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
-              );
-            }
-            final IconData iconData;
-            final Color iconColor;
-            if (isNoShow) {
-              iconData = Icons.close_rounded;
-              iconColor = theme.colorScheme.error;
-            } else {
-              iconData = Icons.check;
-              final Color brightnessSample =
-                  baseColor == Colors.transparent
-                      ? theme.colorScheme.surface
-                      : baseColor;
-              final brightness = ThemeData.estimateBrightnessForColor(
-                brightnessSample.withAlpha(0xFF),
-              );
-              iconColor =
-                  brightness == Brightness.dark ? Colors.white : Colors.white;
-            }
-            final double iconSize =
-                availableHeight < 48
-                    ? 20
-                    : availableHeight < 80
-                    ? 26
-                    : 32;
-            return Center(
-              child: Icon(iconData, color: iconColor, size: iconSize),
-            );
-          }
-
-          if (hideContent) {
-            return Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                "",
-                style: theme.textTheme.bodySmall,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
               ),
-            );
-          }
+            ),
+          Padding(
+            padding: padding,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final availableHeight = constraints.maxHeight;
+                if (availableHeight <= 0) {
+                  return const SizedBox.shrink();
+                }
 
-          final showRoom = roomName != null && availableHeight >= 120;
-          final hasBottomSection = showRoom;
+                if (hidePastCompletedContent) {
+                  if (hideContent) {
+                    return Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        "",
+                        style: theme.textTheme.bodySmall,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    );
+                  }
+                  final IconData iconData;
+                  final Color iconColor;
+                  if (isNoShow) {
+                    iconData = Icons.close_rounded;
+                    iconColor = theme.colorScheme.error;
+                  } else {
+                    iconData = Icons.check;
+                    final Color brightnessSample =
+                        baseColor == Colors.transparent
+                            ? theme.colorScheme.surface
+                            : baseColor;
+                    final brightness = ThemeData.estimateBrightnessForColor(
+                      brightnessSample.withAlpha(0xFF),
+                    );
+                    iconColor =
+                        brightness == Brightness.dark
+                            ? Colors.white
+                            : Colors.white;
+                  }
+                  final double iconSize =
+                      availableHeight < 48
+                          ? 20
+                          : availableHeight < 80
+                          ? 26
+                          : 32;
+                  return Center(
+                    child: Icon(iconData, color: iconColor, size: iconSize),
+                  );
+                }
 
-          final timeStyle =
-              theme.textTheme.bodyMedium?.copyWith(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ) ??
-              const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              );
-          final detailStyle =
-              theme.textTheme.bodySmall?.copyWith(
-                color: Colors.white,
-                fontSize: 11,
-              ) ??
-              const TextStyle(color: Colors.white, fontSize: 11);
-          final List<Widget> children = [];
+                if (hideContent) {
+                  return Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      "",
+                      style: theme.textTheme.bodySmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  );
+                }
 
-          void addDetail(String? value, TextStyle style, {double gap = 2}) {
-            final text = value?.trim();
-            if (text == null || text.isEmpty) {
-              return;
-            }
-            if (children.isNotEmpty) {
-              children.add(SizedBox(height: gap));
-            }
-            children.add(
-              Text(
-                text,
-                style: style,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            );
-          }
+                final showRoomInfo = roomName != null && availableHeight >= 120;
+                final showOutstandingChip =
+                    hasOutstandingPayments && availableHeight >= 72;
+                final hasBottomSection = showRoomInfo || showOutstandingChip;
 
-          addDetail(timeLabel, timeStyle);
-          if (showServiceInfo) {
-            addDetail(serviceLabel, detailStyle);
-          }
-          if (showClientInfo) {
-            addDetail(client?.fullName, detailStyle);
-          }
+                final timeStyle =
+                    theme.textTheme.bodyMedium?.copyWith(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ) ??
+                    const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    );
+                final detailStyle =
+                    theme.textTheme.bodySmall?.copyWith(
+                      color: Colors.white,
+                      fontSize: 11,
+                    ) ??
+                    const TextStyle(color: Colors.white, fontSize: 11);
+                final List<Widget> children = [];
 
-          if (children.isEmpty) {
-            return const SizedBox.shrink();
-          }
+                void addDetail(
+                  String? value,
+                  TextStyle style, {
+                  double gap = 2,
+                }) {
+                  final text = value?.trim();
+                  if (text == null || text.isEmpty) {
+                    return;
+                  }
+                  if (children.isNotEmpty) {
+                    children.add(SizedBox(height: gap));
+                  }
+                  children.add(
+                    Text(
+                      text,
+                      style: style,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  );
+                }
 
-          if (hasBottomSection) {
-            if (availableHeight >= 88) {
-              children
-                ..add(const Spacer())
-                ..add(const SizedBox(height: 4));
-            } else {
-              children.add(SizedBox(height: availableHeight >= 76 ? 4 : 2));
-            }
-          }
+                addDetail(timeLabel, timeStyle);
+                if (showServiceInfo) {
+                  addDetail(serviceLabel, detailStyle);
+                }
+                if (showClientInfo) {
+                  addDetail(client?.fullName, detailStyle);
+                }
 
-          if (showRoom) {
-            children
-              ..add(const SizedBox(height: 2))
-              ..add(
-                Text(
-                  'Stanza: $roomName',
-                  style: theme.textTheme.bodySmall,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              );
-          }
+                if (children.isEmpty) {
+                  return const SizedBox.shrink();
+                }
 
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: children,
-          );
-        },
+                if (hasBottomSection) {
+                  if (availableHeight >= 88) {
+                    children
+                      ..add(const Spacer())
+                      ..add(const SizedBox(height: 4));
+                  } else {
+                    children.add(
+                      SizedBox(height: availableHeight >= 76 ? 4 : 2),
+                    );
+                  }
+
+                  final List<Widget> bottomWidgets = [];
+
+                  Widget buildInfoPill({
+                    required IconData icon,
+                    required String label,
+                    Color? background,
+                    Color? iconColor,
+                    Color? textColor,
+                    EdgeInsets padding = const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                  }) {
+                    final Color defaultIconColor =
+                        iconColor ?? Colors.white.withValues(alpha: 0.9);
+                    final Color defaultTextColor =
+                        textColor ?? Colors.white.withValues(alpha: 0.92);
+                    final Color pillBackground =
+                        background ??
+                        Colors.white.withValues(
+                          alpha:
+                              theme.brightness == Brightness.dark ? 0.12 : 0.18,
+                        );
+                    return Container(
+                      padding: padding,
+                      decoration: BoxDecoration(
+                        color: pillBackground,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(icon, size: 14, color: defaultIconColor),
+                          const SizedBox(width: 4),
+                          Text(
+                            label,
+                            style:
+                                theme.textTheme.labelSmall?.copyWith(
+                                  color: defaultTextColor,
+                                  fontWeight: FontWeight.w600,
+                                ) ??
+                                TextStyle(
+                                  color: defaultTextColor,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  if (showRoomInfo) {
+                    bottomWidgets.add(
+                      buildInfoPill(
+                        icon: Icons.room_outlined,
+                        label: 'Stanza: $roomName',
+                      ),
+                    );
+                  }
+
+                  if (showOutstandingChip) {
+                    bottomWidgets.add(
+                      buildInfoPill(
+                        icon: Icons.payments_outlined,
+                        label: 'Pagamenti da saldare',
+                        background: theme.colorScheme.tertiaryContainer
+                            .withValues(
+                              alpha:
+                                  theme.brightness == Brightness.dark
+                                      ? 0.8
+                                      : 0.9,
+                            ),
+                        iconColor: theme.colorScheme.onTertiaryContainer,
+                        textColor: theme.colorScheme.onTertiaryContainer,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                      ),
+                    );
+                  }
+
+                  if (bottomWidgets.isNotEmpty) {
+                    children.add(
+                      Wrap(spacing: 8, runSpacing: 4, children: bottomWidgets),
+                    );
+                  }
+                }
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: children,
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
 
     final overlayWidgets = <Widget>[];
-    if (hasOutstandingPayments && !hideContent) {
-      final outstandingBackground = theme.colorScheme.tertiaryContainer;
-      final outstandingIconColor = theme.colorScheme.onTertiaryContainer;
-      final outstandingShadow = theme.colorScheme.tertiary.withValues(
-        alpha: theme.brightness == Brightness.dark ? 0.4 : 0.25,
-      );
-      overlayWidgets.add(
-        Positioned(
-          bottom: 8,
-          right: 8,
-          child: Tooltip(
-            message: 'Pagamenti da saldare',
-            waitDuration: const Duration(milliseconds: 250),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: outstandingBackground,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: outstandingShadow,
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(6),
-                child: Icon(
-                  Icons.payments_outlined,
-                  size: 10,
-                  color: outstandingIconColor,
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
     if (!hideContent) {
       if (needsAttention) {
         final overlayColor =
@@ -6071,7 +6196,7 @@ class _AppointmentCard extends StatelessWidget {
     }
     if (lastMinuteSlot != null) {
       hoverLines.add(
-        lastMinuteSlot!.isAvailable
+        lastMinuteSlot.isAvailable
             ? 'Slot last-minute disponibile'
             : 'Appuntamento last-minute',
       );
@@ -6094,12 +6219,25 @@ class _AppointmentCard extends StatelessWidget {
     final hoverTooltip =
         hoverTooltipLines.isEmpty ? null : hoverTooltipLines.join('\n');
 
-    Widget interactiveCard = Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: decoratedCard,
+    final bool enableHover = onTap != null;
+    final double targetScale = enableHover && _isHovering ? 1.06 : 1.0;
+
+    Widget interactiveCard = MouseRegion(
+      cursor: enableHover ? SystemMouseCursors.click : MouseCursor.defer,
+      onEnter: enableHover ? (_) => _updateHovering(true) : null,
+      onExit: enableHover ? (_) => _updateHovering(false) : null,
+      child: AnimatedScale(
+        scale: targetScale,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: borderRadius,
+            child: decoratedCard,
+          ),
+        ),
       ),
     );
 
@@ -6113,6 +6251,25 @@ class _AppointmentCard extends StatelessWidget {
 
     return interactiveCard;
   }
+}
+
+class _DiagonalAccentClipper extends CustomClipper<Path> {
+  const _DiagonalAccentClipper();
+
+  @override
+  Path getClip(Size size) {
+    final double startX = size.width * 0.4;
+    final double endX = size.width * 0.65;
+    return Path()
+      ..moveTo(startX, 0)
+      ..lineTo(size.width, 0)
+      ..lineTo(size.width, size.height)
+      ..lineTo(endX, size.height)
+      ..close();
+  }
+
+  @override
+  bool shouldReclip(covariant _DiagonalAccentClipper oldClipper) => false;
 }
 
 class _DragFeedback extends StatelessWidget {

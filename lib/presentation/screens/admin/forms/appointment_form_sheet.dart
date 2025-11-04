@@ -2648,9 +2648,36 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     );
 
     if (newClient != null) {
-      await ref.read(appDataProvider.notifier).upsertClient(newClient);
-      if (!mounted) return;
       _applyClientSelection(newClient);
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Cliente aggiunto. Salvataggio in corso...'),
+        ),
+      );
+      final notifier = ref.read(appDataProvider.notifier);
+      Future<void> persistClient() async {
+        try {
+          await notifier.upsertClient(newClient);
+          if (!mounted) return;
+          messenger.hideCurrentSnackBar();
+          messenger.showSnackBar(
+            const SnackBar(content: Text('Cliente salvato con successo.')),
+          );
+        } catch (error) {
+          if (!mounted) return;
+          messenger.hideCurrentSnackBar();
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text(
+                'Impossibile salvare il cliente: $error',
+              ),
+            ),
+          );
+        }
+      }
+
+      unawaited(persistClient());
     }
   }
 
