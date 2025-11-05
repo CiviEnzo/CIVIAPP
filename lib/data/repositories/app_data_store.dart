@@ -1295,6 +1295,13 @@ class AppDataStore extends StateNotifier<AppDataState> {
     if (firestore == null) {
       return;
     }
+    if (!mounted) {
+      return;
+    }
+    final currentAuthUser = FirebaseAuth.instance.currentUser;
+    if (currentAuthUser == null || currentAuthUser.uid != user.uid) {
+      return;
+    }
     final salonIds = _normalizedSalonIds(user);
     if (salonIds.isEmpty) {
       return;
@@ -1315,10 +1322,27 @@ class AppDataStore extends StateNotifier<AppDataState> {
               _publicStaffAbsenceToMap(absence),
             );
           }
+          if (!mounted) {
+            return;
+          }
+          final activeUid = FirebaseAuth.instance.currentUser?.uid;
+          if (activeUid == null || activeUid != user.uid) {
+            return;
+          }
           await batch.commit();
         }
       }
     } on FirebaseException catch (error, stackTrace) {
+      if (error.code == 'permission-denied') {
+        final authUser = FirebaseAuth.instance.currentUser;
+        if (authUser == null || authUser.uid != user.uid) {
+          debugPrint(
+            'Skipping public availability backfill: user signed out '
+            'before completion.',
+          );
+          return;
+        }
+      }
       debugPrint('Failed to backfill public availability: ${error.message}');
       FlutterError.reportError(
         FlutterErrorDetails(

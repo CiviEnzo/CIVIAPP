@@ -176,6 +176,37 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     }
   }
 
+  Future<void> _handleSignOutRequest() async {
+    final shouldSignOut = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Conferma logout'),
+          content: const Text(
+            'Sei sicuro di voler uscire dall\'account amministratore?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Annulla'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Esci'),
+            ),
+          ],
+        );
+      },
+    );
+    if (shouldSignOut != true) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    await performSignOut(ref);
+  }
+
   @override
   Widget build(BuildContext context) {
     final data = ref.watch(appDataProvider);
@@ -230,8 +261,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                             Navigator.of(context).maybePop();
                           },
                         ),
-                      ),
-                    ),
+                ),
+              ),
             appBar: AppBar(
               automaticallyImplyLeading: !isLargeScreen,
               title: Text(selectedModule.title),
@@ -247,9 +278,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                 const ThemeModeAction(),
                 IconButton(
                   tooltip: 'Esci',
-                  onPressed: () async {
-                    await performSignOut(ref);
-                  },
+                  onPressed: () async => _handleSignOutRequest(),
                   icon: const Icon(Icons.logout_rounded),
                 ),
               ],
