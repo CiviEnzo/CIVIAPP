@@ -148,6 +148,12 @@ class AppointmentCalendarView extends StatefulWidget {
     this.onToggleChecklistItem,
     this.onRenameChecklistItem,
     this.onDeleteChecklistItem,
+    this.onCreateShift,
+    this.onEditShift,
+    this.onDeleteShift,
+    this.onCreateAbsence,
+    this.onEditAbsence,
+    this.onDeleteAbsence,
   });
   final DateTime anchorDate;
   final AppointmentCalendarScope scope;
@@ -189,10 +195,623 @@ class AppointmentCalendarView extends StatefulWidget {
   onRenameChecklistItem;
   final Future<void> Function(String checklistId, String itemId)?
   onDeleteChecklistItem;
+  final Future<void> Function(StaffMember staff, DateTime day)? onCreateShift;
+  final Future<void> Function(Shift shift)? onEditShift;
+  final Future<void> Function(Shift shift)? onDeleteShift;
+  final Future<void> Function(StaffMember staff, DateTime day)? onCreateAbsence;
+  final Future<void> Function(StaffAbsence absence)? onEditAbsence;
+  final Future<void> Function(StaffAbsence absence)? onDeleteAbsence;
 
   @override
   State<AppointmentCalendarView> createState() =>
       _AppointmentCalendarViewState();
+}
+
+enum _StaffDayActionType {
+  addShift,
+  editShift,
+  deleteShift,
+  addAbsence,
+  editAbsence,
+  deleteAbsence,
+}
+
+typedef _StaffDayManagementResult =
+    ({_StaffDayActionType type, Shift? shift, StaffAbsence? absence});
+
+Future<void> _handleStaffDayManagement(
+  BuildContext context, {
+  required StaffMember staff,
+  required DateTime day,
+  required List<Shift> shifts,
+  required List<StaffAbsence> absences,
+  required Map<String, String> roomsById,
+  Future<void> Function(StaffMember staff, DateTime day)? onCreateShift,
+  Future<void> Function(Shift shift)? onEditShift,
+  Future<void> Function(Shift shift)? onDeleteShift,
+  Future<void> Function(StaffMember staff, DateTime day)? onCreateAbsence,
+  Future<void> Function(StaffAbsence absence)? onEditAbsence,
+  Future<void> Function(StaffAbsence absence)? onDeleteAbsence,
+}) async {
+  final canCreate = onCreateShift != null;
+  final canEdit = onEditShift != null;
+  final canDelete = onDeleteShift != null;
+  final canCreateAbs = onCreateAbsence != null;
+  final canEditAbs = onEditAbsence != null;
+  final canDeleteAbs = onDeleteAbsence != null;
+  if (!canCreate &&
+      !canEdit &&
+      !canDelete &&
+      !canCreateAbs &&
+      !canEditAbs &&
+      !canDeleteAbs) {
+    return;
+  }
+  if (!canEdit &&
+      !canDelete &&
+      !canEditAbs &&
+      !canDeleteAbs &&
+      shifts.isEmpty &&
+      absences.isEmpty) {
+    return;
+  }
+
+  final result = await _showStaffDayManagementDialog(
+    context,
+    staff: staff,
+    day: day,
+    shifts: shifts,
+    absences: absences,
+    roomsById: roomsById,
+    canCreate: canCreate,
+    canEdit: canEdit,
+    canDelete: canDelete,
+    canCreateAbsence: canCreateAbs,
+    canEditAbsence: canEditAbs,
+    canDeleteAbsence: canDeleteAbs,
+  );
+  if (result == null) {
+    return;
+  }
+
+  switch (result.type) {
+    case _StaffDayActionType.addShift:
+      if (onCreateShift != null) {
+        await onCreateShift(staff, day);
+      }
+      break;
+    case _StaffDayActionType.editShift:
+      final shift = result.shift;
+      if (shift != null && onEditShift != null) {
+        await onEditShift(shift);
+      }
+      break;
+    case _StaffDayActionType.deleteShift:
+      final shift = result.shift;
+      if (shift != null && onDeleteShift != null) {
+        await onDeleteShift(shift);
+      }
+      break;
+    case _StaffDayActionType.addAbsence:
+      if (onCreateAbsence != null) {
+        await onCreateAbsence(staff, day);
+      }
+      break;
+    case _StaffDayActionType.editAbsence:
+      final absence = result.absence;
+      if (absence != null && onEditAbsence != null) {
+        await onEditAbsence(absence);
+      }
+      break;
+    case _StaffDayActionType.deleteAbsence:
+      final absence = result.absence;
+      if (absence != null && onDeleteAbsence != null) {
+        await onDeleteAbsence(absence);
+      }
+      break;
+  }
+}
+
+Future<_StaffDayManagementResult?> _showStaffDayManagementDialog(
+  BuildContext context, {
+  required StaffMember staff,
+  required DateTime day,
+  required List<Shift> shifts,
+  required List<StaffAbsence> absences,
+  required Map<String, String> roomsById,
+  required bool canCreate,
+  required bool canEdit,
+  required bool canDelete,
+  required bool canCreateAbsence,
+  required bool canEditAbsence,
+  required bool canDeleteAbsence,
+}) {
+  final timeFormat = DateFormat('HH:mm', 'it_IT');
+  final dateLabel = _formatCalendarDayLabel(day);
+  final sortedShifts = shifts
+      .sortedBy((shift) => shift.start)
+      .toList(growable: false);
+  final sortedAbsences = absences
+      .sortedBy((absence) => absence.start)
+      .toList(growable: false);
+
+  return showDialog<_StaffDayManagementResult>(
+    context: context,
+    builder: (dialogContext) {
+      final theme = Theme.of(dialogContext);
+      final titleTextStyle = theme.textTheme.titleMedium?.copyWith(
+        fontWeight: FontWeight.w700,
+      );
+      final subtitleStyle = theme.textTheme.bodySmall?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+      );
+
+      final dateFormat = DateFormat('dd MMM yyyy', 'it_IT');
+
+      return AlertDialog(
+        titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
+        contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(staff.fullName, style: titleTextStyle),
+            const SizedBox(height: 4),
+            Text(dateLabel, style: subtitleStyle),
+          ],
+        ),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Turni attivi',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (sortedShifts.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      canCreate
+                          ? 'Nessun turno pianificato per questa giornata.'
+                          : 'Non ci sono turni visibili.',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  )
+                else
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (
+                        var index = 0;
+                        index < sortedShifts.length;
+                        index++
+                      ) ...[
+                        if (index != 0) const SizedBox(height: 12),
+                        _ShiftTileActionRow(
+                          shift: sortedShifts[index],
+                          timeFormat: timeFormat,
+                          roomsById: roomsById,
+                          canEdit: canEdit,
+                          canDelete: canDelete,
+                          onEdit:
+                              canEdit
+                                  ? () => Navigator.of(dialogContext).pop((
+                                    type: _StaffDayActionType.editShift,
+                                    shift: sortedShifts[index],
+                                    absence: null,
+                                  ))
+                                  : null,
+                          onDelete:
+                              canDelete
+                                  ? () => Navigator.of(dialogContext).pop((
+                                    type: _StaffDayActionType.deleteShift,
+                                    shift: sortedShifts[index],
+                                    absence: null,
+                                  ))
+                                  : null,
+                        ),
+                      ],
+                    ],
+                  ),
+                const SizedBox(height: 24),
+                Text(
+                  'Assenze',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (sortedAbsences.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      canCreateAbsence
+                          ? 'Nessuna assenza registrata in questa data.'
+                          : 'Non ci sono assenze visibili.',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  )
+                else
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (
+                        var index = 0;
+                        index < sortedAbsences.length;
+                        index++
+                      ) ...[
+                        if (index != 0) const SizedBox(height: 12),
+                        _AbsenceTileActionRow(
+                          absence: sortedAbsences[index],
+                          dateFormat: dateFormat,
+                          timeFormat: timeFormat,
+                          canEdit: canEditAbsence,
+                          canDelete: canDeleteAbsence,
+                          onEdit:
+                              canEditAbsence
+                                  ? () => Navigator.of(dialogContext).pop((
+                                    type: _StaffDayActionType.editAbsence,
+                                    shift: null,
+                                    absence: sortedAbsences[index],
+                                  ))
+                                  : null,
+                          onDelete:
+                              canDeleteAbsence
+                                  ? () => Navigator.of(dialogContext).pop((
+                                    type: _StaffDayActionType.deleteAbsence,
+                                    shift: null,
+                                    absence: sortedAbsences[index],
+                                  ))
+                                  : null,
+                        ),
+                      ],
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Chiudi'),
+          ),
+          if (canCreateAbsence)
+            FilledButton.tonalIcon(
+              onPressed:
+                  () => Navigator.of(dialogContext).pop((
+                    type: _StaffDayActionType.addAbsence,
+                    shift: null,
+                    absence: null,
+                  )),
+              icon: const Icon(Icons.event_busy_rounded),
+              label: const Text('Nuova assenza'),
+            ),
+          if (canCreate)
+            FilledButton.icon(
+              onPressed:
+                  () => Navigator.of(dialogContext).pop((
+                    type: _StaffDayActionType.addShift,
+                    shift: null,
+                    absence: null,
+                  )),
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Nuovo turno'),
+            ),
+        ],
+      );
+    },
+  );
+}
+
+class _ShiftTileActionRow extends StatelessWidget {
+  const _ShiftTileActionRow({
+    required this.shift,
+    required this.timeFormat,
+    required this.roomsById,
+    required this.canEdit,
+    required this.canDelete,
+    this.onEdit,
+    this.onDelete,
+  });
+
+  final Shift shift;
+  final DateFormat timeFormat;
+  final Map<String, String> roomsById;
+  final bool canEdit;
+  final bool canDelete;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final roomName = shift.roomId != null ? roomsById[shift.roomId] : null;
+    final hasBreak =
+        shift.breakStart != null &&
+        shift.breakEnd != null &&
+        shift.breakEnd!.isAfter(shift.breakStart!);
+    final details = <String>[];
+    if (roomName != null && roomName.isNotEmpty) {
+      details.add('Cabina: $roomName');
+    }
+    if (hasBreak) {
+      details.add(
+        'Pausa ${timeFormat.format(shift.breakStart!)} - ${timeFormat.format(shift.breakEnd!)}',
+      );
+    }
+    if (shift.notes != null && shift.notes!.trim().isNotEmpty) {
+      details.add(shift.notes!.trim());
+    }
+    if (shift.seriesId != null) {
+      details.add('Parte di una serie');
+    }
+
+    final tooltipLines = <String>[
+      '${timeFormat.format(shift.start)} - ${timeFormat.format(shift.end)}',
+      if (roomName != null && roomName.isNotEmpty) 'Cabina: $roomName',
+      if (hasBreak)
+        'Pausa: ${timeFormat.format(shift.breakStart!)} - ${timeFormat.format(shift.breakEnd!)}',
+      if (shift.notes != null && shift.notes!.trim().isNotEmpty)
+        'Note: ${shift.notes!.trim()}',
+      if (shift.seriesId != null) 'Turno ricorrente',
+    ];
+
+    return Tooltip(
+      message: tooltipLines.join('\n'),
+      waitDuration: const Duration(milliseconds: 250),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '${timeFormat.format(shift.start)} - ${timeFormat.format(shift.end)}',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (details.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        details.join(' • '),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (canEdit)
+                IconButton(
+                  tooltip: 'Modifica turno',
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit_rounded),
+                ),
+              if (canDelete)
+                IconButton(
+                  tooltip: 'Elimina turno',
+                  onPressed: onDelete,
+                  icon: const Icon(Icons.delete_outline_rounded),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AbsenceTileActionRow extends StatelessWidget {
+  const _AbsenceTileActionRow({
+    required this.absence,
+    required this.dateFormat,
+    required this.timeFormat,
+    required this.canEdit,
+    required this.canDelete,
+    this.onEdit,
+    this.onDelete,
+  });
+
+  final StaffAbsence absence;
+  final DateFormat dateFormat;
+  final DateFormat timeFormat;
+  final bool canEdit;
+  final bool canDelete;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+
+  IconData _iconForType(StaffAbsenceType type) {
+    switch (type) {
+      case StaffAbsenceType.vacation:
+        return Icons.beach_access_rounded;
+      case StaffAbsenceType.permission:
+        return Icons.event_available_rounded;
+      case StaffAbsenceType.sickLeave:
+        return Icons.local_hospital_rounded;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isAllDay = absence.isAllDay;
+    final isSingleDay = absence.isSingleDay;
+    final primaryLabel =
+        isSingleDay
+            ? dateFormat.format(absence.start)
+            : '${dateFormat.format(absence.start)} → ${dateFormat.format(absence.end)}';
+    final timeLabel =
+        isAllDay
+            ? 'Intera giornata'
+            : '${timeFormat.format(absence.start)} - ${timeFormat.format(absence.end)}';
+    final notes = absence.notes?.trim();
+
+    final tooltipLines = <String>[
+      absence.type.label,
+      primaryLabel,
+      timeLabel,
+      if (notes != null && notes.isNotEmpty) 'Note: $notes',
+    ];
+
+    return Tooltip(
+      message: tooltipLines.join('\n'),
+      waitDuration: const Duration(milliseconds: 250),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  _iconForType(absence.type),
+                  size: 18,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      absence.type.label,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      primaryLabel,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    if (!isAllDay)
+                      Text(
+                        timeLabel,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    if (notes != null && notes.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        notes,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (canEdit)
+                IconButton(
+                  tooltip: 'Modifica assenza',
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit_note_rounded),
+                ),
+              if (canDelete)
+                IconButton(
+                  tooltip: 'Elimina assenza',
+                  onPressed: onDelete,
+                  icon: const Icon(Icons.delete_outline_rounded),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StaffHeaderButton extends StatelessWidget {
+  const _StaffHeaderButton({
+    required this.child,
+    this.onPressed,
+    this.tooltip,
+    this.enabled = true,
+  });
+
+  final Widget child;
+  final VoidCallback? onPressed;
+  final String? tooltip;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!enabled || onPressed == null) {
+      return child;
+    }
+    Widget content = MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onPressed,
+        child: child,
+      ),
+    );
+    final tooltipMessage = tooltip?.trim();
+    if (tooltipMessage != null && tooltipMessage.isNotEmpty) {
+      content = Tooltip(
+        message: tooltipMessage,
+        waitDuration: const Duration(milliseconds: 250),
+        child: content,
+      );
+    }
+    return content;
+  }
 }
 
 class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
@@ -305,6 +924,12 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           onToggleChecklistItem: widget.onToggleChecklistItem,
           onRenameChecklistItem: widget.onRenameChecklistItem,
           onDeleteChecklistItem: widget.onDeleteChecklistItem,
+          onCreateShift: widget.onCreateShift,
+          onEditShift: widget.onEditShift,
+          onDeleteShift: widget.onDeleteShift,
+          onCreateAbsence: widget.onCreateAbsence,
+          onEditAbsence: widget.onEditAbsence,
+          onDeleteAbsence: widget.onDeleteAbsence,
         );
       case AppointmentCalendarScope.week:
         return _WeekSchedule(
@@ -346,6 +971,12 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           autoScrollTargetDate: _initialScrollDate,
           autoScrollPending: !_didAutoScrollToInitialDay,
           layout: widget.weekLayout,
+          onCreateShift: widget.onCreateShift,
+          onEditShift: widget.onEditShift,
+          onDeleteShift: widget.onDeleteShift,
+          onCreateAbsence: widget.onCreateAbsence,
+          onEditAbsence: widget.onEditAbsence,
+          onDeleteAbsence: widget.onDeleteAbsence,
           onAutoScrollComplete: () {
             if (!_didAutoScrollToInitialDay && mounted) {
               setState(() {
@@ -409,6 +1040,12 @@ class _DaySchedule extends StatelessWidget {
     this.onToggleChecklistItem,
     this.onRenameChecklistItem,
     this.onDeleteChecklistItem,
+    this.onCreateShift,
+    this.onEditShift,
+    this.onDeleteShift,
+    this.onCreateAbsence,
+    this.onEditAbsence,
+    this.onDeleteAbsence,
   });
 
   final DateTime anchorDate;
@@ -451,6 +1088,12 @@ class _DaySchedule extends StatelessWidget {
   onRenameChecklistItem;
   final Future<void> Function(String checklistId, String itemId)?
   onDeleteChecklistItem;
+  final Future<void> Function(StaffMember staff, DateTime day)? onCreateShift;
+  final Future<void> Function(Shift shift)? onEditShift;
+  final Future<void> Function(Shift shift)? onDeleteShift;
+  final Future<void> Function(StaffMember staff, DateTime day)? onCreateAbsence;
+  final Future<void> Function(StaffAbsence absence)? onEditAbsence;
+  final Future<void> Function(StaffAbsence absence)? onDeleteAbsence;
 
   static const _slotExtent = _AppointmentCalendarViewState._slotExtent;
   static const _timeScaleExtent =
@@ -657,55 +1300,99 @@ class _DaySchedule extends StatelessWidget {
                                 staffIndex < staff.length;
                                 staffIndex++
                               ) ...[
-                                Padding(
-                                  padding: EdgeInsets.only(
-                                    right:
-                                        staffIndex == staff.length - 1 ? 0 : 16,
-                                  ),
-                                  child: Container(
-                                    width: _kStaffColumnWidth,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 10,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        colors: [
-                                          theme.colorScheme.surfaceVariant
-                                              .withValues(alpha: 0.78),
-                                          theme.colorScheme.surface,
-                                        ],
-                                        begin: Alignment.topCenter,
-                                        end: Alignment.bottomCenter,
+                                Builder(
+                                  builder: (context) {
+                                    final staffMember = staff[staffIndex];
+                                    final staffShifts =
+                                        shiftsByStaff[staffMember.id] ??
+                                        const <Shift>[];
+                                    final staffAbsences =
+                                        absencesByStaff[staffMember.id] ??
+                                        const <StaffAbsence>[];
+                                    final canManage =
+                                        (onCreateShift != null ||
+                                            onEditShift != null ||
+                                            onDeleteShift != null) ||
+                                        (onCreateAbsence != null ||
+                                            onEditAbsence != null ||
+                                            onDeleteAbsence != null);
+                                    return Padding(
+                                      padding: EdgeInsets.only(
+                                        right:
+                                            staffIndex == staff.length - 1
+                                                ? 0
+                                                : 16,
                                       ),
-                                      borderRadius: BorderRadius.circular(14),
-                                      border: Border.all(
-                                        color: staffColumnBorderColor,
-                                        width: 1.1,
-                                      ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: staffColumnShadowColor,
-                                          blurRadius: 18,
-                                          offset: const Offset(0, 10),
-                                        ),
-                                      ],
-                                    ),
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text(
-                                          _firstNameOnly(
-                                            staff[staffIndex].fullName,
+                                      child: _StaffHeaderButton(
+                                        enabled: canManage,
+                                        tooltip:
+                                            'Gestisci turni e assenze per ${_formatCalendarDayLabel(dayStart)}',
+                                        onPressed: () async {
+                                          await _handleStaffDayManagement(
+                                            context,
+                                            staff: staffMember,
+                                            day: dayStart,
+                                            shifts: staffShifts,
+                                            absences: staffAbsences,
+                                            roomsById: roomsById,
+                                            onCreateShift: onCreateShift,
+                                            onEditShift: onEditShift,
+                                            onDeleteShift: onDeleteShift,
+                                            onCreateAbsence: onCreateAbsence,
+                                            onEditAbsence: onEditAbsence,
+                                            onDeleteAbsence: onDeleteAbsence,
+                                          );
+                                        },
+                                        child: Container(
+                                          width: _kStaffColumnWidth,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 10,
                                           ),
-                                          style: theme.textTheme.titleSmall,
-                                          textAlign: TextAlign.center,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              colors: [
+                                                theme.colorScheme.surfaceVariant
+                                                    .withValues(alpha: 0.78),
+                                                theme.colorScheme.surface,
+                                              ],
+                                              begin: Alignment.topCenter,
+                                              end: Alignment.bottomCenter,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              14,
+                                            ),
+                                            border: Border.all(
+                                              color: staffColumnBorderColor,
+                                              width: 1.1,
+                                            ),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: staffColumnShadowColor,
+                                                blurRadius: 18,
+                                                offset: const Offset(0, 10),
+                                              ),
+                                            ],
+                                          ),
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(
+                                                _firstNameOnly(
+                                                  staffMember.fullName,
+                                                ),
+                                                style:
+                                                    theme.textTheme.titleSmall,
+                                                textAlign: TextAlign.center,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                      ],
-                                    ),
-                                  ),
+                                      ),
+                                    );
+                                  },
                                 ),
                               ],
                             ],
@@ -995,6 +1682,12 @@ class _WeekSchedule extends StatelessWidget {
     this.onToggleChecklistItem,
     this.onRenameChecklistItem,
     this.onDeleteChecklistItem,
+    this.onCreateShift,
+    this.onEditShift,
+    this.onDeleteShift,
+    this.onCreateAbsence,
+    this.onEditAbsence,
+    this.onDeleteAbsence,
     this.autoScrollTargetDate,
     this.autoScrollPending = false,
     required this.layout,
@@ -1043,6 +1736,12 @@ class _WeekSchedule extends StatelessWidget {
   onRenameChecklistItem;
   final Future<void> Function(String checklistId, String itemId)?
   onDeleteChecklistItem;
+  final Future<void> Function(StaffMember staff, DateTime day)? onCreateShift;
+  final Future<void> Function(Shift shift)? onEditShift;
+  final Future<void> Function(Shift shift)? onDeleteShift;
+  final Future<void> Function(StaffMember staff, DateTime day)? onCreateAbsence;
+  final Future<void> Function(StaffAbsence absence)? onEditAbsence;
+  final Future<void> Function(StaffAbsence absence)? onDeleteAbsence;
   final DateTime? autoScrollTargetDate;
   final bool autoScrollPending;
   final AppointmentWeekLayoutMode layout;
@@ -1285,6 +1984,12 @@ class _WeekSchedule extends StatelessWidget {
         onToggleChecklistItem: onToggleChecklistItem,
         onRenameChecklistItem: onRenameChecklistItem,
         onDeleteChecklistItem: onDeleteChecklistItem,
+        onCreateShift: onCreateShift,
+        onEditShift: onEditShift,
+        onDeleteShift: onDeleteShift,
+        onCreateAbsence: onCreateAbsence,
+        onEditAbsence: onEditAbsence,
+        onDeleteAbsence: onDeleteAbsence,
       );
     }
 
@@ -1699,117 +2404,195 @@ class _WeekSchedule extends StatelessWidget {
                                 dayIndex < dayData.length;
                                 dayIndex++
                               ) ...[
-                                Padding(
-                                  padding: EdgeInsets.only(
-                                    right:
-                                        dayIndex == dayData.length - 1
-                                            ? 0
-                                            : dayGap,
-                                    top: 6,
-                                    bottom: 6,
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.center,
-                                    children: [
-                                      SizedBox(
-                                        width: dayWidth,
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: dayHorizontalPadding,
-                                          ),
-                                          child: Row(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.start,
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.center,
-                                            children: [
-                                              for (
-                                                var staffIndex = 0;
-                                                staffIndex < staff.length;
-                                                staffIndex++
-                                              ) ...[
-                                                Container(
-                                                  width: staffColumnWidth,
-                                                  margin: EdgeInsets.only(
-                                                    right:
-                                                        staffIndex ==
-                                                                staff.length - 1
-                                                            ? 0
-                                                            : staffGap,
-                                                  ),
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                        horizontal: 12,
-                                                        vertical: 10,
-                                                      ),
-                                                  constraints: BoxConstraints(
-                                                    minHeight:
-                                                        staffHeaderHeight,
-                                                  ),
-                                                  decoration: BoxDecoration(
-                                                    gradient: LinearGradient(
-                                                      colors: [
-                                                        theme
-                                                            .colorScheme
-                                                            .surfaceVariant
-                                                            .withValues(
-                                                              alpha: 0.78,
-                                                            ),
-                                                        theme
-                                                            .colorScheme
-                                                            .surface,
-                                                      ],
-                                                      begin:
-                                                          Alignment.topCenter,
-                                                      end:
-                                                          Alignment
-                                                              .bottomCenter,
-                                                    ),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          14,
-                                                        ),
-                                                    border: Border.all(
-                                                      color:
-                                                          staffColumnBorderColor,
-                                                      width: 1.1,
-                                                    ),
-                                                    boxShadow: [
-                                                      BoxShadow(
-                                                        color:
-                                                            staffColumnShadowColor,
-                                                        blurRadius: 18,
-                                                        offset: const Offset(
-                                                          0,
-                                                          10,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                  child: Text(
-                                                    _firstNameOnly(
-                                                      staff[staffIndex]
-                                                          .fullName,
-                                                    ),
-                                                    style:
-                                                        theme
-                                                            .textTheme
-                                                            .titleSmall,
-                                                    textAlign: TextAlign.center,
-                                                    maxLines: 1,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                  ),
-                                                ),
-                                              ],
-                                            ],
-                                          ),
-                                        ),
+                                Builder(
+                                  builder: (context) {
+                                    final day = dayData[dayIndex];
+                                    return Padding(
+                                      padding: EdgeInsets.only(
+                                        right:
+                                            dayIndex == dayData.length - 1
+                                                ? 0
+                                                : dayGap,
+                                        top: 6,
+                                        bottom: 6,
                                       ),
-                                    ],
-                                  ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.center,
+                                        children: [
+                                          SizedBox(
+                                            width: dayWidth,
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal:
+                                                        dayHorizontalPadding,
+                                                  ),
+                                              child: Row(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment.start,
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.center,
+                                                children: [
+                                                  for (
+                                                    var staffIndex = 0;
+                                                    staffIndex < staff.length;
+                                                    staffIndex++
+                                                  ) ...[
+                                                    Builder(
+                                                      builder: (context) {
+                                                        final staffMember =
+                                                            staff[staffIndex];
+                                                        final staffShifts =
+                                                            day.shiftsByStaff[staffMember
+                                                                .id] ??
+                                                            const <Shift>[];
+                                                        final staffAbsences =
+                                                            day.absencesByStaff[staffMember
+                                                                .id] ??
+                                                            const <
+                                                              StaffAbsence
+                                                            >[];
+                                                        final canManage =
+                                                            (onCreateShift !=
+                                                                    null ||
+                                                                onEditShift !=
+                                                                    null ||
+                                                                onDeleteShift !=
+                                                                    null) ||
+                                                            (onCreateAbsence !=
+                                                                    null ||
+                                                                onEditAbsence !=
+                                                                    null ||
+                                                                onDeleteAbsence !=
+                                                                    null);
+                                                        return _StaffHeaderButton(
+                                                          enabled: canManage,
+                                                          tooltip:
+                                                              'Gestisci turni e assenze per ${_formatCalendarDayLabel(day.date)}',
+                                                          onPressed: () async {
+                                                            await _handleStaffDayManagement(
+                                                              context,
+                                                              staff:
+                                                                  staffMember,
+                                                              day: day.date,
+                                                              shifts:
+                                                                  staffShifts,
+                                                              absences:
+                                                                  staffAbsences,
+                                                              roomsById:
+                                                                  roomsById,
+                                                              onCreateShift:
+                                                                  onCreateShift,
+                                                              onEditShift:
+                                                                  onEditShift,
+                                                              onDeleteShift:
+                                                                  onDeleteShift,
+                                                              onCreateAbsence:
+                                                                  onCreateAbsence,
+                                                              onEditAbsence:
+                                                                  onEditAbsence,
+                                                              onDeleteAbsence:
+                                                                  onDeleteAbsence,
+                                                            );
+                                                          },
+                                                          child: Container(
+                                                            width:
+                                                                staffColumnWidth,
+                                                            margin: EdgeInsets.only(
+                                                              right:
+                                                                  staffIndex ==
+                                                                          staff.length -
+                                                                              1
+                                                                      ? 0
+                                                                      : staffGap,
+                                                            ),
+                                                            padding:
+                                                                const EdgeInsets.symmetric(
+                                                                  horizontal:
+                                                                      12,
+                                                                  vertical: 10,
+                                                                ),
+                                                            constraints:
+                                                                BoxConstraints(
+                                                                  minHeight:
+                                                                      staffHeaderHeight,
+                                                                ),
+                                                            decoration: BoxDecoration(
+                                                              gradient: LinearGradient(
+                                                                colors: [
+                                                                  theme
+                                                                      .colorScheme
+                                                                      .surfaceVariant
+                                                                      .withValues(
+                                                                        alpha:
+                                                                            0.78,
+                                                                      ),
+                                                                  theme
+                                                                      .colorScheme
+                                                                      .surface,
+                                                                ],
+                                                                begin:
+                                                                    Alignment
+                                                                        .topCenter,
+                                                                end:
+                                                                    Alignment
+                                                                        .bottomCenter,
+                                                              ),
+                                                              borderRadius:
+                                                                  BorderRadius.circular(
+                                                                    14,
+                                                                  ),
+                                                              border: Border.all(
+                                                                color:
+                                                                    staffColumnBorderColor,
+                                                                width: 1.1,
+                                                              ),
+                                                              boxShadow: [
+                                                                BoxShadow(
+                                                                  color:
+                                                                      staffColumnShadowColor,
+                                                                  blurRadius:
+                                                                      18,
+                                                                  offset:
+                                                                      const Offset(
+                                                                        0,
+                                                                        10,
+                                                                      ),
+                                                                ),
+                                                              ],
+                                                            ),
+                                                            child: Text(
+                                                              _firstNameOnly(
+                                                                staffMember
+                                                                    .fullName,
+                                                              ),
+                                                              style:
+                                                                  theme
+                                                                      .textTheme
+                                                                      .titleSmall,
+                                                              textAlign:
+                                                                  TextAlign
+                                                                      .center,
+                                                              maxLines: 1,
+                                                              overflow:
+                                                                  TextOverflow
+                                                                      .ellipsis,
+                                                            ),
+                                                          ),
+                                                        );
+                                                      },
+                                                    ),
+                                                  ],
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
                                 ),
                               ],
                             ],
@@ -2902,6 +3685,12 @@ class _WeekCompactView extends StatelessWidget {
     this.onToggleChecklistItem,
     this.onRenameChecklistItem,
     this.onDeleteChecklistItem,
+    this.onCreateShift,
+    this.onEditShift,
+    this.onDeleteShift,
+    this.onCreateAbsence,
+    this.onEditAbsence,
+    this.onDeleteAbsence,
   });
 
   final List<_WeekDayData> dayData;
@@ -2942,6 +3731,12 @@ class _WeekCompactView extends StatelessWidget {
   onRenameChecklistItem;
   final Future<void> Function(String checklistId, String itemId)?
   onDeleteChecklistItem;
+  final Future<void> Function(StaffMember staff, DateTime day)? onCreateShift;
+  final Future<void> Function(Shift shift)? onEditShift;
+  final Future<void> Function(Shift shift)? onDeleteShift;
+  final Future<void> Function(StaffMember staff, DateTime day)? onCreateAbsence;
+  final Future<void> Function(StaffAbsence absence)? onEditAbsence;
+  final Future<void> Function(StaffAbsence absence)? onDeleteAbsence;
 
   static const double _dayGap = 12;
   static const double _staffGap = 6;
@@ -3062,6 +3857,7 @@ class _WeekCompactView extends StatelessWidget {
                             SizedBox(
                               width: contentWidth,
                               child: _buildDayColumns(
+                                context,
                                 theme,
                                 now,
                                 dayBodyColor,
@@ -3260,6 +4056,7 @@ class _WeekCompactView extends StatelessWidget {
   }
 
   Widget _buildDayColumns(
+    BuildContext context,
     ThemeData theme,
     DateTime now,
     Color dayBodyColor,
@@ -3278,6 +4075,7 @@ class _WeekCompactView extends StatelessWidget {
           SizedBox(
             width: dayWidth,
             child: _buildDayBody(
+              context,
               theme,
               now,
               dayData[dayIndex],
@@ -3294,6 +4092,7 @@ class _WeekCompactView extends StatelessWidget {
   }
 
   Widget _buildDayBody(
+    BuildContext context,
     ThemeData theme,
     DateTime now,
     _WeekDayData data,
@@ -3374,6 +4173,7 @@ class _WeekCompactView extends StatelessWidget {
         _kDayBodyBottomPadding,
       ),
       child: _buildStaffColumns(
+        context: context,
         theme: theme,
         data: data,
         dayInnerWidth: dayInnerWidth,
@@ -3387,6 +4187,7 @@ class _WeekCompactView extends StatelessWidget {
   }
 
   Widget _buildStaffColumns({
+    required BuildContext context,
     required ThemeData theme,
     required _WeekDayData data,
     required double dayInnerWidth,
@@ -3431,45 +4232,75 @@ class _WeekCompactView extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SizedBox(
-                height: _kStaffHeaderHeight,
-                child: Center(
-                  child:
-                      avatarSize <= 0
-                          ? const SizedBox.shrink()
-                          : Tooltip(
-                            message: staffMember.fullName,
-                            waitDuration: const Duration(milliseconds: 250),
-                            child: SizedBox(
-                              width: avatarSize,
-                              height: avatarSize,
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.primary.withValues(
-                                    alpha: 0.12,
-                                  ),
-                                  borderRadius: BorderRadius.circular(
-                                    max(avatarSize / 2, 8.0),
-                                  ),
-                                  border: Border.all(
+              _StaffHeaderButton(
+                enabled:
+                    (onCreateShift != null ||
+                        onEditShift != null ||
+                        onDeleteShift != null) ||
+                    (onCreateAbsence != null ||
+                        onEditAbsence != null ||
+                        onDeleteAbsence != null),
+                tooltip:
+                    'Gestisci turni e assenze per ${_formatCalendarDayLabel(data.date)}',
+                onPressed: () async {
+                  await _handleStaffDayManagement(
+                    context,
+                    staff: staffMember,
+                    day: data.date,
+                    shifts:
+                        data.shiftsByStaff[staffMember.id] ?? const <Shift>[],
+                    absences:
+                        data.absencesByStaff[staffMember.id] ??
+                        const <StaffAbsence>[],
+                    roomsById: roomsById,
+                    onCreateShift: onCreateShift,
+                    onEditShift: onEditShift,
+                    onDeleteShift: onDeleteShift,
+                    onCreateAbsence: onCreateAbsence,
+                    onEditAbsence: onEditAbsence,
+                    onDeleteAbsence: onDeleteAbsence,
+                  );
+                },
+                child: SizedBox(
+                  height: _kStaffHeaderHeight,
+                  child: Center(
+                    child:
+                        avatarSize <= 0
+                            ? const SizedBox.shrink()
+                            : Tooltip(
+                              message: staffMember.fullName,
+                              waitDuration: const Duration(milliseconds: 250),
+                              child: SizedBox(
+                                width: avatarSize,
+                                height: avatarSize,
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
                                     color: theme.colorScheme.primary.withValues(
-                                      alpha: 0.35,
+                                      alpha: 0.12,
+                                    ),
+                                    borderRadius: BorderRadius.circular(
+                                      max(avatarSize / 2, 8.0),
+                                    ),
+                                    border: Border.all(
+                                      color: theme.colorScheme.primary
+                                          .withValues(alpha: 0.35),
                                     ),
                                   ),
-                                ),
-                                child: FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  child: Text(
-                                    displayInitials,
-                                    style: theme.textTheme.titleSmall?.copyWith(
-                                      fontWeight: FontWeight.w700,
-                                      letterSpacing: 0.4,
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(
+                                      displayInitials,
+                                      style: theme.textTheme.titleSmall
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w700,
+                                            letterSpacing: 0.4,
+                                          ),
                                     ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
+                  ),
                 ),
               ),
               const SizedBox(height: _kStaffHeaderSpacing),
@@ -5803,8 +6634,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
     final borderRadius = BorderRadius.circular(12);
     final Color contentSampleColor =
         Color.lerp(gradientStart, gradientEnd, 0.5) ?? gradientStart;
-    final Brightness contentBrightness =
-        ThemeData.estimateBrightnessForColor(
+    final Brightness contentBrightness = ThemeData.estimateBrightnessForColor(
       contentSampleColor.withAlpha(0xFF),
     );
     final bool prefersDarkContent = contentBrightness == Brightness.light;
@@ -6033,8 +6863,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                     final Color defaultTextColor =
                         textColor ?? infoPillTextColor;
                     final Color pillBackground =
-                        background ??
-                        infoPillBackgroundColor;
+                        background ?? infoPillBackgroundColor;
                     return Container(
                       padding: padding,
                       decoration: BoxDecoration(
@@ -6174,10 +7003,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
               padding:
                   hideContent
                       ? const EdgeInsets.all(6)
-                      : const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
+                      : const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: theme.colorScheme.primary.withValues(alpha: 0.18),
                 borderRadius: BorderRadius.circular(12),

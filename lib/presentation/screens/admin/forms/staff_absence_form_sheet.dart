@@ -13,6 +13,8 @@ class StaffAbsenceFormSheet extends StatefulWidget {
     this.initial,
     this.defaultSalonId,
     this.defaultStaffId,
+    this.defaultStart,
+    this.defaultEnd,
   });
 
   final List<Salon> salons;
@@ -20,6 +22,8 @@ class StaffAbsenceFormSheet extends StatefulWidget {
   final StaffAbsence? initial;
   final String? defaultSalonId;
   final String? defaultStaffId;
+  final DateTime? defaultStart;
+  final DateTime? defaultEnd;
 
   @override
   State<StaffAbsenceFormSheet> createState() => _StaffAbsenceFormSheetState();
@@ -48,10 +52,36 @@ class _StaffAbsenceFormSheetState extends State<StaffAbsenceFormSheet> {
     _staffId = initial?.staffId ?? widget.defaultStaffId;
     _type = initial?.type ?? StaffAbsenceType.sickLeave;
     final today = DateTime.now();
-    _start = initial?.start ?? DateTime(today.year, today.month, today.day);
-    _end = initial?.end ?? DateTime(today.year, today.month, today.day, 23, 59);
+    final providedStart =
+        widget.defaultStart != null
+            ? DateTime(
+              widget.defaultStart!.year,
+              widget.defaultStart!.month,
+              widget.defaultStart!.day,
+            )
+            : null;
+    final providedEnd =
+        widget.defaultEnd != null
+            ? widget.defaultEnd!
+            : providedStart != null
+            ? DateTime(
+              providedStart.year,
+              providedStart.month,
+              providedStart.day,
+              23,
+              59,
+            )
+            : null;
+    _start =
+        initial?.start ??
+        providedStart ??
+        DateTime(today.year, today.month, today.day);
+    _end =
+        initial?.end ??
+        providedEnd ??
+        DateTime(today.year, today.month, today.day, 23, 59);
     _notes.text = initial?.notes ?? '';
-    _isAllDay = initial?.isAllDay ?? true;
+    _isAllDay = initial?.isAllDay ?? widget.defaultEnd == null;
     if (_isAllDay) {
       _start = DateTime(_start.year, _start.month, _start.day);
       _end = DateTime(_end.year, _end.month, _end.day, 23, 59);

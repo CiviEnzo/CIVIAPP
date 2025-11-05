@@ -19,6 +19,8 @@ import 'package:you_book/domain/entities/staff_absence.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/screens/admin/forms/appointment_form_sheet.dart';
+import 'package:you_book/presentation/screens/admin/forms/shift_form_sheet.dart';
+import 'package:you_book/presentation/screens/admin/forms/staff_absence_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_calendar_view.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_anomaly.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments/express_slot_sheet.dart';
@@ -1488,6 +1490,42 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                               staffMembers,
                               services,
                             ),
+                        onCreateShift:
+                            (staffMember, day) => _openShiftForm(
+                              context,
+                              salons: salons,
+                              staff: staffMembers,
+                              defaultSalonId: staffMember.salonId,
+                              defaultStaffId: staffMember.id,
+                            ),
+                        onEditShift:
+                            (shift) => _openShiftForm(
+                              context,
+                              salons: salons,
+                              staff: staffMembers,
+                              initial: shift,
+                            ),
+                        onDeleteShift:
+                            (shift) => _confirmDeleteShift(context, shift),
+                        onCreateAbsence:
+                            (staffMember, day) => _openAbsenceForm(
+                              context,
+                              salons: salons,
+                              staff: staffMembers,
+                              defaultSalonId: staffMember.salonId,
+                              defaultStaffId: staffMember.id,
+                              defaultDay: day,
+                            ),
+                        onEditAbsence:
+                            (absence) => _openAbsenceForm(
+                              context,
+                              salons: salons,
+                              staff: staffMembers,
+                              initial: absence,
+                            ),
+                        onDeleteAbsence:
+                            (absence) =>
+                                _confirmDeleteAbsence(context, absence),
                         slotMinutes: _calendarSlotMinutes,
                         onAddChecklistItem:
                             _checklistEditingEnabled ? _addChecklistItem : null,
@@ -2341,6 +2379,180 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         SnackBar(content: Text('Invio notifica non riuscito: $error')),
       );
     }
+  }
+
+  Future<void> _openShiftForm(
+    BuildContext context, {
+    required List<Salon> salons,
+    required List<StaffMember> staff,
+    Shift? initial,
+    String? defaultSalonId,
+    String? defaultStaffId,
+  }) async {
+    if (salons.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Aggiungi almeno un salone prima di pianificare turni.',
+          ),
+        ),
+      );
+      return;
+    }
+    final result = await showAppModalSheet<ShiftFormResult>(
+      context: context,
+      builder:
+          (sheetContext) => ShiftFormSheet(
+            salons: salons,
+            staff: staff,
+            initial: initial,
+            defaultSalonId: defaultSalonId,
+            defaultStaffId: defaultStaffId,
+          ),
+    );
+    if (result == null) {
+      return;
+    }
+    await ref.read(appDataProvider.notifier).upsertShifts(result.shifts);
+    if (!mounted) return;
+    final anchor = result.shifts.first.start;
+    final label =
+        result.isSeries
+            ? '${result.shifts.length} turni salvati a partire dal ${_dayLabel.format(anchor)}.'
+            : 'Turno salvato per ${_dayLabel.format(anchor)}.';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(label)));
+  }
+
+  Future<void> _openAbsenceForm(
+    BuildContext context, {
+    required List<Salon> salons,
+    required List<StaffMember> staff,
+    StaffAbsence? initial,
+    String? defaultSalonId,
+    String? defaultStaffId,
+    DateTime? defaultDay,
+  }) async {
+    if (salons.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Crea prima un salone per registrare assenze.'),
+        ),
+      );
+      return;
+    }
+    final normalizedDay =
+        defaultDay != null ? DateUtils.dateOnly(defaultDay) : null;
+    final result = await showAppModalSheet<StaffAbsence>(
+      context: context,
+      builder:
+          (sheetContext) => StaffAbsenceFormSheet(
+            salons: salons,
+            staff: staff,
+            initial: initial,
+            defaultSalonId: defaultSalonId,
+            defaultStaffId: defaultStaffId,
+            defaultStart: normalizedDay,
+            defaultEnd:
+                normalizedDay != null
+                    ? DateTime(
+                      normalizedDay.year,
+                      normalizedDay.month,
+                      normalizedDay.day,
+                      23,
+                      59,
+                    )
+                    : null,
+          ),
+    );
+    if (result == null) {
+      return;
+    }
+    await ref.read(appDataProvider.notifier).upsertStaffAbsence(result);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          initial == null ? 'Assenza registrata.' : 'Assenza aggiornata.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDeleteAbsence(
+    BuildContext context,
+    StaffAbsence absence,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (dialogContext) => AlertDialog(
+            title: const Text('Elimina assenza'),
+            content: Text(
+              'Vuoi davvero eliminare l\'assenza del ${_dayLabel.format(absence.start)}?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Annulla'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Elimina'),
+              ),
+            ],
+          ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+    await ref.read(appDataProvider.notifier).deleteStaffAbsence(absence.id);
+    if (!mounted) {
+      return;
+    }
+    final label =
+        '${_dayLabel.format(absence.start)} ${_timeLabel.format(absence.start)}';
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Assenza eliminata ($label).')));
+  }
+
+  Future<void> _confirmDeleteShift(BuildContext context, Shift shift) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (dialogContext) => AlertDialog(
+            title: const Text('Elimina turno'),
+            content: Text(
+              'Vuoi davvero eliminare il turno del ${_dayLabel.format(shift.start)}?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Annulla'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Elimina'),
+              ),
+            ],
+          ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+    await ref.read(appDataProvider.notifier).deleteShift(shift.id);
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Turno eliminato (${_dayLabel.format(shift.start)} ${_timeLabel.format(shift.start)}).',
+        ),
+      ),
+    );
   }
 
   Future<void> _openExpressSlotSheet(
