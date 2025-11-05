@@ -5742,26 +5742,93 @@ class _AppointmentCardState extends State<_AppointmentCard> {
     } else {
       verticalPadding = 14;
     }
-    final padding = EdgeInsets.symmetric(
-      horizontal: 14,
-      vertical: verticalPadding,
+    const double stripeWidth = 8.0;
+    const double stripeGap = 8.0;
+    final double horizontalPadding = 14.0;
+    final padding = EdgeInsets.only(
+      left: horizontalPadding + stripeWidth + stripeGap,
+      right: horizontalPadding,
+      top: verticalPadding,
+      bottom: verticalPadding,
     );
-    final bool hasTranslucentFill = backgroundColor.opacity > 0.0;
-    final List<Color>? fillGradient =
-        hasTranslucentFill
-            ? [
-              backgroundColor,
-              Color.alphaBlend(
-                theme.colorScheme.surface.withValues(
-                  alpha: theme.brightness == Brightness.dark ? 0.05 : 0.08,
-                ),
-                backgroundColor,
+    final Color cardSurface =
+        theme.brightness == Brightness.dark
+            ? theme.colorScheme.surface
+            : Colors.white;
+    final bool hasCategoryTone =
+        !isCancelled && !hideNoShowColor && baseColor.opacity > 0.0;
+    final Color stripeColor =
+        hasCategoryTone
+            ? Color.alphaBlend(
+              baseColor.withValues(
+                alpha: theme.brightness == Brightness.dark ? 0.75 : 0.88,
               ),
-            ]
-            : null;
+              theme.colorScheme.surface.withValues(alpha: 0),
+            )
+            : theme.colorScheme.outlineVariant.withValues(
+              alpha: theme.brightness == Brightness.dark ? 0.6 : 0.45,
+            );
+    Color gradientStart = cardSurface;
+    Color gradientEnd = cardSurface;
+    if (hasCategoryTone || backgroundColor.opacity > 0.0) {
+      final Color tintSource = hasCategoryTone ? baseColor : borderBlendColor;
+      gradientStart = Color.alphaBlend(
+        tintSource.withValues(
+          alpha: theme.brightness == Brightness.dark ? 0.36 : 0.26,
+        ),
+        cardSurface,
+      );
+      gradientEnd = Color.alphaBlend(
+        tintSource.withValues(
+          alpha: theme.brightness == Brightness.dark ? 0.14 : 0.12,
+        ),
+        cardSurface,
+      );
+    }
+    if (highlightAnomalies) {
+      gradientStart = Color.alphaBlend(
+        theme.colorScheme.error.withValues(
+          alpha: theme.brightness == Brightness.dark ? 0.24 : 0.18,
+        ),
+        gradientStart,
+      );
+      gradientEnd = Color.alphaBlend(
+        theme.colorScheme.error.withValues(
+          alpha: theme.brightness == Brightness.dark ? 0.14 : 0.12,
+        ),
+        gradientEnd,
+      );
+    }
+    final bool hasTranslucentFill = hasCategoryTone || highlightAnomalies;
     final borderRadius = BorderRadius.circular(12);
-    final bool showAccentStripe =
-        categoryColor != null && !isCancelled && !hideNoShowColor;
+    final Color contentSampleColor =
+        Color.lerp(gradientStart, gradientEnd, 0.5) ?? gradientStart;
+    final Brightness contentBrightness =
+        ThemeData.estimateBrightnessForColor(
+      contentSampleColor.withAlpha(0xFF),
+    );
+    final bool prefersDarkContent = contentBrightness == Brightness.light;
+    final Color primaryContentColor =
+        prefersDarkContent ? theme.colorScheme.onSurface : Colors.white;
+    final Color secondaryContentColor =
+        prefersDarkContent
+            ? theme.colorScheme.onSurface.withValues(alpha: 0.82)
+            : Colors.white.withValues(alpha: 0.9);
+    final Color iconContentColor = primaryContentColor;
+    final Color infoPillBackgroundColor =
+        prefersDarkContent
+            ? theme.colorScheme.onSurface.withValues(alpha: 0.08)
+            : Colors.white.withValues(
+              alpha: theme.brightness == Brightness.dark ? 0.12 : 0.18,
+            );
+    final Color infoPillTextColor =
+        prefersDarkContent
+            ? primaryContentColor
+            : Colors.white.withValues(alpha: 0.92);
+    final Color infoPillIconColor =
+        prefersDarkContent
+            ? primaryContentColor.withValues(alpha: 0.9)
+            : Colors.white.withValues(alpha: 0.9);
 
     final card = Container(
       height: height,
@@ -5792,42 +5859,40 @@ class _AppointmentCardState extends State<_AppointmentCard> {
         children: [
           DecoratedBox(
             decoration: BoxDecoration(
-              color: hasTranslucentFill ? null : backgroundColor,
-              gradient:
-                  hasTranslucentFill
-                      ? LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: fillGradient!,
-                      )
-                      : null,
-            ),
-          ),
-          if (showAccentStripe)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: ClipPath(
-                  clipper: const _DiagonalAccentClipper(),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topRight,
-                        end: Alignment.bottomLeft,
-                        colors: [
-                          categoryColor!.withValues(
-                            alpha:
-                                theme.brightness == Brightness.dark
-                                    ? 0.28
-                                    : 0.32,
-                          ),
-                          categoryColor!.withValues(alpha: 0.08),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
+              color: cardSurface,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [gradientStart, gradientEnd],
               ),
             ),
+          ),
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    stripeColor.withValues(
+                      alpha: theme.brightness == Brightness.dark ? 0.9 : 1,
+                    ),
+                    stripeColor.withValues(
+                      alpha: theme.brightness == Brightness.dark ? 0.75 : 0.82,
+                    ),
+                  ],
+                ),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  bottomLeft: Radius.circular(12),
+                ),
+              ),
+              child: SizedBox(width: stripeWidth),
+            ),
+          ),
           Padding(
             padding: padding,
             child: LayoutBuilder(
@@ -5856,17 +5921,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                     iconColor = theme.colorScheme.error;
                   } else {
                     iconData = Icons.check;
-                    final Color brightnessSample =
-                        baseColor == Colors.transparent
-                            ? theme.colorScheme.surface
-                            : baseColor;
-                    final brightness = ThemeData.estimateBrightnessForColor(
-                      brightnessSample.withAlpha(0xFF),
-                    );
-                    iconColor =
-                        brightness == Brightness.dark
-                            ? Colors.white
-                            : Colors.white;
+                    iconColor = iconContentColor;
                   }
                   final double iconSize =
                       availableHeight < 48
@@ -5898,21 +5953,21 @@ class _AppointmentCardState extends State<_AppointmentCard> {
 
                 final timeStyle =
                     theme.textTheme.bodyMedium?.copyWith(
-                      color: Colors.white,
+                      color: primaryContentColor,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ) ??
-                    const TextStyle(
-                      color: Colors.white,
+                    TextStyle(
+                      color: primaryContentColor,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     );
                 final detailStyle =
                     theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.white,
+                      color: secondaryContentColor,
                       fontSize: 11,
                     ) ??
-                    const TextStyle(color: Colors.white, fontSize: 11);
+                    TextStyle(color: secondaryContentColor, fontSize: 11);
                 final List<Widget> children = [];
 
                 void addDetail(
@@ -5974,15 +6029,12 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                     ),
                   }) {
                     final Color defaultIconColor =
-                        iconColor ?? Colors.white.withValues(alpha: 0.9);
+                        iconColor ?? infoPillIconColor;
                     final Color defaultTextColor =
-                        textColor ?? Colors.white.withValues(alpha: 0.92);
+                        textColor ?? infoPillTextColor;
                     final Color pillBackground =
                         background ??
-                        Colors.white.withValues(
-                          alpha:
-                              theme.brightness == Brightness.dark ? 0.12 : 0.18,
-                        );
+                        infoPillBackgroundColor;
                     return Container(
                       padding: padding,
                       decoration: BoxDecoration(
@@ -6065,6 +6117,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
 
     final overlayWidgets = <Widget>[];
     if (!hideContent) {
+      Widget? attentionBadge;
       if (needsAttention) {
         final overlayColor =
             hasAnomalies
@@ -6084,89 +6137,104 @@ class _AppointmentCardState extends State<_AppointmentCard> {
             hasAnomalies
                 ? theme.colorScheme.error.withValues(alpha: 0.45)
                 : theme.colorScheme.outlineVariant.withValues(alpha: 0.25);
-        overlayWidgets.add(
-          Positioned(
-            top: 8,
-            right: 8,
-            child: Tooltip(
-              message: attentionTooltip ?? 'Appuntamento da gestire',
-              waitDuration: const Duration(milliseconds: 250),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: overlayColor,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: shadowColor,
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
+        attentionBadge = Tooltip(
+          message: attentionTooltip ?? 'Appuntamento da gestire',
+          waitDuration: const Duration(milliseconds: 250),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: overlayColor,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: shadowColor,
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.all(6),
-                  child: Icon(iconData, color: iconColor, size: 24),
-                ),
-              ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(6),
+              child: Icon(iconData, color: iconColor, size: 24),
             ),
           ),
         );
       }
+
+      Widget? lastMinuteBadge;
       if (isLastMinute) {
         final slot = lastMinuteSlot;
         if (slot != null) {
-          overlayWidgets.add(
-            Positioned(
-              bottom: 8,
-              right: 8,
-              child: Tooltip(
-                message:
-                    slot.isAvailable
-                        ? 'Slot last-minute disponibile'
-                        : 'Appuntamento last-minute',
-                waitDuration: const Duration(milliseconds: 250),
-                child: Container(
-                  padding:
-                      hideContent
-                          ? const EdgeInsets.all(6)
-                          : const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child:
-                      hideContent
-                          ? Icon(
-                            Icons.flash_on_rounded,
-                            size: 16,
-                            color: theme.colorScheme.primary,
-                          )
-                          : Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.flash_on_rounded,
-                                size: 14,
-                                color: theme.colorScheme.primary,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Last-minute',
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: theme.colorScheme.primary,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                ),
+          lastMinuteBadge = Tooltip(
+            message:
+                slot.isAvailable
+                    ? 'Slot last-minute disponibile'
+                    : 'Appuntamento last-minute',
+            waitDuration: const Duration(milliseconds: 250),
+            child: Container(
+              padding:
+                  hideContent
+                      ? const EdgeInsets.all(6)
+                      : const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(12),
               ),
+              child:
+                  hideContent
+                      ? Icon(
+                        Icons.flash_on_rounded,
+                        size: 16,
+                        color: theme.colorScheme.primary,
+                      )
+                      : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.flash_on_rounded,
+                            size: 14,
+                            color: theme.colorScheme.primary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Last-minute',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
             ),
           );
         }
+      }
+
+      final positionedChildren = <Widget>[];
+      if (lastMinuteBadge != null) {
+        positionedChildren.add(lastMinuteBadge);
+      }
+      if (attentionBadge != null) {
+        if (positionedChildren.isNotEmpty) {
+          positionedChildren.add(const SizedBox(height: 8));
+        }
+        positionedChildren.add(attentionBadge);
+      }
+
+      if (positionedChildren.isNotEmpty) {
+        overlayWidgets.add(
+          Positioned(
+            bottom: 8,
+            right: 8,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: positionedChildren,
+            ),
+          ),
+        );
       }
     }
 
@@ -6251,25 +6319,6 @@ class _AppointmentCardState extends State<_AppointmentCard> {
 
     return interactiveCard;
   }
-}
-
-class _DiagonalAccentClipper extends CustomClipper<Path> {
-  const _DiagonalAccentClipper();
-
-  @override
-  Path getClip(Size size) {
-    final double startX = size.width * 0.4;
-    final double endX = size.width * 0.65;
-    return Path()
-      ..moveTo(startX, 0)
-      ..lineTo(size.width, 0)
-      ..lineTo(size.width, size.height)
-      ..lineTo(endX, size.height)
-      ..close();
-  }
-
-  @override
-  bool shouldReclip(covariant _DiagonalAccentClipper oldClipper) => false;
 }
 
 class _DragFeedback extends StatelessWidget {
