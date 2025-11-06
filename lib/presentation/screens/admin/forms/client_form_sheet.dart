@@ -45,6 +45,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
   String? _referralSource;
   late TextEditingController _dateOfBirthDisplay;
   DateTime? _dateOfBirth;
+  String? _gender;
   String? _salonId;
   late ChannelPreferences _initialChannelPreferences;
   late bool _prefPush;
@@ -103,6 +104,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     _city = TextEditingController(text: initialCity);
     _profession = TextEditingController(text: initial?.profession ?? '');
     _referralSource = initial?.referralSource;
+    _gender = initial?.gender;
     _dateOfBirth = initial?.dateOfBirth;
     _dateOfBirthDisplay = TextEditingController(
       text:
@@ -311,6 +313,20 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
               ),
               onChanged: (_) => _updateDateOfBirthFromText(),
               validator: _validateDateOfBirth,
+            ),
+            DropdownButtonFormField<String>(
+              value: _gender,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Sesso'),
+              items: const [
+                DropdownMenuItem(value: 'male', child: Text('Uomo')),
+                DropdownMenuItem(value: 'female', child: Text('Donna')),
+                DropdownMenuItem(
+                  value: 'other',
+                  child: Text('Altro/Non specificato'),
+                ),
+              ],
+              onChanged: (value) => setState(() => _gender = value),
             ),
           ],
         );
@@ -615,6 +631,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
           profession: trimmedProfession,
           referralSource: referral,
           dateOfBirth: _dateOfBirth,
+          gender: _gender,
         );
         Navigator.of(context).pop(mergedClient);
         return;
@@ -680,6 +697,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
       firstName: trimmedFirstName,
       lastName: trimmedLastName,
       phone: trimmedPhone,
+      gender: _gender,
       dateOfBirth: _dateOfBirth,
       address: trimmedAddress.isEmpty ? null : trimmedAddress,
       city: normalizedCity,
@@ -800,6 +818,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     required String profession,
     required String? referralSource,
     required DateTime? dateOfBirth,
+    required String? gender,
   }) {
     final sanitizedAddress = address.trim();
     final sanitizedCity = city.trim();
@@ -834,6 +853,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
               ? referralSource
               : existing.referralSource,
       dateOfBirth: dateOfBirth ?? existing.dateOfBirth,
+      gender: gender ?? existing.gender,
     );
   }
 

@@ -211,7 +211,13 @@ class Salon {
 
 enum ClientRegistrationAccessMode { open, approval }
 
-enum ClientRegistrationExtraField { address, profession, referralSource, notes }
+enum ClientRegistrationExtraField {
+  address,
+  profession,
+  referralSource,
+  notes,
+  gender,
+}
 
 class ClientRegistrationSettings {
   const ClientRegistrationSettings({
@@ -296,6 +302,7 @@ class SalonDashboardSections {
     this.showQuestionnaires = true,
     this.showLoyalty = true,
     this.showSocial = true,
+    this.showClientRegistration = true,
   });
 
   final bool showKpis;
@@ -305,6 +312,7 @@ class SalonDashboardSections {
   final bool showQuestionnaires;
   final bool showLoyalty;
   final bool showSocial;
+  final bool showClientRegistration;
 
   SalonDashboardSections copyWith({
     bool? showKpis,
@@ -314,6 +322,7 @@ class SalonDashboardSections {
     bool? showQuestionnaires,
     bool? showLoyalty,
     bool? showSocial,
+    bool? showClientRegistration,
   }) {
     return SalonDashboardSections(
       showKpis: showKpis ?? this.showKpis,
@@ -323,6 +332,8 @@ class SalonDashboardSections {
       showQuestionnaires: showQuestionnaires ?? this.showQuestionnaires,
       showLoyalty: showLoyalty ?? this.showLoyalty,
       showSocial: showSocial ?? this.showSocial,
+      showClientRegistration:
+          showClientRegistration ?? this.showClientRegistration,
     );
   }
 
@@ -335,6 +346,7 @@ class SalonDashboardSections {
       'showQuestionnaires': showQuestionnaires,
       'showLoyalty': showLoyalty,
       'showSocial': showSocial,
+      'showClientRegistration': showClientRegistration,
     };
   }
 
@@ -372,6 +384,10 @@ class SalonDashboardSections {
           data.containsKey('showSocial')
               ? _readFlag(data['showSocial'])
               : defaultPrefs.showSocial,
+      showClientRegistration:
+          data.containsKey('showClientRegistration')
+              ? _readFlag(data['showClientRegistration'])
+              : defaultPrefs.showClientRegistration,
     );
   }
 }

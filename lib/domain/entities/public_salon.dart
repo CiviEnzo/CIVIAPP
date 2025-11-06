@@ -212,6 +212,8 @@ ClientRegistrationExtraField? _stringToClientRegistrationExtraField(
       return ClientRegistrationExtraField.referralSource;
     case 'notes':
       return ClientRegistrationExtraField.notes;
+    case 'gender':
+      return ClientRegistrationExtraField.gender;
     default:
       return null;
   }

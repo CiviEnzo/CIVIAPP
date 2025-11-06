@@ -24,6 +24,19 @@ class ClientOverviewSection extends StatelessWidget {
     final formattedBirthDate =
         birthDate == null ? '—' : dateFormat.format(birthDate);
     final age = _formatClientAge(birthDate);
+    final genderCode = client.gender?.trim().toLowerCase();
+    final genderLabel = () {
+      switch (genderCode) {
+        case 'male':
+          return 'Uomo';
+        case 'female':
+          return 'Donna';
+        case 'other':
+          return 'Altro/Non specificato';
+        default:
+          return '—';
+      }
+    }();
     final channelPrefs = client.channelPreferences;
     final chips = _buildPreferenceChips(context, channelPrefs);
     final notes = client.notes?.trim() ?? '';
@@ -32,6 +45,7 @@ class ClientOverviewSection extends StatelessWidget {
 
     final personalFields = <_InfoFieldData>[
       _InfoFieldData(label: 'Nome e cognome', value: client.fullName),
+      _InfoFieldData(label: 'Sesso', value: genderLabel),
       _InfoFieldData(label: 'Data di nascita', value: formattedBirthDate),
       _InfoFieldData(label: 'Età', value: age),
       _InfoFieldData(

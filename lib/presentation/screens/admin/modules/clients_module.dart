@@ -370,6 +370,8 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                         : null;
                 final isProcessing = _processingRequests.contains(request.id);
                 final extra = request.extraData;
+                final genderCode = _stringOrNull(extra['gender']);
+                final gender = _genderLabel(genderCode);
                 final address = _stringOrNull(extra['address']);
                 final profession = _stringOrNull(extra['profession']);
                 final referral = _stringOrNull(extra['referralSource']);
@@ -389,6 +391,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                     buildInfoRow('Creata il', createdLabel),
                     if (dateOfBirthLabel != null)
                       buildInfoRow('Data di nascita', dateOfBirthLabel),
+                    if (gender != null) buildInfoRow('Sesso', gender),
                     if (address != null)
                       buildInfoRow('Citta di residenza', address),
                     if (profession != null)
@@ -500,6 +503,20 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     }
     final text = value.toString().trim();
     return text.isEmpty ? null : text;
+  }
+
+  String? _genderLabel(String? code) {
+    if (code == null || code.trim().isEmpty) return null;
+    switch (code.trim().toLowerCase()) {
+      case 'male':
+        return 'Uomo';
+      case 'female':
+        return 'Donna';
+      case 'other':
+        return 'Altro/Non specificato';
+      default:
+        return 'Altro/Non specificato';
+    }
   }
 
   @override
@@ -626,7 +643,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
       const SizedBox(height: 16),
     ];
 
-    if (pendingRequests.isNotEmpty) {
+    if (false && pendingRequests.isNotEmpty) {
       children.add(
         _buildAccessRequestsCard(
           context: context,
@@ -854,26 +871,172 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
       }
     }
 
+    // Ultimi clienti (ordinati per data di creazione desc, max 20)
+    final recentClients = [...salonClients]
+      ..sort((a, b) {
+        final left = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final right = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return right.compareTo(left);
+      });
+    final latestClients = recentClients.take(20).toList();
+
     final listView = ListView(
       padding: const EdgeInsets.all(16),
       children: children,
     );
 
-    return Stack(
+    // Tab 2: richieste di accesso
+    final requestsTab = ListView(
+      padding: const EdgeInsets.all(16),
       children: [
-        listView,
-        if (_isSavingClient)
-          Positioned.fill(
-            child: AbsorbPointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.35),
-                ),
-                child: const Center(child: CircularProgressIndicator()),
+        if (pendingRequests.isEmpty)
+          _buildPlaceholder(
+            context: context,
+            icon: Icons.hourglass_empty_rounded,
+            title: 'Nessuna richiesta',
+            message: 'Al momento non ci sono richieste di accesso in attesa.',
+          )
+        else
+          _buildAccessRequestsCard(
+            context: context,
+            requests: pendingRequests,
+            salonLookup: salonLookup,
+          ),
+      ],
+    );
+
+    // Tab 3: ultimi clienti
+    final List<Widget> latestChildren = [];
+    if (latestClients.isEmpty) {
+      latestChildren.add(
+        _buildPlaceholder(
+          context: context,
+          icon: Icons.people_outline_rounded,
+          title: 'Nessun cliente',
+          message: 'Non sono presenti clienti registrati di recente.',
+        ),
+      );
+    } else {
+      final dateFmt = DateFormat('dd/MM/yyyy');
+      for (var i = 0; i < latestClients.length; i++) {
+        final client = latestClients[i];
+        final created = client.createdAt;
+        final subtitle = created != null
+            ? 'Registrato il ${dateFmt.format(created)}'
+            : 'Data registrazione non disponibile';
+        latestChildren.add(
+          Card(
+            color: theme.colorScheme.surface,
+            elevation: 2,
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  CircleAvatar(
+                    radius: 22,
+                    child: Text(_clientInitial(client)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              _displayName(client),
+                              style: theme.textTheme.titleMedium,
+                            ),
+                            const SizedBox(width: 8),
+                            if (client.clientNumber != null)
+                              Text(
+                                'N° ${client.clientNumber}',
+                                style: theme.textTheme.titleMedium,
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(subtitle, style: theme.textTheme.bodyMedium),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Builder(
+                    builder: (tabCtx) => OutlinedButton.icon(
+                      onPressed: () {
+                        final controller = DefaultTabController.of(tabCtx);
+                        controller?.index = 0;
+                        _focusOnClient(client);
+                      },
+                      icon: const Icon(Icons.open_in_new_rounded),
+                      label: const Text('Apri'),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-      ],
+        );
+        if (i != latestClients.length - 1) {
+          latestChildren.add(const SizedBox(height: 12));
+        }
+      }
+    }
+    final latestTab = ListView(
+      padding: const EdgeInsets.all(16),
+      children: latestChildren,
+    );
+
+    return DefaultTabController(
+      length: 3,
+      child: Stack(
+        children: [
+          Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                child: Material(
+                  color: Colors.transparent,
+                  child: TabBar(
+                    isScrollable: true,
+                    indicatorSize: TabBarIndicatorSize.label,
+                    tabs: const [
+                      Tab(icon: Icon(Icons.search_rounded), text: 'Ricerca'),
+                      Tab(icon: Icon(Icons.how_to_reg_outlined), text: 'Richieste'),
+                      Tab(icon: Icon(Icons.fiber_new_rounded), text: 'Ultimi'),
+                    ],
+                  ),
+                ),
+              ),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    listView,
+                    requestsTab,
+                    latestTab,
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (_isSavingClient)
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.35),
+                  ),
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 

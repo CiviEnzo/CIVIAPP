@@ -2,6 +2,7 @@ import 'package:you_book/domain/entities/package.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/service.dart';
 import 'package:flutter/material.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
@@ -34,6 +35,7 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
   late TextEditingController _discountPercentage;
   late TextEditingController _sessionCount;
   late TextEditingController _validDays;
+  late TextEditingController _serviceSearch;
   String? _salonId;
   final Set<String> _selectedServices = {};
   final Map<String, TextEditingController> _serviceControllers = {};
@@ -90,6 +92,11 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
     _sessionCount.addListener(_handleSessionCountChanged);
     _price.addListener(_handlePriceChanged);
     _discountPercentage.addListener(_handleDiscountChanged);
+    _serviceSearch = TextEditingController()
+      ..addListener(() {
+        if (!mounted) return;
+        setState(() {});
+      });
     _syncSalonDependencies();
     _recalculateFullPrice(notify: false);
   }
@@ -105,6 +112,7 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
     _sessionCount.removeListener(_handleSessionCountChanged);
     _sessionCount.dispose();
     _validDays.dispose();
+    _serviceSearch.dispose();
     for (final controller in _serviceControllers.values) {
       controller.dispose();
     }
@@ -121,9 +129,8 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
     final finalPriceValue = _currentFinalPrice();
     final savings = _fullPrice > 0 ? _fullPrice - finalPriceValue : 0;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Form(
+    return DialogActionLayout(
+      body: Form(
         key: _formKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -207,17 +214,13 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
             ),
             const SizedBox(height: 8),
             ..._buildServiceInputs(context, salonServices),
-            const SizedBox(height: 24),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                onPressed: _submit,
-                child: const Text('Salva'),
-              ),
-            ),
+            const SizedBox(height: 8),
           ],
         ),
       ),
+      actions: [
+        FilledButton(onPressed: _submit, child: const Text('Salva')),
+      ],
     );
   }
 
@@ -244,11 +247,12 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
     BuildContext context,
     List<Service> services,
   ) {
+    final theme = Theme.of(context);
     if (_salonId == null) {
       return [
         Text(
           'Nessun salone associato. Impossibile mostrare i servizi disponibili.',
-          style: Theme.of(context).textTheme.bodyMedium,
+          style: theme.textTheme.bodyMedium,
         ),
       ];
     }
@@ -256,79 +260,142 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
       return [
         Text(
           'Nessun servizio associato al salone selezionato.',
-          style: Theme.of(context).textTheme.bodyMedium,
+          style: theme.textTheme.bodyMedium,
         ),
       ];
     }
 
-    return services.map((service) {
-      final selected = _selectedServices.contains(service.id);
-      final controller = _controllerForService(service.id);
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Checkbox(
-              value: selected,
-              onChanged: (value) => _toggleService(service, value ?? false),
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              visualDensity: VisualDensity.compact,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    service.name,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  if (service.description != null &&
-                      service.description!.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(
-                        service.description!,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            SizedBox(
-              width: 110,
-              child: TextFormField(
-                controller: controller,
-                enabled: selected,
-                decoration: const InputDecoration(
-                  labelText: 'Sessioni',
-                  isDense: true,
+    final query = _serviceSearch.text.trim().toLowerCase();
+    final filtered = query.isEmpty
+        ? services
+        : services.where((service) {
+            final name = service.name.toLowerCase();
+            final desc = (service.description ?? '').toLowerCase();
+            final cat = (service.category).toLowerCase();
+            return name.contains(query) || desc.contains(query) || cat.contains(query);
+          }).toList()
+          ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+    final Map<String, List<Service>> byCategory = {};
+    for (final service in filtered) {
+      final label = service.category.trim().isEmpty ? 'Altro' : service.category.trim();
+      byCategory.putIfAbsent(label, () => <Service>[]).add(service);
+    }
+    final sortedCategoryLabels = byCategory.keys.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    final widgets = <Widget>[];
+    widgets.add(
+      TextField(
+        controller: _serviceSearch,
+        decoration: InputDecoration(
+          hintText: 'Cerca servizi...',
+          prefixIcon: const Icon(Icons.search_rounded),
+          suffixIcon: _serviceSearch.text.isEmpty
+              ? null
+              : IconButton(
+                  tooltip: 'Pulisci',
+                  icon: const Icon(Icons.clear_rounded),
+                  onPressed: () {
+                    _serviceSearch.clear();
+                  },
                 ),
-                keyboardType: TextInputType.number,
-                validator: (value) {
-                  if (!selected) {
-                    return null;
-                  }
-                  final trimmed = value?.trim() ?? '';
-                  if (trimmed.isEmpty) {
-                    return 'Obbligatorio';
-                  }
-                  final numeric = int.tryParse(trimmed);
-                  if (numeric == null || numeric <= 0) {
-                    return 'Valore non valido';
-                  }
-                  return null;
-                },
-                onChanged:
-                    (value) => _onServiceSessionsChanged(service.id, value),
-              ),
-            ),
-          ],
+        ),
+        textInputAction: TextInputAction.search,
+      ),
+    );
+    widgets.add(const SizedBox(height: 8));
+
+    if (sortedCategoryLabels.isEmpty) {
+      widgets.add(
+        Text(
+          'Nessun servizio corrisponde alla ricerca.',
+          style: theme.textTheme.bodyMedium,
         ),
       );
-    }).toList();
+      return widgets;
+    }
+
+    for (final label in sortedCategoryLabels) {
+      final items = byCategory[label]!;
+      widgets.add(Padding(
+        padding: const EdgeInsets.only(top: 8, bottom: 4),
+        child: Text(
+          '$label (${items.length})',
+          style: theme.textTheme.titleSmall,
+        ),
+      ));
+      for (final service in items) {
+        final selected = _selectedServices.contains(service.id);
+        final controller = _controllerForService(service.id);
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Checkbox(
+                  value: selected,
+                  onChanged: (value) => _toggleService(service, value ?? false),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        service.name,
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                      if (service.description != null && service.description!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            service.description!,
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: 110,
+                  child: TextFormField(
+                    controller: controller,
+                    enabled: selected,
+                    decoration: const InputDecoration(
+                      labelText: 'Sessioni',
+                      isDense: true,
+                    ),
+                    keyboardType: TextInputType.number,
+                    validator: (value) {
+                      if (!selected) {
+                        return null;
+                      }
+                      final trimmed = value?.trim() ?? '';
+                      if (trimmed.isEmpty) {
+                        return 'Obbligatorio';
+                      }
+                      final numeric = int.tryParse(trimmed);
+                      if (numeric == null || numeric <= 0) {
+                        return 'Valore non valido';
+                      }
+                      return null;
+                    },
+                    onChanged: (value) => _onServiceSessionsChanged(service.id, value),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+
+    return widgets;
   }
 
   TextEditingController _controllerForService(String serviceId) {

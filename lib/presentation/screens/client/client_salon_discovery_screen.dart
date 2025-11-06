@@ -1155,6 +1155,7 @@ class _SalonAccessRequestSheetState
   late final TextEditingController _birthDateController;
   final DateFormat _dateFormat = DateFormat('dd/MM/yyyy');
   DateTime? _birthDate;
+  String? _gender;
   bool _isSubmitting = false;
 
   @override
@@ -1217,6 +1218,9 @@ class _SalonAccessRequestSheetState
     );
     final requiresNotes = settings.extraFields.contains(
       ClientRegistrationExtraField.notes,
+    );
+    final requiresGender = settings.extraFields.contains(
+      ClientRegistrationExtraField.gender,
     );
 
     return Padding(
@@ -1331,6 +1335,31 @@ class _SalonAccessRequestSheetState
                   readOnly: true,
                   onTap: _pickDateOfBirth,
                 ),
+                if (requiresGender) ...[
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: _gender,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Sesso',
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'male', child: Text('Uomo')),
+                      DropdownMenuItem(value: 'female', child: Text('Donna')),
+                      DropdownMenuItem(
+                        value: 'other',
+                        child: Text('Altro/Non specificato'),
+                      ),
+                    ],
+                    onChanged: (value) => setState(() => _gender = value),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Campo obbligatorio';
+                      }
+                      return null;
+                    },
+                  ),
+                ],
                 if (requiresAddress) ...[
                   const SizedBox(height: 12),
                   TextFormField(
@@ -1472,6 +1501,9 @@ class _SalonAccessRequestSheetState
     }
     if (address.isNotEmpty) {
       extraData['address'] = address;
+    }
+    if (_gender != null && _gender!.trim().isNotEmpty) {
+      extraData['gender'] = _gender!.trim();
     }
     if (_professionController.text.trim().isNotEmpty) {
       extraData['profession'] = _professionController.text.trim();

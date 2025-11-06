@@ -46,6 +46,7 @@ class Client {
     required this.firstName,
     required this.lastName,
     required this.phone,
+    this.gender,
     this.clientNumber,
     this.dateOfBirth,
     this.address,
@@ -77,6 +78,7 @@ class Client {
   final String firstName;
   final String lastName;
   final String phone;
+  final String? gender;
   final String? clientNumber;
   final DateTime? dateOfBirth;
   final String? address;
@@ -108,6 +110,7 @@ class Client {
     String? firstName,
     String? lastName,
     String? phone,
+    Object? gender = _unset,
     Object? clientNumber = _unset,
     Object? dateOfBirth = _unset,
     Object? address = _unset,
@@ -137,6 +140,7 @@ class Client {
       firstName: firstName ?? this.firstName,
       lastName: lastName ?? this.lastName,
       phone: phone ?? this.phone,
+      gender: gender == _unset ? this.gender : gender as String?,
       clientNumber:
           clientNumber == _unset ? this.clientNumber : clientNumber as String?,
       dateOfBirth:

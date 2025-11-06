@@ -753,6 +753,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
       ClientRegistrationExtraField.referralSource:
           'Richiedi "Come ci ha conosciuto?"',
       ClientRegistrationExtraField.notes: 'Richiedi note aggiuntive',
+      ClientRegistrationExtraField.gender: 'Richiedi sesso',
     };
 
     return Card(

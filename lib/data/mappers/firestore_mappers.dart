@@ -984,6 +984,7 @@ Client clientFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     firstName: data['firstName'] as String? ?? '',
     lastName: data['lastName'] as String? ?? '',
     phone: data['phone'] as String? ?? '',
+    gender: (data['gender'] as String?)?.trim(),
     clientNumber: data['clientNumber'] as String?,
     dateOfBirth:
         (dateOfBirthRaw is Timestamp)
@@ -1055,6 +1056,7 @@ Map<String, dynamic> clientToMap(Client client) {
     'firstName': client.firstName,
     'lastName': client.lastName,
     'phone': client.phone,
+    'gender': client.gender,
     'clientNumber': client.clientNumber,
     'dateOfBirth':
         client.dateOfBirth == null
@@ -2161,6 +2163,8 @@ ClientRegistrationExtraField? _stringToClientRegistrationExtraField(
       return ClientRegistrationExtraField.referralSource;
     case 'notes':
       return ClientRegistrationExtraField.notes;
+    case 'gender':
+      return ClientRegistrationExtraField.gender;
     default:
       return null;
   }
@@ -2178,6 +2182,8 @@ String _clientRegistrationExtraFieldToString(
       return 'referralSource';
     case ClientRegistrationExtraField.notes:
       return 'notes';
+    case ClientRegistrationExtraField.gender:
+      return 'gender';
   }
 }
 

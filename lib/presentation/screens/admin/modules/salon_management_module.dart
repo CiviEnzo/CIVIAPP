@@ -14,6 +14,7 @@ import 'package:you_book/presentation/screens/admin/forms/salon_operations_sheet
 import 'package:you_book/presentation/screens/admin/forms/salon_rooms_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/salon_loyalty_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/salon_social_sheet.dart';
+import 'package:you_book/presentation/screens/admin/forms/salon_client_registration_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/salon_setup_checklist_sheet.dart';
 import 'package:you_book/presentation/screens/admin/modules/questionnaires_module.dart';
 import 'package:you_book/services/whatsapp_service.dart';
@@ -653,6 +654,22 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
       unawaited(manageQuestionnairesAsync());
     }
 
+    Future<void> editRegistrationAsync() async {
+      final store = ref.read(appDataProvider.notifier);
+      final updated = await showAppModalSheet<Salon>(
+        context: context,
+        builder: (ctx) => SalonClientRegistrationSheet(salon: salon),
+      );
+      if (updated == null) {
+        return;
+      }
+      await store.upsertSalon(updated);
+    }
+
+    void onEditRegistration() {
+      unawaited(editRegistrationAsync());
+    }
+
     Future<void> showSectionsFilter() async {
       var prefsDraft = salon.dashboardSections;
       await showAppModalSheet<void>(
@@ -718,6 +735,15 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
                               (prefs) => prefs.copyWith(
                                 showOperational: !prefs.showOperational,
                               ),
+                        ),
+                        buildToggle(
+                          title: 'Registrazione clienti',
+                          subtitle: 'Accesso e campi richiesti',
+                          value: prefsDraft.showClientRegistration,
+                          updater: (prefs) => prefs.copyWith(
+                            showClientRegistration:
+                                !prefs.showClientRegistration,
+                          ),
                         ),
                         buildToggle(
                           title: 'Macchinari',
@@ -1002,6 +1028,64 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
               leadingIcon: Icons.meeting_room_rounded,
               label: 'Cabine e stanze',
               value: salon.rooms.length.toString(),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Client registration settings card
+    String accessLabel;
+    switch (salon.clientRegistration.accessMode) {
+      case ClientRegistrationAccessMode.open:
+        accessLabel = 'Accesso immediato (salone aperto)';
+        break;
+      case ClientRegistrationAccessMode.approval:
+        accessLabel = 'Solo previa approvazione';
+        break;
+    }
+    final extras = salon.clientRegistration.extraFields;
+    String extrasLabel;
+    if (extras.isEmpty) {
+      extrasLabel = 'Nessuno';
+    } else {
+      final names = extras.map((f) {
+        switch (f) {
+          case ClientRegistrationExtraField.address:
+            return 'Città di residenza';
+          case ClientRegistrationExtraField.profession:
+            return 'Professione';
+          case ClientRegistrationExtraField.referralSource:
+            return 'Come ci ha conosciuto';
+          case ClientRegistrationExtraField.notes:
+            return 'Note';
+          case ClientRegistrationExtraField.gender:
+            return 'Sesso';
+        }
+      }).toList();
+      extrasLabel = names.join(', ');
+    }
+
+    if (prefs.showClientRegistration) {
+      sectionWidgets.add(
+        _SectionBlock(
+          title: 'Registrazione clienti',
+          icon: Icons.app_registration_rounded,
+          onEdit: onEditRegistration,
+          editLabel: 'Configura registrazione',
+          backgroundColor: highlightedCardColor,
+          shadowColor: highlightedShadowColor,
+          elevation: highlightedElevation,
+          children: [
+            _DataRowTile(
+              leadingIcon: Icons.rule_folder_rounded,
+              label: 'Modalità di accesso',
+              value: accessLabel,
+            ),
+            _DataRowTile(
+              leadingIcon: Icons.list_alt_rounded,
+              label: 'Campi aggiuntivi richiesti',
+              value: extrasLabel,
             ),
           ],
         ),

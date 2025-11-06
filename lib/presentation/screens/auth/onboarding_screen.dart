@@ -39,6 +39,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final _notesController = TextEditingController();
   final DateFormat _dateFormat = DateFormat('dd/MM/yyyy');
   DateTime? _dateOfBirth;
+  String? _gender;
   bool _initializedFromSession = false;
   bool _isSaving = false;
   List<UserRole> _availableRoles = const <UserRole>[];
@@ -324,6 +325,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final requiresNotes = registrationSettings.extraFields.contains(
       ClientRegistrationExtraField.notes,
     );
+    final requiresGender = registrationSettings.extraFields.contains(
+      ClientRegistrationExtraField.gender,
+    );
 
     if (selectedSalon != null && _salonSearchController.text.isEmpty) {
       _salonSearchController.text = selectedSalon.name;
@@ -499,6 +503,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                         theme.textTheme,
                         hasSalon: selectedSalonId != null,
                         requiresAddress: requiresAddress,
+                        requiresGender: requiresGender,
                         requiresProfession: requiresProfession,
                         requiresReferral: requiresReferral,
                         requiresNotes: requiresNotes,
@@ -663,16 +668,32 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     buildInfoRow('Email', request.email, textTheme),
                     if (request.phone.isNotEmpty)
                       buildInfoRow('Telefono', request.phone, textTheme),
-                    if (request.dateOfBirth != null)
-                      buildInfoRow(
-                        'Data di nascita',
-                        DateFormat('dd/MM/yyyy').format(request.dateOfBirth!),
-                        textTheme,
-                      ),
-                    if (address != null)
-                      buildInfoRow('Città di residenza', address, textTheme),
-                    if (profession != null)
-                      buildInfoRow('Professione', profession, textTheme),
+                if (request.dateOfBirth != null)
+                  buildInfoRow(
+                    'Data di nascita',
+                    DateFormat('dd/MM/yyyy').format(request.dateOfBirth!),
+                    textTheme,
+                  ),
+                () {
+                  final genderCode = _stringOrNull(extra['gender']);
+                  if (genderCode == null) return const SizedBox.shrink();
+                  String label;
+                  switch (genderCode) {
+                    case 'male':
+                      label = 'Uomo';
+                      break;
+                    case 'female':
+                      label = 'Donna';
+                      break;
+                    default:
+                      label = 'Altro/Non specificato';
+                  }
+                  return buildInfoRow('Sesso', label, textTheme);
+                }(),
+                if (address != null)
+                  buildInfoRow('Città di residenza', address, textTheme),
+                if (profession != null)
+                  buildInfoRow('Professione', profession, textTheme),
                     if (referral != null)
                       buildInfoRow(
                         'Come ci ha conosciuto',
@@ -802,6 +823,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     TextTheme textTheme, {
     required bool hasSalon,
     required bool requiresAddress,
+    required bool requiresGender,
     required bool requiresProfession,
     required bool requiresReferral,
     required bool requiresNotes,
@@ -855,6 +877,34 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           textCapitalization: TextCapitalization.sentences,
           minLines: 1,
           maxLines: 2,
+        ),
+      );
+    }
+
+    if (requiresGender) {
+      addField(
+        DropdownButtonFormField<String>(
+          value: _gender,
+          decoration: const InputDecoration(
+            labelText: 'Sesso *',
+            border: OutlineInputBorder(),
+          ),
+          isExpanded: true,
+          items: const [
+            DropdownMenuItem(value: 'male', child: Text('Uomo')),
+            DropdownMenuItem(value: 'female', child: Text('Donna')),
+            DropdownMenuItem(
+              value: 'other',
+              child: Text('Altro/Non specificato'),
+            ),
+          ],
+          onChanged: (value) => setState(() => _gender = value),
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return 'Campo obbligatorio';
+            }
+            return null;
+          },
         ),
       );
     }
@@ -1040,6 +1090,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           return false;
         }
       }
+      if (registrationSettings.extraFields.contains(
+        ClientRegistrationExtraField.gender,
+      )) {
+        if (_gender == null || _gender!.trim().isEmpty) {
+          return false;
+        }
+      }
     }
     return true;
   }
@@ -1109,6 +1166,14 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       )) {
         if (_notesController.text.trim().isEmpty) {
           _showMessage('Inserisci le note richieste.');
+          return;
+        }
+      }
+      if (registrationSettings.extraFields.contains(
+        ClientRegistrationExtraField.gender,
+      )) {
+        if (_gender == null || _gender!.trim().isEmpty) {
+          _showMessage('Seleziona il sesso.');
           return;
         }
       }
@@ -1229,6 +1294,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         }
         if (address.isNotEmpty) {
           extraData['address'] = address;
+        }
+        if (_gender != null && _gender!.trim().isNotEmpty) {
+          extraData['gender'] = _gender!.trim();
         }
         if (profession.isNotEmpty) {
           extraData['profession'] = profession;

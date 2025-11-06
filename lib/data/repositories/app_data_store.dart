@@ -3118,6 +3118,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     final referral = _stringOrNull(request.extraData['referralSource']);
     final notes = _stringOrNull(request.extraData['notes']);
     final rawCity = _stringOrNull(request.extraData['city']);
+    final gender = _stringOrNull(request.extraData['gender']);
     final inferredCity =
         rawCity != null && rawCity.isNotEmpty
             ? rawCity
@@ -3129,6 +3130,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
       firstName: request.firstName,
       lastName: request.lastName,
       phone: request.phone,
+      gender: gender,
       email: request.email,
       clientNumber: assignedNumber,
       dateOfBirth: request.dateOfBirth,
