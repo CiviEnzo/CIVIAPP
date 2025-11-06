@@ -105,6 +105,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
   bool _copyJustCompleted = false;
   Timer? _copyFeedbackTimer;
   static const Duration _copyFeedbackDuration = Duration(seconds: 2);
+  String? _blockingEquipmentMessage;
 
   @override
   void initState() {
@@ -178,9 +179,20 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     super.dispose();
   }
 
+  void _showBlockingEquipmentMessage(String message) {
+    if (!mounted) return;
+    setState(() => _blockingEquipmentMessage = message);
+  }
+
+  void _clearBlockingEquipmentMessage() {
+    if (!mounted || _blockingEquipmentMessage == null) return;
+    setState(() => _blockingEquipmentMessage = null);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final bookingDateFormat = DateFormat('EEEE d MMMM yyyy', 'it_IT');
     final timeFormat = DateFormat('HH:mm', 'it_IT');
     final formattedBookingDate = bookingDateFormat.format(_start);
@@ -569,6 +581,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                               }
                                             });
 
+                                            _clearBlockingEquipmentMessage();
+
                                             if (salonChanged) {
                                               WidgetsBinding.instance
                                                   .addPostFrameCallback((_) {
@@ -614,6 +628,49 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                               ),
                             ],
                           ),
+                          if (_blockingEquipmentMessage != null) ...[
+                            const SizedBox(height: 16),
+                            Material(
+                              color: colorScheme.errorContainer,
+                              borderRadius: BorderRadius.circular(12),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(
+                                      Icons.warning_rounded,
+                                      color: colorScheme.onErrorContainer,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        _blockingEquipmentMessage!,
+                                        style:
+                                            theme.textTheme.bodyMedium?.copyWith(
+                                              color:
+                                                  colorScheme.onErrorContainer,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Chiudi avviso',
+                                      onPressed: _clearBlockingEquipmentMessage,
+                                      visualDensity: VisualDensity.compact,
+                                      icon: Icon(
+                                        Icons.close_rounded,
+                                        color: colorScheme.onErrorContainer,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 12),
                           _buildSectionHeader(
                             icon: Icons.group_add_rounded,
@@ -1008,6 +1065,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                             }
                                           }
                                         });
+                                        _clearBlockingEquipmentMessage();
                                         state.didChange(_serviceIds);
                                       }
                                     },
@@ -1593,6 +1651,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         _status = AppointmentStatus.scheduled;
       }
     });
+    _clearBlockingEquipmentMessage();
   }
 
   List<_AvailableSlot> _availableSlotsForDay({
@@ -2310,6 +2369,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         _status = AppointmentStatus.scheduled;
       }
     });
+    _clearBlockingEquipmentMessage();
   }
 
   void _adjustDuration(int deltaMinutes) {
@@ -2321,9 +2381,11 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     setState(() {
       _end = _start.add(Duration(minutes: nextDuration));
     });
+    _clearBlockingEquipmentMessage();
   }
 
   Appointment? _buildAppointment({required bool skipAvailabilityChecks}) {
+    _clearBlockingEquipmentMessage();
     if (!_formKey.currentState!.validate()) {
       return null;
     }
@@ -2491,9 +2553,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             equipmentLabel.isEmpty
                 ? 'Macchinario non disponibile per questo orario.'
                 : 'Macchinario non disponibile per questo orario: $equipmentLabel.';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$message Scegli un altro slot.')),
-        );
+        _showBlockingEquipmentMessage('$message Scegli un altro slot.');
         return null;
       }
     }
