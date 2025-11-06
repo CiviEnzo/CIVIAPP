@@ -8,6 +8,7 @@ import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/screens/admin/forms/client_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/client_import_sheet.dart';
 import 'package:you_book/presentation/screens/admin/modules/client_detail_page.dart';
+import 'package:you_book/presentation/screens/admin/modules/clients/advanced_search/advanced_search_tab.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -993,7 +994,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     );
 
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Stack(
         children: [
           Column(
@@ -1007,6 +1008,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                     indicatorSize: TabBarIndicatorSize.label,
                     tabs: const [
                       Tab(icon: Icon(Icons.search_rounded), text: 'Ricerca'),
+                      Tab(icon: Icon(Icons.filter_alt_rounded), text: 'Ricerca avanzata'),
                       Tab(icon: Icon(Icons.how_to_reg_outlined), text: 'Richieste'),
                       Tab(icon: Icon(Icons.fiber_new_rounded), text: 'Ultimi'),
                     ],
@@ -1017,6 +1019,27 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                 child: TabBarView(
                   children: [
                     listView,
+                    AdvancedSearchTab(
+                      salonId: widget.salonId,
+                      onCreateClient: () => _openClientForm(
+                        salons: salons,
+                        clients: data.clients,
+                      ),
+                      onImportClients: () => _openImport(
+                        context,
+                        ref,
+                        salons: salons,
+                        clients: data.clients,
+                        defaultSalonId: widget.salonId,
+                      ),
+                      onEditClient: (client) => _openClientForm(
+                        salons: salons,
+                        clients: data.clients,
+                        existing: client,
+                      ),
+                      onSendInvite: _sendAccessLink,
+                      isSendingInvite: _isSending,
+                    ),
                     requestsTab,
                     latestTab,
                   ],
