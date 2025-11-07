@@ -189,21 +189,20 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
 
     final totalResults = state.results.length;
     final showResults = state.hasSearched || state.results.isNotEmpty;
+    final activeChips = _buildActiveFilterChips(filters);
 
     _cachedServices = services;
     _cachedCategories = categories;
     _cachedReferralSources = referralOptions;
 
     return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 1100;
+      builder: (context, _) {
         final filtersWidget = _buildFilters(
           context: context,
           filters: filters,
           services: services,
           categories: categories,
           referralSources: referralOptions,
-          isApplying: state.isApplying,
         );
         final resultsChildren = _buildResultsChildren(
           context: context,
@@ -213,64 +212,29 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
           showResults: showResults,
           filters: filters,
         );
+        final hasBulkSelection = _bulkSelectedClientIds.isNotEmpty;
 
-        Widget content;
-        if (isWide) {
-          content = Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                flex: 42,
-                child: Scrollbar(
-                  controller: _filtersScrollController,
-                  thumbVisibility: true,
-                  child: SingleChildScrollView(
-                    controller: _filtersScrollController,
-                    padding: const EdgeInsets.fromLTRB(16, 16, 20, 24),
-                    child: filtersWidget,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 20),
-              Expanded(
-                flex: 58,
-                child: Scrollbar(
-                  controller: _resultsScrollController,
-                  thumbVisibility: true,
-                  child: ListView(
-                    controller: _resultsScrollController,
-                    padding: const EdgeInsets.fromLTRB(0, 16, 16, 24),
-                    children: resultsChildren,
-                  ),
-                ),
-              ),
-            ],
-          );
-        } else {
-          content = Scrollbar(
+        final content = Scrollbar(
+          controller: _resultsScrollController,
+          child: ListView(
             controller: _resultsScrollController,
-            child: ListView(
-              controller: _resultsScrollController,
-              padding: const EdgeInsets.all(16),
-              children: [
-                filtersWidget,
-                const SizedBox(height: 16),
-                ...resultsChildren,
-              ],
-            ),
-          );
-        }
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: [
+              filtersWidget,
+              const SizedBox(height: 16),
+              ...resultsChildren,
+            ],
+          ),
+        );
 
-        return Stack(
+        return Column(
           children: [
-            content,
-            if (_bulkSelectedClientIds.isNotEmpty)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: _buildBulkToolbar(),
-              ),
+            Expanded(child: content),
+            if (hasBulkSelection) _buildBulkToolbar(),
+            _buildPersistentActionsBar(
+              isApplying: state.isApplying,
+              activeChips: activeChips,
+            ),
           ],
         );
       },
@@ -283,60 +247,80 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
     required List<Service> services,
     required List<ServiceCategory> categories,
     required List<String> referralSources,
-    required bool isApplying,
   }) {
-    final theme = Theme.of(context);
-    final activeChips = _buildActiveFilterChips(filters);
+    final children = <Widget>[
+      _buildPrimaryFiltersCard(
+        context: context,
+        filters: filters,
+        categories: categories,
+        referralSources: referralSources,
+      ),
+      const SizedBox(height: 16),
+      _buildQuestionnaireCard(
+        context: context,
+        filters: filters,
+        services: services,
+        categories: categories,
+        referralSources: referralSources,
+      ),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Card(
+      children: children,
+    );
+  }
+
+  Widget _buildPrimaryFiltersCard({
+    required BuildContext context,
+    required AdvancedSearchFilters filters,
+    required List<ServiceCategory> categories,
+    required List<String> referralSources,
+  }) {
+    final theme = Theme.of(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth =
+            constraints.maxWidth.isFinite
+                ? constraints.maxWidth
+                : MediaQuery.of(context).size.width;
+        final fieldWidth = _resolvePrimaryFieldWidth(maxWidth);
+        const fieldSpacing = 12.0;
+
+        Widget compactField(Widget child) => SizedBox(
+          width: fieldWidth,
+          child: child,
+        );
+        final sectionWidth = _resolvePrimarySectionWidth(maxWidth);
+        final wideSectionWidth =
+            _resolvePrimarySectionWidth(maxWidth, prefersWide: true);
+        Widget section(
+          Widget child, {
+          bool wide = false,
+        }) => SizedBox(
+          width: wide ? wideSectionWidth : sectionWidth,
+          child: child,
+        );
+
+        return Card(
           elevation: 2,
           surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Filtri rapidi', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 12),
-                _buildTextField(
-                  controller: _generalQueryController,
-                  label: 'Testo generico (nome, telefono, email, note)',
-                  icon: Icons.search_rounded,
-                  onChanged:
-                      (value) => _updateFilter(
-                        (builder) => builder.generalQuery = value,
-                      ),
-                ),
-                const SizedBox(height: 12),
-                Row(
+                Text('Filtri principali', style: theme.textTheme.titleMedium),
+                const SizedBox(height: fieldSpacing),
+                Wrap(
+                  spacing: fieldSpacing,
+                  runSpacing: fieldSpacing,
                   children: [
-                    Expanded(
-                      child: _buildTextField(
-                        controller: _clientNumberController,
-                        label: 'Numero cliente',
-                        icon: Icons.badge_outlined,
-                        keyboardType: TextInputType.text,
-                        onChanged:
-                            (value) => _updateFilter(
-                              (builder) =>
-                                  builder.clientNumberExact =
-                                      value.trim().isEmpty
-                                          ? null
-                                          : value.trim(),
-                            ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildTextField(
+                    compactField(
+                      _buildTextField(
                         controller: _clientNumberFromController,
-                        label: 'Da',
+                        label: 'Numero cliente da',
                         icon: Icons.filter_alt_outlined,
                         keyboardType: TextInputType.number,
                         onChanged:
@@ -349,11 +333,10 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                             ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildTextField(
+                    compactField(
+                      _buildTextField(
                         controller: _clientNumberToController,
-                        label: 'A',
+                        label: 'Numero cliente a',
                         icon: Icons.filter_alt_rounded,
                         keyboardType: TextInputType.number,
                         onChanged:
@@ -366,84 +349,196 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                             ),
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _buildOnboardingStatusChips(filters.onboardingStatuses),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildTextField(
-                        controller: _loyaltyMinController,
-                        label: 'Punti minimi',
-                        icon: Icons.star_border_rounded,
+                    compactField(
+                      _buildTextField(
+                        controller: _minAgeController,
+                        label: 'Età minima',
+                        icon: Icons.cake_outlined,
                         keyboardType: TextInputType.number,
                         onChanged:
                             (value) => _updateFilter(
                               (builder) =>
-                                  builder.loyaltyPointsMin =
+                                  builder.minAge =
                                       value.trim().isEmpty
                                           ? null
                                           : int.tryParse(value),
                             ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildTextField(
-                        controller: _loyaltyMaxController,
-                        label: 'Punti massimi',
-                        icon: Icons.star_rate_rounded,
+                    compactField(
+                      _buildTextField(
+                        controller: _maxAgeController,
+                        label: 'Età massima',
+                        icon: Icons.cake_rounded,
                         keyboardType: TextInputType.number,
                         onChanged:
                             (value) => _updateFilter(
                               (builder) =>
-                                  builder.loyaltyPointsMax =
+                                  builder.maxAge =
                                       value.trim().isEmpty
                                           ? null
                                           : int.tryParse(value),
                             ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildSingleDatePickerRow(
-                        context: context,
-                        label: 'Punti da',
-                        value: filters.loyaltyUpdatedSince,
-                        onSelected:
-                            (date) => _updateFilter(
-                              (builder) => builder.loyaltyUpdatedSince = date,
-                            ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                _buildActionsRow(
-                  isApplying: isApplying,
-                  onOpenAdvanced:
-                      () => _openAdvancedFilters(
-                        context: context,
-                        services: services,
-                        categories: categories,
-                        referralSources: referralSources,
                       ),
                 ),
               ],
             ),
-          ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: fieldSpacing,
+              runSpacing: 16,
+              children: [
+                section(_buildGenderChips(filters.genders)),
+                section(
+                  _buildTriStateChoice(
+                    label: 'Hanno installato l’app',
+                    value: filters.hasPushToken,
+                    onChanged:
+                        (value) => _updateFilter(
+                          (builder) => builder.hasPushToken = value,
+                        ),
+                  ),
+                ),
+                section(
+                  _buildReferralChips(
+                    selection: filters.referralSources,
+                    options: referralSources,
+                  ),
+                  wide: true,
+                ),
+                section(
+                  _buildMultiSelectField(
+                    context: context,
+                    label: 'Categorie preferite',
+                    items: categories.map(_SelectableItem.fromCategory).toList(),
+                    selection: filters.includeSaleCategoryIds,
+                    onSelected:
+                        (value) => _updateFilter(
+                          (builder) => builder.includeSaleCategoryIds = value,
+                        ),
+                  ),
+                  wide: true,
+                ),
+              ],
+            ),
+          ],
         ),
-        if (activeChips.isNotEmpty) ...[
-          const SizedBox(height: 16),
-          _buildActiveFiltersPanel(activeChips),
-        ],
-      ],
+      ),
+    );
+      },
     );
   }
 
-  Widget _buildActiveFiltersPanel(List<_FilterChipData> chips) {
+  Widget _buildQuestionnaireCard({
+    required BuildContext context,
+    required AdvancedSearchFilters filters,
+    required List<Service> services,
+    required List<ServiceCategory> categories,
+    required List<String> referralSources,
+  }) {
+    final theme = Theme.of(context);
+    final sections = _buildAdvancedFilterSectionsData(
+      context: context,
+      filters: filters,
+      services: services,
+      categories: categories,
+      referralSources: referralSources,
+      includePrimaryFields: false,
+    );
+
+    final tiles = <Widget>[
+      _QuestionTile(
+        title: 'Vuoi cercare per testo libero?',
+        subtitle: 'Nome, telefono, email o note',
+        child: _buildTextField(
+          controller: _generalQueryController,
+          label: 'Testo generico',
+          icon: Icons.search_rounded,
+          onChanged:
+              (value) =>
+                  _updateFilter((builder) => builder.generalQuery = value),
+        ),
+      ),
+      _QuestionTile(
+        title: 'Conosci un numero cliente preciso?',
+        child: _buildTextField(
+          controller: _clientNumberController,
+          label: 'Numero cliente esatto',
+          icon: Icons.badge_outlined,
+          keyboardType: TextInputType.text,
+          onChanged:
+              (value) => _updateFilter(
+                (builder) =>
+                    builder.clientNumberExact =
+                        value.trim().isEmpty ? null : value.trim(),
+              ),
+        ),
+      ),
+      _QuestionTile(
+        title: 'Vuoi monitorare i punti fedeltà?',
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _buildTextField(
+                    controller: _loyaltyMinController,
+                    label: 'Punti minimi',
+                    icon: Icons.star_border_rounded,
+                    keyboardType: TextInputType.number,
+                    onChanged:
+                        (value) => _updateFilter(
+                          (builder) =>
+                              builder.loyaltyPointsMin =
+                                  value.trim().isEmpty
+                                      ? null
+                                      : int.tryParse(value),
+                        ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildTextField(
+                    controller: _loyaltyMaxController,
+                    label: 'Punti massimi',
+                    icon: Icons.star_rate_rounded,
+                    keyboardType: TextInputType.number,
+                    onChanged:
+                        (value) => _updateFilter(
+                          (builder) =>
+                              builder.loyaltyPointsMax =
+                                  value.trim().isEmpty
+                                      ? null
+                                      : int.tryParse(value),
+                        ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _buildSingleDatePickerRow(
+              context: context,
+              label: 'Ultimo aggiornamento punti da',
+              value: filters.loyaltyUpdatedSince,
+              onSelected:
+                  (date) => _updateFilter(
+                    (builder) => builder.loyaltyUpdatedSince = date,
+                  ),
+            ),
+          ],
+        ),
+      ),
+      ...sections.map(
+        (section) => _QuestionTile(
+          title: 'Filtrare per ${section.title.toLowerCase()}?',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: _withSpacing(section.children, 12).toList(),
+          ),
+        ),
+      ),
+    ];
+
     return Card(
       elevation: 1.5,
       surfaceTintColor: Colors.transparent,
@@ -453,109 +548,623 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Filtri attivi'),
-                TextButton.icon(
-                  onPressed: () {
-                    ref.read(_provider.notifier).clear();
-                    setState(() => _selectedClientId = null);
-                  },
-                  icon: const Icon(Icons.clear_all_rounded),
-                  label: const Text('Azzera tutto'),
+            Text('Domande guidate', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 12),
+            ..._withSpacing(tiles, 12),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPersistentActionsBar({
+    required bool isApplying,
+    required List<_FilterChipData> activeChips,
+  }) {
+    final theme = Theme.of(context);
+    return Material(
+      elevation: 12,
+      color: theme.colorScheme.surface,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                alignment: WrapAlignment.center,
+                children: [
+                  FilledButton.icon(
+                    onPressed:
+                        isApplying
+                            ? null
+                            : () => ref.read(_provider.notifier).apply(),
+                    icon:
+                        isApplying
+                            ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                            : const Icon(Icons.manage_search_rounded),
+                    label: Text(isApplying ? 'Ricerca in corso...' : 'Cerca'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      ref.read(_provider.notifier).clear();
+                      setState(() => _selectedClientId = null);
+                    },
+                    icon: const Icon(Icons.clear_rounded),
+                    label: const Text('Azzera'),
+                  ),
+                ],
+              ),
+              if (activeChips.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Filtri attivi', style: theme.textTheme.labelLarge),
+                    TextButton.icon(
+                      onPressed: () {
+                        ref.read(_provider.notifier).clear();
+                        setState(() => _selectedClientId = null);
+                      },
+                      icon: const Icon(Icons.clear_all_rounded),
+                      label: const Text('Azzera tutto'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children:
+                      activeChips
+                          .map(
+                            (chip) => InputChip(
+                              label: Text(chip.label),
+                              onDeleted: chip.onRemoved,
+                            ),
+                          )
+                          .toList(growable: false),
                 ),
               ],
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: chips
-                  .map(
-                    (chip) => InputChip(
-                      label: Text(chip.label),
-                      onDeleted: chip.onRemoved,
-                    ),
-                  )
-                  .toList(growable: false),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildActionsRow({
-    required bool isApplying,
-    required VoidCallback onOpenAdvanced,
+  List<_AdvancedFilterSection> _buildAdvancedFilterSectionsData({
+    required BuildContext context,
+    required AdvancedSearchFilters filters,
+    required List<Service> services,
+    required List<ServiceCategory> categories,
+    required List<String> referralSources,
+    bool includePrimaryFields = true,
   }) {
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: [
-        FilledButton.icon(
-          onPressed:
-              isApplying ? null : () => ref.read(_provider.notifier).apply(),
-          icon:
-              isApplying
-                  ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                  : const Icon(Icons.manage_search_rounded),
-          label: Text(isApplying ? 'In corso...' : 'Cerca'),
+    final sections = <_AdvancedFilterSection>[];
+
+    final anagraficaChildren = <Widget>[
+      Row(
+        children: [
+          Expanded(
+            child: _buildTextField(
+              controller: _cityController,
+              label: 'Città',
+              icon: Icons.location_city_rounded,
+              onChanged:
+                  (value) => _updateFilter(
+                    (builder) =>
+                        builder.city =
+                            value.trim().isEmpty ? null : value.trim(),
+                  ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _buildTextField(
+              controller: _professionController,
+              label: 'Professione',
+              icon: Icons.work_outline_rounded,
+              onChanged:
+                  (value) => _updateFilter(
+                    (builder) =>
+                        builder.profession =
+                            value.trim().isEmpty ? null : value.trim(),
+                  ),
+            ),
+          ),
+        ],
+      ),
+    ];
+    if (includePrimaryFields) {
+      anagraficaChildren
+        ..add(const SizedBox(height: 12))
+        ..add(_buildGenderChips(filters.genders))
+        ..add(const SizedBox(height: 12))
+        ..add(
+          _buildReferralChips(
+            selection: filters.referralSources,
+            options: referralSources,
+          ),
+        );
+    }
+    anagraficaChildren
+      ..add(const SizedBox(height: 12))
+      ..add(
+        Row(
+          children: [
+            Expanded(
+              child: _buildTriStateChoice(
+                label: 'Email presente',
+                value: filters.hasEmail,
+                onChanged:
+                    (value) =>
+                        _updateFilter((builder) => builder.hasEmail = value),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildTriStateChoice(
+                label: 'Telefono presente',
+                value: filters.hasPhone,
+                onChanged:
+                    (value) =>
+                        _updateFilter((builder) => builder.hasPhone = value),
+              ),
+            ),
+          ],
         ),
-        OutlinedButton.icon(
-          onPressed: () {
-            ref.read(_provider.notifier).clear();
-            setState(() => _selectedClientId = null);
-          },
-          icon: const Icon(Icons.clear_rounded),
-          label: const Text('Azzera'),
+      )
+      ..add(const SizedBox(height: 12))
+      ..add(
+        _buildTriStateChoice(
+          label: 'Note inserite',
+          value: filters.hasNotes,
+          onChanged:
+              (value) => _updateFilter((builder) => builder.hasNotes = value),
         ),
-        OutlinedButton.icon(
-          onPressed: onOpenAdvanced,
-          icon: const Icon(Icons.tune_rounded),
-          label: const Text('Filtri avanzati'),
+      );
+    sections.add(
+      _AdvancedFilterSection(title: 'Anagrafica', children: anagraficaChildren),
+    );
+
+    final datesChildren = <Widget>[
+      _buildDateRangePickerRow(
+        context: context,
+        label: 'Creati tra',
+        start: filters.createdAtFrom,
+        end: filters.createdAtTo,
+        onSelected:
+            (range) => _updateFilter((builder) {
+              builder.createdAtFrom = range?.start;
+              builder.createdAtTo = range?.end;
+            }),
+      ),
+    ];
+    if (includePrimaryFields) {
+      datesChildren
+        ..add(const SizedBox(height: 12))
+        ..add(
+          Row(
+            children: [
+              Expanded(
+                child: _buildTextField(
+                  controller: _minAgeController,
+                  label: 'Età minima',
+                  icon: Icons.cake_outlined,
+                  keyboardType: TextInputType.number,
+                  onChanged:
+                      (value) => _updateFilter(
+                        (builder) =>
+                            builder.minAge =
+                                value.trim().isEmpty
+                                    ? null
+                                    : int.tryParse(value),
+                      ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildTextField(
+                  controller: _maxAgeController,
+                  label: 'Età massima',
+                  icon: Icons.cake_rounded,
+                  keyboardType: TextInputType.number,
+                  onChanged:
+                      (value) => _updateFilter(
+                        (builder) =>
+                            builder.maxAge =
+                                value.trim().isEmpty
+                                    ? null
+                                    : int.tryParse(value),
+                      ),
+                ),
+              ),
+            ],
+          ),
+        );
+    }
+    datesChildren
+      ..add(const SizedBox(height: 12))
+      ..add(
+        _buildDateRangePickerRow(
+          context: context,
+          label: 'Nati tra',
+          start: filters.dateOfBirthFrom,
+          end: filters.dateOfBirthTo,
+          onSelected:
+              (range) => _updateFilter((builder) {
+                builder.dateOfBirthFrom = range?.start;
+                builder.dateOfBirthTo = range?.end;
+              }),
         ),
-        FilledButton.icon(
-          onPressed: widget.onCreateClient,
-          icon: const Icon(Icons.person_add_alt_1_rounded),
-          label: const Text('Nuovo cliente'),
+      )
+      ..add(const SizedBox(height: 12))
+      ..add(_buildBirthdayShortcutSelector(filters.birthdayShortcut));
+    sections.add(
+      _AdvancedFilterSection(
+        title: 'Date e ricorrenze',
+        children: datesChildren,
+      ),
+    );
+
+    final onboardingChildren = <Widget>[
+      _buildOnboardingStatusChips(filters.onboardingStatuses),
+      const SizedBox(height: 12),
+      if (includePrimaryFields)
+        Row(
+          children: [
+            Expanded(
+              child: _buildTriStateChoice(
+                label: 'Ha effettuato il primo login',
+                value: filters.hasFirstLogin,
+                onChanged:
+                    (value) => _updateFilter(
+                      (builder) => builder.hasFirstLogin = value,
+                    ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildTriStateChoice(
+                label: 'Ha token push',
+                value: filters.hasPushToken,
+                onChanged:
+                    (value) => _updateFilter(
+                      (builder) => builder.hasPushToken = value,
+                    ),
+              ),
+            ),
+          ],
+        )
+      else
+        _buildTriStateChoice(
+          label: 'Ha effettuato il primo login',
+          value: filters.hasFirstLogin,
+          onChanged:
+              (value) =>
+                  _updateFilter((builder) => builder.hasFirstLogin = value),
         ),
-        OutlinedButton.icon(
-          onPressed: widget.onImportClients,
-          icon: const Icon(Icons.upload_file_rounded),
-          label: const Text('Importa CSV'),
+    ];
+    sections.add(
+      _AdvancedFilterSection(
+        title: 'Onboarding e App',
+        children: onboardingChildren,
+      ),
+    );
+
+    sections.add(
+      _AdvancedFilterSection(
+        title: 'Appuntamenti',
+        children: [
+          _buildTextField(
+            controller: _upcomingWithinController,
+            label: 'Prossimo appuntamento entro (giorni)',
+            icon: Icons.event_available_rounded,
+            keyboardType: TextInputType.number,
+            onChanged:
+                (value) => _updateFilter(
+                  (builder) =>
+                      builder.upcomingAppointmentWithinDays =
+                          value.trim().isEmpty ? null : int.tryParse(value),
+                ),
+          ),
+          const SizedBox(height: 12),
+          _buildMultiSelectField(
+            context: context,
+            label: 'Servizi prossimi appuntamenti',
+            items: services.map(_SelectableItem.fromService).toList(),
+            selection: filters.upcomingAppointmentServiceIds,
+            onSelected:
+                (value) => _updateFilter(
+                  (builder) => builder.upcomingAppointmentServiceIds = value,
+                ),
+          ),
+          const SizedBox(height: 12),
+          _buildMultiSelectField(
+            context: context,
+            label: 'Categorie prossimi appuntamenti',
+            items: categories.map(_SelectableItem.fromCategory).toList(),
+            selection: filters.upcomingAppointmentCategoryIds,
+            onSelected:
+                (value) => _updateFilter(
+                  (builder) => builder.upcomingAppointmentCategoryIds = value,
+                ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildTextField(
+                  controller: _lastCompletedWithinController,
+                  label: 'Ultima seduta entro (giorni)',
+                  icon: Icons.event_note_rounded,
+                  keyboardType: TextInputType.number,
+                  onChanged:
+                      (value) => _updateFilter(
+                        (builder) =>
+                            builder.lastCompletedWithinDays =
+                                value.trim().isEmpty
+                                    ? null
+                                    : int.tryParse(value),
+                      ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildTextField(
+                  controller: _lastCompletedOlderController,
+                  label: 'Ultima seduta oltre (giorni)',
+                  icon: Icons.history_toggle_off_rounded,
+                  keyboardType: TextInputType.number,
+                  onChanged:
+                      (value) => _updateFilter(
+                        (builder) =>
+                            builder.lastCompletedOlderThanDays =
+                                value.trim().isEmpty
+                                    ? null
+                                    : int.tryParse(value),
+                      ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _buildMultiSelectField(
+            context: context,
+            label: 'Servizi ultima seduta',
+            items: services.map(_SelectableItem.fromService).toList(),
+            selection: filters.lastCompletedServiceIds,
+            onSelected:
+                (value) => _updateFilter(
+                  (builder) => builder.lastCompletedServiceIds = value,
+                ),
+          ),
+          const SizedBox(height: 12),
+          _buildMultiSelectField(
+            context: context,
+            label: 'Categorie ultima seduta',
+            items: categories.map(_SelectableItem.fromCategory).toList(),
+            selection: filters.lastCompletedCategoryIds,
+            onSelected:
+                (value) => _updateFilter(
+                  (builder) => builder.lastCompletedCategoryIds = value,
+                ),
+          ),
+        ],
+      ),
+    );
+
+    final salesChildren = <Widget>[
+      Row(
+        children: [
+          Expanded(
+            child: _buildTextField(
+              controller: _totalSpentMinController,
+              label: 'Importo minimo',
+              icon: Icons.euro_outlined,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              onChanged:
+                  (value) => _updateFilter(
+                    (builder) =>
+                        builder.totalSpentMin =
+                            value.trim().isEmpty
+                                ? null
+                                : double.tryParse(value),
+                  ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _buildTextField(
+              controller: _totalSpentMaxController,
+              label: 'Importo massimo',
+              icon: Icons.payments_outlined,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              onChanged:
+                  (value) => _updateFilter(
+                    (builder) =>
+                        builder.totalSpentMax =
+                            value.trim().isEmpty
+                                ? null
+                                : double.tryParse(value),
+                  ),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildDateRangePickerRow(
+        context: context,
+        label: 'Vendite tra',
+        start: filters.totalSpentFrom,
+        end: filters.totalSpentTo,
+        onSelected:
+            (range) => _updateFilter((builder) {
+              builder.totalSpentFrom = range?.start;
+              builder.totalSpentTo = range?.end;
+            }),
+      ),
+      const SizedBox(height: 12),
+      SwitchListTile.adaptive(
+        contentPadding: EdgeInsets.zero,
+        value: filters.usePaidAmount,
+        onChanged:
+            (value) =>
+                _updateFilter((builder) => builder.usePaidAmount = value),
+        title: const Text('Usa importi incassati (paidAmount)'),
+      ),
+      const SizedBox(height: 12),
+      _buildTriStateChoice(
+        label: 'Saldo residuo > 0',
+        value: filters.hasOutstandingBalance,
+        onChanged:
+            (value) => _updateFilter(
+              (builder) => builder.hasOutstandingBalance = value,
+            ),
+      ),
+      const SizedBox(height: 12),
+      Row(
+        children: [
+          Expanded(
+            child: _buildTextField(
+              controller: _lastPurchaseWithinController,
+              label: 'Ultimo acquisto entro (giorni)',
+              icon: Icons.shopping_bag_rounded,
+              keyboardType: TextInputType.number,
+              onChanged:
+                  (value) => _updateFilter(
+                    (builder) =>
+                        builder.lastPurchaseWithinDays =
+                            value.trim().isEmpty ? null : int.tryParse(value),
+                  ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _buildTextField(
+              controller: _lastPurchaseOlderController,
+              label: 'Ultimo acquisto oltre (giorni)',
+              icon: Icons.history_outlined,
+              keyboardType: TextInputType.number,
+              onChanged:
+                  (value) => _updateFilter(
+                    (builder) =>
+                        builder.lastPurchaseOlderThanDays =
+                            value.trim().isEmpty ? null : int.tryParse(value),
+                  ),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildMultiSelectField(
+        context: context,
+        label: 'Servizi da includere',
+        items: services.map(_SelectableItem.fromService).toList(),
+        selection: filters.includeSaleServiceIds,
+        onSelected:
+            (value) => _updateFilter(
+              (builder) => builder.includeSaleServiceIds = value,
+            ),
+      ),
+      const SizedBox(height: 12),
+      _buildMultiSelectField(
+        context: context,
+        label: 'Servizi da escludere',
+        items: services.map(_SelectableItem.fromService).toList(),
+        selection: filters.excludeSaleServiceIds,
+        onSelected:
+            (value) => _updateFilter(
+              (builder) => builder.excludeSaleServiceIds = value,
+            ),
+      ),
+      if (includePrimaryFields) ...[
+        const SizedBox(height: 12),
+        _buildMultiSelectField(
+          context: context,
+          label: 'Categorie da includere',
+          items: categories.map(_SelectableItem.fromCategory).toList(),
+          selection: filters.includeSaleCategoryIds,
+          onSelected:
+              (value) => _updateFilter(
+                (builder) => builder.includeSaleCategoryIds = value,
+              ),
         ),
       ],
+      const SizedBox(height: 12),
+      _buildMultiSelectField(
+        context: context,
+        label: 'Categorie da escludere',
+        items: categories.map(_SelectableItem.fromCategory).toList(),
+        selection: filters.excludeSaleCategoryIds,
+        onSelected:
+            (value) => _updateFilter(
+              (builder) => builder.excludeSaleCategoryIds = value,
+            ),
+      ),
+      const SizedBox(height: 12),
+      SwitchListTile.adaptive(
+        contentPadding: EdgeInsets.zero,
+        value: filters.onlyLastMinuteSales,
+        onChanged:
+            (value) =>
+                _updateFilter((builder) => builder.onlyLastMinuteSales = value),
+        title: const Text('Solo vendite last-minute'),
+      ),
+    ];
+    sections.add(
+      _AdvancedFilterSection(title: 'Vendite', children: salesChildren),
     );
-  }
 
-  Widget _buildAdvancedSectionCard({
-    required BuildContext context,
-    required String title,
-    required List<Widget> children,
-  }) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      elevation: 2,
-      surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            ..._withSpacing(children, 16),
-          ],
-        ),
+    sections.add(
+      _AdvancedFilterSection(
+        title: 'Pacchetti',
+        children: [
+          _buildTriStateChoice(
+            label: 'Ha pacchetti attivi',
+            value: filters.hasActivePackages,
+            onChanged:
+                (value) => _updateFilter(
+                  (builder) => builder.hasActivePackages = value,
+                ),
+          ),
+          const SizedBox(height: 12),
+          _buildTriStateChoice(
+            label: 'Ha sessioni residue',
+            value: filters.hasPackagesWithRemainingSessions,
+            onChanged:
+                (value) => _updateFilter(
+                  (builder) => builder.hasPackagesWithRemainingSessions = value,
+                ),
+          ),
+          const SizedBox(height: 12),
+          _buildTriStateChoice(
+            label: 'Ha pacchetti scaduti',
+            value: filters.hasExpiredPackages,
+            onChanged:
+                (value) => _updateFilter(
+                  (builder) => builder.hasExpiredPackages = value,
+                ),
+          ),
+        ],
       ),
     );
+
+    return sections;
   }
 
   Iterable<Widget> _withSpacing(List<Widget> widgets, double spacing) sync* {
@@ -565,6 +1174,46 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
         yield SizedBox(height: spacing);
       }
     }
+  }
+
+  double _resolvePrimaryFieldWidth(double availableWidth) {
+    if (!availableWidth.isFinite || availableWidth <= 0) {
+      return 260;
+    }
+    if (availableWidth < 600) {
+      return availableWidth;
+    }
+    if (availableWidth < 900) {
+      return 260;
+    }
+    if (availableWidth < 1200) {
+      return 240;
+    }
+    return 220;
+  }
+
+  double _resolvePrimarySectionWidth(
+    double availableWidth, {
+    bool prefersWide = false,
+  }) {
+    if (!availableWidth.isFinite || availableWidth <= 0) {
+      return prefersWide ? 360 : 280;
+    }
+    if (availableWidth < 600) {
+      return availableWidth;
+    }
+    if (prefersWide) {
+      if (availableWidth < 900) return availableWidth * 0.9;
+      if (availableWidth < 1200) return 360;
+      return 420;
+    }
+    if (availableWidth < 900) {
+      return 280;
+    }
+    if (availableWidth < 1200) {
+      return 300;
+    }
+    return 320;
   }
 
   Widget _buildTextField({
@@ -637,20 +1286,26 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
     required Set<String> selection,
     required List<String> options,
   }) {
+    final normalizedSelection =
+        selection.map((value) => value.toLowerCase()).toSet();
     final items =
         options
             .map(
-              (option) =>
-                  _SelectableItem(id: option.toLowerCase(), label: option),
+              (option) => _SelectableItem(
+                id: option.toLowerCase(),
+                label: option,
+              ),
             )
-            .toList();
-    final normalizedSelection =
-        selection.map((value) => value.toLowerCase()).toSet();
-    return _buildChipSelector(
-      title: 'Come ci ha conosciuti',
-      options: items,
+            .toList()
+          ..sort(
+            (a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()),
+          );
+    return _buildMultiSelectField(
+      context: context,
+      label: 'Come ci ha conosciuti',
+      items: items,
       selection: normalizedSelection,
-      onSelectionChanged:
+      onSelected:
           (value) =>
               _updateFilter((builder) => builder.referralSources = value),
     );
@@ -1354,583 +2009,6 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
         : formatter.format(value);
   }
 
-  Future<void> _openAdvancedFilters({
-    required BuildContext context,
-    required List<Service> services,
-    required List<ServiceCategory> categories,
-    required List<String> referralSources,
-  }) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (modalContext) {
-        return FractionallySizedBox(
-          heightFactor: 0.95,
-          child: SafeArea(
-            child: Consumer(
-              builder: (context, ref, _) {
-                final modalState = ref.watch(_provider);
-                final modalFilters = modalState.filters;
-                final theme = Theme.of(context);
-                return Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
-                      child: Row(
-                        children: [
-                          Text(
-                            'Filtri avanzati',
-                            style: theme.textTheme.titleMedium,
-                          ),
-                          const Spacer(),
-                          IconButton(
-                            tooltip: 'Chiudi',
-                            onPressed: () => Navigator.of(modalContext).pop(),
-                            icon: const Icon(Icons.close_rounded),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Divider(height: 1),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: _buildAdvancedFiltersSections(
-                            context,
-                            modalFilters,
-                            services,
-                            categories,
-                            referralSources,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        16,
-                        0,
-                        16,
-                        16 + MediaQuery.of(modalContext).viewInsets.bottom,
-                      ),
-                      child: Row(
-                        children: [
-                          OutlinedButton(
-                            onPressed: () {
-                              ref.read(_provider.notifier).clear();
-                              Navigator.of(modalContext).pop();
-                            },
-                            child: const Text('Azzera tutto'),
-                          ),
-                          const Spacer(),
-                          FilledButton.icon(
-                            onPressed: () {
-                              ref.read(_provider.notifier).apply();
-                              Navigator.of(modalContext).pop();
-                            },
-                            icon: const Icon(Icons.check_rounded),
-                            label: const Text('Applica filtri'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  List<Widget> _buildAdvancedFiltersSections(
-    BuildContext context,
-    AdvancedSearchFilters filters,
-    List<Service> services,
-    List<ServiceCategory> categories,
-    List<String> referralSources,
-  ) {
-    return [
-      _buildAdvancedSectionCard(
-        context: context,
-        title: 'Anagrafica',
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: _buildTextField(
-                  controller: _cityController,
-                  label: 'Città',
-                  icon: Icons.location_city_rounded,
-                  onChanged:
-                      (value) => _updateFilter(
-                        (builder) =>
-                            builder.city =
-                                value.trim().isEmpty ? null : value.trim(),
-                      ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildTextField(
-                  controller: _professionController,
-                  label: 'Professione',
-                  icon: Icons.work_outline_rounded,
-                  onChanged:
-                      (value) => _updateFilter(
-                        (builder) =>
-                            builder.profession =
-                                value.trim().isEmpty ? null : value.trim(),
-                      ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _buildGenderChips(filters.genders),
-          const SizedBox(height: 12),
-          _buildReferralChips(
-            selection: filters.referralSources,
-            options: referralSources,
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildTriStateChoice(
-                  label: 'Email presente',
-                  value: filters.hasEmail,
-                  onChanged:
-                      (value) =>
-                          _updateFilter((builder) => builder.hasEmail = value),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildTriStateChoice(
-                  label: 'Telefono presente',
-                  value: filters.hasPhone,
-                  onChanged:
-                      (value) =>
-                          _updateFilter((builder) => builder.hasPhone = value),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _buildTriStateChoice(
-            label: 'Note inserite',
-            value: filters.hasNotes,
-            onChanged:
-                (value) => _updateFilter((builder) => builder.hasNotes = value),
-          ),
-        ],
-      ),
-      _buildAdvancedSectionCard(
-        context: context,
-        title: 'Date e ricorrenze',
-        children: [
-          _buildDateRangePickerRow(
-            context: context,
-            label: 'Creati tra',
-            start: filters.createdAtFrom,
-            end: filters.createdAtTo,
-            onSelected:
-                (range) => _updateFilter((builder) {
-                  builder.createdAtFrom = range?.start;
-                  builder.createdAtTo = range?.end;
-                }),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildTextField(
-                  controller: _minAgeController,
-                  label: 'Età minima',
-                  icon: Icons.cake_outlined,
-                  keyboardType: TextInputType.number,
-                  onChanged:
-                      (value) => _updateFilter(
-                        (builder) =>
-                            builder.minAge =
-                                value.trim().isEmpty
-                                    ? null
-                                    : int.tryParse(value),
-                      ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildTextField(
-                  controller: _maxAgeController,
-                  label: 'Età massima',
-                  icon: Icons.cake_rounded,
-                  keyboardType: TextInputType.number,
-                  onChanged:
-                      (value) => _updateFilter(
-                        (builder) =>
-                            builder.maxAge =
-                                value.trim().isEmpty
-                                    ? null
-                                    : int.tryParse(value),
-                      ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _buildDateRangePickerRow(
-            context: context,
-            label: 'Nati tra',
-            start: filters.dateOfBirthFrom,
-            end: filters.dateOfBirthTo,
-            onSelected:
-                (range) => _updateFilter((builder) {
-                  builder.dateOfBirthFrom = range?.start;
-                  builder.dateOfBirthTo = range?.end;
-                }),
-          ),
-          const SizedBox(height: 12),
-          _buildBirthdayShortcutSelector(filters.birthdayShortcut),
-        ],
-      ),
-      _buildAdvancedSectionCard(
-        context: context,
-        title: 'Onboarding e App',
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: _buildTriStateChoice(
-                  label: 'Ha effettuato il primo login',
-                  value: filters.hasFirstLogin,
-                  onChanged:
-                      (value) => _updateFilter(
-                        (builder) => builder.hasFirstLogin = value,
-                      ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildTriStateChoice(
-                  label: 'Ha token push',
-                  value: filters.hasPushToken,
-                  onChanged:
-                      (value) => _updateFilter(
-                        (builder) => builder.hasPushToken = value,
-                      ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-      _buildAdvancedSectionCard(
-        context: context,
-        title: 'Appuntamenti',
-        children: [
-          _buildTextField(
-            controller: _upcomingWithinController,
-            label: 'Prossimo appuntamento entro (giorni)',
-            icon: Icons.event_available_rounded,
-            keyboardType: TextInputType.number,
-            onChanged:
-                (value) => _updateFilter(
-                  (builder) =>
-                      builder.upcomingAppointmentWithinDays =
-                          value.trim().isEmpty ? null : int.tryParse(value),
-                ),
-          ),
-          const SizedBox(height: 12),
-          _buildMultiSelectField(
-            context: context,
-            label: 'Servizi prossimi appuntamenti',
-            items: services.map(_SelectableItem.fromService).toList(),
-            selection: filters.upcomingAppointmentServiceIds,
-            onSelected:
-                (value) => _updateFilter(
-                  (builder) => builder.upcomingAppointmentServiceIds = value,
-                ),
-          ),
-          const SizedBox(height: 12),
-          _buildMultiSelectField(
-            context: context,
-            label: 'Categorie prossimi appuntamenti',
-            items: categories.map(_SelectableItem.fromCategory).toList(),
-            selection: filters.upcomingAppointmentCategoryIds,
-            onSelected:
-                (value) => _updateFilter(
-                  (builder) => builder.upcomingAppointmentCategoryIds = value,
-                ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildTextField(
-                  controller: _lastCompletedWithinController,
-                  label: 'Ultima seduta entro (giorni)',
-                  icon: Icons.event_note_rounded,
-                  keyboardType: TextInputType.number,
-                  onChanged:
-                      (value) => _updateFilter(
-                        (builder) =>
-                            builder.lastCompletedWithinDays =
-                                value.trim().isEmpty
-                                    ? null
-                                    : int.tryParse(value),
-                      ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildTextField(
-                  controller: _lastCompletedOlderController,
-                  label: 'Ultima seduta oltre (giorni)',
-                  icon: Icons.history_toggle_off_rounded,
-                  keyboardType: TextInputType.number,
-                  onChanged:
-                      (value) => _updateFilter(
-                        (builder) =>
-                            builder.lastCompletedOlderThanDays =
-                                value.trim().isEmpty
-                                    ? null
-                                    : int.tryParse(value),
-                      ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _buildMultiSelectField(
-            context: context,
-            label: 'Servizi ultima seduta',
-            items: services.map(_SelectableItem.fromService).toList(),
-            selection: filters.lastCompletedServiceIds,
-            onSelected:
-                (value) => _updateFilter(
-                  (builder) => builder.lastCompletedServiceIds = value,
-                ),
-          ),
-          const SizedBox(height: 12),
-          _buildMultiSelectField(
-            context: context,
-            label: 'Categorie ultima seduta',
-            items: categories.map(_SelectableItem.fromCategory).toList(),
-            selection: filters.lastCompletedCategoryIds,
-            onSelected:
-                (value) => _updateFilter(
-                  (builder) => builder.lastCompletedCategoryIds = value,
-                ),
-          ),
-        ],
-      ),
-      _buildAdvancedSectionCard(
-        context: context,
-        title: 'Vendite',
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: _buildTextField(
-                  controller: _totalSpentMinController,
-                  label: 'Importo minimo',
-                  icon: Icons.euro_outlined,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  onChanged:
-                      (value) => _updateFilter(
-                        (builder) =>
-                            builder.totalSpentMin =
-                                value.trim().isEmpty
-                                    ? null
-                                    : double.tryParse(value),
-                      ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildTextField(
-                  controller: _totalSpentMaxController,
-                  label: 'Importo massimo',
-                  icon: Icons.payments_outlined,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  onChanged:
-                      (value) => _updateFilter(
-                        (builder) =>
-                            builder.totalSpentMax =
-                                value.trim().isEmpty
-                                    ? null
-                                    : double.tryParse(value),
-                      ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _buildDateRangePickerRow(
-            context: context,
-            label: 'Vendite tra',
-            start: filters.totalSpentFrom,
-            end: filters.totalSpentTo,
-            onSelected:
-                (range) => _updateFilter((builder) {
-                  builder.totalSpentFrom = range?.start;
-                  builder.totalSpentTo = range?.end;
-                }),
-          ),
-          const SizedBox(height: 12),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            value: filters.usePaidAmount,
-            onChanged:
-                (value) =>
-                    _updateFilter((builder) => builder.usePaidAmount = value),
-            title: const Text('Usa importi incassati (paidAmount)'),
-          ),
-          const SizedBox(height: 12),
-          _buildTriStateChoice(
-            label: 'Saldo residuo > 0',
-            value: filters.hasOutstandingBalance,
-            onChanged:
-                (value) => _updateFilter(
-                  (builder) => builder.hasOutstandingBalance = value,
-                ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildTextField(
-                  controller: _lastPurchaseWithinController,
-                  label: 'Ultimo acquisto entro (giorni)',
-                  icon: Icons.shopping_bag_rounded,
-                  keyboardType: TextInputType.number,
-                  onChanged:
-                      (value) => _updateFilter(
-                        (builder) =>
-                            builder.lastPurchaseWithinDays =
-                                value.trim().isEmpty
-                                    ? null
-                                    : int.tryParse(value),
-                      ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildTextField(
-                  controller: _lastPurchaseOlderController,
-                  label: 'Ultimo acquisto oltre (giorni)',
-                  icon: Icons.history_outlined,
-                  keyboardType: TextInputType.number,
-                  onChanged:
-                      (value) => _updateFilter(
-                        (builder) =>
-                            builder.lastPurchaseOlderThanDays =
-                                value.trim().isEmpty
-                                    ? null
-                                    : int.tryParse(value),
-                      ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _buildMultiSelectField(
-            context: context,
-            label: 'Servizi da includere',
-            items: services.map(_SelectableItem.fromService).toList(),
-            selection: filters.includeSaleServiceIds,
-            onSelected:
-                (value) => _updateFilter(
-                  (builder) => builder.includeSaleServiceIds = value,
-                ),
-          ),
-          const SizedBox(height: 12),
-          _buildMultiSelectField(
-            context: context,
-            label: 'Servizi da escludere',
-            items: services.map(_SelectableItem.fromService).toList(),
-            selection: filters.excludeSaleServiceIds,
-            onSelected:
-                (value) => _updateFilter(
-                  (builder) => builder.excludeSaleServiceIds = value,
-                ),
-          ),
-          const SizedBox(height: 12),
-          _buildMultiSelectField(
-            context: context,
-            label: 'Categorie da includere',
-            items: categories.map(_SelectableItem.fromCategory).toList(),
-            selection: filters.includeSaleCategoryIds,
-            onSelected:
-                (value) => _updateFilter(
-                  (builder) => builder.includeSaleCategoryIds = value,
-                ),
-          ),
-          const SizedBox(height: 12),
-          _buildMultiSelectField(
-            context: context,
-            label: 'Categorie da escludere',
-            items: categories.map(_SelectableItem.fromCategory).toList(),
-            selection: filters.excludeSaleCategoryIds,
-            onSelected:
-                (value) => _updateFilter(
-                  (builder) => builder.excludeSaleCategoryIds = value,
-                ),
-          ),
-          const SizedBox(height: 12),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            value: filters.onlyLastMinuteSales,
-            onChanged:
-                (value) => _updateFilter(
-                  (builder) => builder.onlyLastMinuteSales = value,
-                ),
-            title: const Text('Solo vendite last-minute'),
-          ),
-        ],
-      ),
-      _buildAdvancedSectionCard(
-        context: context,
-        title: 'Pacchetti',
-        children: [
-          _buildTriStateChoice(
-            label: 'Ha pacchetti attivi',
-            value: filters.hasActivePackages,
-            onChanged:
-                (value) => _updateFilter(
-                  (builder) => builder.hasActivePackages = value,
-                ),
-          ),
-          const SizedBox(height: 12),
-          _buildTriStateChoice(
-            label: 'Ha sessioni residue',
-            value: filters.hasPackagesWithRemainingSessions,
-            onChanged:
-                (value) => _updateFilter(
-                  (builder) => builder.hasPackagesWithRemainingSessions = value,
-                ),
-          ),
-          const SizedBox(height: 12),
-          _buildTriStateChoice(
-            label: 'Ha pacchetti scaduti',
-            value: filters.hasExpiredPackages,
-            onChanged:
-                (value) => _updateFilter(
-                  (builder) => builder.hasExpiredPackages = value,
-                ),
-          ),
-        ],
-      ),
-    ];
-  }
-
   List<Widget> _buildResultsChildren({
     required BuildContext context,
     required AdvancedClientSearchState state,
@@ -2122,10 +2200,6 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
 
     if (children.length > 2) {
       children.removeLast();
-    }
-
-    if (_isBulkSelecting) {
-      children.add(const SizedBox(height: 80));
     }
 
     return Column(
@@ -2854,6 +2928,44 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
     }
     return 'Cliente senza nome';
   }
+}
+
+class _QuestionTile extends StatelessWidget {
+  const _QuestionTile({
+    required this.title,
+    required this.child,
+    this.subtitle,
+  });
+
+  final String title;
+  final Widget child;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Theme(
+      data: theme.copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        maintainState: true,
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(bottom: 8),
+        title: Text(title, style: theme.textTheme.titleMedium),
+        subtitle:
+            subtitle != null
+                ? Text(subtitle!, style: theme.textTheme.bodySmall)
+                : null,
+        children: [Align(alignment: Alignment.centerLeft, child: child)],
+      ),
+    );
+  }
+}
+
+class _AdvancedFilterSection {
+  const _AdvancedFilterSection({required this.title, required this.children});
+
+  final String title;
+  final List<Widget> children;
 }
 
 class _FilterChipData {
