@@ -1,7 +1,12 @@
+import 'dart:io';
+
 import 'package:collection/collection.dart';
+import 'package:csv/csv.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/data/repositories/app_data_state.dart';
 import 'package:you_book/domain/entities/appointment.dart';
@@ -9,9 +14,11 @@ import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/sale.dart';
 import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/service_category.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/screens/admin/modules/client_detail_page.dart';
 import 'package:you_book/presentation/screens/admin/modules/clients/advanced_search/advanced_search_controller.dart';
 import 'package:you_book/presentation/screens/admin/modules/clients/advanced_search/advanced_search_filters.dart';
+import 'package:you_book/presentation/screens/admin/modules/messages/manual_notification_card.dart';
 
 class AdvancedSearchTab extends ConsumerStatefulWidget {
   const AdvancedSearchTab({
@@ -287,17 +294,14 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
         final fieldWidth = _resolvePrimaryFieldWidth(maxWidth);
         const fieldSpacing = 12.0;
 
-        Widget compactField(Widget child) => SizedBox(
-          width: fieldWidth,
-          child: child,
-        );
+        Widget compactField(Widget child) =>
+            SizedBox(width: fieldWidth, child: child);
         final sectionWidth = _resolvePrimarySectionWidth(maxWidth);
-        final wideSectionWidth =
-            _resolvePrimarySectionWidth(maxWidth, prefersWide: true);
-        Widget section(
-          Widget child, {
-          bool wide = false,
-        }) => SizedBox(
+        final wideSectionWidth = _resolvePrimarySectionWidth(
+          maxWidth,
+          prefersWide: true,
+        );
+        Widget section(Widget child, {bool wide = false}) => SizedBox(
           width: wide ? wideSectionWidth : sectionWidth,
           child: child,
         );
@@ -305,7 +309,9 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
         return Card(
           elevation: 2,
           surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -380,51 +386,55 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                                           : int.tryParse(value),
                             ),
                       ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: fieldSpacing,
+                  runSpacing: 16,
+                  children: [
+                    section(_buildGenderChips(filters.genders)),
+                    section(
+                      _buildTriStateChoice(
+                        label: 'Hanno installato l’app',
+                        value: filters.hasPushToken,
+                        onChanged:
+                            (value) => _updateFilter(
+                              (builder) => builder.hasPushToken = value,
+                            ),
+                      ),
+                    ),
+                    section(
+                      _buildReferralChips(
+                        selection: filters.referralSources,
+                        options: referralSources,
+                      ),
+                      wide: true,
+                    ),
+                    section(
+                      _buildMultiSelectField(
+                        context: context,
+                        label: 'Categorie preferite',
+                        items:
+                            categories
+                                .map(_SelectableItem.fromCategory)
+                                .toList(),
+                        selection: filters.includeSaleCategoryIds,
+                        onSelected:
+                            (value) => _updateFilter(
+                              (builder) =>
+                                  builder.includeSaleCategoryIds = value,
+                            ),
+                      ),
+                      wide: true,
+                    ),
+                  ],
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: fieldSpacing,
-              runSpacing: 16,
-              children: [
-                section(_buildGenderChips(filters.genders)),
-                section(
-                  _buildTriStateChoice(
-                    label: 'Hanno installato l’app',
-                    value: filters.hasPushToken,
-                    onChanged:
-                        (value) => _updateFilter(
-                          (builder) => builder.hasPushToken = value,
-                        ),
-                  ),
-                ),
-                section(
-                  _buildReferralChips(
-                    selection: filters.referralSources,
-                    options: referralSources,
-                  ),
-                  wide: true,
-                ),
-                section(
-                  _buildMultiSelectField(
-                    context: context,
-                    label: 'Categorie preferite',
-                    items: categories.map(_SelectableItem.fromCategory).toList(),
-                    selection: filters.includeSaleCategoryIds,
-                    onSelected:
-                        (value) => _updateFilter(
-                          (builder) => builder.includeSaleCategoryIds = value,
-                        ),
-                  ),
-                  wide: true,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
+          ),
+        );
       },
     );
   }
@@ -624,15 +634,14 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
-                  children:
-                      activeChips
-                          .map(
-                            (chip) => InputChip(
-                              label: Text(chip.label),
-                              onDeleted: chip.onRemoved,
-                            ),
-                          )
-                          .toList(growable: false),
+                  children: activeChips
+                      .map(
+                        (chip) => InputChip(
+                          label: Text(chip.label),
+                          onDeleted: chip.onRemoved,
+                        ),
+                      )
+                      .toList(growable: false),
                 ),
               ],
             ],
@@ -1267,6 +1276,162 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
     setState(() => _bulkSelectedClientIds.clear());
   }
 
+  List<Client> _resolveSelectedClients() {
+    if (_bulkSelectedClientIds.isEmpty) {
+      return const <Client>[];
+    }
+    final state = ref.read(_provider);
+    final selectedIds = _bulkSelectedClientIds;
+    return state.results
+        .where((client) => selectedIds.contains(client.id))
+        .toList();
+  }
+
+  Future<void> _openBulkActionsMenu() async {
+    if (_bulkSelectedClientIds.isEmpty) {
+      _showSnack('Seleziona almeno un cliente.');
+      return;
+    }
+    final action = await showModalBottomSheet<_BulkAction>(
+      context: context,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.table_view_rounded),
+                title: const Text('Esporta in CSV'),
+                subtitle: const Text(
+                  'Scarica i clienti selezionati in un file',
+                ),
+                onTap: () => Navigator.of(sheetContext).pop(_BulkAction.export),
+              ),
+              ListTile(
+                leading: const Icon(Icons.sms_rounded),
+                title: const Text('Invia messaggi'),
+                subtitle: const Text('Usa un template o scrivi manualmente'),
+                onTap:
+                    () => Navigator.of(sheetContext).pop(_BulkAction.message),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    switch (action) {
+      case _BulkAction.export:
+        await _exportSelectedClients();
+        break;
+      case _BulkAction.message:
+        await _openBulkMessagingSheet();
+        break;
+      case null:
+        break;
+    }
+  }
+
+  Future<void> _exportSelectedClients() async {
+    final clients = _resolveSelectedClients();
+    if (clients.isEmpty) {
+      _showSnack('Seleziona almeno un cliente.');
+      return;
+    }
+    final rows = <List<String>>[
+      [
+        'Numero cliente',
+        'Nome',
+        'Cognome',
+        'Telefono',
+        'Email',
+        'Origine',
+        'Città',
+        'Professione',
+        'Data di nascita',
+        'Punti fedeltà',
+        'App installata',
+        'Note',
+      ],
+    ];
+    final dateFormat = DateFormat('dd/MM/yyyy');
+    for (final client in clients) {
+      rows.add([
+        client.clientNumber ?? '',
+        client.firstName,
+        client.lastName,
+        client.phone,
+        client.email ?? '',
+        client.referralSource ?? '',
+        client.city ?? '',
+        client.profession ?? '',
+        client.dateOfBirth == null
+            ? ''
+            : dateFormat.format(client.dateOfBirth!),
+        client.loyaltyPoints.toString(),
+        client.fcmTokens.isNotEmpty ? 'Sì' : 'No',
+        (client.notes ?? '').replaceAll('\n', ' ').trim(),
+      ]);
+    }
+    try {
+      final converter = const ListToCsvConverter(fieldDelimiter: ';');
+      final csv = converter.convert(rows);
+      final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+      final dir = await getTemporaryDirectory();
+      final fileName = 'clienti_civiapp_$timestamp.csv';
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsString(csv, flush: true);
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: 'text/csv', name: fileName)],
+        subject: 'Esportazione clienti',
+        text: 'File generato dalla Ricerca avanzata di Civiapp.',
+      );
+    } catch (error) {
+      _showSnack('Impossibile esportare i clienti: $error');
+    }
+  }
+
+  Future<void> _openBulkMessagingSheet() async {
+    final salonId = widget.salonId;
+    if (salonId == null) {
+      _showSnack('Seleziona un salone per inviare messaggi.');
+      return;
+    }
+    final clients = _resolveSelectedClients();
+    if (clients.isEmpty) {
+      _showSnack('Seleziona almeno un cliente.');
+      return;
+    }
+    final data = ref.read(appDataProvider);
+    final templates =
+        data.messageTemplates
+            .where((template) => template.salonId == salonId)
+            .toList();
+    final salonName =
+        data.salons.firstWhereOrNull((salon) => salon.id == salonId)?.name;
+    await showAppModalSheet<void>(
+      context: context,
+      builder:
+          (ctx) => SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ManualNotificationCard(
+              salonId: salonId,
+              salonName: salonName,
+              clients: clients,
+              templates: templates,
+              initialSelectedClientIds: Set<String>.from(
+                _bulkSelectedClientIds,
+              ),
+            ),
+          ),
+    );
+  }
+
+  void _showSnack(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
   Widget _buildGenderChips(Set<String> selection) {
     const genders = <_SelectableItem>[
       _SelectableItem(id: 'male', label: 'Uomo'),
@@ -1291,10 +1456,8 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
     final items =
         options
             .map(
-              (option) => _SelectableItem(
-                id: option.toLowerCase(),
-                label: option,
-              ),
+              (option) =>
+                  _SelectableItem(id: option.toLowerCase(), label: option),
             )
             .toList()
           ..sort(
@@ -1414,13 +1577,7 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
               ),
               const SizedBox(width: 8),
               FilledButton.icon(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Azioni di gruppo disponibili a breve.'),
-                    ),
-                  );
-                },
+                onPressed: _openBulkActionsMenu,
                 icon: const Icon(Icons.send_rounded),
                 label: const Text('Azioni'),
               ),
@@ -3093,6 +3250,8 @@ class _MultiSelectDialogState extends State<_MultiSelectDialog> {
     );
   }
 }
+
+enum _BulkAction { export, message }
 
 class _RangeButton extends StatelessWidget {
   const _RangeButton({
