@@ -321,20 +321,7 @@ class _ManualNotificationCardState
                 },
               )
             else
-              _ClientSelectionList(
-                clients: widget.clients,
-                selectedIds: _selectedClientIds,
-                controller: _clientScrollController,
-                onToggle: (clientId, value) {
-                  setState(() {
-                    if (value) {
-                      _selectedClientIds.add(clientId);
-                    } else {
-                      _selectedClientIds.remove(clientId);
-                    }
-                  });
-                },
-              ),
+              const _ClientSearchPlaceholder(),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               value: dropdownValue,
@@ -437,26 +424,41 @@ class _ManualNotificationCardState
                 style: theme.textTheme.labelLarge,
               ),
               const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children:
-                    selectedClients
-                        .map(
-                          (client) => InputChip(
-                            label: Text(client.fullName),
-                            onDeleted:
-                                _sending
-                                    ? null
-                                    : () {
-                                      setState(() {
-                                        _selectedClientIds.remove(client.id);
-                                      });
-                                    },
-                          ),
-                        )
-                        .toList(),
-              ),
+              if (selectedClients.length <= 20) //Civi nlista selezionati
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children:
+                      selectedClients
+                          .map(
+                            (client) => InputChip(
+                              label: Text(client.fullName),
+                              onDeleted:
+                                  _sending
+                                      ? null
+                                      : () {
+                                        setState(() {
+                                          _selectedClientIds.remove(client.id);
+                                        });
+                                      },
+                            ),
+                          )
+                          .toList(),
+                )
+              else
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    icon: const Icon(Icons.list_alt_outlined),
+                    onPressed:
+                        _sending
+                            ? null
+                            : () => _showSelectedClientsDialog(selectedClients),
+                    label: Text(
+                      'Mostra elenco completo (${selectedClients.length})',
+                    ),
+                  ),
+                ),
             ],
           ],
         ),
@@ -512,6 +514,68 @@ class _ManualNotificationCardState
         _statusMessage = 'Impossibile mostrare l\'anteprima in-app: $error';
         _statusIsError = true;
       });
+    }
+  }
+
+  Future<void> _showSelectedClientsDialog(List<Client> clients) async {
+    if (!mounted || clients.isEmpty) {
+      return;
+    }
+
+    final controller = ScrollController();
+
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: Text('Destinatari selezionati (${clients.length})'),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 400),
+                child: Scrollbar(
+                  controller: controller,
+                  child: ListView.separated(
+                    controller: controller,
+                    shrinkWrap: true,
+                    itemBuilder: (_, index) {
+                      final client = clients[index];
+                      final metadata = <String>[];
+                      final clientNumber = client.clientNumber;
+                      if (clientNumber != null && clientNumber.isNotEmpty) {
+                        metadata.add('#$clientNumber');
+                      }
+                      if (client.phone.isNotEmpty) {
+                        metadata.add(client.phone);
+                      }
+                      final subtitle =
+                          metadata.isEmpty
+                              ? 'Telefono non disponibile'
+                              : metadata.join(' · ');
+                      return ListTile(
+                        dense: true,
+                        title: Text(client.fullName),
+                        subtitle: Text(subtitle),
+                      );
+                    },
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemCount: clients.length,
+                  ),
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Chiudi'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      controller.dispose();
     }
   }
 
@@ -662,6 +726,29 @@ class _ManualNotificationCardState
       _statusMessage = message;
       _statusIsError = isError;
     });
+  }
+}
+
+class _ClientSearchPlaceholder extends StatelessWidget {
+  const _ClientSearchPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: theme.colorScheme.surfaceContainerLowest,
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        'Digita nel campo di ricerca per selezionare i clienti.',
+        style: theme.textTheme.bodyMedium,
+        textAlign: TextAlign.center,
+      ),
+    );
   }
 }
 

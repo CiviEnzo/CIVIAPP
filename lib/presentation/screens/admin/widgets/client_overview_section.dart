@@ -250,9 +250,9 @@ List<Widget> _buildPreferenceChips(
 ) {
   Widget buildChip(bool enabled, String label, IconData icon) {
     final theme = Theme.of(context);
-    final selectedBackground = theme.colorScheme.secondaryContainer;
-    final selectedForeground = theme.colorScheme.onSecondaryContainer;
-    final disabledBackground = theme.colorScheme.surfaceContainerHighest;
+    final selectedBackground = theme.colorScheme.secondary;
+    final selectedForeground = theme.colorScheme.onPrimary;
+    final disabledBackground = theme.colorScheme.surfaceVariant;
     final disabledForeground = theme.colorScheme.onSurfaceVariant;
     return Chip(
       avatar: Icon(

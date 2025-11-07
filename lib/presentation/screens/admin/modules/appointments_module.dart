@@ -1234,7 +1234,25 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
             .toList();
 
     final rangeStart = _rangeStart(_anchorDate, _scope);
-    final rangeEnd = _rangeEnd(rangeStart, _scope);
+    final baseRangeEnd = _rangeEnd(rangeStart, _scope);
+    final weekLayout = _effectiveWeekLayout;
+    final extraDetailedDay =
+        _scope == AppointmentCalendarScope.week
+            ? _computeExtraDetailedDay(
+              rangeStart: rangeStart,
+              today: now,
+              layout: weekLayout,
+              visibleWeekdays: _visibleWeekdays,
+              schedule: selectedSalon?.schedule,
+            )
+            : null;
+    var rangeEnd = baseRangeEnd;
+    if (extraDetailedDay != null) {
+      final extendedEnd = extraDetailedDay.add(const Duration(days: 1));
+      if (extendedEnd.isAfter(rangeEnd)) {
+        rangeEnd = extendedEnd;
+      }
+    }
     final dayChecklists = Map<DateTime, AppointmentDayChecklist>.unmodifiable(
       _dayChecklistsInRange(
         source: data.appointmentDayChecklists,
@@ -1400,7 +1418,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         .toList(growable: false);
 
     final roomsById = _buildRoomsIndex(salons, widget.salonId);
-    final rangeLabel = _buildRangeLabel(rangeStart, rangeEnd, _scope);
+    final rangeLabel = _buildRangeLabel(rangeStart, baseRangeEnd, _scope);
     final staffSelectionKey = _staffSelectionKey(selectedStaffIds);
     final theme = Theme.of(context);
     final moduleBackground = theme.colorScheme.surfaceContainerLowest;
@@ -1438,8 +1456,9 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                         scope: _scope,
                         weekLayout:
                             _scope == AppointmentCalendarScope.week
-                                ? _effectiveWeekLayout
+                                ? weekLayout
                                 : AppointmentWeekLayoutMode.detailed,
+                        extraDetailedDay: extraDetailedDay,
                         appointments: filteredAppointments,
                         allAppointments: allAppointmentsWithPlaceholders,
                         lastMinutePlaceholders: expressPlaceholders,
@@ -3017,6 +3036,60 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     return scope == AppointmentCalendarScope.day
         ? start.add(const Duration(days: 1))
         : start.add(const Duration(days: 7));
+  }
+
+  DateTime? _computeExtraDetailedDay({
+    required DateTime rangeStart,
+    required DateTime today,
+    required AppointmentWeekLayoutMode layout,
+    required Set<int> visibleWeekdays,
+    List<SalonDailySchedule>? schedule,
+  }) {
+    if (layout != AppointmentWeekLayoutMode.detailed) {
+      return null;
+    }
+    final normalizedToday = DateUtils.dateOnly(today);
+    final days = List.generate(
+      7,
+      (index) => rangeStart.add(Duration(days: index)),
+    );
+    final openWeekdays =
+        schedule == null
+            ? null
+            : schedule
+                .where(
+                  (entry) =>
+                      entry.isOpen &&
+                      entry.openMinuteOfDay != null &&
+                      entry.closeMinuteOfDay != null,
+                )
+                .map((entry) => entry.weekday)
+                .toSet();
+    final filteredDays =
+        days.where((day) {
+          final isVisible = visibleWeekdays.contains(day.weekday);
+          final isOpen =
+              openWeekdays == null || openWeekdays.contains(day.weekday);
+          return isVisible && isOpen;
+        }).toList();
+    if (filteredDays.isEmpty) {
+      filteredDays.add(rangeStart);
+    }
+    final lastVisibleDay = DateUtils.dateOnly(filteredDays.last);
+    if (!DateUtils.isSameDay(lastVisibleDay, normalizedToday)) {
+      return null;
+    }
+    final nextWeekStart = rangeStart.add(const Duration(days: 7));
+    for (var offset = 0; offset < 7; offset++) {
+      final candidate = nextWeekStart.add(Duration(days: offset));
+      final isVisible = visibleWeekdays.contains(candidate.weekday);
+      final isOpen =
+          openWeekdays == null || openWeekdays.contains(candidate.weekday);
+      if (isVisible && isOpen) {
+        return DateTime(candidate.year, candidate.month, candidate.day);
+      }
+    }
+    return nextWeekStart;
   }
 
   static String _buildRangeLabel(

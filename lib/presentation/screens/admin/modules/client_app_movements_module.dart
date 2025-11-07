@@ -1160,11 +1160,11 @@ class _FiltersBar extends StatelessWidget {
                   child: FilterChip(
                     selected: isSelected,
                     backgroundColor: scheme.surfaceContainerHighest,
-                    selectedColor: scheme.primary,
-                    checkmarkColor: scheme.onPrimary,
+                    selectedColor: scheme.secondary,
+                    checkmarkColor: scheme.onSecondary,
                     labelStyle: TextStyle(
                       color: isSelected
-                          ? scheme.onPrimary
+                          ? scheme.onSecondary
                           : scheme.onSurface,
                     ),
                     label: Text(label),

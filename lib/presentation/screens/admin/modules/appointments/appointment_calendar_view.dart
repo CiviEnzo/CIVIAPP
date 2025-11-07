@@ -154,6 +154,7 @@ class AppointmentCalendarView extends StatefulWidget {
     this.onCreateAbsence,
     this.onEditAbsence,
     this.onDeleteAbsence,
+    this.extraDetailedDay,
   });
   final DateTime anchorDate;
   final AppointmentCalendarScope scope;
@@ -175,6 +176,7 @@ class AppointmentCalendarView extends StatefulWidget {
   final Map<String, Salon> salonsById;
   final Map<String, String> lockedAppointmentReasons;
   final Map<DateTime, AppointmentDayChecklist> dayChecklists;
+  final DateTime? extraDetailedDay;
   final AppointmentRescheduleCallback onReschedule;
   final AppointmentTapCallback onEdit;
   final AppointmentSlotSelectionCallback onCreate;
@@ -977,6 +979,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           onCreateAbsence: widget.onCreateAbsence,
           onEditAbsence: widget.onEditAbsence,
           onDeleteAbsence: widget.onDeleteAbsence,
+          extraDetailedDay: widget.extraDetailedDay,
           onAutoScrollComplete: () {
             if (!_didAutoScrollToInitialDay && mounted) {
               setState(() {
@@ -1692,6 +1695,7 @@ class _WeekSchedule extends StatelessWidget {
     this.autoScrollPending = false,
     required this.layout,
     this.onAutoScrollComplete,
+    this.extraDetailedDay,
   });
 
   final DateTime anchorDate;
@@ -1746,6 +1750,7 @@ class _WeekSchedule extends StatelessWidget {
   final bool autoScrollPending;
   final AppointmentWeekLayoutMode layout;
   final VoidCallback? onAutoScrollComplete;
+  final DateTime? extraDetailedDay;
 
   static const _slotExtent = _AppointmentCalendarViewState._slotExtent;
   static const _timeScaleExtent =
@@ -1798,6 +1803,10 @@ class _WeekSchedule extends StatelessWidget {
       7,
       (index) => startOfWeek.add(Duration(days: index)),
     );
+    final normalizedExtraDay =
+        extraDetailedDay != null
+            ? DateUtils.dateOnly(extraDetailedDay!)
+            : null;
     final openSchedule = schedule?.where(
       (entry) =>
           entry.isOpen &&
@@ -1814,6 +1823,19 @@ class _WeekSchedule extends StatelessWidget {
         }).toList();
     if (filteredDays.isEmpty) {
       filteredDays.add(startOfWeek);
+    }
+    if (layout == AppointmentWeekLayoutMode.detailed &&
+        normalizedExtraDay != null) {
+      final alreadyIncluded = filteredDays.any(
+        (day) => DateUtils.isSameDay(
+          DateUtils.dateOnly(day),
+          normalizedExtraDay,
+        ),
+      );
+      if (!alreadyIncluded) {
+        filteredDays.add(normalizedExtraDay);
+        filteredDays.sort();
+      }
     }
 
     final dayData =
@@ -2094,6 +2116,12 @@ class _WeekSchedule extends StatelessWidget {
                                       normalizedDate,
                                       now,
                                     );
+                                    final isNextWeekDay =
+                                        normalizedExtraDay != null &&
+                                        DateUtils.isSameDay(
+                                          normalizedExtraDay,
+                                          normalizedDate,
+                                        );
                                     final shouldAutoScroll =
                                         autoScrollPending &&
                                         autoScrollTargetDate != null &&
@@ -2118,32 +2146,43 @@ class _WeekSchedule extends StatelessWidget {
                                         });
                                       });
                                     }
-                                    final headerColor =
-                                        isToday
-                                            ? Color.alphaBlend(
-                                              theme.colorScheme.primary
-                                                  .withValues(alpha: 0.08),
-                                              dayHeaderColor,
-                                            )
-                                            : dayHeaderColor;
-                                    final borderColor =
-                                        isToday
-                                            ? theme.colorScheme.primary
-                                                .withValues(alpha: 0.55)
-                                            : theme.dividerColor.withValues(
-                                              alpha: 0.4,
-                                            );
-                                    final List<BoxShadow>? boxShadow =
-                                        isToday
-                                            ? [
-                                              BoxShadow(
-                                                color: theme.colorScheme.primary
-                                                    .withValues(alpha: 0.18),
-                                                blurRadius: 18,
-                                                offset: const Offset(0, 6),
-                                              ),
-                                            ]
-                                            : null;
+                                    var headerColor = dayHeaderColor;
+                                    var borderColor = theme.dividerColor
+                                        .withValues(alpha: 0.4);
+                                    List<BoxShadow>? boxShadow;
+                                    if (isToday) {
+                                      headerColor = Color.alphaBlend(
+                                        theme.colorScheme.primary
+                                            .withValues(alpha: 0.08),
+                                        dayHeaderColor,
+                                      );
+                                      borderColor = theme.colorScheme.primary
+                                          .withValues(alpha: 0.55);
+                                      boxShadow = [
+                                        BoxShadow(
+                                          color: theme.colorScheme.primary
+                                              .withValues(alpha: 0.18),
+                                          blurRadius: 18,
+                                          offset: const Offset(0, 6),
+                                        ),
+                                      ];
+                                    } else if (isNextWeekDay) {
+                                      headerColor = Color.alphaBlend(
+                                        theme.colorScheme.secondary
+                                            .withValues(alpha: 0.12),
+                                        dayHeaderColor,
+                                      );
+                                      borderColor = theme.colorScheme.secondary
+                                          .withValues(alpha: 0.55);
+                                      boxShadow = [
+                                        BoxShadow(
+                                          color: theme.colorScheme.secondary
+                                              .withValues(alpha: 0.16),
+                                          blurRadius: 16,
+                                          offset: const Offset(0, 6),
+                                        ),
+                                      ];
+                                    }
                                     final totalAppointments = data
                                         .appointmentsByStaff
                                         .values
@@ -2195,22 +2234,38 @@ class _WeekSchedule extends StatelessWidget {
                                         .whereType<String>()
                                         .toList(growable: false);
 
-                                    final summaryChips = <Widget>[
+                                    final summaryChips = <Widget>[];
+                                    if (isNextWeekDay) {
+                                      summaryChips.add(
+                                        _summaryChip(
+                                          theme: theme,
+                                          icon: Icons.north_east_rounded,
+                                          label: 'Settimana prossima',
+                                          background:
+                                              theme.colorScheme.secondaryContainer
+                                                  .withValues(alpha: 0.7),
+                                          foreground:
+                                              theme
+                                                  .colorScheme
+                                                  .onSecondaryContainer,
+                                        ),
+                                      );
+                                    }
+                                    summaryChips.add(
                                       _summaryChip(
                                         theme: theme,
                                         icon: Icons.event_available_rounded,
                                         label:
                                             '$totalAppointments appuntamenti',
-                                        background: theme
-                                            .colorScheme
-                                            .tertiaryContainer
-                                            .withValues(alpha: 0.6),
+                                        background:
+                                            theme.colorScheme.tertiaryContainer
+                                                .withValues(alpha: 0.6),
                                         foreground:
                                             theme
                                                 .colorScheme
                                                 .onTertiaryContainer,
                                       ),
-                                    ];
+                                    );
 
                                     return Container(
                                       width: dayWidth,
@@ -2325,12 +2380,41 @@ class _WeekSchedule extends StatelessWidget {
                                                     Flexible(
                                                       flex: 3,
                                                       fit: FlexFit.loose,
-                                                      child: Text(
-                                                        dateLabel,
-                                                        style:
-                                                            theme
-                                                                .textTheme
-                                                                .titleMedium,
+                                                      child: Column(
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .start,
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          Text(
+                                                            dateLabel,
+                                                            style:
+                                                                theme
+                                                                    .textTheme
+                                                                    .titleMedium,
+                                                          ),
+                                                          if (isNextWeekDay)
+                                                            Padding(
+                                                              padding:
+                                                                  const EdgeInsets
+                                                                  .only(top: 2),
+                                                              child: Text(
+                                                                'Settimana prossima',
+                                                                style: theme
+                                                                    .textTheme
+                                                                    .labelSmall
+                                                                    ?.copyWith(
+                                                                      color: theme
+                                                                          .colorScheme
+                                                                          .secondary,
+                                                                      fontWeight:
+                                                                          FontWeight
+                                                                              .w600,
+                                                                    ),
+                                                              ),
+                                                            ),
+                                                        ],
                                                       ),
                                                     ),
                                                     if (showChecklistLauncher) ...[
@@ -2667,159 +2751,131 @@ class _WeekSchedule extends StatelessWidget {
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                for (
-                                  var dayIndex = 0;
-                                  dayIndex < dayData.length;
-                                  dayIndex++
-                                ) ...[
-                                  Container(
-                                    width: dayWidth,
-                                    margin: EdgeInsets.only(
-                                      right:
-                                          dayIndex == dayData.length - 1
-                                              ? 0
-                                              : dayGap,
-                                    ),
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 12,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: dayBodyColor,
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                        color: theme.dividerColor.withValues(
-                                          alpha: 0.25,
+                                for (var dayIndex = 0; dayIndex < dayData.length; dayIndex++) ...[
+                                  Builder(
+                                    builder: (context) {
+                                      final currentDay = dayData[dayIndex];
+                                      final normalizedDay = DateUtils.dateOnly(currentDay.date);
+                                      final isNextWeekDay = normalizedExtraDay != null &&
+                                          DateUtils.isSameDay(normalizedExtraDay, normalizedDay);
+                                      final bodyBorderColor = isNextWeekDay
+                                          ? theme.colorScheme.secondary.withValues(alpha: 0.45)
+                                          : theme.dividerColor.withValues(alpha: 0.25);
+                                      final bodyColor = isNextWeekDay
+                                          ? Color.alphaBlend(
+                                              theme.colorScheme.secondary.withValues(alpha: 0.06),
+                                              dayBodyColor,
+                                            )
+                                          : dayBodyColor;
+                                      final List<BoxShadow>? bodyShadow = isNextWeekDay
+                                          ? [
+                                              BoxShadow(
+                                                color: theme.colorScheme.secondary.withValues(alpha: 0.08),
+                                                blurRadius: 14,
+                                                offset: const Offset(0, 4),
+                                              ),
+                                            ]
+                                          : null;
+                                      return Container(
+                                        width: dayWidth,
+                                        margin: EdgeInsets.only(
+                                          right: dayIndex == dayData.length - 1 ? 0 : dayGap,
                                         ),
-                                        width: dayBorderWidth,
-                                      ),
-                                    ),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: dayHorizontalPadding,
-                                      ),
-                                      child: Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          for (
-                                            var staffIndex = 0;
-                                            staffIndex < staff.length;
-                                            staffIndex++
-                                          ) ...[
-                                            Container(
-                                              width: staffColumnWidth,
-                                              margin: EdgeInsets.only(
-                                                right:
-                                                    staffIndex ==
-                                                            staff.length - 1
-                                                        ? 0
-                                                        : staffGap,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                gradient: LinearGradient(
-                                                  colors: [
-                                                    theme.colorScheme.surface,
-                                                    theme
-                                                        .colorScheme
-                                                        .surfaceVariant
-                                                        .withValues(
-                                                          alpha: 0.42,
-                                                        ),
-                                                  ],
-                                                  begin: Alignment.topCenter,
-                                                  end: Alignment.bottomCenter,
-                                                ),
-                                                borderRadius:
-                                                    BorderRadius.circular(16),
-                                                border: Border.all(
-                                                  color: staffColumnBorderColor,
-                                                  width: 1.05,
-                                                ),
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                    color:
-                                                        staffColumnShadowColor,
-                                                    blurRadius: 24,
-                                                    offset: const Offset(0, 12),
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                        decoration: BoxDecoration(
+                                          color: bodyColor,
+                                          borderRadius: BorderRadius.circular(16),
+                                          border: Border.all(
+                                            color: bodyBorderColor,
+                                            width: dayBorderWidth,
+                                          ),
+                                          boxShadow: bodyShadow,
+                                        ),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: dayHorizontalPadding,
+                                          ),
+                                          child: Row(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              for (var staffIndex = 0; staffIndex < staff.length; staffIndex++) ...[
+                                                Container(
+                                                  width: staffColumnWidth,
+                                                  margin: EdgeInsets.only(
+                                                    right: staffIndex == staff.length - 1 ? 0 : staffGap,
                                                   ),
-                                                ],
-                                              ),
-                                              child: SizedBox(
-                                                height: gridHeight,
-                                                child: _StaffDayColumn(
-                                                  staffMember:
-                                                      staff[staffIndex],
-                                                  appointments:
-                                                      dayData[dayIndex]
-                                                          .appointmentsByStaff[staff[staffIndex]
-                                                          .id] ??
-                                                      const [],
-                                                  lastMinutePlaceholders:
-                                                      lastMinutePlaceholders,
-                                                  lastMinuteSlots:
-                                                      lastMinuteSlots,
-                                                  onTapLastMinuteSlot:
-                                                      onTapLastMinuteSlot,
-                                                  shifts:
-                                                      dayData[dayIndex]
-                                                          .shiftsByStaff[staff[staffIndex]
-                                                          .id] ??
-                                                      const [],
-                                                  absences:
-                                                      dayData[dayIndex]
-                                                          .absencesByStaff[staff[staffIndex]
-                                                          .id] ??
-                                                      const [],
-                                                  timelineStart:
-                                                      dayData[dayIndex].date
-                                                          .add(
-                                                            Duration(
-                                                              minutes:
-                                                                  minMinute,
-                                                            ),
-                                                          ),
-                                                  timelineEnd: dayData[dayIndex]
-                                                      .date
-                                                      .add(
-                                                        Duration(
-                                                          minutes: maxMinute,
-                                                        ),
+                                                  decoration: BoxDecoration(
+                                                    gradient: LinearGradient(
+                                                      colors: [
+                                                        theme.colorScheme.surface,
+                                                        theme.colorScheme.surfaceContainerHighest
+                                                            .withValues(alpha: 0.42),
+                                                      ],
+                                                      begin: Alignment.topCenter,
+                                                      end: Alignment.bottomCenter,
+                                                    ),
+                                                    borderRadius: BorderRadius.circular(16),
+                                                    border: Border.all(
+                                                      color: staffColumnBorderColor,
+                                                      width: 1.05,
+                                                    ),
+                                                    boxShadow: [
+                                                      BoxShadow(
+                                                        color: staffColumnShadowColor,
+                                                        blurRadius: 24,
+                                                        offset: const Offset(0, 12),
                                                       ),
-                                                  slotMinutes: slotMinutes,
-                                                  interactionSlotMinutes:
-                                                      interactionSlotMinutes,
-                                                  slotExtent: _slotExtent,
-                                                  clientsWithOutstandingPayments:
-                                                      clientsWithOutstandingPayments,
-                                                  clientsById: clientsById,
-                                                  servicesById: servicesById,
-                                                  categoriesById:
-                                                      categoriesById,
-                                                  categoriesByName:
-                                                      categoriesByName,
-                                                  roomsById: roomsById,
-                                                  salonsById: salonsById,
-                                                  allAppointments:
-                                                      allAppointments,
-                                                  statusColor: statusColor,
-                                                  onReschedule: onReschedule,
-                                                  onEdit: onEdit,
-                                                  onCreate: onCreate,
-                                                  anomalies: anomalies,
-                                                  lockedAppointmentReasons:
-                                                      lockedAppointmentReasons,
-                                                  openStart:
-                                                      dayData[dayIndex]
-                                                          .openStart,
-                                                  openEnd:
-                                                      dayData[dayIndex].openEnd,
+                                                    ],
+                                                  ),
+                                                  child: SizedBox(
+                                                    height: gridHeight,
+                                                    child: _StaffDayColumn(
+                                                      staffMember: staff[staffIndex],
+                                                      appointments:
+                                                          currentDay.appointmentsByStaff[staff[staffIndex].id] ??
+                                                          const [],
+                                                      lastMinutePlaceholders: lastMinutePlaceholders,
+                                                      lastMinuteSlots: lastMinuteSlots,
+                                                      allAppointments: allAppointments,
+                                                      shifts: currentDay.shiftsByStaff[staff[staffIndex].id] ??
+                                                          const [],
+                                                      absences: currentDay.absencesByStaff[staff[staffIndex].id] ??
+                                                          const [],
+                                                      timelineStart: currentDay.date.add(
+                                                        Duration(minutes: minMinute!),
+                                                      ),
+                                                      timelineEnd: currentDay.date.add(
+                                                        Duration(minutes: maxMinute!),
+                                                      ),
+                                                      slotMinutes: slotMinutes,
+                                                      interactionSlotMinutes: interactionSlotMinutes,
+                                                      slotExtent: _slotExtent,
+                                                      clientsWithOutstandingPayments:
+                                                          clientsWithOutstandingPayments,
+                                                      clientsById: clientsById,
+                                                      servicesById: servicesById,
+                                                      categoriesById: categoriesById,
+                                                      categoriesByName: categoriesByName,
+                                                      roomsById: roomsById,
+                                                      salonsById: salonsById,
+                                                      statusColor: statusColor,
+                                                      lockedAppointmentReasons: lockedAppointmentReasons,
+                                                      onReschedule: onReschedule,
+                                                      onEdit: onEdit,
+                                                      onCreate: onCreate,
+                                                      onTapLastMinuteSlot: onTapLastMinuteSlot,
+                                                      anomalies: anomalies,
+                                                      openStart: currentDay.openStart,
+                                                      openEnd: currentDay.openEnd,
+                                                    ),
+                                                  ),
                                                 ),
-                                              ),
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
+                                              ],
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    },
                                   ),
                                 ],
                               ],
@@ -2833,7 +2889,7 @@ class _WeekSchedule extends StatelessWidget {
               ),
             ),
           ),
-        ),
+      ),
       ],
     );
   }

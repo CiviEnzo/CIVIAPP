@@ -1626,6 +1626,9 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
     required ValueChanged<Set<String>> onSelectionChanged,
   }) {
     final theme = Theme.of(context);
+    final secondary = theme.colorScheme.secondary;
+    final onSecondary = theme.colorScheme.onSecondary;
+    final onSurface = theme.colorScheme.onSurface;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1636,21 +1639,29 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
           runSpacing: 8,
           children:
               options
-                  .map(
-                    (option) => FilterChip(
-                      selected: selection.contains(option.id),
-                      label: Text(option.label),
-                      onSelected: (selected) {
-                        final updated = Set<String>.from(selection);
-                        if (selected) {
-                          updated.add(option.id);
-                        } else {
-                          updated.remove(option.id);
-                        }
-                        onSelectionChanged(updated);
-                      },
+                .map((option) {
+                  final isSelected = selection.contains(option.id);
+                  return FilterChip(
+                    selected: isSelected,
+                    selectedColor: secondary,
+                    checkmarkColor: onSecondary,
+                    label: Text(
+                      option.label,
+                      style: TextStyle(
+                        color: isSelected ? onSecondary : onSurface,
+                      ),
                     ),
-                  )
+                    onSelected: (selected) {
+                      final updated = Set<String>.from(selection);
+                      if (selected) {
+                        updated.add(option.id);
+                      } else {
+                        updated.remove(option.id);
+                      }
+                      onSelectionChanged(updated);
+                    },
+                  );
+                })
                   .toList(),
         ),
       ],
@@ -1663,6 +1674,23 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
     required ValueChanged<bool?> onChanged,
   }) {
     final theme = Theme.of(context);
+    final secondary = theme.colorScheme.secondary;
+    final onSecondary = theme.colorScheme.onSecondary;
+    final onSurface = theme.colorScheme.onSurface;
+    Widget buildChoice(String text, bool isSelected, VoidCallback onTap) {
+      return ChoiceChip(
+        label: Text(
+          text,
+          style: TextStyle(
+            color: isSelected ? onSecondary : onSurface,
+          ),
+        ),
+        selected: isSelected,
+        selectedColor: secondary,
+        checkmarkColor: onSecondary,
+        onSelected: (_) => onTap(),
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1671,21 +1699,9 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
         Wrap(
           spacing: 8,
           children: [
-            ChoiceChip(
-              label: const Text('Qualsiasi'),
-              selected: value == null,
-              onSelected: (_) => onChanged(null),
-            ),
-            ChoiceChip(
-              label: const Text('Sì'),
-              selected: value == true,
-              onSelected: (_) => onChanged(true),
-            ),
-            ChoiceChip(
-              label: const Text('No'),
-              selected: value == false,
-              onSelected: (_) => onChanged(false),
-            ),
+            buildChoice('Qualsiasi', value == null, () => onChanged(null)),
+            buildChoice('Sì', value == true, () => onChanged(true)),
+            buildChoice('No', value == false, () => onChanged(false)),
           ],
         ),
       ],
@@ -1696,6 +1712,28 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
     AdvancedSearchBirthdayShortcut shortcut,
   ) {
     final theme = Theme.of(context);
+    final secondary = theme.colorScheme.secondary;
+    final onSecondary = theme.colorScheme.onSecondary;
+    final onSurface = theme.colorScheme.onSurface;
+    Widget buildChoice(
+      String text,
+      AdvancedSearchBirthdayShortcut target,
+      VoidCallback onTap,
+    ) {
+      final isSelected = shortcut == target;
+      return ChoiceChip(
+        label: Text(
+          text,
+          style: TextStyle(
+            color: isSelected ? onSecondary : onSurface,
+          ),
+        ),
+        selected: isSelected,
+        selectedColor: secondary,
+        checkmarkColor: onSecondary,
+        onSelected: (_) => onTap(),
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1704,35 +1742,32 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
         Wrap(
           spacing: 8,
           children: [
-            ChoiceChip(
-              label: const Text('Nessun filtro'),
-              selected: shortcut == AdvancedSearchBirthdayShortcut.none,
-              onSelected:
-                  (_) => _updateFilter(
-                    (builder) =>
-                        builder.birthdayShortcut =
-                            AdvancedSearchBirthdayShortcut.none,
-                  ),
+            buildChoice(
+              'Nessun filtro',
+              AdvancedSearchBirthdayShortcut.none,
+              () => _updateFilter(
+                (builder) =>
+                    builder.birthdayShortcut =
+                        AdvancedSearchBirthdayShortcut.none,
+              ),
             ),
-            ChoiceChip(
-              label: const Text('Prossima settimana'),
-              selected: shortcut == AdvancedSearchBirthdayShortcut.nextWeek,
-              onSelected:
-                  (_) => _updateFilter(
-                    (builder) =>
-                        builder.birthdayShortcut =
-                            AdvancedSearchBirthdayShortcut.nextWeek,
-                  ),
+            buildChoice(
+              'Prossima settimana',
+              AdvancedSearchBirthdayShortcut.nextWeek,
+              () => _updateFilter(
+                (builder) =>
+                    builder.birthdayShortcut =
+                        AdvancedSearchBirthdayShortcut.nextWeek,
+              ),
             ),
-            ChoiceChip(
-              label: const Text('Prossimo mese'),
-              selected: shortcut == AdvancedSearchBirthdayShortcut.nextMonth,
-              onSelected:
-                  (_) => _updateFilter(
-                    (builder) =>
-                        builder.birthdayShortcut =
-                            AdvancedSearchBirthdayShortcut.nextMonth,
-                  ),
+            buildChoice(
+              'Prossimo mese',
+              AdvancedSearchBirthdayShortcut.nextMonth,
+              () => _updateFilter(
+                (builder) =>
+                    builder.birthdayShortcut =
+                        AdvancedSearchBirthdayShortcut.nextMonth,
+              ),
             ),
           ],
         ),
@@ -2634,9 +2669,26 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                   .toList(),
         ),
         FilterChip(
-          avatar: const Icon(Icons.group_work_rounded, size: 18),
-          label: const Text('Raggruppa per appuntamenti'),
+          avatar: Icon(
+            Icons.group_work_rounded,
+            size: 18,
+            color:
+                _groupByUpcoming
+                    ? theme.colorScheme.onSecondary
+                    : theme.colorScheme.onSurfaceVariant,
+          ),
+          label: Text(
+            'Raggruppa per appuntamenti',
+            style: TextStyle(
+              color:
+                  _groupByUpcoming
+                      ? theme.colorScheme.onSecondary
+                      : theme.colorScheme.onSurface,
+            ),
+          ),
           selected: _groupByUpcoming,
+          selectedColor: theme.colorScheme.secondary,
+          checkmarkColor: theme.colorScheme.onSecondary,
           onSelected: (value) => setState(() => _groupByUpcoming = value),
         ),
         if (_bulkSelectedClientIds.isNotEmpty)
