@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:collection/collection.dart';
 import 'package:csv/csv.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -77,18 +79,21 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
   final TextEditingController _lastCompletedOlderController =
       TextEditingController();
 
-  final ScrollController _filtersScrollController = ScrollController();
   final ScrollController _resultsScrollController = ScrollController();
+  final GlobalKey _resultsAnchorKey = GlobalKey();
 
   final Set<String> _bulkSelectedClientIds = <String>{};
   _SortOption _sortOption = _SortOption.name;
   bool _groupByUpcoming = false;
+  bool _shouldScrollAfterBuild = false;
+  int _scrollRetryCount = 0;
 
   List<Service> _cachedServices = const <Service>[];
   List<ServiceCategory> _cachedCategories = const <ServiceCategory>[];
   List<String> _cachedReferralSources = const <String>[];
 
   String? _selectedClientId;
+  bool _pendingScrollToResults = false;
 
   @override
   void initState() {
@@ -106,6 +111,9 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
         if (mounted) {
           setState(() => _selectedClientId = null);
         }
+      }
+      if (_pendingScrollToResults && !next.isApplying) {
+        _scheduleScrollAfterResultsReady();
       }
     });
   }
@@ -144,6 +152,9 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
         if (shouldUpdate && mounted) {
           setState(() {});
         }
+        if (_pendingScrollToResults && !next.isApplying) {
+          _scheduleScrollAfterResultsReady();
+        }
       });
     }
   }
@@ -168,7 +179,6 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
     _upcomingWithinController.dispose();
     _lastCompletedWithinController.dispose();
     _lastCompletedOlderController.dispose();
-    _filtersScrollController.dispose();
     _resultsScrollController.dispose();
     super.dispose();
   }
@@ -201,6 +211,16 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
     _cachedServices = services;
     _cachedCategories = categories;
     _cachedReferralSources = referralOptions;
+    if (_shouldScrollAfterBuild && showResults && !state.isApplying) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        _shouldScrollAfterBuild = false;
+        _pendingScrollToResults = false;
+        _scrollToResults();
+      });
+    }
 
     return LayoutBuilder(
       builder: (context, _) {
@@ -219,8 +239,6 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
           showResults: showResults,
           filters: filters,
         );
-        final hasBulkSelection = _bulkSelectedClientIds.isNotEmpty;
-
         final content = Scrollbar(
           controller: _resultsScrollController,
           child: ListView(
@@ -237,10 +255,11 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
         return Column(
           children: [
             Expanded(child: content),
-            if (hasBulkSelection) _buildBulkToolbar(),
             _buildPersistentActionsBar(
               isApplying: state.isApplying,
               activeChips: activeChips,
+              totalResults: totalResults,
+              showResults: showResults,
             ),
           ],
         );
@@ -570,8 +589,21 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
   Widget _buildPersistentActionsBar({
     required bool isApplying,
     required List<_FilterChipData> activeChips,
+    required int totalResults,
+    required bool showResults,
   }) {
     final theme = Theme.of(context);
+    final hasSelection = _bulkSelectedClientIds.isNotEmpty;
+    final selectedCount = _bulkSelectedClientIds.length;
+    final resultsLabel =
+        !showResults
+            ? 'Avvia una ricerca per vedere i risultati'
+            : totalResults == 0
+            ? 'Nessun cliente trovato'
+            : totalResults == 1
+            ? '1 risultato trovato'
+            : '$totalResults risultati trovati';
+
     return Material(
       elevation: 12,
       color: theme.colorScheme.surface,
@@ -593,7 +625,10 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                     onPressed:
                         isApplying
                             ? null
-                            : () => ref.read(_provider.notifier).apply(),
+                            : () {
+                              _pendingScrollToResults = true;
+                              ref.read(_provider.notifier).apply();
+                            },
                     icon:
                         isApplying
                             ? const SizedBox(
@@ -604,13 +639,28 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                             : const Icon(Icons.manage_search_rounded),
                     label: Text(isApplying ? 'Ricerca in corso...' : 'Cerca'),
                   ),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      ref.read(_provider.notifier).clear();
-                      setState(() => _selectedClientId = null);
-                    },
-                    icon: const Icon(Icons.clear_rounded),
-                    label: const Text('Azzera'),
+                  if (hasSelection)
+                    Chip(
+                      avatar: const Icon(Icons.check_circle_rounded),
+                      label: Text('$selectedCount selezionati'),
+                    ),
+                  if (hasSelection)
+                    TextButton.icon(
+                      onPressed: _clearBulkSelection,
+                      icon: const Icon(Icons.close_rounded),
+                      label: const Text('Annulla selezione'),
+                    ),
+                  if (hasSelection)
+                    FilledButton.icon(
+                      onPressed: _openBulkActionsMenu,
+                      icon: const Icon(Icons.playlist_add_check_rounded),
+                      label: const Text('Azioni'),
+                    ),
+                  Text(
+                    resultsLabel,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
@@ -621,10 +671,7 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                   children: [
                     Text('Filtri attivi', style: theme.textTheme.labelLarge),
                     TextButton.icon(
-                      onPressed: () {
-                        ref.read(_provider.notifier).clear();
-                        setState(() => _selectedClientId = null);
-                      },
+                      onPressed: _confirmResetFilters,
                       icon: const Icon(Icons.clear_all_rounded),
                       label: const Text('Azzera tutto'),
                     ),
@@ -1276,6 +1323,104 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
     setState(() => _bulkSelectedClientIds.clear());
   }
 
+  void _scheduleScrollAfterResultsReady() {
+    _scrollRetryCount = 0;
+    if (mounted) {
+      setState(() => _shouldScrollAfterBuild = true);
+    } else {
+      _shouldScrollAfterBuild = true;
+    }
+  }
+
+  Future<void> _scrollToResults() async {
+    if (!mounted || !_resultsScrollController.hasClients) {
+      return;
+    }
+    final anchorContext = _resultsAnchorKey.currentContext;
+    if (anchorContext == null) {
+      if (_scrollRetryCount >= 6) {
+        _scrollRetryCount = 0;
+        return;
+      }
+      _scrollRetryCount += 1;
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      if (!mounted || !_resultsScrollController.hasClients) {
+        return;
+      }
+      final position = _resultsScrollController.position;
+      final target = position.maxScrollExtent.clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      );
+      position.jumpTo(target);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _scrollToResults();
+        }
+      });
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+    if (!mounted || !_resultsScrollController.hasClients) {
+      return;
+    }
+    final renderObject = anchorContext.findRenderObject();
+    final viewport =
+        renderObject == null ? null : RenderAbstractViewport.of(renderObject);
+    if (renderObject == null || viewport == null) {
+      return;
+    }
+    final target = viewport
+        .getOffsetToReveal(renderObject, 0)
+        .offset
+        .clamp(
+          _resultsScrollController.position.minScrollExtent,
+          _resultsScrollController.position.maxScrollExtent,
+        );
+    _scrollRetryCount = 0;
+    await _resultsScrollController.animateTo(
+      target,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _resetFilters() {
+    ref.read(_provider.notifier).clear();
+    setState(() {
+      _selectedClientId = null;
+      _bulkSelectedClientIds.clear();
+    });
+    _pendingScrollToResults = false;
+  }
+
+  Future<void> _confirmResetFilters() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Azzera tutti i filtri?'),
+          content: const Text(
+            'Questa azione rimuove tutti i filtri attivi e la selezione corrente.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Annulla'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Conferma'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed == true) {
+      _resetFilters();
+    }
+  }
+
   List<Client> _resolveSelectedClients() {
     if (_bulkSelectedClientIds.isEmpty) {
       return const <Client>[];
@@ -1544,47 +1689,6 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
           ],
         ),
       ],
-    );
-  }
-
-  Widget _buildBulkToolbar() {
-    final theme = Theme.of(context);
-    final selectedCount = _bulkSelectedClientIds.length;
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Card(
-        elevation: 8,
-        color: theme.colorScheme.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.fact_check_rounded, color: theme.colorScheme.primary),
-              const SizedBox(width: 12),
-              Text(
-                '$selectedCount selezionati',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(width: 16),
-              TextButton.icon(
-                onPressed: _clearBulkSelection,
-                icon: const Icon(Icons.close_rounded),
-                label: const Text('Annulla'),
-              ),
-              const SizedBox(width: 8),
-              FilledButton.icon(
-                onPressed: _openBulkActionsMenu,
-                icon: const Icon(Icons.send_rounded),
-                label: const Text('Azioni'),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 
@@ -2216,6 +2320,10 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
           onClose: () => setState(() => _selectedClientId = null),
         ),
       );
+    }
+
+    if (widgets.isNotEmpty) {
+      widgets[0] = KeyedSubtree(key: _resultsAnchorKey, child: widgets[0]);
     }
 
     return widgets;
