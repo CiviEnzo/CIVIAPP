@@ -22,6 +22,7 @@ class ShiftFormSheet extends StatefulWidget {
     this.initial,
     this.defaultSalonId,
     this.defaultStaffId,
+    this.defaultDay,
   });
 
   final List<Salon> salons;
@@ -29,6 +30,7 @@ class ShiftFormSheet extends StatefulWidget {
   final Shift? initial;
   final String? defaultSalonId;
   final String? defaultStaffId;
+  final DateTime? defaultDay;
 
   @override
   State<ShiftFormSheet> createState() => _ShiftFormSheetState();
@@ -85,7 +87,12 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
         (widget.salons.isNotEmpty ? widget.salons.first.id : null);
     _staffId = initial?.staffId ?? widget.defaultStaffId;
     final now = DateTime.now();
-    _start = initial?.start ?? DateTime(now.year, now.month, now.day, 9, 0);
+    final defaultDay = widget.defaultDay != null
+        ? DateUtils.dateOnly(widget.defaultDay!)
+        : null;
+    final baseDay = defaultDay ?? DateUtils.dateOnly(now);
+    final defaultStart = DateTime(baseDay.year, baseDay.month, baseDay.day, 9, 0);
+    _start = initial?.start ?? defaultStart;
     _end = initial?.end ?? _start.add(const Duration(hours: 6));
     _roomId = initial?.roomId;
     _notes.text = initial?.notes ?? '';
@@ -236,33 +243,48 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
               const SizedBox(height: 12),
             ] else
               const SizedBox(height: 12),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Data di inizio'),
-              subtitle: Text(dateFormat.format(_start)),
-              trailing: const Icon(Icons.calendar_today_rounded),
-              onTap: _pickStartDate,
+            Row(
+              children: [
+                Expanded(
+                  child: _ShiftFormSelectionTile(
+                    label: 'Data di inizio',
+                    value: dateFormat.format(_start),
+                    icon: Icons.calendar_today_rounded,
+                    onTap: _pickStartDate,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _ShiftFormSelectionTile(
+                    label: 'Data di fine',
+                    value: dateFormat.format(_end),
+                    icon: Icons.event,
+                    onTap: _pickEndDate,
+                  ),
+                ),
+              ],
             ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Ora di inizio'),
-              subtitle: Text(timeFormat.format(_start)),
-              trailing: const Icon(Icons.schedule_rounded),
-              onTap: _pickStartTime,
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Data di fine'),
-              subtitle: Text(dateFormat.format(_end)),
-              trailing: const Icon(Icons.event),
-              onTap: _pickEndDate,
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Ora di fine'),
-              subtitle: Text(timeFormat.format(_end)),
-              trailing: const Icon(Icons.schedule),
-              onTap: _pickEndTime,
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _ShiftFormSelectionTile(
+                    label: 'Ora di inizio',
+                    value: timeFormat.format(_start),
+                    icon: Icons.schedule_rounded,
+                    onTap: _pickStartTime,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _ShiftFormSelectionTile(
+                    label: 'Ora di fine',
+                    value: timeFormat.format(_end),
+                    icon: Icons.schedule,
+                    onTap: _pickEndTime,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             SwitchListTile.adaptive(
@@ -1198,5 +1220,67 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
       case ShiftRecurrenceFrequency.yearly:
         return 'Annuale';
     }
+  }
+}
+
+class _ShiftFormSelectionTile extends StatelessWidget {
+  const _ShiftFormSelectionTile({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final borderColor = theme.colorScheme.outlineVariant.withValues(alpha: 0.6);
+    return Material(
+      color: theme.colorScheme.surface,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: borderColor),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      value,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Icon(icon),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

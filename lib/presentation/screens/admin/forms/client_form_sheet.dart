@@ -341,7 +341,11 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
               decoration: const InputDecoration(labelText: 'Telefono'),
               keyboardType: TextInputType.phone,
               textInputAction: TextInputAction.next,
-              validator: _validatePhone,
+              validator:
+                  (value) =>
+                      value == null || value.trim().isEmpty
+                          ? 'Inserisci un numero di telefono'
+                          : null,
             ),
             TextFormField(
               controller: _email,
@@ -877,19 +881,10 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     });
   }
 
-  String? _validatePhone(String? value) {
-    final phone = value?.trim() ?? '';
-    final email = _email.text.trim();
-    if (phone.isEmpty && email.isEmpty) {
-      return 'Inserisci almeno un recapito (telefono o email)';
-    }
-    return null;
-  }
-
   String? _validateEmail(String? value) {
     final raw = value?.trim() ?? '';
     if (raw.isEmpty) {
-      return null;
+      return "Inserisci un indirizzo email";
     }
     final emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
     if (!emailPattern.hasMatch(raw)) {

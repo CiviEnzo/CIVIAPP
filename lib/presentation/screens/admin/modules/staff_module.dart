@@ -669,6 +669,7 @@ class StaffModule extends ConsumerWidget {
     String? defaultSalonId,
     String? defaultStaffId,
     Shift? initial,
+    DateTime? defaultDay,
   }) async {
     if (salons.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -689,6 +690,7 @@ class StaffModule extends ConsumerWidget {
             defaultSalonId: defaultSalonId,
             defaultStaffId: defaultStaffId,
             initial: initial,
+            defaultDay: defaultDay,
           ),
     );
     if (result != null) {

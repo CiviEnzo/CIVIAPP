@@ -16,12 +16,10 @@ Future<T?> showAppModalSheet<T>({
       final isCompactWidth = mediaQuery.size.width < 600;
 
       final content = builder(ctx);
-      final wrappedContent = includeCloseButton
-          ? _ModalSheetCloseWrapper(
-              child: content,
-              onClose: onClose,
-            )
-          : content;
+      final wrappedContent =
+          includeCloseButton
+              ? _ModalSheetCloseWrapper(child: content, onClose: onClose)
+              : content;
 
       if (isCompactWidth) {
         return Dialog.fullscreen(
@@ -43,10 +41,7 @@ Future<T?> showAppModalSheet<T>({
 }
 
 class _ModalSheetCloseWrapper extends StatelessWidget {
-  const _ModalSheetCloseWrapper({
-    required this.child,
-    this.onClose,
-  });
+  const _ModalSheetCloseWrapper({required this.child, this.onClose});
 
   final Widget child;
   final VoidCallback? onClose;
@@ -104,11 +99,7 @@ class _SheetCloseButton extends StatelessWidget {
             height: 44,
             width: 44,
             child: Center(
-              child: Icon(
-                Icons.close_rounded,
-                size: 20,
-                color: foreground,
-              ),
+              child: Icon(Icons.close_rounded, size: 20, color: foreground),
             ),
           ),
         ),
@@ -139,8 +130,9 @@ class DialogActionLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
     final bottomInset = mediaQuery.viewInsets.bottom;
-    final resolvedActionsPadding =
-        actionsPadding.resolve(Directionality.of(context));
+    final resolvedActionsPadding = actionsPadding.resolve(
+      Directionality.of(context),
+    );
     final maxHeight = mediaQuery.size.height * maxHeightFactor;
 
     return ConstrainedBox(
@@ -149,10 +141,7 @@ class DialogActionLayout extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Flexible(
-            child: SingleChildScrollView(
-              padding: bodyPadding,
-              child: body,
-            ),
+            child: SingleChildScrollView(padding: bodyPadding, child: body),
           ),
           if (actions.isNotEmpty) ...[
             const Divider(height: 1),

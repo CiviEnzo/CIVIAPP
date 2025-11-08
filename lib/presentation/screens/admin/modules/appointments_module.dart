@@ -1516,6 +1516,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                               staff: staffMembers,
                               defaultSalonId: staffMember.salonId,
                               defaultStaffId: staffMember.id,
+                              defaultDay: day,
                             ),
                         onEditShift:
                             (shift) => _openShiftForm(
@@ -1933,6 +1934,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
 
     final slotAction = await showAppModalSheet<_SlotAction>(
       context: context,
+      barrierDismissible: true,
       builder: (modalContext) {
         final tiles = <Widget>[
           ListTile(
@@ -2407,6 +2409,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     Shift? initial,
     String? defaultSalonId,
     String? defaultStaffId,
+    DateTime? defaultDay,
   }) async {
     if (salons.isEmpty) {
       if (!mounted) return;
@@ -2428,6 +2431,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
             initial: initial,
             defaultSalonId: defaultSalonId,
             defaultStaffId: defaultStaffId,
+            defaultDay: defaultDay,
           ),
     );
     if (result == null) {
