@@ -67,8 +67,11 @@ class _OutstandingPaymentFormSheetState
         widget.outstandingAmount.isFinite && widget.outstandingAmount > 0
             ? 'Residuo disponibile: ${widget.currency.format(widget.outstandingAmount)}'
             : null;
-    final staffOptions = [...widget.staff]
-      ..sort((a, b) => a.fullName.compareTo(b.fullName));
+    final staffOptions =
+        widget.staff
+            .where((member) => !member.isEquipment)
+            .toList()
+          ..sort((a, b) => a.fullName.compareTo(b.fullName));
     final selectedStaffId =
         staffOptions.any((member) => member.id == _staffId) ? _staffId : null;
     final staffName = widget.staffName?.trim();

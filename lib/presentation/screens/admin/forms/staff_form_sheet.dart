@@ -67,6 +67,7 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
   String? _avatarError;
   bool _isUploadingAvatar = false;
   bool _hasSaved = false;
+  bool _isEquipment = false;
   final Set<String> _pathsToDeleteOnSave = <String>{};
 
   @override
@@ -92,6 +93,7 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
           '${initial?.permissionAllowance ?? StaffMember.defaultPermissionAllowance}',
     );
     _dateOfBirth = initial?.dateOfBirth;
+    _isEquipment = initial?.isEquipment ?? false;
     final initialRoleIds = _normalizeRoleIds(initial?.roleIds ?? const []);
     if (initialRoleIds.isNotEmpty) {
       _selectedRoleIds = initialRoleIds;
@@ -663,10 +665,29 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
               keyboardType: TextInputType.phone,
             ),
             const SizedBox(height: 12),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Macchinario'),
+              subtitle: const Text(
+                'Usalo per rappresentare apparecchiature o cabine. Verrà escluso dalle vendite e non richiede email.',
+              ),
+              value: _isEquipment,
+              onChanged: (value) {
+                setState(() {
+                  _isEquipment = value;
+                  if (value) {
+                    _emailController.clear();
+                  }
+                });
+              },
+            ),
+            const SizedBox(height: 8),
             TextFormField(
               controller: _emailController,
               decoration: const InputDecoration(labelText: 'Email'),
               keyboardType: TextInputType.emailAddress,
+              enabled: !_isEquipment,
+
               validator: (value) {
                 final text = value?.trim() ?? '';
                 if (text.isNotEmpty && !text.contains('@')) {
@@ -766,6 +787,7 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
       roleIds: normalizedRoles,
       phone: phone.isEmpty ? null : phone,
       email: email.isEmpty ? null : email,
+      isEquipment: _isEquipment,
       dateOfBirth: _dateOfBirth,
       vacationAllowance: _parseAllowance(
         _vacationAllowanceController,

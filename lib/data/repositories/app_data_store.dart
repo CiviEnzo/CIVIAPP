@@ -2240,6 +2240,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
     StaffMember staff, {
     StaffMember? previous,
   }) async {
+    if (staff.isEquipment) {
+      return;
+    }
     final firestore = _firestore;
     if (firestore == null) {
       return;

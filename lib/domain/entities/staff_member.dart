@@ -9,6 +9,7 @@ class StaffMember {
     this.email,
     this.dateOfBirth,
     this.isActive = true,
+    this.isEquipment = false,
     this.vacationAllowance = defaultVacationAllowance,
     this.permissionAllowance = defaultPermissionAllowance,
     this.sortOrder = 0,
@@ -30,6 +31,7 @@ class StaffMember {
   final String? email;
   final DateTime? dateOfBirth;
   final bool isActive;
+  final bool isEquipment;
   final int vacationAllowance;
   final int permissionAllowance;
   final int sortOrder;
@@ -72,6 +74,7 @@ class StaffMember {
     String? email,
     DateTime? dateOfBirth,
     bool? isActive,
+    bool? isEquipment,
     int? vacationAllowance,
     int? permissionAllowance,
     int? sortOrder,
@@ -96,6 +99,7 @@ class StaffMember {
       email: email ?? this.email,
       dateOfBirth: dateOfBirth ?? this.dateOfBirth,
       isActive: isActive ?? this.isActive,
+      isEquipment: isEquipment ?? this.isEquipment,
       vacationAllowance: vacationAllowance ?? this.vacationAllowance,
       permissionAllowance: permissionAllowance ?? this.permissionAllowance,
       sortOrder: sortOrder ?? this.sortOrder,

@@ -245,6 +245,23 @@ class StaffModule extends ConsumerWidget {
                                               context,
                                             ).textTheme.bodyMedium,
                                       ),
+                                      if (staff.isEquipment) ...[
+                                        const SizedBox(height: 6),
+                                        Chip(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                          ),
+                                          materialTapTargetSize:
+                                              MaterialTapTargetSize.shrinkWrap,
+                                          visualDensity:
+                                              VisualDensity.compact,
+                                          avatar: const Icon(
+                                            Icons.precision_manufacturing,
+                                            size: 16,
+                                          ),
+                                          label: const Text('Macchinario'),
+                                        ),
+                                      ],
                                       if (staff.dateOfBirth != null) ...[
                                         const SizedBox(height: 4),
                                         Text(

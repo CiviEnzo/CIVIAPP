@@ -210,19 +210,33 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     if (_generalQuery.isEmpty) {
       return true;
     }
-    bool contains(String? value) {
-      final normalized = value?.trim();
+
+    final tokens =
+        _generalQuery
+            .split(RegExp(r'\s+'))
+            .where((token) => token.isNotEmpty)
+            .toList();
+    if (tokens.isEmpty) {
+      return true;
+    }
+
+    bool contains(String? value, String token) {
+      final normalized = value?.trim().toLowerCase();
       if (normalized == null || normalized.isEmpty) {
         return false;
       }
-      return normalized.toLowerCase().contains(_generalQuery);
+      return normalized.contains(token);
     }
 
-    return contains(client.fullName) ||
-        contains(client.firstName) ||
-        contains(client.lastName) ||
-        contains(client.phone) ||
-        contains(client.email);
+    bool tokenMatches(String token) {
+      return contains(client.fullName, token) ||
+          contains(client.firstName, token) ||
+          contains(client.lastName, token) ||
+          contains(client.phone, token) ||
+          contains(client.email, token);
+    }
+
+    return tokens.every(tokenMatches);
   }
 
   bool _matchesClientNumber(Client client) {

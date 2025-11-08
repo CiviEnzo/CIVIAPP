@@ -1207,6 +1207,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           phone: existingStaff?.phone ?? user?.email,
           email: user?.email ?? existingStaff?.email,
           dateOfBirth: existingStaff?.dateOfBirth,
+          isEquipment: existingStaff?.isEquipment ?? false,
           vacationAllowance:
               existingStaff?.vacationAllowance ??
               StaffMember.defaultVacationAllowance,

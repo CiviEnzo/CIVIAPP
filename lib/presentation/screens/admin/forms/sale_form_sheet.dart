@@ -112,6 +112,9 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   double _loyaltyEligibleAmount = 0;
   bool _updatingRedeemController = false;
 
+  Iterable<StaffMember> get _operatorStaff =>
+      widget.staff.where((member) => !member.isEquipment);
+
   @override
   void initState() {
     super.initState();
@@ -143,7 +146,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     }
 
     if (_staffId != null) {
-      final matchesSalon = widget.staff.any(
+      final matchesSalon = _operatorStaff.any(
         (member) => member.id == _staffId && member.salonId == _salonId,
       );
       if (!matchesSalon) {
@@ -469,7 +472,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     required Client? client,
   }) {
     final staffName =
-        widget.staff
+        _operatorStaff
             .firstWhereOrNull((member) => member.id == _staffId)
             ?.fullName ??
         'Non assegnato';
@@ -842,7 +845,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
           return a.fullName.compareTo(b.fullName);
         });
     final staff =
-        widget.staff.toList()..sort((a, b) {
+        _operatorStaff.toList()..sort((a, b) {
           final aMatches = a.salonId == _salonId;
           final bMatches = b.salonId == _salonId;
           if (aMatches != bMatches) {
@@ -1863,7 +1866,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     final selectedStaff =
         staffId == null
             ? null
-            : widget.staff.firstWhereOrNull((member) => member.id == staffId);
+            : _operatorStaff.firstWhereOrNull((member) => member.id == staffId);
     final newSalonId = selectedStaff?.salonId;
     final salonChanged =
         newSalonId != null && newSalonId.isNotEmpty && newSalonId != _salonId;
@@ -2566,7 +2569,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     );
 
     final recordedByName =
-        widget.staff
+        _operatorStaff
             .firstWhereOrNull((member) => member.id == _staffId)
             ?.fullName;
     final paymentMovements = <SalePaymentMovement>[];

@@ -55,6 +55,7 @@ class _CashFlowFormSheetState extends State<CashFlowFormSheet> {
   Widget build(BuildContext context) {
     final staff =
         widget.staff
+            .where((member) => !member.isEquipment)
             .where((member) => _salonId == null || member.salonId == _salonId)
             .toList();
     if (_staffId != null && staff.every((member) => member.id != _staffId)) {

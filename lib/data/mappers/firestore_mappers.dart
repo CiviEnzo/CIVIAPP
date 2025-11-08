@@ -902,6 +902,7 @@ StaffMember staffFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     email: (data['email'] as String?)?.trim(),
     dateOfBirth: dateOfBirth,
     isActive: data['isActive'] as bool? ?? true,
+    isEquipment: data['isEquipment'] as bool? ?? false,
     vacationAllowance: vacationAllowance,
     permissionAllowance: permissionAllowance,
     sortOrder: sortOrder,
@@ -928,6 +929,7 @@ Map<String, dynamic> staffToMap(StaffMember staff) {
     if (staff.dateOfBirth != null)
       'dateOfBirth': Timestamp.fromDate(staff.dateOfBirth!),
     'isActive': staff.isActive,
+    'isEquipment': staff.isEquipment,
     'vacationAllowance': staff.vacationAllowance,
     'permissionAllowance': staff.permissionAllowance,
     'sortOrder': staff.sortOrder,
