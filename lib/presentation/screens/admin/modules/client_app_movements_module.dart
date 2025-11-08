@@ -24,13 +24,18 @@ class ClientAppMovementsModule extends ConsumerStatefulWidget {
 
 class _ClientAppMovementsModuleState
     extends ConsumerState<ClientAppMovementsModule> {
-  static final DateFormat _dateHeaderFormat =
-      DateFormat('EEEE d MMMM', 'it_IT');
+  static final DateFormat _dateHeaderFormat = DateFormat(
+    'EEEE d MMMM',
+    'it_IT',
+  );
   static final DateFormat _timeFormat = DateFormat('HH:mm', 'it_IT');
-  static final DateFormat _dateTimeChipFormat =
-      DateFormat('dd/MM HH:mm', 'it_IT');
-  static final NumberFormat _currencyFormat =
-      NumberFormat.simpleCurrency(locale: 'it_IT');
+  static final DateFormat _dateTimeChipFormat = DateFormat(
+    'dd/MM HH:mm',
+    'it_IT',
+  );
+  static final NumberFormat _currencyFormat = NumberFormat.simpleCurrency(
+    locale: 'it_IT',
+  );
 
   late DateTimeRange _range;
   late Set<ClientAppMovementType> _selectedTypes;
@@ -82,30 +87,36 @@ class _ClientAppMovementsModuleState
       countsByType.update(entry.type, (value) => value + 1);
     }
 
-    final typeFiltered = rangeFiltered
-        .where((entry) => _selectedTypes.contains(entry.type))
-        .toList();
+    final typeFiltered =
+        rangeFiltered
+            .where((entry) => _selectedTypes.contains(entry.type))
+            .toList();
     final query = _searchController.text.trim().toLowerCase();
-    final filtered = typeFiltered.where((entry) {
-      if (query.isEmpty) {
-        return true;
-      }
-      final haystack = <String>[
-        entry.title,
-        entry.subtitle ?? '',
-        entry.clientName ?? '',
-        ...entry.details.map((detail) => detail.label),
-      ].join(' ').toLowerCase();
-      return haystack.contains(query);
-    }).toList()
-      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    final filtered =
+        typeFiltered.where((entry) {
+            if (query.isEmpty) {
+              return true;
+            }
+            final haystack =
+                <String>[
+                  entry.title,
+                  entry.subtitle ?? '',
+                  entry.clientName ?? '',
+                  ...entry.details.map((detail) => detail.label),
+                ].join(' ').toLowerCase();
+            return haystack.contains(query);
+          }).toList()
+          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
     final grouped = groupBy<_MovementEntry, DateTime>(
       filtered,
-      (entry) => DateTime(entry.timestamp.year, entry.timestamp.month, entry.timestamp.day),
+      (entry) => DateTime(
+        entry.timestamp.year,
+        entry.timestamp.month,
+        entry.timestamp.day,
+      ),
     );
-    final sortedDays = grouped.keys.toList()
-      ..sort((a, b) => b.compareTo(a));
+    final sortedDays = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -120,20 +131,18 @@ class _ClientAppMovementsModuleState
         ),
         const SizedBox(height: 16),
         Expanded(
-          child: filtered.isEmpty
-              ? _EmptyMovementsState(searchQuery: query, range: _range)
-              : ListView.builder(
-                  padding: const EdgeInsets.only(bottom: 24),
-                  itemCount: sortedDays.length,
-                  itemBuilder: (context, index) {
-                    final day = sortedDays[index];
-                    final entriesForDay = grouped[day]!;
-                    return _DaySection(
-                      day: day,
-                      entries: entriesForDay,
-                    );
-                  },
-                ),
+          child:
+              filtered.isEmpty
+                  ? _EmptyMovementsState(searchQuery: query, range: _range)
+                  : ListView.builder(
+                    padding: const EdgeInsets.only(bottom: 24),
+                    itemCount: sortedDays.length,
+                    itemBuilder: (context, index) {
+                      final day = sortedDays[index];
+                      final entriesForDay = grouped[day]!;
+                      return _DaySection(day: day, entries: entriesForDay);
+                    },
+                  ),
         ),
       ],
     );
@@ -143,7 +152,14 @@ class _ClientAppMovementsModuleState
     setState(() {
       _range = DateTimeRange(
         start: DateTime(range.start.year, range.start.month, range.start.day),
-        end: DateTime(range.end.year, range.end.month, range.end.day, 23, 59, 59),
+        end: DateTime(
+          range.end.year,
+          range.end.month,
+          range.end.day,
+          23,
+          59,
+          59,
+        ),
       );
     });
   }
@@ -232,84 +248,6 @@ class _ClientAppMovementsModuleState
     return true;
   }
 
-  bool _looksLikeClientSelfRegistration(Client client) {
-    if (client.firstLoginAt == null) {
-      return false;
-    }
-    if (client.invitationSentAt != null) {
-      return false;
-    }
-    if (client.createdAt == null) {
-      return false;
-    }
-    return true;
-  }
-
-  bool _isClientAppAppointment(Appointment appointment) {
-    final channel = appointment.bookingChannel?.toLowerCase().trim();
-    if (channel == null || channel.isEmpty) {
-      return false;
-    }
-    if (channel.contains('admin') || channel.contains('staff')) {
-      return false;
-    }
-    return channel.contains('app') || channel.contains('self') || channel.contains('client');
-  }
-
-  bool _isClientAppSale(Sale sale) {
-    final source = sale.source?.toLowerCase();
-    if (source != null && source.isNotEmpty) {
-      if (source.contains('admin') || source.contains('staff')) {
-        return false;
-      }
-      if (source.contains('app') || source.contains('client')) {
-        return true;
-      }
-    }
-    final tokens = <String>[];
-
-    void collect(dynamic value) {
-      if (value == null) return;
-      if (value is String) {
-        final trimmed = value.trim();
-        if (trimmed.isNotEmpty) {
-          tokens.add(trimmed.toLowerCase());
-        }
-      } else if (value is Iterable) {
-        for (final item in value) {
-          collect(item);
-        }
-      } else if (value is Map) {
-        for (final entry in value.entries) {
-          collect(entry.value);
-        }
-      }
-    }
-
-    collect(sale.metadata);
-
-    final hasStripe = tokens.any((token) => token.contains('stripe'));
-    if (hasStripe) {
-      return true;
-    }
-
-    final hasApp = tokens.any((token) {
-      if (token.contains('admin') || token.contains('staff')) {
-        return false;
-      }
-      return token.contains('app') ||
-          token.contains('client') ||
-          token.contains('self') ||
-          token.contains('online') ||
-          token.contains('mobile');
-    });
-    if (hasApp) {
-      return true;
-    }
-
-    return false;
-  }
-
   String? _resolvePaymentLabel({
     PaymentMethod? method,
     required Map<String, dynamic>? metadata,
@@ -351,42 +289,28 @@ class _ClientAppMovementsModuleState
     final applicableSalonId =
         salonFilter != null && salonFilter.isNotEmpty ? salonFilter : null;
 
-    final clientsById = {
-      for (final client in data.clients)
-        client.id: client,
-    };
-    final staffById = {
-      for (final staff in data.staff)
-        staff.id: staff,
-    };
+    final clientsById = {for (final client in data.clients) client.id: client};
+    final staffById = {for (final staff in data.staff) staff.id: staff};
     final servicesById = {
-      for (final service in data.services)
-        service.id: service,
+      for (final service in data.services) service.id: service,
     };
     final appointmentsById = {
-      for (final appointment in data.appointments)
-        appointment.id: appointment,
+      for (final appointment in data.appointments) appointment.id: appointment,
     };
-    final salesById = {
-      for (final sale in data.sales)
-        sale.id: sale,
-    };
+    final salesById = {for (final sale in data.sales) sale.id: sale};
     final lastMinuteById = {
-      for (final slot in data.lastMinuteSlots)
-        slot.id: slot,
+      for (final slot in data.lastMinuteSlots) slot.id: slot,
     };
 
-    final recordedMovements = data.clientAppMovements.where((movement) {
-      if (applicableSalonId == null) {
-        return _isClientAppMovement(movement);
-      }
-      return movement.salonId == applicableSalonId &&
-          _isClientAppMovement(movement);
-    }).toList()
-      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    final recordedMovements =
+        data.clientAppMovements.where((movement) {
+            final matchesSalon =
+                applicableSalonId == null ||
+                movement.salonId == applicableSalonId;
+            return matchesSalon && _isClientAppMovement(movement);
+          }).toList()
+          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
-    final recordedSignatures = <String>{};
-    final derivedSignatures = <String>{};
     final entries = <_MovementEntry>[];
 
     for (final movement in recordedMovements) {
@@ -401,148 +325,7 @@ class _ClientAppMovementsModuleState
       );
       if (entry != null) {
         entries.add(entry);
-        recordedSignatures.add(_movementSignature(
-          movement.type,
-          clientId: movement.clientId,
-          appointmentId: movement.appointmentId,
-          saleId: movement.saleId,
-          lastMinuteSlotId: movement.lastMinuteSlotId,
-        ));
       }
-    }
-
-    for (final client in data.clients) {
-      if (applicableSalonId != null && client.salonId != applicableSalonId) {
-        continue;
-      }
-      if (!_looksLikeClientSelfRegistration(client)) {
-        continue;
-      }
-      final createdAt = client.createdAt;
-      if (createdAt == null) {
-        continue;
-      }
-      final signature = _movementSignature(
-        ClientAppMovementType.registration,
-        clientId: client.id,
-      );
-      if (recordedSignatures.contains(signature) ||
-          derivedSignatures.contains(signature)) {
-        continue;
-      }
-      entries.add(
-        _MovementEntry(
-          id: 'derived-registration-${client.id}',
-          type: ClientAppMovementType.registration,
-          timestamp: createdAt,
-          title: 'Nuova registrazione',
-          subtitle: '${client.fullName} ha creato un account.',
-          clientId: client.id,
-          clientName: client.fullName,
-          details: const [],
-        ),
-      );
-      derivedSignatures.add(signature);
-    }
-
-    for (final appointment in data.appointments) {
-      if (applicableSalonId != null &&
-          appointment.salonId != applicableSalonId) {
-        continue;
-      }
-      if (!_isClientAppAppointment(appointment)) {
-        continue;
-      }
-      final createdAt = appointment.createdAt;
-      if (createdAt == null) {
-        continue;
-      }
-      final signature = _movementSignature(
-        ClientAppMovementType.appointmentCreated,
-        clientId: appointment.clientId,
-        appointmentId: appointment.id,
-      );
-      if (recordedSignatures.contains(signature) ||
-          derivedSignatures.contains(signature)) {
-        continue;
-      }
-      final client = clientsById[appointment.clientId];
-      entries.add(
-        _MovementEntry(
-          id: 'derived-appointment-${appointment.id}',
-          type: ClientAppMovementType.appointmentCreated,
-          timestamp: createdAt,
-          title: 'Appuntamento creato',
-          subtitle: _formatAppointmentSummary(
-            appointment,
-            clientsById,
-            servicesById,
-            staffById,
-          ),
-          clientId: appointment.clientId,
-          clientName: client?.fullName,
-          details: [
-            if (appointment.bookingChannel != null &&
-                appointment.bookingChannel!.isNotEmpty)
-              _MovementDetail(
-                icon: Icons.link_rounded,
-                label: 'Canale: ${appointment.bookingChannel}',
-              ),
-          ],
-        ),
-      );
-      derivedSignatures.add(signature);
-    }
-
-    for (final sale in data.sales) {
-      if (applicableSalonId != null && sale.salonId != applicableSalonId) {
-        continue;
-      }
-      if (!_isClientAppSale(sale)) {
-        continue;
-      }
-      final signature = _movementSignature(
-        ClientAppMovementType.purchase,
-        clientId: sale.clientId,
-        saleId: sale.id,
-      );
-      if (recordedSignatures.contains(signature) ||
-          derivedSignatures.contains(signature)) {
-        continue;
-      }
-      final client = clientsById[sale.clientId];
-      final detailItems = <_MovementDetail>[
-        _MovementDetail(
-          icon: Icons.euro_rounded,
-          label: 'Totale ${_currencyFormat.format(sale.total)}',
-        ),
-      ];
-      final paymentLabel = _resolvePaymentLabel(
-        method: sale.paymentMethod,
-        metadata: sale.metadata,
-      );
-      if (paymentLabel != null) {
-        detailItems.add(
-          _MovementDetail(
-            icon: Icons.credit_card_rounded,
-            label: 'Metodo: $paymentLabel',
-          ),
-        );
-      }
-      entries.add(
-        _MovementEntry(
-          id: 'derived-sale-${sale.id}',
-          type: ClientAppMovementType.purchase,
-          timestamp: sale.createdAt,
-          title: 'Acquisto registrato',
-          subtitle:
-              '${client?.fullName ?? 'Cliente'} ha completato un pagamento.',
-          clientId: sale.clientId,
-          clientName: client?.fullName,
-          details: detailItems,
-        ),
-      );
-      derivedSignatures.add(signature);
     }
 
     return entries;
@@ -558,9 +341,10 @@ class _ClientAppMovementsModuleState
     Map<String, LastMinuteSlot> lastMinuteById,
   ) {
     final client = clientsById[movement.clientId];
-    final baseTitle = movement.label?.trim().isNotEmpty == true
-        ? movement.label!.trim()
-        : null;
+    final baseTitle =
+        movement.label?.trim().isNotEmpty == true
+            ? movement.label!.trim()
+            : null;
     switch (movement.type) {
       case ClientAppMovementType.registration:
         return _MovementEntry(
@@ -585,15 +369,16 @@ class _ClientAppMovementsModuleState
       case ClientAppMovementType.appointmentUpdated:
       case ClientAppMovementType.appointmentCancelled:
         final appointment = appointmentsById[movement.appointmentId ?? ''];
-        final summary = appointment == null
-            ? (movement.description ??
-                'Appuntamento ${movement.type == ClientAppMovementType.appointmentCancelled ? 'annullato' : 'aggiornato'}.')
-            : _formatAppointmentSummary(
-                appointment,
-                clientsById,
-                servicesById,
-                staffById,
-              );
+        final summary =
+            appointment == null
+                ? (movement.description ??
+                    'Appuntamento ${movement.type == ClientAppMovementType.appointmentCancelled ? 'annullato' : 'aggiornato'}.')
+                : _formatAppointmentSummary(
+                  appointment,
+                  clientsById,
+                  servicesById,
+                  staffById,
+                );
         final details = <_MovementDetail>[];
         if (appointment?.bookingChannel != null &&
             appointment!.bookingChannel!.isNotEmpty) {
@@ -605,8 +390,7 @@ class _ClientAppMovementsModuleState
           );
         }
         final previousStatus = _statusLabel(
-          movement.metadata['previousStatus'] ??
-              movement.metadata['oldStatus'],
+          movement.metadata['previousStatus'] ?? movement.metadata['oldStatus'],
         );
         final nextStatus = _statusLabel(
           movement.metadata['newStatus'] ?? movement.metadata['status'],
@@ -627,7 +411,8 @@ class _ClientAppMovementsModuleState
               movement.metadata['oldStart'] ??
               movement.metadata['fromStart'],
         );
-        final nextStart = _parseDateTime(
+        final nextStart =
+            _parseDateTime(
               movement.metadata['newStart'] ?? movement.metadata['start'],
             ) ??
             appointment?.start;
@@ -648,7 +433,8 @@ class _ClientAppMovementsModuleState
               movement.metadata['oldEnd'] ??
               movement.metadata['fromEnd'],
         );
-        final nextEnd = _parseDateTime(
+        final nextEnd =
+            _parseDateTime(
               movement.metadata['newEnd'] ?? movement.metadata['end'],
             ) ??
             appointment?.end;
@@ -680,10 +466,7 @@ class _ClientAppMovementsModuleState
           id: movement.id,
           type: movement.type,
           timestamp: movement.timestamp,
-          title: baseTitle ??
-              _defaultAppointmentTitle(
-                movement.type,
-              ),
+          title: baseTitle ?? _defaultAppointmentTitle(movement.type),
           subtitle: summary,
           clientId: movement.clientId,
           clientName: client?.fullName,
@@ -691,8 +474,8 @@ class _ClientAppMovementsModuleState
         );
       case ClientAppMovementType.purchase:
         final sale = salesById[movement.saleId ?? ''];
-        final total = sale?.total ??
-            (movement.metadata['amount'] as num?)?.toDouble();
+        final total =
+            sale?.total ?? (movement.metadata['amount'] as num?)?.toDouble();
         final details = <_MovementDetail>[];
         if (total != null) {
           details.add(
@@ -749,8 +532,7 @@ class _ClientAppMovementsModuleState
         final slot = lastMinuteById[movement.lastMinuteSlotId ?? ''];
         final sale = salesById[movement.saleId ?? ''];
         final details = <_MovementDetail>[];
-        final price =
-            movement.metadata['price'] as num? ?? slot?.priceNow;
+        final price = movement.metadata['price'] as num? ?? slot?.priceNow;
         if (price != null) {
           details.add(
             _MovementDetail(
@@ -761,10 +543,7 @@ class _ClientAppMovementsModuleState
         }
         if (slot?.serviceName != null) {
           details.add(
-            _MovementDetail(
-              icon: Icons.spa_rounded,
-              label: slot!.serviceName,
-            ),
+            _MovementDetail(icon: Icons.spa_rounded, label: slot!.serviceName),
           );
         }
         var paymentLabel = _resolvePaymentLabel(
@@ -816,10 +595,11 @@ class _ClientAppMovementsModuleState
     Map<String, Service> servicesById,
     Map<String, StaffMember> staffById,
   ) {
-    final serviceNames = appointment.serviceAllocations
-        .map((allocation) => servicesById[allocation.serviceId]?.name)
-        .whereNotNull()
-        .toList();
+    final serviceNames =
+        appointment.serviceAllocations
+            .map((allocation) => servicesById[allocation.serviceId]?.name)
+            .whereNotNull()
+            .toList();
     final staff = staffById[appointment.staffId];
     final client = clientsById[appointment.clientId];
     final buffer = StringBuffer();
@@ -878,8 +658,8 @@ class _DaySection extends StatelessWidget {
     final dateLabel = _ClientAppMovementsModuleState._dateHeaderFormat.format(
       day,
     );
-    final sorted = entries.toList()
-      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    final sorted =
+        entries.toList()..sort((a, b) => b.timestamp.compareTo(a.timestamp));
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
@@ -941,20 +721,27 @@ class _MovementCard extends StatelessWidget {
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          Icon(Icons.schedule_rounded,
-                              size: 14, color: theme.hintColor),
+                          Icon(
+                            Icons.schedule_rounded,
+                            size: 14,
+                            color: theme.hintColor,
+                          ),
                           const SizedBox(width: 4),
                           Text(
-                            _ClientAppMovementsModuleState._timeFormat
-                                .format(entry.timestamp),
+                            _ClientAppMovementsModuleState._timeFormat.format(
+                              entry.timestamp,
+                            ),
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: theme.hintColor,
                             ),
                           ),
                           if (entry.clientName != null) ...[
                             const SizedBox(width: 12),
-                            Icon(Icons.person_rounded,
-                                size: 14, color: theme.hintColor),
+                            Icon(
+                              Icons.person_rounded,
+                              size: 14,
+                              color: theme.hintColor,
+                            ),
                             const SizedBox(width: 4),
                             Text(
                               entry.clientName!,
@@ -982,14 +769,15 @@ class _MovementCard extends StatelessWidget {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: entry.details
-                    .map(
-                      (detail) => Chip(
-                        avatar: Icon(detail.icon, size: 16),
-                        label: Text(detail.label),
-                      ),
-                    )
-                    .toList(),
+                children:
+                    entry.details
+                        .map(
+                          (detail) => Chip(
+                            avatar: Icon(detail.icon, size: 16),
+                            label: Text(detail.label),
+                          ),
+                        )
+                        .toList(),
               ),
             ],
           ],
@@ -1017,10 +805,7 @@ class _MovementCard extends StatelessWidget {
     }
   }
 
-  static Color _colorForType(
-    ClientAppMovementType type,
-    ThemeData theme,
-  ) {
+  static Color _colorForType(ClientAppMovementType type, ThemeData theme) {
     final scheme = theme.colorScheme;
     switch (type) {
       case ClientAppMovementType.registration:
@@ -1089,10 +874,7 @@ class _FiltersBar extends StatelessWidget {
 
   Future<void> _pickRange(BuildContext context) async {
     final now = DateTime.now();
-    final initialRange = DateTimeRange(
-      start: range.start,
-      end: range.end,
-    );
+    final initialRange = DateTimeRange(start: range.start, end: range.end);
     final picked = await showDateRangePicker(
       context: context,
       firstDate: DateTime(now.year - 1),
@@ -1134,12 +916,13 @@ class _FiltersBar extends StatelessWidget {
                   controller: searchController,
                   decoration: InputDecoration(
                     prefixIcon: const Icon(Icons.search_rounded),
-                    suffixIcon: searchController.text.isEmpty
-                        ? null
-                        : IconButton(
-                            onPressed: searchController.clear,
-                            icon: const Icon(Icons.clear_rounded),
-                          ),
+                    suffixIcon:
+                        searchController.text.isEmpty
+                            ? null
+                            : IconButton(
+                              onPressed: searchController.clear,
+                              icon: const Icon(Icons.clear_rounded),
+                            ),
                     hintText: 'Cerca per cliente o descrizione',
                   ),
                 ),
@@ -1150,28 +933,31 @@ class _FiltersBar extends StatelessWidget {
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
-              children: ClientAppMovementType.values.map((type) {
-                final isSelected = selectedTypes.contains(type);
-                final count = counts[type] ?? 0;
-                final label = count > 0 ? '${type.label} ($count)' : type.label;
-                final scheme = Theme.of(context).colorScheme;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: FilterChip(
-                    selected: isSelected,
-                    backgroundColor: scheme.surfaceContainerHighest,
-                    selectedColor: scheme.secondary,
-                    checkmarkColor: scheme.onSecondary,
-                    labelStyle: TextStyle(
-                      color: isSelected
-                          ? scheme.onSecondary
-                          : scheme.onSurface,
-                    ),
-                    label: Text(label),
-                    onSelected: (value) => onToggleType(type, value),
-                  ),
-                );
-              }).toList(),
+              children:
+                  ClientAppMovementType.values.map((type) {
+                    final isSelected = selectedTypes.contains(type);
+                    final count = counts[type] ?? 0;
+                    final label =
+                        count > 0 ? '${type.label} ($count)' : type.label;
+                    final scheme = Theme.of(context).colorScheme;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: FilterChip(
+                        selected: isSelected,
+                        backgroundColor: scheme.surfaceContainerHighest,
+                        selectedColor: scheme.secondary,
+                        checkmarkColor: scheme.onSecondary,
+                        labelStyle: TextStyle(
+                          color:
+                              isSelected
+                                  ? scheme.onSecondary
+                                  : scheme.onSurface,
+                        ),
+                        label: Text(label),
+                        onSelected: (value) => onToggleType(type, value),
+                      ),
+                    );
+                  }).toList(),
             ),
           ),
           Divider(
@@ -1186,10 +972,7 @@ class _FiltersBar extends StatelessWidget {
 }
 
 class _EmptyMovementsState extends StatelessWidget {
-  const _EmptyMovementsState({
-    required this.searchQuery,
-    required this.range,
-  });
+  const _EmptyMovementsState({required this.searchQuery, required this.range});
 
   final String searchQuery;
   final DateTimeRange range;
@@ -1197,9 +980,10 @@ class _EmptyMovementsState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final subtitle = searchQuery.isEmpty
-        ? 'Non ci sono movimenti registrati nel periodo selezionato.'
-        : 'Nessun risultato per "$searchQuery" nel periodo selezionato.';
+    final subtitle =
+        searchQuery.isEmpty
+            ? 'Non ci sono movimenti registrati nel periodo selezionato.'
+            : 'Nessun risultato per "$searchQuery" nel periodo selezionato.';
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -1232,59 +1016,62 @@ class _EmptyMovementsState extends StatelessWidget {
     );
   }
 }
-  DateTime? _parseDateTime(dynamic value) {
-    if (value == null) {
-      return null;
-    }
-    if (value is DateTime) {
-      return value;
-    }
-    if (value is int) {
-      // Assume milliseconds since epoch.
-      if (value == 0) {
-        return null;
-      }
-      return DateTime.fromMillisecondsSinceEpoch(value, isUtc: true).toLocal();
-    }
-    if (value is String) {
-      final trimmed = value.trim();
-      if (trimmed.isEmpty) {
-        return null;
-      }
-      try {
-        return DateTime.parse(trimmed).toLocal();
-      } catch (_) {
-        return null;
-      }
-    }
-    if (value is Map && value['seconds'] is int) {
-      final seconds = value['seconds'] as int;
-      final nanoseconds = value['nanoseconds'] as int? ?? 0;
-      final microseconds = seconds * 1000000 + (nanoseconds / 1000).round();
-      return DateTime.fromMicrosecondsSinceEpoch(microseconds, isUtc: true)
-          .toLocal();
-    }
+
+DateTime? _parseDateTime(dynamic value) {
+  if (value == null) {
     return null;
   }
-
-  String? _statusLabel(dynamic value) {
-    if (value == null) {
+  if (value is DateTime) {
+    return value;
+  }
+  if (value is int) {
+    // Assume milliseconds since epoch.
+    if (value == 0) {
       return null;
     }
-    final normalized = value.toString().trim();
-    if (normalized.isEmpty) {
+    return DateTime.fromMillisecondsSinceEpoch(value, isUtc: true).toLocal();
+  }
+  if (value is String) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
       return null;
     }
-    switch (normalized) {
-      case 'scheduled':
-        return 'Programmato';
-      case 'completed':
-        return 'Completato';
-      case 'cancelled':
-        return 'Annullato';
-      case 'noShow':
-        return 'No show';
-      default:
-        return normalized;
+    try {
+      return DateTime.parse(trimmed).toLocal();
+    } catch (_) {
+      return null;
     }
   }
+  if (value is Map && value['seconds'] is int) {
+    final seconds = value['seconds'] as int;
+    final nanoseconds = value['nanoseconds'] as int? ?? 0;
+    final microseconds = seconds * 1000000 + (nanoseconds / 1000).round();
+    return DateTime.fromMicrosecondsSinceEpoch(
+      microseconds,
+      isUtc: true,
+    ).toLocal();
+  }
+  return null;
+}
+
+String? _statusLabel(dynamic value) {
+  if (value == null) {
+    return null;
+  }
+  final normalized = value.toString().trim();
+  if (normalized.isEmpty) {
+    return null;
+  }
+  switch (normalized) {
+    case 'scheduled':
+      return 'Programmato';
+    case 'completed':
+      return 'Completato';
+    case 'cancelled':
+      return 'Annullato';
+    case 'noShow':
+      return 'No show';
+    default:
+      return normalized;
+  }
+}

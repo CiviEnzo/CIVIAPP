@@ -1804,9 +1804,7 @@ class _WeekSchedule extends StatelessWidget {
       (index) => startOfWeek.add(Duration(days: index)),
     );
     final normalizedExtraDay =
-        extraDetailedDay != null
-            ? DateUtils.dateOnly(extraDetailedDay!)
-            : null;
+        extraDetailedDay != null ? DateUtils.dateOnly(extraDetailedDay!) : null;
     final openSchedule = schedule?.where(
       (entry) =>
           entry.isOpen &&
@@ -1827,10 +1825,8 @@ class _WeekSchedule extends StatelessWidget {
     if (layout == AppointmentWeekLayoutMode.detailed &&
         normalizedExtraDay != null) {
       final alreadyIncluded = filteredDays.any(
-        (day) => DateUtils.isSameDay(
-          DateUtils.dateOnly(day),
-          normalizedExtraDay,
-        ),
+        (day) =>
+            DateUtils.isSameDay(DateUtils.dateOnly(day), normalizedExtraDay),
       );
       if (!alreadyIncluded) {
         filteredDays.add(normalizedExtraDay);
@@ -2152,8 +2148,9 @@ class _WeekSchedule extends StatelessWidget {
                                     List<BoxShadow>? boxShadow;
                                     if (isToday) {
                                       headerColor = Color.alphaBlend(
-                                        theme.colorScheme.primary
-                                            .withValues(alpha: 0.08),
+                                        theme.colorScheme.primary.withValues(
+                                          alpha: 0.08,
+                                        ),
                                         dayHeaderColor,
                                       );
                                       borderColor = theme.colorScheme.primary
@@ -2168,8 +2165,9 @@ class _WeekSchedule extends StatelessWidget {
                                       ];
                                     } else if (isNextWeekDay) {
                                       headerColor = Color.alphaBlend(
-                                        theme.colorScheme.secondary
-                                            .withValues(alpha: 0.12),
+                                        theme.colorScheme.secondary.withValues(
+                                          alpha: 0.12,
+                                        ),
                                         dayHeaderColor,
                                       );
                                       borderColor = theme.colorScheme.secondary
@@ -2241,9 +2239,10 @@ class _WeekSchedule extends StatelessWidget {
                                           theme: theme,
                                           icon: Icons.north_east_rounded,
                                           label: 'Settimana prossima',
-                                          background:
-                                              theme.colorScheme.secondaryContainer
-                                                  .withValues(alpha: 0.7),
+                                          background: theme
+                                              .colorScheme
+                                              .secondaryContainer
+                                              .withValues(alpha: 0.7),
                                           foreground:
                                               theme
                                                   .colorScheme
@@ -2257,9 +2256,10 @@ class _WeekSchedule extends StatelessWidget {
                                         icon: Icons.event_available_rounded,
                                         label:
                                             '$totalAppointments appuntamenti',
-                                        background:
-                                            theme.colorScheme.tertiaryContainer
-                                                .withValues(alpha: 0.6),
+                                        background: theme
+                                            .colorScheme
+                                            .tertiaryContainer
+                                            .withValues(alpha: 0.6),
                                         foreground:
                                             theme
                                                 .colorScheme
@@ -2397,17 +2397,19 @@ class _WeekSchedule extends StatelessWidget {
                                                           if (isNextWeekDay)
                                                             Padding(
                                                               padding:
-                                                                  const EdgeInsets
-                                                                  .only(top: 2),
+                                                                  const EdgeInsets.only(
+                                                                    top: 2,
+                                                                  ),
                                                               child: Text(
                                                                 'Settimana prossima',
                                                                 style: theme
                                                                     .textTheme
                                                                     .labelSmall
                                                                     ?.copyWith(
-                                                                      color: theme
-                                                                          .colorScheme
-                                                                          .secondary,
+                                                                      color:
+                                                                          theme
+                                                                              .colorScheme
+                                                                              .secondary,
                                                                       fontWeight:
                                                                           FontWeight
                                                                               .w600,
@@ -2751,40 +2753,67 @@ class _WeekSchedule extends StatelessWidget {
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                for (var dayIndex = 0; dayIndex < dayData.length; dayIndex++) ...[
+                                for (
+                                  var dayIndex = 0;
+                                  dayIndex < dayData.length;
+                                  dayIndex++
+                                ) ...[
                                   Builder(
                                     builder: (context) {
                                       final currentDay = dayData[dayIndex];
-                                      final normalizedDay = DateUtils.dateOnly(currentDay.date);
-                                      final isNextWeekDay = normalizedExtraDay != null &&
-                                          DateUtils.isSameDay(normalizedExtraDay, normalizedDay);
-                                      final bodyBorderColor = isNextWeekDay
-                                          ? theme.colorScheme.secondary.withValues(alpha: 0.45)
-                                          : theme.dividerColor.withValues(alpha: 0.25);
-                                      final bodyColor = isNextWeekDay
-                                          ? Color.alphaBlend(
-                                              theme.colorScheme.secondary.withValues(alpha: 0.06),
-                                              dayBodyColor,
-                                            )
-                                          : dayBodyColor;
-                                      final List<BoxShadow>? bodyShadow = isNextWeekDay
-                                          ? [
-                                              BoxShadow(
-                                                color: theme.colorScheme.secondary.withValues(alpha: 0.08),
-                                                blurRadius: 14,
-                                                offset: const Offset(0, 4),
-                                              ),
-                                            ]
-                                          : null;
+                                      final normalizedDay = DateUtils.dateOnly(
+                                        currentDay.date,
+                                      );
+                                      final isNextWeekDay =
+                                          normalizedExtraDay != null &&
+                                          DateUtils.isSameDay(
+                                            normalizedExtraDay,
+                                            normalizedDay,
+                                          );
+                                      final bodyBorderColor =
+                                          isNextWeekDay
+                                              ? theme.colorScheme.secondary
+                                                  .withValues(alpha: 0.45)
+                                              : theme.dividerColor.withValues(
+                                                alpha: 0.25,
+                                              );
+                                      final bodyColor =
+                                          isNextWeekDay
+                                              ? Color.alphaBlend(
+                                                theme.colorScheme.secondary
+                                                    .withValues(alpha: 0.06),
+                                                dayBodyColor,
+                                              )
+                                              : dayBodyColor;
+                                      final List<BoxShadow>? bodyShadow =
+                                          isNextWeekDay
+                                              ? [
+                                                BoxShadow(
+                                                  color: theme
+                                                      .colorScheme
+                                                      .secondary
+                                                      .withValues(alpha: 0.08),
+                                                  blurRadius: 14,
+                                                  offset: const Offset(0, 4),
+                                                ),
+                                              ]
+                                              : null;
                                       return Container(
                                         width: dayWidth,
                                         margin: EdgeInsets.only(
-                                          right: dayIndex == dayData.length - 1 ? 0 : dayGap,
+                                          right:
+                                              dayIndex == dayData.length - 1
+                                                  ? 0
+                                                  : dayGap,
                                         ),
-                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 12,
+                                        ),
                                         decoration: BoxDecoration(
                                           color: bodyColor,
-                                          borderRadius: BorderRadius.circular(16),
+                                          borderRadius: BorderRadius.circular(
+                                            16,
+                                          ),
                                           border: Border.all(
                                             color: bodyBorderColor,
                                             width: dayBorderWidth,
@@ -2796,77 +2825,134 @@ class _WeekSchedule extends StatelessWidget {
                                             horizontal: dayHorizontalPadding,
                                           ),
                                           child: Row(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
                                             children: [
-                                              for (var staffIndex = 0; staffIndex < staff.length; staffIndex++) ...[
+                                              for (
+                                                var staffIndex = 0;
+                                                staffIndex < staff.length;
+                                                staffIndex++
+                                              ) ...[
                                                 Container(
                                                   width: staffColumnWidth,
                                                   margin: EdgeInsets.only(
-                                                    right: staffIndex == staff.length - 1 ? 0 : staffGap,
+                                                    right:
+                                                        staffIndex ==
+                                                                staff.length - 1
+                                                            ? 0
+                                                            : staffGap,
                                                   ),
                                                   decoration: BoxDecoration(
                                                     gradient: LinearGradient(
                                                       colors: [
-                                                        theme.colorScheme.surface,
-                                                        theme.colorScheme.surfaceContainerHighest
-                                                            .withValues(alpha: 0.42),
+                                                        theme
+                                                            .colorScheme
+                                                            .surface,
+                                                        theme
+                                                            .colorScheme
+                                                            .surfaceContainerHighest
+                                                            .withValues(
+                                                              alpha: 0.42,
+                                                            ),
                                                       ],
-                                                      begin: Alignment.topCenter,
-                                                      end: Alignment.bottomCenter,
+                                                      begin:
+                                                          Alignment.topCenter,
+                                                      end:
+                                                          Alignment
+                                                              .bottomCenter,
                                                     ),
-                                                    borderRadius: BorderRadius.circular(16),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          16,
+                                                        ),
                                                     border: Border.all(
-                                                      color: staffColumnBorderColor,
+                                                      color:
+                                                          staffColumnBorderColor,
                                                       width: 1.05,
                                                     ),
                                                     boxShadow: [
                                                       BoxShadow(
-                                                        color: staffColumnShadowColor,
+                                                        color:
+                                                            staffColumnShadowColor,
                                                         blurRadius: 24,
-                                                        offset: const Offset(0, 12),
+                                                        offset: const Offset(
+                                                          0,
+                                                          12,
+                                                        ),
                                                       ),
                                                     ],
                                                   ),
                                                   child: SizedBox(
                                                     height: gridHeight,
                                                     child: _StaffDayColumn(
-                                                      staffMember: staff[staffIndex],
+                                                      staffMember:
+                                                          staff[staffIndex],
                                                       appointments:
-                                                          currentDay.appointmentsByStaff[staff[staffIndex].id] ??
+                                                          currentDay
+                                                              .appointmentsByStaff[staff[staffIndex]
+                                                              .id] ??
                                                           const [],
-                                                      lastMinutePlaceholders: lastMinutePlaceholders,
-                                                      lastMinuteSlots: lastMinuteSlots,
-                                                      allAppointments: allAppointments,
-                                                      shifts: currentDay.shiftsByStaff[staff[staffIndex].id] ??
+                                                      lastMinutePlaceholders:
+                                                          lastMinutePlaceholders,
+                                                      lastMinuteSlots:
+                                                          lastMinuteSlots,
+                                                      allAppointments:
+                                                          allAppointments,
+                                                      shifts:
+                                                          currentDay
+                                                              .shiftsByStaff[staff[staffIndex]
+                                                              .id] ??
                                                           const [],
-                                                      absences: currentDay.absencesByStaff[staff[staffIndex].id] ??
+                                                      absences:
+                                                          currentDay
+                                                              .absencesByStaff[staff[staffIndex]
+                                                              .id] ??
                                                           const [],
-                                                      timelineStart: currentDay.date.add(
-                                                        Duration(minutes: minMinute!),
-                                                      ),
-                                                      timelineEnd: currentDay.date.add(
-                                                        Duration(minutes: maxMinute!),
-                                                      ),
+                                                      timelineStart: currentDay
+                                                          .date
+                                                          .add(
+                                                            Duration(
+                                                              minutes:
+                                                                  minMinute!,
+                                                            ),
+                                                          ),
+                                                      timelineEnd: currentDay
+                                                          .date
+                                                          .add(
+                                                            Duration(
+                                                              minutes:
+                                                                  maxMinute!,
+                                                            ),
+                                                          ),
                                                       slotMinutes: slotMinutes,
-                                                      interactionSlotMinutes: interactionSlotMinutes,
+                                                      interactionSlotMinutes:
+                                                          interactionSlotMinutes,
                                                       slotExtent: _slotExtent,
                                                       clientsWithOutstandingPayments:
                                                           clientsWithOutstandingPayments,
                                                       clientsById: clientsById,
-                                                      servicesById: servicesById,
-                                                      categoriesById: categoriesById,
-                                                      categoriesByName: categoriesByName,
+                                                      servicesById:
+                                                          servicesById,
+                                                      categoriesById:
+                                                          categoriesById,
+                                                      categoriesByName:
+                                                          categoriesByName,
                                                       roomsById: roomsById,
                                                       salonsById: salonsById,
                                                       statusColor: statusColor,
-                                                      lockedAppointmentReasons: lockedAppointmentReasons,
-                                                      onReschedule: onReschedule,
+                                                      lockedAppointmentReasons:
+                                                          lockedAppointmentReasons,
+                                                      onReschedule:
+                                                          onReschedule,
                                                       onEdit: onEdit,
                                                       onCreate: onCreate,
-                                                      onTapLastMinuteSlot: onTapLastMinuteSlot,
+                                                      onTapLastMinuteSlot:
+                                                          onTapLastMinuteSlot,
                                                       anomalies: anomalies,
-                                                      openStart: currentDay.openStart,
-                                                      openEnd: currentDay.openEnd,
+                                                      openStart:
+                                                          currentDay.openStart,
+                                                      openEnd:
+                                                          currentDay.openEnd,
                                                     ),
                                                   ),
                                                 ),
@@ -2889,7 +2975,7 @@ class _WeekSchedule extends StatelessWidget {
               ),
             ),
           ),
-      ),
+        ),
       ],
     );
   }
@@ -5914,7 +6000,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                                             ),
                                             const SizedBox(width: 4),
                                             Text(
-                                              'Slot last-minute',
+                                              'last\nminute',
                                               style: theme.textTheme.labelSmall
                                                   ?.copyWith(
                                                     color:

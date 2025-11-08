@@ -412,6 +412,7 @@ class _ClientSalonDiscoveryScreenState
               initialReferralSource: initialReferral,
               initialNotes: initialNotes,
               initialBirthDate: initialBirthDate,
+              initialClientId: existingClient?.id ?? user?.clientId,
             );
           },
         ) ??
@@ -1120,6 +1121,7 @@ class _SalonAccessRequestSheet extends ConsumerStatefulWidget {
     required this.initialReferralSource,
     required this.initialNotes,
     required this.initialBirthDate,
+    this.initialClientId,
   });
 
   final PublicSalon salon;
@@ -1134,6 +1136,7 @@ class _SalonAccessRequestSheet extends ConsumerStatefulWidget {
   final String initialReferralSource;
   final String initialNotes;
   final DateTime? initialBirthDate;
+  final String? initialClientId;
 
   @override
   ConsumerState<_SalonAccessRequestSheet> createState() =>
@@ -1340,9 +1343,7 @@ class _SalonAccessRequestSheetState
                   DropdownButtonFormField<String>(
                     value: _gender,
                     isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Sesso',
-                    ),
+                    decoration: const InputDecoration(labelText: 'Sesso'),
                     items: const [
                       DropdownMenuItem(value: 'male', child: Text('Uomo')),
                       DropdownMenuItem(value: 'female', child: Text('Donna')),
@@ -1523,6 +1524,7 @@ class _SalonAccessRequestSheetState
           .submitSalonAccessRequest(
             salonId: widget.salon.id,
             userId: userId,
+            clientId: widget.initialClientId ?? user?.clientId,
             firstName: firstName,
             lastName: lastName,
             email: email,

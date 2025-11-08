@@ -148,6 +148,8 @@ class AppDataStore extends StateNotifier<AppDataState> {
   static const String _salonSetupProgressCollection = 'salon_setup_progress';
   static const String _appointmentDayChecklistsCollection =
       'appointment_day_checklists';
+  final Map<String, _ClientRescheduleSnapshot> _clientRescheduleSnapshots =
+      <String, _ClientRescheduleSnapshot>{};
 
   AppUser? get currentUser => _currentUser;
 
@@ -2971,9 +2973,148 @@ class AppDataStore extends StateNotifier<AppDataState> {
     state = state.copyWith(clients: List.unmodifiable(remaining));
   }
 
+  Future<void> logClientAppMovement({
+    required ClientAppMovementType type,
+    required String salonId,
+    required String clientId,
+    DateTime? timestamp,
+    String? appointmentId,
+    String? saleId,
+    String? lastMinuteSlotId,
+    String? label,
+    String? description,
+    String? channel,
+    String? source,
+    Map<String, dynamic>? metadata,
+  }) async {
+    if (salonId.isEmpty || clientId.isEmpty) {
+      return;
+    }
+    final sanitizedMetadata = <String, dynamic>{};
+    (metadata ?? const <String, dynamic>{}).forEach((key, value) {
+      if (value == null) {
+        return;
+      }
+      sanitizedMetadata[key] = value;
+    });
+
+    final payload = <String, dynamic>{
+      'type': type.name,
+      'salonId': salonId,
+      'clientId': clientId,
+      if (timestamp != null) 'timestamp': timestamp.toIso8601String(),
+      if (appointmentId != null) 'appointmentId': appointmentId,
+      if (saleId != null) 'saleId': saleId,
+      if (lastMinuteSlotId != null) 'lastMinuteSlotId': lastMinuteSlotId,
+      if (label != null) 'label': label,
+      if (description != null) 'description': description,
+      if (channel != null) 'channel': channel,
+      if (source != null) 'source': source,
+      if (sanitizedMetadata.isNotEmpty) 'metadata': sanitizedMetadata,
+    };
+
+    try {
+      final functions = FirebaseFunctions.instanceFor(region: 'europe-west3');
+      final callable = functions.httpsCallable('logClientAppMovement');
+      final response = await callable.call(payload);
+      final movement = _movementFromResponse(response.data);
+      if (movement != null) {
+        _cacheClientMovement(movement);
+      }
+    } on FirebaseFunctionsException catch (error, stackTrace) {
+      debugPrint(
+        'Unable to log client app movement: ${error.message ?? error.code}',
+      );
+      debugPrintStack(stackTrace: stackTrace);
+    } catch (error, stackTrace) {
+      debugPrint('Unable to log client app movement: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
+  }
+
+  void registerClientRescheduleSnapshot(Appointment appointment) {
+    if (appointment.id.isEmpty) {
+      return;
+    }
+    _clientRescheduleSnapshots[appointment.id] = _ClientRescheduleSnapshot(
+      start: appointment.start,
+      end: appointment.end,
+      staffId: appointment.staffId,
+      serviceIds: appointment.serviceIds,
+    );
+  }
+
+  void clearClientRescheduleSnapshot(String appointmentId) {
+    if (appointmentId.isEmpty) {
+      return;
+    }
+    _clientRescheduleSnapshots.remove(appointmentId);
+  }
+
+  _ClientRescheduleSnapshot? _consumeRescheduleSnapshot(String appointmentId) {
+    if (appointmentId.isEmpty) {
+      return null;
+    }
+    return _clientRescheduleSnapshots.remove(appointmentId);
+  }
+
+  ClientAppMovement? _movementFromResponse(Object? data) {
+    if (data is! Map) {
+      return null;
+    }
+    final movementRaw = data['movement'];
+    if (movementRaw is! Map) {
+      return null;
+    }
+    final map = Map<String, dynamic>.from(movementRaw as Map);
+    final type = clientAppMovementTypeFromName(map['type'] as String?);
+    if (type == null) {
+      return null;
+    }
+    DateTime? timestamp;
+    final timestampValue = map['timestamp'];
+    if (timestampValue is String) {
+      timestamp = DateTime.tryParse(timestampValue)?.toLocal();
+    }
+    timestamp ??= DateTime.now();
+
+    Map<String, dynamic> metadata = const <String, dynamic>{};
+    final rawMetadata = map['metadata'];
+    if (rawMetadata is Map) {
+      metadata = rawMetadata.map((key, value) => MapEntry('$key', value));
+    }
+
+    return ClientAppMovement(
+      id: map['id'] as String? ?? const Uuid().v4(),
+      salonId: map['salonId'] as String? ?? '',
+      clientId: map['clientId'] as String? ?? '',
+      type: type,
+      timestamp: timestamp,
+      source: map['source'] as String?,
+      channel: map['channel'] as String?,
+      label: map['label'] as String?,
+      description: map['description'] as String?,
+      appointmentId: map['appointmentId'] as String?,
+      saleId: map['saleId'] as String?,
+      lastMinuteSlotId: map['lastMinuteSlotId'] as String?,
+      createdBy: map['createdBy'] as String?,
+      metadata: metadata,
+    );
+  }
+
+  void _cacheClientMovement(ClientAppMovement movement) {
+    final updated =
+        List<ClientAppMovement>.from(state.clientAppMovements)
+          ..removeWhere((entry) => entry.id == movement.id)
+          ..add(movement)
+          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    state = state.copyWith(clientAppMovements: List.unmodifiable(updated));
+  }
+
   Future<void> submitSalonAccessRequest({
     required String salonId,
     required String userId,
+    String? clientId,
     required String firstName,
     required String lastName,
     required String email,
@@ -2993,6 +3134,40 @@ class AppDataStore extends StateNotifier<AppDataState> {
         sanitizedExtra[key] = text;
       }
     });
+    final candidateClientId = clientId?.trim();
+    final String resolvedClientId =
+        candidateClientId != null && candidateClientId.isNotEmpty
+            ? candidateClientId
+            : userId;
+
+    Future<void> recordAccessRequestMovement() async {
+      if (resolvedClientId.isEmpty) {
+        return;
+      }
+      final metadata = <String, dynamic>{
+        'email': email,
+        'phone': phone,
+        if (dateOfBirth != null) 'dateOfBirth': dateOfBirth!.toIso8601String(),
+        if (sanitizedExtra.isNotEmpty)
+          'extraFields': sanitizedExtra.keys.toList(growable: false),
+      };
+      try {
+        await logClientAppMovement(
+          type: ClientAppMovementType.registration,
+          salonId: salonId,
+          clientId: resolvedClientId,
+          label: 'Richiesta di accesso inviata',
+          description:
+              '$firstName $lastName ha richiesto l\'accesso al salone.',
+          channel: 'client_app:access_request',
+          metadata: metadata,
+        );
+      } catch (error, stackTrace) {
+        debugPrint('Unable to log access request movement: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+    }
+
     if (firestore == null) {
       final request = SalonAccessRequest(
         id: const Uuid().v4(),
@@ -3013,6 +3188,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
             ..removeWhere((element) => element.id == request.id)
             ..add(request);
       state = state.copyWith(salonAccessRequests: List.unmodifiable(updated));
+      unawaited(recordAccessRequestMovement());
       return;
     }
 
@@ -3058,6 +3234,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
       }
       await docRef.set(createData);
     }
+    unawaited(recordAccessRequestMovement());
   }
 
   Future<void> detachClientFromSalon({
@@ -3793,6 +3970,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
   Future<void> upsertAppointment(
     Appointment appointment, {
     String? consumeLastMinuteSlotId,
+    String? clientCancellationReason,
   }) async {
     final isAdmin = _currentUser?.role == UserRole.admin;
     final resolvedBookingChannel =
@@ -3838,6 +4016,32 @@ class AppDataStore extends StateNotifier<AppDataState> {
               ),
             );
       }
+      if (resolvedBookingChannel == 'self') {
+        final metadata = <String, dynamic>{
+          'start': bookingResult.appointment.start.toIso8601String(),
+          'end': bookingResult.appointment.end.toIso8601String(),
+          'staffId': bookingResult.appointment.staffId,
+          'serviceIds': bookingResult.appointment.serviceIds,
+          'lastMinute': true,
+        };
+        unawaited(
+          logClientAppMovement(
+            type: ClientAppMovementType.appointmentCreated,
+            salonId: bookingResult.appointment.salonId,
+            clientId: bookingResult.appointment.clientId,
+            appointmentId: bookingResult.appointment.id,
+            lastMinuteSlotId: bookingResult.appointment.lastMinuteSlotId,
+            channel: resolvedBookingChannel,
+            metadata: metadata,
+            label: 'Appuntamento last-minute creato',
+          ).catchError((error, stackTrace) {
+            debugPrint(
+              'Unable to log last-minute appointment creation: $error',
+            );
+            debugPrintStack(stackTrace: stackTrace);
+          }),
+        );
+      }
       return;
     }
 
@@ -3849,6 +4053,122 @@ class AppDataStore extends StateNotifier<AppDataState> {
       createdAt: appointment.createdAt ?? previous?.createdAt ?? DateTime.now(),
       bookingChannel: resolvedBookingChannel,
     );
+    final bool isClientBooking = resolvedBookingChannel == 'self';
+    ClientAppMovementType? movementType;
+    Map<String, dynamic>? movementMetadata;
+    String? movementLabel;
+    String? movementDescription;
+    final snapshot = _consumeRescheduleSnapshot(resolvedAppointment.id);
+
+    if (isClientBooking) {
+      if (previous == null) {
+        movementType = ClientAppMovementType.appointmentCreated;
+        movementLabel = 'Appuntamento creato';
+        movementMetadata = <String, dynamic>{
+          'start': resolvedAppointment.start.toIso8601String(),
+          'end': resolvedAppointment.end.toIso8601String(),
+          'staffId': resolvedAppointment.staffId,
+          'serviceIds': resolvedAppointment.serviceIds,
+        };
+      } else {
+        final wasCancelled = previous.status == AppointmentStatus.cancelled;
+        final isCancelled =
+            resolvedAppointment.status == AppointmentStatus.cancelled;
+        if (!wasCancelled && isCancelled) {
+          movementType = ClientAppMovementType.appointmentCancelled;
+          movementLabel = 'Appuntamento annullato';
+          final reason = clientCancellationReason?.trim();
+          movementDescription = reason?.isNotEmpty == true ? reason : null;
+          movementMetadata = <String, dynamic>{
+            'previousStatus': previous.status.name,
+            'newStatus': resolvedAppointment.status.name,
+            if (reason != null && reason.isNotEmpty) 'reason': reason,
+            'start': resolvedAppointment.start.toIso8601String(),
+            'end': resolvedAppointment.end.toIso8601String(),
+          };
+        } else {
+          final startChanged =
+              !previous.start.isAtSameMomentAs(resolvedAppointment.start);
+          final endChanged =
+              !previous.end.isAtSameMomentAs(resolvedAppointment.end);
+          final staffChanged = previous.staffId != resolvedAppointment.staffId;
+          final servicesChanged =
+              !const ListEquality<String>().equals(
+                previous.serviceIds,
+                resolvedAppointment.serviceIds,
+              );
+          if (startChanged || endChanged || staffChanged || servicesChanged) {
+            movementType = ClientAppMovementType.appointmentUpdated;
+            movementLabel = 'Appuntamento aggiornato';
+            movementMetadata = <String, dynamic>{
+              'previousStart': previous.start.toIso8601String(),
+              'newStart': resolvedAppointment.start.toIso8601String(),
+              'previousEnd': previous.end.toIso8601String(),
+              'newEnd': resolvedAppointment.end.toIso8601String(),
+              if (staffChanged) 'previousStaffId': previous.staffId,
+              'newStaffId': resolvedAppointment.staffId,
+              if (servicesChanged) 'previousServices': previous.serviceIds,
+              'newServices': resolvedAppointment.serviceIds,
+            };
+          }
+        }
+      }
+    }
+
+    if (movementType == ClientAppMovementType.appointmentUpdated &&
+        snapshot == null) {
+      movementType = null;
+    }
+
+    if (snapshot != null) {
+      movementMetadata ??= <String, dynamic>{};
+      movementMetadata!.putIfAbsent(
+        'previousStart',
+        () => snapshot.start.toIso8601String(),
+      );
+      if (snapshot.end != null) {
+        movementMetadata!.putIfAbsent(
+          'previousEnd',
+          () => snapshot.end!.toIso8601String(),
+        );
+      }
+      if (snapshot.staffId.isNotEmpty) {
+        movementMetadata!.putIfAbsent(
+          'previousStaffId',
+          () => snapshot.staffId,
+        );
+      }
+      if (snapshot.serviceIds.isNotEmpty) {
+        movementMetadata!.putIfAbsent(
+          'previousServices',
+          () => snapshot.serviceIds,
+        );
+      }
+    }
+
+    void logMovementIfNeeded() {
+      if (!isClientBooking || movementType == null) {
+        return;
+      }
+      unawaited(
+        logClientAppMovement(
+          type: movementType!,
+          salonId: resolvedAppointment.salonId,
+          clientId: resolvedAppointment.clientId,
+          appointmentId: resolvedAppointment.id,
+          lastMinuteSlotId:
+              resolvedAppointment.lastMinuteSlotId ?? consumeLastMinuteSlotId,
+          channel: resolvedBookingChannel,
+          metadata: movementMetadata,
+          label: movementLabel,
+          description: movementDescription,
+        ).catchError((error, stackTrace) {
+          debugPrint('Unable to log appointment movement: $error');
+          debugPrintStack(stackTrace: stackTrace);
+        }),
+      );
+    }
+
     final publicView = _publicViewOfAppointment(resolvedAppointment);
     final now = DateTime.now();
     if (resolvedAppointment.end.isAfter(now)) {
@@ -3927,6 +4247,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
         slotId: consumeLastMinuteSlotId,
         appointment: resolvedAppointment,
       );
+      logMovementIfNeeded();
       return;
     }
     await firestore
@@ -3947,6 +4268,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
       slotId: consumeLastMinuteSlotId,
       appointment: resolvedAppointment,
     );
+    logMovementIfNeeded();
   }
 
   List<Appointment> _mergeAppointmentsForConflicts({
@@ -4278,14 +4600,16 @@ class AppDataStore extends StateNotifier<AppDataState> {
         }
         final hasServiceBreakdown =
             candidate.item.remainingPackageServiceSessions.isNotEmpty;
-        final remainingByService = hasServiceBreakdown
-            ? Map<String, int>.from(
-                candidate.item.remainingPackageServiceSessions,
-              )
-            : const <String, int>{};
-        final available = hasServiceBreakdown
-            ? remainingByService[plan.serviceId] ?? 0
-            : candidate.remainingSessionsForService;
+        final remainingByService =
+            hasServiceBreakdown
+                ? Map<String, int>.from(
+                  candidate.item.remainingPackageServiceSessions,
+                )
+                : const <String, int>{};
+        final available =
+            hasServiceBreakdown
+                ? remainingByService[plan.serviceId] ?? 0
+                : candidate.remainingSessionsForService;
         if (available <= 0) {
           break;
         }
@@ -4304,8 +4628,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
         } else {
           final updatedRemaining =
               candidate.remainingSessions - sessionsToConsume;
-          nextOverallRemaining =
-              updatedRemaining < 0 ? 0 : updatedRemaining;
+          nextOverallRemaining = updatedRemaining < 0 ? 0 : updatedRemaining;
         }
         final currentStatus = candidate.item.packageStatus;
         PackagePurchaseStatus? nextStatus;
@@ -6683,4 +7006,18 @@ class _LastMinuteBookingResult {
 
   final Appointment appointment;
   final LastMinuteSlot? slot;
+}
+
+class _ClientRescheduleSnapshot {
+  const _ClientRescheduleSnapshot({
+    required this.start,
+    required this.end,
+    required this.staffId,
+    required this.serviceIds,
+  });
+
+  final DateTime start;
+  final DateTime? end;
+  final String staffId;
+  final List<String> serviceIds;
 }

@@ -255,14 +255,18 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
   bool _showSuccess = false;
   Appointment? _completedAppointment;
   String? _headerTitleOverride;
+  bool _isEditingFlow = false;
 
   bool get _isLastMinuteExpress => _expressSlot != null;
   bool get _isCountdownExpired =>
       _isLastMinuteExpress && _remainingCountdown <= Duration.zero;
+  String? get _editingAppointmentId =>
+      _isEditingFlow ? widget.initialAppointment?.id : null;
 
   @override
   void initState() {
     super.initState();
+    _isEditingFlow = widget.initialAppointment != null;
     _headerTitleOverride =
         widget.overrideTitle ?? (widget.showCloseButton ? 'Ripianifica' : null);
     final slot = widget.lastMinuteSlot;
@@ -552,7 +556,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
 
     final visibleAppointments = _visibleAppointments(
       data,
-      excludeAppointmentId: widget.initialAppointment?.id,
+      excludeAppointmentId: _editingAppointmentId,
     );
 
     final packagePurchases = resolveClientPackagePurchases(
@@ -674,7 +678,9 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
                           Expanded(
                             child: Text(
                               _showSuccess
-                                  ? 'Modifica confermata'
+                                  ? (_isEditingFlow
+                                      ? 'Modifica confermata'
+                                      : 'Prenotazione confermata')
                                   : (_headerTitleOverride ?? 'Ripianifica'),
                               style: theme.textTheme.titleMedium?.copyWith(
                                 fontWeight: FontWeight.w700,
@@ -969,6 +975,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
   void _startAnotherBooking() {
     _countdownTimer?.cancel();
     setState(() {
+      _isEditingFlow = false;
       _showSuccess = false;
       _completedAppointment = null;
       _expressSlot = null;
@@ -2397,7 +2404,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
       (item) => item.id == widget.client.salonId,
     );
 
-    final editingAppointmentId = widget.initialAppointment?.id;
+    final editingAppointmentId = _editingAppointmentId;
     final existingAppointments = _visibleAppointments(
       data,
       excludeAppointmentId: editingAppointmentId,
@@ -2598,7 +2605,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
           }).toList();
 
       final existing =
-          widget.initialAppointment != null && index == 0
+          _isEditingFlow && widget.initialAppointment != null && index == 0
               ? widget.initialAppointment
               : null;
       final appointment =
@@ -3361,7 +3368,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
               start: now,
               end: horizon,
             );
-    final editingAppointmentId = widget.initialAppointment?.id;
+    final editingAppointmentId = _editingAppointmentId;
     final visibleAppointments = _visibleAppointments(
       data,
       excludeAppointmentId: editingAppointmentId,
@@ -3507,7 +3514,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             staffId: staffId,
             start: slotStart,
             end: slotEnd,
-            excludeAppointmentId: widget.initialAppointment?.id,
+            excludeAppointmentId: _editingAppointmentId,
           );
           if (hasStaffConflict) {
             slotStart = slotStart.add(slotStep);

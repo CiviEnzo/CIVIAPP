@@ -787,6 +787,11 @@ service cloud.firestore {
       );
     }
 
+    match /client_app_movements/{movementId} {
+      allow read: if isSignedIn() && resourceSalonId() != null && canManageSalonDocument(resourceSalonId());
+      allow create, update, delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

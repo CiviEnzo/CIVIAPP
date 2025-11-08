@@ -25,6 +25,11 @@ function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function isClientChannel(channel: string): boolean {
+  const normalized = channel.toLowerCase();
+  return normalized.includes('self') || normalized.includes('client') || normalized.includes('app');
+}
+
 function normalizeStatus(value: unknown): string {
   const raw = normalizeString(value);
   if (!raw) {
@@ -104,6 +109,11 @@ function buildMovementPayload(
   const afterEnd = parseTimestamp(afterData?.end) ?? beforeEnd;
   const beforeStaffId = normalizeString(beforeData?.staffId);
   const afterStaffId = normalizeString(afterData?.staffId ?? beforeStaffId);
+  const bookingChannel = normalizeString(afterData?.bookingChannel ?? beforeData?.bookingChannel);
+
+  if (bookingChannel && isClientChannel(bookingChannel)) {
+    return null;
+  }
 
   let movementType: MovementPayload['type'] | null = null;
   const metadata: Record<string, unknown> = {};
@@ -174,7 +184,6 @@ function buildMovementPayload(
     return null;
   }
 
-  const bookingChannel = normalizeString(afterData?.bookingChannel ?? beforeData?.bookingChannel);
   const createdBy = normalizeString(afterData?.updatedBy ?? beforeData?.updatedBy);
 
   const cleanedMetadata: Record<string, unknown> = {};

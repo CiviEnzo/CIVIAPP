@@ -8,6 +8,7 @@ import 'package:you_book/domain/cart/cart_models.dart';
 import 'package:you_book/domain/entities/app_notification.dart';
 import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/domain/entities/client_app_movement.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
 import 'package:you_book/domain/entities/client_photo_collage.dart';
 import 'package:you_book/domain/entities/package.dart';
@@ -728,11 +729,14 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     BuildContext? overrideContext,
   }) async {
     final targetContext = overrideContext ?? context;
+    final dataStore = ref.read(appDataProvider.notifier);
+    dataStore.registerClientRescheduleSnapshot(appointment);
     final updated = await ClientBookingSheet.show(
       targetContext,
       client: client,
       existingAppointment: appointment,
     );
+    dataStore.clearClientRescheduleSnapshot(appointment.id);
     if (!mounted || updated == null) {
       return;
     }
@@ -752,28 +756,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
   }) async {
     final format = DateFormat('dd MMMM yyyy HH:mm', 'it_IT');
     final appointmentLabel = format.format(appointment.start);
-    final shouldCancel = await showDialog<bool>(
+    final reason = await _promptCancellationReason(
       context: overrideContext ?? context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Annulla appuntamento'),
-          content: Text(
-            'Vuoi annullare l\'appuntamento del $appointmentLabel?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('No'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Sì, annulla'),
-            ),
-          ],
-        );
-      },
+      appointmentLabel: appointmentLabel,
     );
-    if (shouldCancel != true) {
+    if (reason == null) {
       return;
     }
     try {
@@ -781,6 +768,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
           .read(appDataProvider.notifier)
           .upsertAppointment(
             appointment.copyWith(status: AppointmentStatus.cancelled),
+            clientCancellationReason: reason,
           );
       if (!mounted) return;
       final targetContext = overrideContext ?? context;
@@ -803,6 +791,76 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
           content: const Text('Errore durante l\'annullamento. Riprova.'),
         ),
       );
+    }
+  }
+
+  Future<String?> _promptCancellationReason({
+    required BuildContext context,
+    required String appointmentLabel,
+  }) async {
+    final controller = TextEditingController();
+    String? errorText;
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setState) {
+              Future<void> validateAndSubmit() async {
+                final text = controller.text.trim();
+                if (text.length < 10) {
+                  setState(
+                    () =>
+                        errorText =
+                            'Inserisci una motivazione di almeno 10 caratteri.',
+                  );
+                  return;
+                }
+                Navigator.of(dialogContext).pop(text);
+              }
+
+              return AlertDialog(
+                title: const Text('Annulla appuntamento'),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Motiva l\'annullamento per il salone.\nAppuntamento del $appointmentLabel.',
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: controller,
+                        maxLines: 3,
+                        textInputAction: TextInputAction.done,
+                        decoration: InputDecoration(
+                          labelText: 'Motivo dell\'annullamento',
+                          hintText: 'Es. imprevisto personale...',
+                          errorText: errorText,
+                        ),
+                        onSubmitted: (_) => validateAndSubmit(),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Chiudi'),
+                  ),
+                  FilledButton(
+                    onPressed: validateAndSubmit,
+                    child: const Text('Conferma annullamento'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      controller.dispose();
     }
   }
 
@@ -1567,6 +1625,32 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
         slot: slot,
         paymentIntentId: checkoutResult.paymentIntentId,
       );
+      unawaited(
+        ref
+            .read(appDataProvider.notifier)
+            .logClientAppMovement(
+              type: ClientAppMovementType.lastMinutePurchase,
+              salonId: salon.id,
+              clientId: client.id,
+              channel: 'client_app:last_minute',
+              metadata: {
+                'slotId': slot.id,
+                'serviceId': slot.serviceId,
+                'serviceName': slot.serviceName,
+                'start': slot.start.toIso8601String(),
+                'priceNow': slot.priceNow,
+                'paymentIntentId': checkoutResult.paymentIntentId,
+              },
+              lastMinuteSlotId: slot.id,
+              label: 'Offerta last-minute acquistata',
+              description:
+                  'Il cliente ha completato l\'acquisto di uno slot last-minute.',
+            )
+            .catchError((error, stackTrace) {
+              debugPrint('Unable to log last-minute purchase: $error');
+              debugPrintStack(stackTrace: stackTrace);
+            }),
+      );
       return true;
     } on StateError catch (error) {
       if (mounted) {
@@ -1762,6 +1846,32 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
           ),
         ),
       );
+      if (checkoutResult != null) {
+        unawaited(
+          ref
+              .read(appDataProvider.notifier)
+              .logClientAppMovement(
+                type: ClientAppMovementType.purchase,
+                salonId: salon.id,
+                clientId: client.id,
+                channel: 'client_app:quote',
+                metadata: {
+                  'quoteId': quote.id,
+                  'quoteNumber': quote.number,
+                  'quoteTitle': quote.title,
+                  'totalAmount': quote.total,
+                  'paymentIntentId': checkoutResult.paymentIntentId,
+                },
+                label: 'Preventivo accettato',
+                description:
+                    'Il cliente ha pagato un preventivo dall\'app clienti.',
+              )
+              .catchError((error, stackTrace) {
+                debugPrint('Unable to log quote purchase: $error');
+                debugPrintStack(stackTrace: stackTrace);
+              }),
+        );
+      }
     } on StripePaymentsException catch (error) {
       if (mounted) {
         messenger.showSnackBar(SnackBar(content: Text(error.message)));
@@ -2234,7 +2344,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
               salon: salon,
               cartState: cartState,
             ),
-            _buildSalonInfoTab(context: context, salon: salon),
+            _buildSalonInfoTab(
+              context: context,
+              salon: salon,
+              client: currentClient,
+            ),
           ];
 
           final colorScheme = Theme.of(context).colorScheme;
@@ -3094,6 +3208,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
   Widget _buildSalonInfoTab({
     required BuildContext context,
     required Salon? salon,
+    Client? client,
   }) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
@@ -3463,7 +3578,13 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
           salonName: salon.name,
           primaryColor: scheme.primary,
           onPrimaryColor: scheme.onPrimaryContainer,
-          onOpenReviews: () => _launchExternalUrl(context, reviewUri),
+          onOpenReviews:
+              () => _handleReviewClick(
+                context: context,
+                salon: salon,
+                client: client,
+                reviewUri: reviewUri,
+              ),
         ),
       ),
     );
@@ -3507,6 +3628,39 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     );
   }
 
+  Future<void> _handleReviewClick({
+    required BuildContext context,
+    required Salon salon,
+    Client? client,
+    Uri? reviewUri,
+  }) async {
+    final clientId =
+        client?.id ?? ref.read(sessionControllerProvider).user?.clientId ?? '';
+    if (clientId.isNotEmpty) {
+      unawaited(
+        ref
+            .read(appDataProvider.notifier)
+            .logClientAppMovement(
+              type: ClientAppMovementType.reviewClick,
+              salonId: salon.id,
+              clientId: clientId,
+              channel: 'client_app:salon_info',
+              metadata: {'reviewUrl': reviewUri?.toString()},
+              label: 'Recensioni aperte',
+              description:
+                  'Il cliente ha aperto il link recensioni dal profilo salone.',
+            )
+            .catchError((error, stackTrace) {
+              debugPrint('Unable to log review click: $error');
+              debugPrintStack(stackTrace: stackTrace);
+            }),
+      );
+    }
+    if (reviewUri != null) {
+      await _launchExternalUrl(context, reviewUri);
+    }
+  }
+
   Future<void> _checkoutCart({
     required BuildContext context,
     required Client client,
@@ -3520,6 +3674,21 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       );
       return;
     }
+    final cartItemsSnapshot = cartState.items
+        .map(
+          (item) => {
+            'id': item.id,
+            'referenceId': item.referenceId,
+            'type': item.type.label,
+            'name': item.name,
+            'quantity': item.quantity,
+            'unitPrice': item.unitPrice,
+            'total': item.totalAmount,
+          },
+        )
+        .toList(growable: false);
+    final totalAmount = cartState.totalAmount;
+    final itemCount = cartState.items.length;
 
     final stripeAccountId = salon.stripeAccountId;
     if (stripeAccountId == null) {
@@ -3532,7 +3701,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     }
 
     try {
-      await ref
+      final checkoutResult = await ref
           .read(cartControllerProvider.notifier)
           .checkout(
             salonId: salon.id,
@@ -3549,6 +3718,33 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       }
       messenger.showSnackBar(
         const SnackBar(content: Text('Pagamento completato con successo.')),
+      );
+      final updatedCartState = ref.read(cartControllerProvider);
+      unawaited(
+        ref
+            .read(appDataProvider.notifier)
+            .logClientAppMovement(
+              type: ClientAppMovementType.purchase,
+              salonId: salon.id,
+              clientId: client.id,
+              channel: 'client_app:cart',
+              metadata: {
+                'items': cartItemsSnapshot,
+                'itemCount': itemCount,
+                'totalAmount': totalAmount,
+                'currency': 'EUR',
+                if (updatedCartState.lastCartId != null)
+                  'cartId': updatedCartState.lastCartId,
+                'paymentIntentId': checkoutResult.paymentIntentId,
+              },
+              label: 'Acquisto dal carrello',
+              description:
+                  'Il cliente ha completato un pagamento online dal carrello.',
+            )
+            .catchError((error, stackTrace) {
+              debugPrint('Unable to log cart purchase: $error');
+              debugPrintStack(stackTrace: stackTrace);
+            }),
       );
     } on StripePaymentsException catch (error) {
       messenger.showSnackBar(SnackBar(content: Text(error.message)));

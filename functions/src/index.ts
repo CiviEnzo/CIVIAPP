@@ -48,3 +48,4 @@ export {
   appointmentReminderSweeper,
 } from "./reminders/hybrid";
 export { getReportsSummary, getReportsMetrics } from "./reports/routes";
+export { logClientAppMovement } from "./movements/logClientAppMovement";

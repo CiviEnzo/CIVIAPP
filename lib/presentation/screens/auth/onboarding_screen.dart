@@ -668,32 +668,32 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     buildInfoRow('Email', request.email, textTheme),
                     if (request.phone.isNotEmpty)
                       buildInfoRow('Telefono', request.phone, textTheme),
-                if (request.dateOfBirth != null)
-                  buildInfoRow(
-                    'Data di nascita',
-                    DateFormat('dd/MM/yyyy').format(request.dateOfBirth!),
-                    textTheme,
-                  ),
-                () {
-                  final genderCode = _stringOrNull(extra['gender']);
-                  if (genderCode == null) return const SizedBox.shrink();
-                  String label;
-                  switch (genderCode) {
-                    case 'male':
-                      label = 'Uomo';
-                      break;
-                    case 'female':
-                      label = 'Donna';
-                      break;
-                    default:
-                      label = 'Altro/Non specificato';
-                  }
-                  return buildInfoRow('Sesso', label, textTheme);
-                }(),
-                if (address != null)
-                  buildInfoRow('Città di residenza', address, textTheme),
-                if (profession != null)
-                  buildInfoRow('Professione', profession, textTheme),
+                    if (request.dateOfBirth != null)
+                      buildInfoRow(
+                        'Data di nascita',
+                        DateFormat('dd/MM/yyyy').format(request.dateOfBirth!),
+                        textTheme,
+                      ),
+                    () {
+                      final genderCode = _stringOrNull(extra['gender']);
+                      if (genderCode == null) return const SizedBox.shrink();
+                      String label;
+                      switch (genderCode) {
+                        case 'male':
+                          label = 'Uomo';
+                          break;
+                        case 'female':
+                          label = 'Donna';
+                          break;
+                        default:
+                          label = 'Altro/Non specificato';
+                      }
+                      return buildInfoRow('Sesso', label, textTheme);
+                    }(),
+                    if (address != null)
+                      buildInfoRow('Città di residenza', address, textTheme),
+                    if (profession != null)
+                      buildInfoRow('Professione', profession, textTheme),
                     if (referral != null)
                       buildInfoRow(
                         'Come ci ha conosciuto',
@@ -1320,6 +1320,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         await dataStore.submitSalonAccessRequest(
           salonId: selectedSalonId,
           userId: uid,
+          clientId: existingClient?.id ?? user?.clientId,
           firstName: normalizedFirst,
           lastName: normalizedLast,
           email: email,
