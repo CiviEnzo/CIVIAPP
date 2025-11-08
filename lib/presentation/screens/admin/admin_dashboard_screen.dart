@@ -83,7 +83,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     ),
     AdminModuleDefinition(
       id: 'appointments',
-      title: 'Appuntamenti',
+      title: 'Agenda',
       icon: Icons.event_available_rounded,
       builder: (context, ref, salonId) => AppointmentsModule(salonId: salonId),
     ),
@@ -261,8 +261,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                             Navigator.of(context).maybePop();
                           },
                         ),
-                ),
-              ),
+                      ),
+                    ),
             appBar: AppBar(
               automaticallyImplyLeading: !isLargeScreen,
               title: Text(selectedModule.title),

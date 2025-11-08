@@ -383,9 +383,42 @@ class _ClientAppMovementsModuleState
         if (appointment?.bookingChannel != null &&
             appointment!.bookingChannel!.isNotEmpty) {
           details.add(
+                _MovementDetail(
+                  icon: Icons.link_rounded,
+                  label: 'Canale: ${appointment.bookingChannel}',
+                ),
+              );
+        }
+        final newServiceNames = _resolveServiceNames(
+          appointment: appointment,
+          servicesById: servicesById,
+          metadata: movement.metadata,
+          useUpdatedServices: true,
+        );
+        final previousServiceNames = _resolveServiceNames(
+          appointment: appointment,
+          servicesById: servicesById,
+          metadata: movement.metadata,
+          useUpdatedServices: false,
+        );
+        final bool servicesChanged =
+            movement.type == ClientAppMovementType.appointmentUpdated &&
+            newServiceNames.isNotEmpty &&
+            previousServiceNames.isNotEmpty &&
+            !const SetEquality<String>().equals(
+              newServiceNames.toSet(),
+              previousServiceNames.toSet(),
+            );
+        final serviceLabel = _buildServiceDetailLabel(
+          currentServices: newServiceNames,
+          previousServices: previousServiceNames,
+          showChange: servicesChanged,
+        );
+        if (serviceLabel != null) {
+          details.add(
             _MovementDetail(
-              icon: Icons.link_rounded,
-              label: 'Canale: ${appointment.bookingChannel}',
+              icon: Icons.design_services_rounded,
+              label: serviceLabel,
             ),
           );
         }
@@ -438,7 +471,8 @@ class _ClientAppMovementsModuleState
               movement.metadata['newEnd'] ?? movement.metadata['end'],
             ) ??
             appointment?.end;
-        if (previousEnd != null &&
+        if (movement.type != ClientAppMovementType.appointmentUpdated &&
+            previousEnd != null &&
             nextEnd != null &&
             !previousEnd.isAtSameMomentAs(nextEnd)) {
           details.add(
@@ -455,10 +489,11 @@ class _ClientAppMovementsModuleState
         if (movement.type == ClientAppMovementType.appointmentCancelled &&
             cancelReason is String &&
             cancelReason.trim().isNotEmpty) {
+          final trimmedReason = cancelReason.trim();
           details.add(
             _MovementDetail(
               icon: Icons.feedback_rounded,
-              label: cancelReason.trim(),
+              label: 'Motivazione: $trimmedReason',
             ),
           );
         }
@@ -482,6 +517,19 @@ class _ClientAppMovementsModuleState
             _MovementDetail(
               icon: Icons.euro_rounded,
               label: 'Totale ${_currencyFormat.format(total)}',
+            ),
+          );
+        }
+        final purchasedItems = _resolvePurchaseItemLabels(
+          sale,
+          movement.metadata,
+        );
+        final purchaseItemsLabel = _buildPurchaseItemsLabel(purchasedItems);
+        if (purchaseItemsLabel != null) {
+          details.add(
+            _MovementDetail(
+              icon: Icons.shopping_bag_rounded,
+              label: purchaseItemsLabel,
             ),
           );
         }
@@ -587,6 +635,168 @@ class _ClientAppMovementsModuleState
     String? lastMinuteSlotId,
   }) {
     return '${type.name}::$clientId::${appointmentId ?? ''}::${saleId ?? ''}::${lastMinuteSlotId ?? ''}';
+  }
+
+  List<String> _resolveServiceNames({
+    Appointment? appointment,
+    required Map<String, Service> servicesById,
+    required Map<String, dynamic> metadata,
+    required bool useUpdatedServices,
+  }) {
+    final dynamic rawIds =
+        useUpdatedServices
+            ? (metadata['newServices'] ?? metadata['serviceIds'])
+            : (metadata['previousServices'] ?? metadata['oldServices']);
+    final ids = _extractServiceIdList(rawIds);
+    if (ids.isEmpty) {
+      if (useUpdatedServices && appointment != null) {
+        return _mapServiceIdsToNames(appointment.serviceIds, servicesById);
+      }
+      return const <String>[];
+    }
+    return _mapServiceIdsToNames(ids, servicesById);
+  }
+
+  List<String> _extractServiceIdList(dynamic raw) {
+    if (raw is Iterable) {
+      return raw
+          .whereType<String>()
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty)
+          .toList();
+    }
+    if (raw is String) {
+      final trimmed = raw.trim();
+      if (trimmed.isNotEmpty) {
+        return <String>[trimmed];
+      }
+    }
+    return const <String>[];
+  }
+
+  List<String> _mapServiceIdsToNames(
+    Iterable<String> ids,
+    Map<String, Service> servicesById,
+  ) {
+    final seen = <String>{};
+    final names = <String>[];
+    for (final id in ids) {
+      final serviceName = servicesById[id]?.name;
+      if (serviceName == null) {
+        continue;
+      }
+      final trimmed = serviceName.trim();
+      if (trimmed.isEmpty || !seen.add(trimmed)) {
+        continue;
+      }
+      names.add(trimmed);
+    }
+    return names;
+  }
+
+  String? _buildServiceDetailLabel({
+    required List<String> currentServices,
+    required List<String> previousServices,
+    required bool showChange,
+  }) {
+    if (showChange &&
+        currentServices.isNotEmpty &&
+        previousServices.isNotEmpty) {
+      return 'Servizi: ${previousServices.join(', ')} → ${currentServices.join(', ')}';
+    }
+    final resolved =
+        currentServices.isNotEmpty ? currentServices : previousServices;
+    if (resolved.isEmpty) {
+      return null;
+    }
+    final prefix = resolved.length == 1 ? 'Servizio' : 'Servizi';
+    return '$prefix: ${resolved.join(', ')}';
+  }
+
+  List<String> _resolvePurchaseItemLabels(
+    Sale? sale,
+    Map<String, dynamic> metadata,
+  ) {
+    final labels = <String>[];
+    if (sale != null) {
+      for (final item in sale.items) {
+        final description = item.description.trim();
+        if (description.isEmpty) {
+          continue;
+        }
+        final label =
+            item.quantity == 1
+                ? description
+                : '$description x${_formatQuantityLabel(item.quantity)}';
+        labels.add(label);
+      }
+    }
+
+    if (labels.isEmpty) {
+      final rawItems = metadata['items'];
+      if (rawItems is Iterable) {
+        for (final raw in rawItems) {
+          if (raw is! Map) {
+            continue;
+          }
+          final dynamic nameValue = raw['name'] ?? raw['description'];
+          if (nameValue is! String) {
+            continue;
+          }
+          final trimmedName = nameValue.trim();
+          if (trimmedName.isEmpty) {
+            continue;
+          }
+          final dynamic quantityValue = raw['quantity'];
+          if (quantityValue is num && quantityValue != 1) {
+            labels.add(
+              '$trimmedName x${_formatQuantityLabel(quantityValue)}',
+            );
+          } else {
+            labels.add(trimmedName);
+          }
+        }
+      }
+    }
+
+    if (labels.isEmpty) {
+      final quoteTitle = metadata['quoteTitle'];
+      if (quoteTitle is String) {
+        final trimmedTitle = quoteTitle.trim();
+        if (trimmedTitle.isNotEmpty) {
+          labels.add(trimmedTitle);
+        }
+      } else {
+        final quoteNumber = metadata['quoteNumber'];
+        if (quoteNumber is String) {
+          final trimmedNumber = quoteNumber.trim();
+          if (trimmedNumber.isNotEmpty) {
+            labels.add('Preventivo #$trimmedNumber');
+          }
+        }
+      }
+    }
+
+    final seen = <String>{};
+    return labels.where((label) => seen.add(label)).toList();
+  }
+
+  String? _buildPurchaseItemsLabel(List<String> items) {
+    if (items.isEmpty) {
+      return null;
+    }
+    final prefix = items.length == 1 ? 'Articolo' : 'Articoli';
+    return '$prefix: ${items.join(', ')}';
+  }
+
+  String _formatQuantityLabel(num quantity) {
+    if (quantity % 1 == 0) {
+      return quantity.toInt().toString();
+    }
+    final formatted = quantity.toStringAsFixed(2);
+    return formatted
+        .replaceFirst(RegExp(r'0+$'), '')
+        .replaceFirst(RegExp(r'\.$'), '');
   }
 
   String _formatAppointmentSummary(
