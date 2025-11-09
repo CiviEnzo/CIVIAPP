@@ -239,6 +239,8 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
           _description.text.trim().isEmpty ? null : _description.text.trim(),
       sortOrder: _parseSortOrder(_sortOrder.text.trim()),
       color: _color?.value,
+      zoneServiceIds:
+          widget.initial?.zoneServiceIds ?? const <String, String>{},
     );
 
     Navigator.of(context).pop(category);
@@ -283,7 +285,6 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
       setState(() {
         _color = parsed;
         _colorHexError = null;
-        _syncHexField(parsed);
       });
     } else {
       setState(() {

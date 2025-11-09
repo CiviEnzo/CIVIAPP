@@ -1546,6 +1546,18 @@ ServiceCategory serviceCategoryFromDoc(
   DocumentSnapshot<Map<String, dynamic>> doc,
 ) {
   final data = doc.data() ?? <String, dynamic>{};
+  final rawZoneServices =
+      (data['bodyZoneServiceIds'] as Map<String, dynamic>?) ??
+      const <String, dynamic>{};
+  final zoneServiceIds = <String, String>{};
+  rawZoneServices.forEach((key, value) {
+    final zoneKey = key?.toString() ?? '';
+    final zoneValue = value?.toString() ?? '';
+    if (zoneKey.isEmpty || zoneValue.isEmpty) {
+      return;
+    }
+    zoneServiceIds[zoneKey] = zoneValue;
+  });
   return ServiceCategory(
     id: doc.id,
     salonId: data['salonId'] as String? ?? '',
@@ -1553,6 +1565,7 @@ ServiceCategory serviceCategoryFromDoc(
     description: data['description'] as String?,
     sortOrder: (data['sortOrder'] as num?)?.toInt() ?? 0,
     color: (data['color'] as num?)?.toInt(),
+    zoneServiceIds: zoneServiceIds,
   );
 }
 
@@ -1567,6 +1580,11 @@ Map<String, dynamic> serviceCategoryToMap(ServiceCategory category) {
   }
   if (category.color != null) {
     map['color'] = category.color;
+  }
+  if (category.zoneServiceIds.isNotEmpty) {
+    map['bodyZoneServiceIds'] = category.zoneServiceIds;
+  } else {
+    map['bodyZoneServiceIds'] = <String, String>{};
   }
   return map;
 }
@@ -2654,8 +2672,7 @@ Map<String, dynamic> clientAppMovementToMap(ClientAppMovement movement) {
     if (movement.channel != null) 'channel': movement.channel,
     if (movement.label != null) 'label': movement.label,
     if (movement.description != null) 'description': movement.description,
-    if (movement.appointmentId != null)
-      'appointmentId': movement.appointmentId,
+    if (movement.appointmentId != null) 'appointmentId': movement.appointmentId,
     if (movement.saleId != null) 'saleId': movement.saleId,
     if (movement.lastMinuteSlotId != null)
       'lastMinuteSlotId': movement.lastMinuteSlotId,

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/data/repositories/app_data_state.dart';
@@ -8,9 +9,11 @@ import 'package:you_book/domain/availability/package_session_allocator.dart';
 import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/appointment_clipboard.dart';
 import 'package:you_book/domain/entities/appointment_service_allocation.dart';
+import 'package:you_book/domain/entities/body_zone.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/service.dart';
+import 'package:you_book/domain/entities/service_category.dart';
 import 'package:you_book/domain/entities/shift.dart';
 import 'package:you_book/domain/entities/staff_absence.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
@@ -22,6 +25,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:collection/collection.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
@@ -47,6 +51,7 @@ class AppointmentFormSheet extends ConsumerStatefulWidget {
     required this.clients,
     required this.staff,
     required this.services,
+    required this.serviceCategories,
     this.initial,
     this.defaultSalonId,
     this.defaultClientId,
@@ -60,6 +65,7 @@ class AppointmentFormSheet extends ConsumerStatefulWidget {
   final List<Client> clients;
   final List<StaffMember> staff;
   final List<Service> services;
+  final List<ServiceCategory> serviceCategories;
   final Appointment? initial;
   final String? defaultSalonId;
   final String? defaultClientId;
@@ -105,7 +111,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
   bool _copyJustCompleted = false;
   Timer? _copyFeedbackTimer;
   static const Duration _copyFeedbackDuration = Duration(seconds: 2);
-  String? _blockingEquipmentMessage;
+  String? _inlineErrorMessage;
 
   @override
   void initState() {
@@ -179,14 +185,54 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     super.dispose();
   }
 
-  void _showBlockingEquipmentMessage(String message) {
+  void _showInlineError(String message) {
     if (!mounted) return;
-    setState(() => _blockingEquipmentMessage = message);
+    setState(() => _inlineErrorMessage = message);
   }
 
-  void _clearBlockingEquipmentMessage() {
-    if (!mounted || _blockingEquipmentMessage == null) return;
-    setState(() => _blockingEquipmentMessage = null);
+  void _clearInlineError() {
+    if (!mounted || _inlineErrorMessage == null) return;
+    setState(() => _inlineErrorMessage = null);
+  }
+
+  List<Service> _selectedServicesInOrder(Iterable<Service> services) {
+    if (_serviceIds.isEmpty) {
+      return <Service>[];
+    }
+    final servicesById = {for (final service in services) service.id: service};
+    final ordered = <Service>[];
+    for (final id in _serviceIds) {
+      final service = servicesById[id];
+      if (service != null) {
+        ordered.add(service);
+      }
+    }
+    return ordered;
+  }
+
+  List<ServiceCategory> _categoriesForCurrentSalon() {
+    final salonId = _salonId;
+    if (salonId == null || salonId.isEmpty) {
+      return widget.serviceCategories;
+    }
+    return widget.serviceCategories
+        .where((category) => category.salonId == salonId)
+        .toList(growable: false);
+  }
+
+  List<_ZoneServiceEntry> _zoneEntriesForCategory(
+    ServiceCategory category,
+    Map<String, Service> servicesById,
+  ) {
+    final entries = <_ZoneServiceEntry>[];
+    category.zoneServiceIds.forEach((zoneId, serviceId) {
+      final zone = bodyZonesById[zoneId];
+      final service = servicesById[serviceId];
+      if (zone != null && service != null) {
+        entries.add(_ZoneServiceEntry(zone: zone, service: service));
+      }
+    });
+    return entries;
   }
 
   @override
@@ -293,8 +339,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         });
       });
     }
-    final selectedServices =
-        services.where((service) => _serviceIds.contains(service.id)).toList();
+    final selectedServices = _selectedServicesInOrder(services);
     final filteredStaff =
         staffMembers.where((member) {
           if (selectedServices.isNotEmpty) {
@@ -581,7 +626,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                               }
                                             });
 
-                                            _clearBlockingEquipmentMessage();
+                                            _clearInlineError();
 
                                             if (salonChanged) {
                                               WidgetsBinding.instance
@@ -628,7 +673,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                               ),
                             ],
                           ),
-                          if (_blockingEquipmentMessage != null) ...[
+                          if (_inlineErrorMessage != null) ...[
                             const SizedBox(height: 16),
                             Material(
                               color: colorScheme.errorContainer,
@@ -648,9 +693,9 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                     const SizedBox(width: 12),
                                     Expanded(
                                       child: Text(
-                                        _blockingEquipmentMessage!,
-                                        style:
-                                            theme.textTheme.bodyMedium?.copyWith(
+                                        _inlineErrorMessage!,
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(
                                               color:
                                                   colorScheme.onErrorContainer,
                                               fontWeight: FontWeight.w600,
@@ -659,7 +704,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                     ),
                                     IconButton(
                                       tooltip: 'Chiudi avviso',
-                                      onPressed: _clearBlockingEquipmentMessage,
+                                      onPressed: _clearInlineError,
                                       visualDensity: VisualDensity.compact,
                                       icon: Icon(
                                         Icons.close_rounded,
@@ -1025,6 +1070,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                           await _openServicePicker(
                                             context,
                                             services: filteredServices,
+                                            categories:
+                                                _categoriesForCurrentSalon(),
                                             selectedStaff: staffMembers
                                                 .firstWhereOrNull(
                                                   (member) =>
@@ -1065,7 +1112,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                             }
                                           }
                                         });
-                                        _clearBlockingEquipmentMessage();
+                                        _clearInlineError();
                                         state.didChange(_serviceIds);
                                       }
                                     },
@@ -1226,15 +1273,12 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                 return;
               }
               if (isFutureStart && value == AppointmentStatus.completed) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Non puoi impostare lo stato "Completato" per un appuntamento futuro.',
-                    ),
-                  ),
+                _showInlineError(
+                  'Non puoi impostare lo stato "Completato" per un appuntamento futuro.',
                 );
                 return;
               }
+              _clearInlineError();
               setState(() => _status = value);
             },
           ),
@@ -1518,30 +1562,18 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
 
   Future<void> _pickStart() async {
     if (_salonId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Seleziona un operatore associato a un salone prima di scegliere l\'orario.',
-          ),
-        ),
+      _showInlineError(
+        'Seleziona un operatore associato a un salone prima di scegliere l\'orario.',
       );
       return;
     }
     if (_staffId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Seleziona un operatore prima di scegliere l\'orario.'),
-        ),
-      );
+      _showInlineError('Seleziona un operatore prima di scegliere l\'orario.');
       return;
     }
     if (_serviceIds.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Seleziona almeno un servizio prima di scegliere l\'orario.',
-          ),
-        ),
+      _showInlineError(
+        'Seleziona almeno un servizio prima di scegliere l\'orario.',
       );
       return;
     }
@@ -1556,12 +1588,9 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     final staffMember = staffMembers.firstWhereOrNull(
       (member) => member.id == _staffId,
     );
-    final selectedServices =
-        services.where((item) => _serviceIds.contains(item.id)).toList();
+    final selectedServices = _selectedServicesInOrder(services);
     if (staffMember == null || selectedServices.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Operatore o servizi non validi.')),
-      );
+      _showInlineError('Operatore o servizi non validi.');
       return;
     }
     final totalDuration = selectedServices.fold<Duration>(
@@ -1569,9 +1598,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       (acc, service) => acc + service.totalDuration,
     );
     if (totalDuration <= Duration.zero) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Durata complessiva servizi non valida.')),
-      );
+      _showInlineError('Durata complessiva servizi non valida.');
       return;
     }
 
@@ -1619,12 +1646,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       if (salonClosures.isNotEmpty) {
         await _showClosureAlert(salonClosures);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Nessuno slot disponibile per l\'operatore nella data selezionata.',
-            ),
-          ),
+        _showInlineError(
+          'Nessuno slot disponibile per l\'operatore nella data selezionata.',
         );
       }
       return;
@@ -1651,7 +1674,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         _status = AppointmentStatus.scheduled;
       }
     });
-    _clearBlockingEquipmentMessage();
+    _clearInlineError();
   }
 
   List<_AvailableSlot> _availableSlotsForDay({
@@ -1830,19 +1853,22 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           }
 
           final blockingEquipment = <String>{};
+          var equipmentStart = slotStart;
           for (final service in services) {
+            final equipmentEnd = equipmentStart.add(service.totalDuration);
             final equipmentCheck = EquipmentAvailabilityChecker.check(
               salon: salon,
               service: service,
               allServices: allServices,
               appointments: allAppointments,
-              start: slotStart,
-              end: slotEnd,
+              start: equipmentStart,
+              end: equipmentEnd,
               excludeAppointmentId: excludeAppointmentId,
             );
             if (equipmentCheck.hasConflicts) {
               blockingEquipment.addAll(equipmentCheck.blockingEquipment);
             }
+            equipmentStart = equipmentEnd;
           }
           if (blockingEquipment.isNotEmpty) {
             slotStart = slotStart.add(slotStep);
@@ -2119,6 +2145,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
   Future<List<String>?> _openServicePicker(
     BuildContext context, {
     required List<Service> services,
+    required List<ServiceCategory> categories,
     StaffMember? selectedStaff,
   }) async {
     if (services.isEmpty) {
@@ -2128,6 +2155,27 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     final sortedServices = List<Service>.from(services)
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     final theme = Theme.of(context);
+    final servicesById = {
+      for (final service in sortedServices) service.id: service,
+    };
+    final zoneCategories =
+        categories
+            .where((category) => category.zoneServiceIds.isNotEmpty)
+            .map((category) {
+              final entries = _zoneEntriesForCategory(category, servicesById);
+              if (entries.isEmpty) {
+                return null;
+              }
+              return _ZoneCategoryData(category: category, entries: entries);
+            })
+            .whereType<_ZoneCategoryData>()
+            .toList();
+    zoneCategories.sort(
+      (a, b) => a.category.name.toLowerCase().compareTo(
+        b.category.name.toLowerCase(),
+      ),
+    );
+    final hasZoneTab = zoneCategories.isNotEmpty;
 
     final searchController = TextEditingController();
     final result = await showAppModalSheet<List<String>>(
@@ -2153,12 +2201,15 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             final filtered =
                 lowerQuery.isEmpty
                     ? sortedServices
-                    : sortedServices
-                        .where(
-                          (service) =>
-                              service.name.toLowerCase().contains(lowerQuery),
-                        )
-                        .toList();
+                    : sortedServices.where((service) {
+                      final nameMatch = service.name.toLowerCase().contains(
+                        lowerQuery,
+                      );
+                      final categoryMatch = service.category
+                          .toLowerCase()
+                          .contains(lowerQuery);
+                      return nameMatch || categoryMatch;
+                    }).toList();
             final grouped = groupBy<Service, String>(filtered, (service) {
               final label = service.category.trim();
               if (label.isNotEmpty) return label;
@@ -2168,166 +2219,256 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                 grouped.keys.toList()
                   ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 24,
-                right: 24,
-                top: 24,
-                bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
-              ),
-              child: SafeArea(
-                child: SizedBox(
-                  width: double.infinity,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
+            Future<void> openZoneCategory(_ZoneCategoryData data) async {
+              final categoryServiceIds =
+                  data.entries.map((entry) => entry.service.id).toSet();
+              final initialCategorySelection =
+                  workingSelection
+                      .where((id) => categoryServiceIds.contains(id))
+                      .toSet();
+              final zoneSelection = await showAppModalSheet<Set<String>>(
+                context: context,
+                builder:
+                    (ctx) => _BodyZoneCategoryPicker(
+                      category: data.category,
+                      entries: data.entries,
+                      initialSelection: initialCategorySelection,
+                    ),
+              );
+              if (zoneSelection == null) {
+                return;
+              }
+              setModalState(() {
+                final filteredSelection = workingSelection
+                    .where((id) => !categoryServiceIds.contains(id))
+                    .toList(growable: true);
+                for (final serviceId in zoneSelection) {
+                  if (!filteredSelection.contains(serviceId)) {
+                    filteredSelection.add(serviceId);
+                  }
+                }
+                workingSelection = filteredSelection;
+              });
+            }
+
+            Widget buildServiceListTab() {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: searchController,
+                    decoration: InputDecoration(
+                      labelText: 'Cerca servizio',
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      suffixIcon:
+                          query.isEmpty
+                              ? null
+                              : IconButton(
+                                tooltip: 'Pulisci ricerca',
+                                icon: const Icon(Icons.clear_rounded),
+                                onPressed: () {
+                                  searchController.clear();
+                                  setModalState(() => query = '');
+                                },
+                              ),
+                    ),
+                    onChanged: (value) => setModalState(() => query = value),
+                  ),
+                  const SizedBox(height: 16),
+                  if (filtered.isEmpty)
+                    Expanded(
+                      child: Center(
+                        child: Text(
+                          'Nessun servizio trovato',
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ),
+                    )
+                  else
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: categories.length,
+                        itemBuilder: (context, index) {
+                          final category = categories[index];
+                          final categoryServices =
+                              grouped[category] ?? const [];
+                          return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                'Seleziona servizi',
-                                style: theme.textTheme.titleLarge,
-                              ),
-                              if (selectedStaff != null)
+                              if (categoryServices.isNotEmpty)
                                 Padding(
-                                  padding: const EdgeInsets.only(top: 4),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 8,
+                                  ),
                                   child: Text(
-                                    'Operatore: ${selectedStaff.fullName}',
-                                    style: theme.textTheme.bodySmall,
+                                    category,
+                                    style: theme.textTheme.titleMedium,
                                   ),
                                 ),
+                              ...categoryServices.map((service) {
+                                final selected = workingSelection.contains(
+                                  service.id,
+                                );
+                                final subtitleParts = <String>[];
+                                final durationMinutes =
+                                    service.totalDuration.inMinutes;
+                                if (durationMinutes > 0) {
+                                  subtitleParts.add(
+                                    'Durata $durationMinutes min',
+                                  );
+                                }
+                                if (service.price > 0) {
+                                  subtitleParts.add(
+                                    '€ ${service.price.toStringAsFixed(2)}',
+                                  );
+                                }
+                                final subtitle =
+                                    subtitleParts.isEmpty
+                                        ? null
+                                        : subtitleParts.join(' • ');
+                                return CheckboxListTile(
+                                  value: selected,
+                                  onChanged: (_) => toggleSelection(service.id),
+                                  dense: true,
+                                  title: Text(service.name),
+                                  subtitle:
+                                      subtitle != null ? Text(subtitle) : null,
+                                );
+                              }),
                             ],
-                          ),
-                          TextButton(
-                            onPressed:
-                                workingSelection.isEmpty
-                                    ? null
-                                    : () => setModalState(
-                                      () => workingSelection = const [],
-                                    ),
-                            child: const Text('Pulisci'),
-                          ),
-                        ],
+                          );
+                        },
                       ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: searchController,
-                        decoration: InputDecoration(
-                          labelText: 'Cerca servizio',
-                          prefixIcon: const Icon(Icons.search_rounded),
-                          suffixIcon:
-                              query.isEmpty
-                                  ? null
-                                  : IconButton(
-                                    tooltip: 'Pulisci ricerca',
-                                    icon: const Icon(Icons.clear_rounded),
-                                    onPressed: () {
-                                      searchController.clear();
-                                      setModalState(() => query = '');
-                                    },
-                                  ),
-                        ),
-                        onChanged:
-                            (value) => setModalState(() => query = value),
+                    ),
+                ],
+              );
+            }
+
+            Widget buildZoneTab() {
+              if (!hasZoneTab) {
+                return const SizedBox.shrink();
+              }
+              return ListView.separated(
+                itemCount: zoneCategories.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final data = zoneCategories[index];
+                  final categoryServiceIds =
+                      data.entries.map((entry) => entry.service.id).toSet();
+                  final selectedCount =
+                      workingSelection
+                          .where((id) => categoryServiceIds.contains(id))
+                          .length;
+                  final subtitleParts = <String>[
+                    '${data.entries.length} zone configurate',
+                  ];
+                  if (selectedCount > 0) {
+                    subtitleParts.add(
+                      selectedCount == 1
+                          ? '1 servizio selezionato'
+                          : '$selectedCount servizi selezionati',
+                    );
+                  }
+                  return Card(
+                    child: ListTile(
+                      onTap: () => openZoneCategory(data),
+                      title: Text(data.category.name),
+                      subtitle: Text(subtitleParts.join(' • ')),
+                      trailing: const Icon(
+                        Icons.chevron_right_rounded,
+                        size: 20,
                       ),
-                      const SizedBox(height: 16),
-                      if (filtered.isEmpty)
-                        Expanded(
-                          child: Center(
-                            child: Text(
-                              'Nessun servizio trovato',
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                          ),
-                        )
-                      else
-                        Expanded(
-                          child: ListView.builder(
-                            itemCount: categories.length,
-                            itemBuilder: (context, index) {
-                              final category = categories[index];
-                              final categoryServices =
-                                  grouped[category] ?? const [];
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (categoryServices.isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 8,
-                                      ),
-                                      child: Text(
-                                        category,
-                                        style: theme.textTheme.titleMedium,
-                                      ),
-                                    ),
-                                  ...categoryServices.map((service) {
-                                    final selected = workingSelection.contains(
-                                      service.id,
-                                    );
-                                    final subtitleParts = <String>[];
-                                    final durationMinutes =
-                                        service.totalDuration.inMinutes;
-                                    if (durationMinutes > 0) {
-                                      subtitleParts.add(
-                                        'Durata $durationMinutes min',
-                                      );
-                                    }
-                                    if (service.price > 0) {
-                                      subtitleParts.add(
-                                        '€ ${service.price.toStringAsFixed(2)}',
-                                      );
-                                    }
-                                    final subtitle =
-                                        subtitleParts.isEmpty
-                                            ? null
-                                            : subtitleParts.join(' • ');
-                                    return CheckboxListTile(
-                                      value: selected,
-                                      onChanged:
-                                          (_) => toggleSelection(service.id),
-                                      dense: true,
-                                      title: Text(service.name),
-                                      subtitle:
-                                          subtitle != null
-                                              ? Text(subtitle)
-                                              : null,
-                                    );
-                                  }),
-                                ],
-                              );
-                            },
-                          ),
-                        ),
-                      const SizedBox(height: 16),
-                      Row(
+                    ),
+                  );
+                },
+              );
+            }
+
+            return DefaultTabController(
+              length: hasZoneTab ? 2 : 1,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: () => Navigator.of(context).pop(),
-                              child: const Text('Annulla'),
-                            ),
+                          Text(
+                            'Seleziona servizi',
+                            style: theme.textTheme.titleLarge,
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: FilledButton(
-                              onPressed: () {
-                                Navigator.of(
-                                  context,
-                                ).pop<List<String>>(workingSelection);
-                              },
-                              child: const Text('Conferma'),
+                          if (selectedStaff != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                'Operatore: ${selectedStaff.fullName}',
+                                style: theme.textTheme.bodySmall,
+                              ),
                             ),
-                          ),
                         ],
+                      ),
+                      TextButton(
+                        onPressed:
+                            workingSelection.isEmpty
+                                ? null
+                                : () => setModalState(
+                                  () => workingSelection = const [],
+                                ),
+                        child: const Text('Pulisci'),
                       ),
                     ],
                   ),
-                ),
+                  const SizedBox(height: 16),
+                  if (hasZoneTab)
+                    Material(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(12),
+                      child: TabBar(
+                        labelColor: theme.colorScheme.primary,
+                        indicatorColor: theme.colorScheme.primary,
+                        unselectedLabelColor: theme.colorScheme.onSurface
+                            .withOpacity(0.7),
+                        tabs: const [
+                          Tab(text: 'Elenco servizi'),
+                          Tab(text: 'Servizi a zona'),
+                        ],
+                      ),
+                    ),
+                  if (hasZoneTab) const SizedBox(height: 12),
+                  Expanded(
+                    child:
+                        hasZoneTab
+                            ? TabBarView(
+                              children: [buildServiceListTab(), buildZoneTab()],
+                            )
+                            : buildServiceListTab(),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const Text('Annulla'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: () {
+                            Navigator.of(
+                              context,
+                            ).pop<List<String>>(workingSelection);
+                          },
+                          child: const Text('Conferma'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             );
           },
@@ -2369,7 +2510,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         _status = AppointmentStatus.scheduled;
       }
     });
-    _clearBlockingEquipmentMessage();
+    _clearInlineError();
   }
 
   void _adjustDuration(int deltaMinutes) {
@@ -2381,21 +2522,17 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     setState(() {
       _end = _start.add(Duration(minutes: nextDuration));
     });
-    _clearBlockingEquipmentMessage();
+    _clearInlineError();
   }
 
   Appointment? _buildAppointment({required bool skipAvailabilityChecks}) {
-    _clearBlockingEquipmentMessage();
+    _clearInlineError();
     if (!_formKey.currentState!.validate()) {
       return null;
     }
     if (_salonId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Impossibile completare: seleziona un operatore collegato a un salone.',
-          ),
-        ),
+      _showInlineError(
+        'Impossibile completare: seleziona un operatore collegato a un salone.',
       );
       return null;
     }
@@ -2407,12 +2544,9 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     final services = allServices;
     final staffMembers = data.staff.isNotEmpty ? data.staff : widget.staff;
 
-    final selectedServices =
-        services.where((item) => _serviceIds.contains(item.id)).toList();
+    final selectedServices = _selectedServicesInOrder(services);
     if (selectedServices.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Servizi non validi.')));
+      _showInlineError('Servizi non validi.');
       return null;
     }
 
@@ -2420,9 +2554,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       (member) => member.id == _staffId,
     );
     if (staffMember == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Operatore non valido.')));
+      _showInlineError('Operatore non valido.');
       return null;
     }
 
@@ -2436,12 +2568,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       );
     });
     if (incompatibleService != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'L\'operatore selezionato non può erogare "${incompatibleService.name}".',
-          ),
-        ),
+      _showInlineError(
+        'L\'operatore selezionato non può erogare "${incompatibleService.name}".',
       );
       return null;
     }
@@ -2459,11 +2587,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             );
     if (closureConflicts.isNotEmpty) {
       final firstConflict = _describeClosure(closureConflicts.first);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Il salone è chiuso in questo orario. $firstConflict'),
-        ),
-      );
+      _showInlineError('Il salone è chiuso in questo orario. $firstConflict');
       return null;
     }
 
@@ -2484,12 +2608,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
 
     if (appointment.start.isAfter(DateTime.now()) &&
         appointment.status == AppointmentStatus.completed) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Non puoi impostare lo stato "Completato" per un appuntamento futuro.',
-          ),
-        ),
+      _showInlineError(
+        'Non puoi impostare lo stato "Completato" per un appuntamento futuro.',
       );
       return null;
     }
@@ -2504,12 +2624,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         excludeAppointmentId: appointment.id,
       );
       if (hasStaffConflict) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Impossibile salvare: operatore già occupato in quel periodo',
-            ),
-          ),
+        _showInlineError(
+          'Impossibile salvare: operatore già occupato in quel periodo',
         );
         return null;
       }
@@ -2522,30 +2638,29 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         excludeAppointmentId: appointment.id,
       );
       if (hasClientConflict) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Impossibile salvare: il cliente ha già un appuntamento in quel periodo',
-            ),
-          ),
+        _showInlineError(
+          'Impossibile salvare: il cliente ha già un appuntamento in quel periodo',
         );
         return null;
       }
 
       final blockingEquipment = <String>{};
+      var equipmentStart = appointment.start;
       for (final service in selectedServices) {
+        final equipmentEnd = equipmentStart.add(service.totalDuration);
         final equipmentCheck = EquipmentAvailabilityChecker.check(
           salon: selectedSalon,
           service: service,
           allServices: allServices,
           appointments: existingAppointments,
-          start: appointment.start,
-          end: appointment.end,
+          start: equipmentStart,
+          end: equipmentEnd,
           excludeAppointmentId: appointment.id,
         );
         if (equipmentCheck.hasConflicts) {
           blockingEquipment.addAll(equipmentCheck.blockingEquipment);
         }
+        equipmentStart = equipmentEnd;
       }
       if (blockingEquipment.isNotEmpty) {
         final equipmentLabel = blockingEquipment.join(', ');
@@ -2553,7 +2668,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             equipmentLabel.isEmpty
                 ? 'Macchinario non disponibile per questo orario.'
                 : 'Macchinario non disponibile per questo orario: $equipmentLabel.';
-        _showBlockingEquipmentMessage('$message Scegli un altro slot.');
+        _showInlineError('$message Scegli un altro slot.');
         return null;
       }
     }
@@ -2683,12 +2798,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
 
   Future<void> _createClient() async {
     if (_salonId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Seleziona un operatore per determinare il salone prima di creare un cliente',
-          ),
-        ),
+      _showInlineError(
+        'Seleziona un operatore per determinare il salone prima di creare un cliente',
       );
       return;
     }
@@ -2728,11 +2839,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           if (!mounted) return;
           messenger.hideCurrentSnackBar();
           messenger.showSnackBar(
-            SnackBar(
-              content: Text(
-                'Impossibile salvare il cliente: $error',
-              ),
-            ),
+            SnackBar(content: Text('Impossibile salvare il cliente: $error')),
           );
         }
       }
@@ -3450,5 +3557,347 @@ class _TimeRange {
     }
     final boundedStart = start.isBefore(from) ? from : start;
     return _TimeRange(start: boundedStart, end: end);
+  }
+}
+
+class _ZoneCategoryData {
+  const _ZoneCategoryData({required this.category, required this.entries});
+
+  final ServiceCategory category;
+  final List<_ZoneServiceEntry> entries;
+}
+
+class _ZoneServiceEntry {
+  const _ZoneServiceEntry({required this.zone, required this.service});
+
+  final BodyZoneDefinition zone;
+  final Service service;
+}
+
+class _BodyZoneCategoryPicker extends StatefulWidget {
+  const _BodyZoneCategoryPicker({
+    required this.category,
+    required this.entries,
+    required this.initialSelection,
+  });
+
+  final ServiceCategory category;
+  final List<_ZoneServiceEntry> entries;
+  final Set<String> initialSelection;
+
+  @override
+  State<_BodyZoneCategoryPicker> createState() =>
+      _BodyZoneCategoryPickerState();
+}
+
+class _BodyZoneCategoryPickerState extends State<_BodyZoneCategoryPicker> {
+  late Set<String> _selectedServiceIds;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedServiceIds =
+        widget.entries
+            .map((entry) => entry.service.id)
+            .where(widget.initialSelection.contains)
+            .toSet();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final availableEntries =
+        widget.entries
+            .where((entry) => entry.zone.pathData.isNotEmpty)
+            .toList();
+    final selectedCount = _selectedServiceIds.length;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          24,
+          24,
+          24,
+          24 + MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.max,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.category.name,
+                        style: theme.textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        availableEntries.isEmpty
+                            ? 'Non sono disponibili zone configurate per questa categoria.'
+                            : 'Tocca una zona per selezionare/deselezionare il servizio associato.',
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Chiudi',
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (availableEntries.isNotEmpty)
+              Flexible(
+                flex: 3,
+                child: _BodyZoneInteractiveMap(
+                  entries: availableEntries,
+                  selectedServiceIds: _selectedServiceIds,
+                  onToggle: _toggleService,
+                ),
+              ),
+            if (availableEntries.isNotEmpty) const SizedBox(height: 16),
+            Expanded(
+              child:
+                  availableEntries.isEmpty
+                      ? const SizedBox.shrink()
+                      : ListView.separated(
+                        itemCount: availableEntries.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          final entry = availableEntries[index];
+                          final service = entry.service;
+                          final selected = _selectedServiceIds.contains(
+                            service.id,
+                          );
+                          final infoParts = <String>[];
+                          final duration = service.totalDuration.inMinutes;
+                          if (duration > 0) {
+                            infoParts.add('$duration min');
+                          }
+                          if (service.price > 0) {
+                            infoParts.add(
+                              '€ ${service.price.toStringAsFixed(2)}',
+                            );
+                          }
+                          final subtitleText =
+                              infoParts.isEmpty
+                                  ? service.name
+                                  : '${service.name} • ${infoParts.join(' • ')}';
+                          return Material(
+                            color: theme.colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(12),
+                            child: ListTile(
+                              onTap: () => _toggleService(service.id),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              leading: Icon(
+                                selected
+                                    ? Icons.check_circle_rounded
+                                    : Icons.radio_button_unchecked,
+                                color:
+                                    selected
+                                        ? theme.colorScheme.primary
+                                        : theme.colorScheme.onSurfaceVariant,
+                              ),
+                              title: Text(entry.zone.label),
+                              subtitle: Text(subtitleText),
+                            ),
+                          );
+                        },
+                      ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Annulla'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () {
+                      Navigator.of(
+                        context,
+                      ).pop<Set<String>>(_selectedServiceIds);
+                    },
+                    icon: const Icon(Icons.check_rounded),
+                    label: Text(
+                      selectedCount == 0
+                          ? 'Conferma'
+                          : 'Conferma ($selectedCount)',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _toggleService(String serviceId) {
+    setState(() {
+      if (_selectedServiceIds.contains(serviceId)) {
+        _selectedServiceIds.remove(serviceId);
+      } else {
+        _selectedServiceIds.add(serviceId);
+      }
+    });
+  }
+}
+
+class _BodyZoneInteractiveMap extends StatelessWidget {
+  const _BodyZoneInteractiveMap({
+    required this.entries,
+    required this.selectedServiceIds,
+    required this.onToggle,
+  });
+
+  final List<_ZoneServiceEntry> entries;
+  final Set<String> selectedServiceIds;
+  final ValueChanged<String> onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    return AspectRatio(
+      aspectRatio: bodyZonesCanvasSize.width / bodyZonesCanvasSize.height,
+      child: _BodyZoneMapCanvas(
+        entries: entries,
+        selectedServiceIds: selectedServiceIds,
+        onToggle: onToggle,
+      ),
+    );
+  }
+}
+
+class _BodyZoneMapCanvas extends StatelessWidget {
+  const _BodyZoneMapCanvas({
+    required this.entries,
+    required this.selectedServiceIds,
+    required this.onToggle,
+  });
+
+  final List<_ZoneServiceEntry> entries;
+  final Set<String> selectedServiceIds;
+  final ValueChanged<String> onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (details) {
+            final hit = _hitTest(details.localPosition, size);
+            if (hit != null) {
+              onToggle(hit.service.id);
+            }
+          },
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              SvgPicture.asset('assets/4SlqSS01-2.svg', fit: BoxFit.cover),
+              CustomPaint(
+                painter: _BodyZoneOverlayPainter(
+                  entries: entries,
+                  selectedServiceIds: selectedServiceIds,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  _ZoneServiceEntry? _hitTest(Offset position, Size renderSize) {
+    final scaleX = renderSize.width / bodyZonesCanvasSize.width;
+    final scaleY = renderSize.height / bodyZonesCanvasSize.height;
+    final normalized = Offset(position.dx / scaleX, position.dy / scaleY);
+    for (final entry in entries) {
+      if (entry.zone.path.contains(normalized) ||
+          entry.zone.bounds.inflate(12).contains(normalized)) {
+        return entry;
+      }
+    }
+    return null;
+  }
+}
+
+class _BodyZoneOverlayPainter extends CustomPainter {
+  _BodyZoneOverlayPainter({
+    required this.entries,
+    required this.selectedServiceIds,
+  });
+
+  final List<_ZoneServiceEntry> entries;
+  final Set<String> selectedServiceIds;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final scaleX = size.width / bodyZonesCanvasSize.width;
+    final scaleY = size.height / bodyZonesCanvasSize.height;
+    canvas.save();
+    canvas.scale(scaleX, scaleY);
+    final baseFill =
+        Paint()
+          ..style = PaintingStyle.fill
+          ..color = const Color(0xFFB71C1C).withOpacity(0.18);
+    final selectedFill =
+        Paint()
+          ..style = PaintingStyle.fill
+          ..color = const Color(0xFFB71C1C).withOpacity(0.35);
+    final stroke =
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 8 / ((scaleX + scaleY) / 2)
+          ..color = const Color(0xFF5E0B0B).withOpacity(0.45);
+    for (final entry in entries) {
+      final isSelected = selectedServiceIds.contains(entry.service.id);
+      final path = entry.zone.path;
+      canvas.drawPath(path, isSelected ? selectedFill : baseFill);
+      canvas.drawPath(path, stroke);
+    }
+    canvas.restore();
+
+    for (final entry in entries) {
+      if (!selectedServiceIds.contains(entry.service.id)) {
+        continue;
+      }
+      final center = entry.zone.bounds.center.scale(scaleX, scaleY);
+      canvas.drawCircle(center, 18, Paint()..color = const Color(0xFFB71C1C));
+      final textPainter = TextPainter(
+        text: const TextSpan(
+          text: '✓',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        textDirection: ui.TextDirection.ltr,
+      )..layout();
+      textPainter.paint(
+        canvas,
+        center - Offset(textPainter.width / 2, textPainter.height / 2),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BodyZoneOverlayPainter oldDelegate) {
+    return oldDelegate.entries != entries ||
+        oldDelegate.selectedServiceIds != selectedServiceIds;
   }
 }

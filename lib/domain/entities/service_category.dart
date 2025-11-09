@@ -6,6 +6,7 @@ class ServiceCategory {
     this.description,
     this.sortOrder = 0,
     this.color,
+    this.zoneServiceIds = const <String, String>{},
   });
 
   final String id;
@@ -14,6 +15,7 @@ class ServiceCategory {
   final String? description;
   final int sortOrder;
   final int? color;
+  final Map<String, String> zoneServiceIds;
 
   ServiceCategory copyWith({
     String? id,
@@ -22,6 +24,7 @@ class ServiceCategory {
     String? description,
     int? sortOrder,
     int? color,
+    Map<String, String>? zoneServiceIds,
   }) {
     return ServiceCategory(
       id: id ?? this.id,
@@ -30,6 +33,7 @@ class ServiceCategory {
       description: description ?? this.description,
       sortOrder: sortOrder ?? this.sortOrder,
       color: color ?? this.color,
+      zoneServiceIds: zoneServiceIds ?? this.zoneServiceIds,
     );
   }
 }

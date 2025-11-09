@@ -87,16 +87,15 @@ class EquipmentAvailabilityChecker {
 
     final usageCount = <String, int>{};
     for (final appointment in overlappingAppointments) {
-      final serviceIds =
-          appointment.serviceIds.isNotEmpty
-              ? appointment.serviceIds
-              : [appointment.serviceId];
-      for (final serviceId in serviceIds) {
-        final existingService = servicesById[serviceId];
-        if (existingService == null) {
+      final serviceWindows = _appointmentServiceWindows(
+        appointment: appointment,
+        servicesById: servicesById,
+      );
+      for (final window in serviceWindows) {
+        if (!_windowsOverlap(window.start, window.end, start, end)) {
           continue;
         }
-        for (final equipmentId in existingService.requiredEquipmentIds) {
+        for (final equipmentId in window.service.requiredEquipmentIds) {
           usageCount.update(
             equipmentId,
             (value) => value + 1,
@@ -150,4 +149,92 @@ class EquipmentAvailabilityChecker {
     }
     return equipment.quantity;
   }
+
+  static List<_ServiceWindow> _appointmentServiceWindows({
+    required Appointment appointment,
+    required Map<String, Service> servicesById,
+  }) {
+    final orderedServices = <Service>[];
+    final allocations = appointment.serviceAllocations;
+    if (allocations.isNotEmpty) {
+      for (final allocation in allocations) {
+        if (allocation.serviceId.isEmpty) {
+          continue;
+        }
+        final service = servicesById[allocation.serviceId];
+        if (service == null) {
+          continue;
+        }
+        final repetitions = allocation.quantity <= 0 ? 1 : allocation.quantity;
+        for (var i = 0; i < repetitions; i++) {
+          orderedServices.add(service);
+        }
+      }
+    }
+    if (orderedServices.isEmpty) {
+      final fallbackService = servicesById[appointment.serviceId];
+      if (fallbackService != null) {
+        orderedServices.add(fallbackService);
+      }
+    }
+    if (orderedServices.isEmpty) {
+      return const <_ServiceWindow>[];
+    }
+    return _buildServiceTimeline(
+      start: appointment.start,
+      services: orderedServices,
+      limitEnd: appointment.end,
+    );
+  }
+
+  static List<_ServiceWindow> _buildServiceTimeline({
+    required DateTime start,
+    required Iterable<Service> services,
+    DateTime? limitEnd,
+  }) {
+    final windows = <_ServiceWindow>[];
+    var cursor = start;
+    for (final service in services) {
+      final duration = service.totalDuration;
+      if (duration <= Duration.zero) {
+        continue;
+      }
+      final projectedEnd = cursor.add(duration);
+      final end =
+          limitEnd != null && projectedEnd.isAfter(limitEnd)
+              ? limitEnd
+              : projectedEnd;
+      if (!end.isAfter(cursor)) {
+        cursor = projectedEnd;
+        continue;
+      }
+      windows.add(_ServiceWindow(service: service, start: cursor, end: end));
+      cursor = projectedEnd;
+      if (limitEnd != null && !cursor.isBefore(limitEnd)) {
+        break;
+      }
+    }
+    return windows;
+  }
+
+  static bool _windowsOverlap(
+    DateTime start,
+    DateTime end,
+    DateTime otherStart,
+    DateTime otherEnd,
+  ) {
+    return start.isBefore(otherEnd) && end.isAfter(otherStart);
+  }
+}
+
+class _ServiceWindow {
+  const _ServiceWindow({
+    required this.service,
+    required this.start,
+    required this.end,
+  });
+
+  final Service service;
+  final DateTime start;
+  final DateTime end;
 }

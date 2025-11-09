@@ -1475,6 +1475,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                         schedule: selectedSalon?.schedule,
                         roomsById: roomsById,
                         salonsById: salonsById,
+                        selectedSalonId: effectiveSalonId,
                         visibleWeekdays: _visibleWeekdays,
                         lockedAppointmentReasons: lockedAppointmentReasons,
                         anomalies: anomalies,
@@ -2800,10 +2801,13 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     }
     final allServices = data.services;
     final allSalons = data.salons;
-    final service = allServices.firstWhereOrNull(
-      (item) => item.id == updated.serviceId,
-    );
-    if (service == null) {
+    final appointmentServices = updated.serviceIds
+        .map(
+          (id) => allServices.firstWhereOrNull((service) => service.id == id),
+        )
+        .whereType<Service>()
+        .toList(growable: false);
+    if (appointmentServices.isEmpty) {
       if (mounted) {
         setState(() => _isRescheduling = false);
         messenger.showSnackBar(
@@ -2815,18 +2819,27 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     final salon = allSalons.firstWhereOrNull(
       (item) => item.id == updated.salonId,
     );
-    final equipmentCheck = EquipmentAvailabilityChecker.check(
-      salon: salon,
-      service: service,
-      allServices: allServices,
-      appointments: combinedAppointments,
-      start: updated.start,
-      end: updated.end,
-      excludeAppointmentId: updated.id,
-    );
-    if (equipmentCheck.hasConflicts) {
+    final blockingEquipment = <String>{};
+    var equipmentStart = updated.start;
+    for (final service in appointmentServices) {
+      final equipmentEnd = equipmentStart.add(service.totalDuration);
+      final equipmentCheck = EquipmentAvailabilityChecker.check(
+        salon: salon,
+        service: service,
+        allServices: allServices,
+        appointments: combinedAppointments,
+        start: equipmentStart,
+        end: equipmentEnd,
+        excludeAppointmentId: updated.id,
+      );
+      if (equipmentCheck.hasConflicts) {
+        blockingEquipment.addAll(equipmentCheck.blockingEquipment);
+      }
+      equipmentStart = equipmentEnd;
+    }
+    if (blockingEquipment.isNotEmpty) {
       if (mounted) {
-        final equipmentLabel = equipmentCheck.blockingEquipment.join(', ');
+        final equipmentLabel = blockingEquipment.join(', ');
         final message =
             equipmentLabel.isEmpty
                 ? 'Macchinario non disponibile per questo orario.'
@@ -3697,6 +3710,7 @@ Future<void> _openForm(
     );
     return;
   }
+  final serviceCategories = ref.read(appDataProvider).serviceCategories;
   final result = await showAppModalSheet<AppointmentFormResult>(
     context: context,
     builder:
@@ -3705,6 +3719,7 @@ Future<void> _openForm(
           clients: clients,
           staff: staff,
           services: services,
+          serviceCategories: serviceCategories,
           defaultSalonId: defaultSalonId,
           initial: existing,
           suggestedStart: initialStart,
@@ -3842,19 +3857,22 @@ Future<bool> _validateAndSaveAppointment(
     (item) => item.id == appointment.salonId,
   );
   final blockingEquipment = <String>{};
+  var equipmentStart = appointment.start;
   for (final service in appointmentServices) {
+    final equipmentEnd = equipmentStart.add(service.totalDuration);
     final equipmentCheck = EquipmentAvailabilityChecker.check(
       salon: salon,
       service: service,
       allServices: allServices,
       appointments: combinedAppointments,
-      start: appointment.start,
-      end: appointment.end,
+      start: equipmentStart,
+      end: equipmentEnd,
       excludeAppointmentId: appointment.id,
     );
     if (equipmentCheck.hasConflicts) {
       blockingEquipment.addAll(equipmentCheck.blockingEquipment);
     }
+    equipmentStart = equipmentEnd;
   }
   if (blockingEquipment.isNotEmpty) {
     final equipmentLabel = blockingEquipment.join(', ');

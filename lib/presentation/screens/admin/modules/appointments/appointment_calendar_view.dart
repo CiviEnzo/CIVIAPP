@@ -29,6 +29,7 @@ const double _kStaffHeaderHeight = 48.0;
 final DateFormat _calendarWeekdayFormat = DateFormat('EEEE', 'it_IT');
 final DateFormat _calendarDayNumberFormat = DateFormat('dd', 'it_IT');
 final DateFormat _calendarMonthAbbrevFormat = DateFormat('MMM', 'it_IT');
+final DateFormat _closureTimeFormat = DateFormat('HH:mm', 'it_IT');
 
 String _formatCalendarDayLabel(DateTime date) {
   final weekday = _capitalizeItalianWord(_calendarWeekdayFormat.format(date));
@@ -112,6 +113,147 @@ class AppointmentSlotSelection {
 typedef AppointmentSlotSelectionCallback =
     void Function(AppointmentSlotSelection selection);
 
+class _DayClosureInfo {
+  const _DayClosureInfo({
+    required this.salonId,
+    required this.salonName,
+    required this.start,
+    required this.end,
+    required this.reason,
+    required this.isFullDay,
+  });
+
+  final String salonId;
+  final String salonName;
+  final DateTime start;
+  final DateTime end;
+  final String? reason;
+  final bool isFullDay;
+}
+
+List<_DayClosureInfo> _closuresForDay({
+  required DateTime day,
+  required Map<String, Salon> salonsById,
+  String? focusSalonId,
+  Set<String>? relatedSalonIds,
+}) {
+  final dayStart = DateUtils.dateOnly(day);
+  final dayEnd = dayStart.add(const Duration(days: 1));
+  final targetSalonIds = <String>{};
+  if (focusSalonId != null && focusSalonId.trim().isNotEmpty) {
+    targetSalonIds.add(focusSalonId.trim());
+  }
+  if (relatedSalonIds != null && relatedSalonIds.isNotEmpty) {
+    targetSalonIds.addAll(relatedSalonIds.where((id) => id.trim().isNotEmpty));
+  }
+  if (targetSalonIds.isEmpty) {
+    targetSalonIds.addAll(salonsById.keys);
+  }
+  final result = <_DayClosureInfo>[];
+  for (final salonId in targetSalonIds) {
+    final salon = salonsById[salonId];
+    if (salon == null || salon.closures.isEmpty) {
+      continue;
+    }
+    for (final closure in salon.closures) {
+      if (!closure.end.isAfter(dayStart) || !closure.start.isBefore(dayEnd)) {
+        continue;
+      }
+      final overlapStart =
+          closure.start.isAfter(dayStart) ? closure.start : dayStart;
+      final overlapEnd = closure.end.isBefore(dayEnd) ? closure.end : dayEnd;
+      result.add(
+        _DayClosureInfo(
+          salonId: salon.id,
+          salonName: salon.name,
+          start: overlapStart,
+          end: overlapEnd,
+          reason: closure.reason?.trim(),
+          isFullDay:
+              overlapStart.isAtSameMomentAs(dayStart) &&
+              overlapEnd.isAtSameMomentAs(dayEnd),
+        ),
+      );
+    }
+  }
+  result.sort((a, b) {
+    final comparison = a.start.compareTo(b.start);
+    if (comparison != 0) {
+      return comparison;
+    }
+    return a.salonName.compareTo(b.salonName);
+  });
+  return result;
+}
+
+class _ClosureBanner extends StatelessWidget {
+  const _ClosureBanner({
+    required this.info,
+    required this.showSalonName,
+    this.compact = false,
+  });
+
+  final _DayClosureInfo info;
+  final bool showSalonName;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = theme.colorScheme.error;
+    final borderRadius = BorderRadius.circular(compact ? 10 : 12);
+    final padding =
+        compact
+            ? const EdgeInsets.symmetric(horizontal: 10, vertical: 6)
+            : const EdgeInsets.all(12);
+    final textStyle = (compact
+            ? theme.textTheme.bodySmall
+            : theme.textTheme.bodyMedium)
+        ?.copyWith(color: color, fontWeight: FontWeight.w600);
+    final label = _buildLabel();
+    return Container(
+      width: double.infinity,
+      padding: padding,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: compact ? 0.12 : 0.1),
+        borderRadius: borderRadius,
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.warning_amber_rounded,
+            color: color,
+            size: compact ? 18 : 20,
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Text(label, style: textStyle)),
+        ],
+      ),
+    );
+  }
+
+  String _buildLabel() {
+    final buffer = StringBuffer();
+    if (showSalonName) {
+      buffer.write('${info.salonName} • ');
+    }
+    if (info.isFullDay) {
+      buffer.write('Chiusura straordinaria tutto il giorno');
+    } else {
+      buffer.write(
+        'Chiusura straordinaria ${_closureTimeFormat.format(info.start)} - ${_closureTimeFormat.format(info.end)}',
+      );
+    }
+    final reason = info.reason;
+    if (reason != null && reason.isNotEmpty) {
+      buffer.write(' • $reason');
+    }
+    return buffer.toString();
+  }
+}
+
 class AppointmentCalendarView extends StatefulWidget {
   const AppointmentCalendarView({
     super.key,
@@ -132,6 +274,7 @@ class AppointmentCalendarView extends StatefulWidget {
     required this.visibleWeekdays,
     required this.roomsById,
     required this.salonsById,
+    this.selectedSalonId,
     required this.lockedAppointmentReasons,
     required this.dayChecklists,
     required this.onReschedule,
@@ -174,6 +317,7 @@ class AppointmentCalendarView extends StatefulWidget {
   final Set<int> visibleWeekdays;
   final Map<String, String> roomsById;
   final Map<String, Salon> salonsById;
+  final String? selectedSalonId;
   final Map<String, String> lockedAppointmentReasons;
   final Map<DateTime, AppointmentDayChecklist> dayChecklists;
   final DateTime? extraDetailedDay;
@@ -910,6 +1054,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           roomsById: widget.roomsById,
           statusColor: widget.statusColor,
           salonsById: widget.salonsById,
+          selectedSalonId: widget.selectedSalonId,
           lockedAppointmentReasons: widget.lockedAppointmentReasons,
           dayChecklists: widget.dayChecklists,
           onReschedule: widget.onReschedule,
@@ -954,6 +1099,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           roomsById: widget.roomsById,
           statusColor: widget.statusColor,
           salonsById: widget.salonsById,
+          selectedSalonId: widget.selectedSalonId,
           lockedAppointmentReasons: widget.lockedAppointmentReasons,
           dayChecklists: widget.dayChecklists,
           onReschedule: widget.onReschedule,
@@ -1027,6 +1173,7 @@ class _DaySchedule extends StatelessWidget {
     required this.roomsById,
     required this.statusColor,
     required this.salonsById,
+    this.selectedSalonId,
     required this.lockedAppointmentReasons,
     required this.dayChecklists,
     required this.onReschedule,
@@ -1067,6 +1214,7 @@ class _DaySchedule extends StatelessWidget {
   final Map<String, ServiceCategory> categoriesByName;
   final Map<String, String> roomsById;
   final Map<String, Salon> salonsById;
+  final String? selectedSalonId;
   final Map<String, String> lockedAppointmentReasons;
   final Map<DateTime, AppointmentDayChecklist> dayChecklists;
   final Color Function(AppointmentStatus status) statusColor;
@@ -1212,6 +1360,16 @@ class _DaySchedule extends StatelessWidget {
       alpha: 0.08,
     );
     final timeFormat = DateFormat('HH:mm');
+    final relevantSalonIds =
+        staff.map((member) => member.salonId).whereType<String>().toSet();
+    final closures = _closuresForDay(
+      day: dayStart,
+      salonsById: salonsById,
+      focusSalonId: selectedSalonId,
+      relatedSalonIds: relevantSalonIds,
+    );
+    final showClosureSalonName =
+        closures.map((closure) => closure.salonId).toSet().length > 1;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1241,6 +1399,7 @@ class _DaySchedule extends StatelessWidget {
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
@@ -1268,6 +1427,16 @@ class _DaySchedule extends StatelessWidget {
                           ],
                         ],
                       ),
+                      if (closures.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        for (var i = 0; i < closures.length; i++) ...[
+                          if (i != 0) const SizedBox(height: 8),
+                          _ClosureBanner(
+                            info: closures[i],
+                            showSalonName: showClosureSalonName,
+                          ),
+                        ],
+                      ],
                     ],
                   ),
                 ),
@@ -1669,6 +1838,7 @@ class _WeekSchedule extends StatelessWidget {
     required this.roomsById,
     required this.statusColor,
     required this.salonsById,
+    this.selectedSalonId,
     required this.lockedAppointmentReasons,
     required this.dayChecklists,
     required this.onReschedule,
@@ -1716,6 +1886,7 @@ class _WeekSchedule extends StatelessWidget {
   final Map<String, ServiceCategory> categoriesByName;
   final Map<String, String> roomsById;
   final Map<String, Salon> salonsById;
+  final String? selectedSalonId;
   final Map<String, String> lockedAppointmentReasons;
   final Color Function(AppointmentStatus status) statusColor;
   final AppointmentRescheduleCallback onReschedule;
@@ -1981,6 +2152,7 @@ class _WeekSchedule extends StatelessWidget {
         categoriesByName: categoriesByName,
         roomsById: roomsById,
         salonsById: salonsById,
+        selectedSalonId: selectedSalonId,
         lockedAppointmentReasons: lockedAppointmentReasons,
         dayChecklists: dayChecklists,
         onReschedule: onReschedule,
@@ -2021,6 +2193,8 @@ class _WeekSchedule extends StatelessWidget {
       alpha: 0.45,
     );
     final staffById = {for (final member in staff) member.id: member};
+    final relevantSalonIds =
+        staff.map((member) => member.salonId).whereType<String>().toSet();
     final now = DateTime.now();
     final staffColumnBorderColor = theme.colorScheme.outlineVariant.withValues(
       alpha: 0.55,
@@ -2266,6 +2440,18 @@ class _WeekSchedule extends StatelessWidget {
                                                 .onTertiaryContainer,
                                       ),
                                     );
+                                    final closures = _closuresForDay(
+                                      day: data.date,
+                                      salonsById: salonsById,
+                                      focusSalonId: selectedSalonId,
+                                      relatedSalonIds: relevantSalonIds,
+                                    );
+                                    final showClosureSalonName =
+                                        closures
+                                            .map((closure) => closure.salonId)
+                                            .toSet()
+                                            .length >
+                                        1;
 
                                     return Container(
                                       width: dayWidth,
@@ -2444,6 +2630,23 @@ class _WeekSchedule extends StatelessWidget {
                                                     ],
                                                   ],
                                                 ),
+                                                if (closures.isNotEmpty) ...[
+                                                  const SizedBox(height: 10),
+                                                  for (
+                                                    var i = 0;
+                                                    i < closures.length;
+                                                    i++
+                                                  ) ...[
+                                                    if (i != 0)
+                                                      const SizedBox(height: 6),
+                                                    _ClosureBanner(
+                                                      info: closures[i],
+                                                      showSalonName:
+                                                          showClosureSalonName,
+                                                      compact: true,
+                                                    ),
+                                                  ],
+                                                ],
                                                 const SizedBox(height: 4),
                                               ],
                                             ),
@@ -3820,6 +4023,7 @@ class _WeekCompactView extends StatelessWidget {
     required this.categoriesByName,
     required this.roomsById,
     required this.salonsById,
+    this.selectedSalonId,
     required this.lockedAppointmentReasons,
     required this.dayChecklists,
     required this.onReschedule,
@@ -3859,6 +4063,7 @@ class _WeekCompactView extends StatelessWidget {
   final Map<String, ServiceCategory> categoriesByName;
   final Map<String, String> roomsById;
   final Map<String, Salon> salonsById;
+  final String? selectedSalonId;
   final Map<String, String> lockedAppointmentReasons;
   final Map<DateTime, AppointmentDayChecklist> dayChecklists;
   final AppointmentRescheduleCallback onReschedule;
@@ -3914,6 +4119,8 @@ class _WeekCompactView extends StatelessWidget {
     final now = DateTime.now();
     final timeFormat = DateFormat('HH:mm');
     final rolesById = {for (final role in roles) role.id: role};
+    final relevantSalonIds =
+        staff.map((member) => member.salonId).whereType<String>().toSet();
     final slotCount = max(1, ((maxMinute - minMinute) / slotMinutes).ceil());
     final referenceDate = dayData.first.date;
     final referenceTimelineStart = referenceDate.add(
@@ -3960,6 +4167,7 @@ class _WeekCompactView extends StatelessWidget {
               dayHeaderColor,
               contentWidth,
               dayWidth,
+              relevantSalonIds,
             ),
             if (staffLayout != null) ...[
               const SizedBox(height: 8),
@@ -4066,6 +4274,7 @@ class _WeekCompactView extends StatelessWidget {
     Color dayHeaderColor,
     double contentWidth,
     double dayWidth,
+    Set<String> relevantSalonIds,
   ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -4097,6 +4306,7 @@ class _WeekCompactView extends StatelessWidget {
                       now,
                       dayData[dayIndex],
                       dayHeaderColor,
+                      relevantSalonIds,
                     ),
                   ),
                   if (dayIndex != dayData.length - 1)
@@ -4116,6 +4326,7 @@ class _WeekCompactView extends StatelessWidget {
     DateTime now,
     _WeekDayData data,
     Color background,
+    Set<String> relevantSalonIds,
   ) {
     final normalizedDate = DateUtils.dateOnly(data.date);
     final isToday = DateUtils.isSameDay(normalizedDate, now);
@@ -4131,6 +4342,14 @@ class _WeekCompactView extends StatelessWidget {
         onRenameChecklistItem != null ||
         onDeleteChecklistItem != null;
     final showChecklistLauncher = hasChecklistItems || canManageChecklist;
+    final closures = _closuresForDay(
+      day: data.date,
+      salonsById: salonsById,
+      focusSalonId: selectedSalonId,
+      relatedSalonIds: relevantSalonIds,
+    );
+    final showClosureSalonName =
+        closures.map((closure) => closure.salonId).toSet().length > 1;
 
     final borderColor =
         isToday
@@ -4215,6 +4434,17 @@ class _WeekCompactView extends StatelessWidget {
               ],
             ],
           ),
+          if (closures.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            for (var i = 0; i < closures.length; i++) ...[
+              if (i != 0) const SizedBox(height: 6),
+              _ClosureBanner(
+                info: closures[i],
+                showSalonName: showClosureSalonName,
+                compact: true,
+              ),
+            ],
+          ],
         ],
       ),
     );
@@ -4296,10 +4526,7 @@ class _WeekCompactView extends StatelessWidget {
       final totalWidth = (columnWidth * staffCount) + gapsWidth;
       final remainder = dayInnerWidth - totalWidth;
       if (remainder.abs() > 0.001) {
-        columnWidths[staffCount - 1] = max(
-          0.0,
-          columnWidths.last + remainder,
-        );
+        columnWidths[staffCount - 1] = max(0.0, columnWidths.last + remainder);
       }
     }
     final flexes = columnWidths
@@ -4451,8 +4678,7 @@ class _WeekCompactView extends StatelessWidget {
                 slotMinutes: slotMinutes,
                 interactionSlotMinutes: interactionSlotMinutes,
                 slotExtent: slotExtent,
-                clientsWithOutstandingPayments:
-                    clientsWithOutstandingPayments,
+                clientsWithOutstandingPayments: clientsWithOutstandingPayments,
                 clientsById: clientsById,
                 servicesById: servicesById,
                 categoriesById: categoriesById,
@@ -4529,7 +4755,11 @@ class _WeekCompactView extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (var dayIndex = 0; dayIndex < dayData.length; dayIndex++) ...[
+                for (
+                  var dayIndex = 0;
+                  dayIndex < dayData.length;
+                  dayIndex++
+                ) ...[
                   SizedBox(
                     width: dayWidth,
                     child: Container(
@@ -4584,10 +4814,7 @@ class _WeekCompactView extends StatelessWidget {
     for (var index = 0; index < staffCount; index++) {
       children.add(
         Flexible(
-          flex:
-              index < layout.flexes.length
-                  ? layout.flexes[index]
-                  : 1,
+          flex: index < layout.flexes.length ? layout.flexes[index] : 1,
           child: _buildStaffHeaderCell(
             context,
             theme,
@@ -4658,13 +4885,14 @@ class _WeekCompactView extends StatelessWidget {
       fontWeight: FontWeight.w700,
       letterSpacing: 0.5,
     );
-    final borderColor = theme.colorScheme.outlineVariant.withValues(alpha: 0.35);
+    final borderColor = theme.colorScheme.outlineVariant.withValues(
+      alpha: 0.35,
+    );
     final backgroundStart = theme.colorScheme.surfaceContainerHighest
         .withValues(alpha: theme.brightness == Brightness.dark ? 0.45 : 0.75);
     final backgroundEnd = theme.colorScheme.surface;
     final capsuleColor = theme.colorScheme.primary.withValues(alpha: 0.08);
-    final capsuleBorder =
-        theme.colorScheme.primary.withValues(alpha: 0.35);
+    final capsuleBorder = theme.colorScheme.primary.withValues(alpha: 0.35);
 
     return ConstrainedBox(
       constraints:
@@ -5731,11 +5959,24 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
     Appointment movingAppointment,
     StaffMember targetStaff,
   ) {
-    final service = widget.servicesById[movingAppointment.serviceId];
-    if (service != null && service.staffRoles.isNotEmpty) {
+    final appointmentServices = movingAppointment.serviceIds
+        .map((id) => widget.servicesById[id])
+        .whereType<Service>()
+        .toList(growable: true);
+    if (appointmentServices.isEmpty) {
+      final fallback = widget.servicesById[movingAppointment.serviceId];
+      if (fallback != null) {
+        appointmentServices.add(fallback);
+      }
+    }
+
+    for (final service in appointmentServices) {
+      if (service.staffRoles.isEmpty) {
+        continue;
+      }
       final allowed = _hasAllowedRole(targetStaff, service.staffRoles);
       if (!allowed) {
-        return 'L\'operatore selezionato non può erogare il servizio scelto. Scegli un altro operatore.';
+        return 'L\'operatore selezionato non può erogare "${service.name}". Scegli un altro operatore.';
       }
     }
 
@@ -5761,7 +6002,10 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
       return 'Impossibile riprogrammare: il cliente ha già un appuntamento in quel periodo';
     }
 
-    if (service == null || service.requiredEquipmentIds.isEmpty) {
+    if (appointmentServices.isEmpty ||
+        appointmentServices.every(
+          (service) => service.requiredEquipmentIds.isEmpty,
+        )) {
       return null;
     }
     final salon = widget.salonsById[movingAppointment.salonId];
@@ -5769,19 +6013,32 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
       return null;
     }
 
-    final result = EquipmentAvailabilityChecker.check(
-      salon: salon,
-      service: service,
-      allServices: widget.servicesById.values,
-      appointments: widget.allAppointments,
-      start: start,
-      end: end,
-      excludeAppointmentId: movingAppointment.id,
-    );
-    if (!result.hasConflicts) {
+    final blockingEquipment = <String>{};
+    var equipmentStart = start;
+    for (final service in appointmentServices) {
+      final equipmentEnd = equipmentStart.add(service.totalDuration);
+      if (service.requiredEquipmentIds.isEmpty) {
+        equipmentStart = equipmentEnd;
+        continue;
+      }
+      final result = EquipmentAvailabilityChecker.check(
+        salon: salon,
+        service: service,
+        allServices: widget.servicesById.values,
+        appointments: widget.allAppointments,
+        start: equipmentStart,
+        end: equipmentEnd,
+        excludeAppointmentId: movingAppointment.id,
+      );
+      if (result.hasConflicts) {
+        blockingEquipment.addAll(result.blockingEquipment);
+      }
+      equipmentStart = equipmentEnd;
+    }
+    if (blockingEquipment.isEmpty) {
       return null;
     }
-    final equipmentLabel = result.blockingEquipment.join(', ');
+    final equipmentLabel = blockingEquipment.join(', ');
     final baseMessage =
         equipmentLabel.isEmpty
             ? 'Macchinario non disponibile per questo orario.'
@@ -6320,6 +6577,23 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                         return const Iterable<Widget>.empty();
                       }
 
+                      final baseShiftColor =
+                          Color.lerp(
+                            Colors.white,
+                            theme.colorScheme.tertiaryContainer,
+                            theme.brightness == Brightness.dark ? 0.45 : 0.0,
+                          )!;
+                      final shiftFillColor = baseShiftColor.withValues(
+                        alpha: theme.brightness == Brightness.dark ? 0.42 : 0.3,
+                      );
+                      final shiftBorderColor = theme.colorScheme.tertiary
+                          .withValues(
+                            alpha:
+                                theme.brightness == Brightness.dark
+                                    ? 0.35
+                                    : 0.2,
+                          );
+
                       final top =
                           segment.start
                               .difference(widget.timelineStart)
@@ -6341,9 +6615,9 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                           child: Container(
                             height: height,
                             decoration: BoxDecoration(
-                              color: theme.colorScheme.tertiaryContainer
-                                  .withValues(alpha: 0.35),
+                              color: shiftFillColor,
                               borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: shiftBorderColor),
                             ),
                           ),
                         ),
@@ -6831,13 +7105,23 @@ class _AppointmentCardState extends State<_AppointmentCard> {
             : categoryColor ?? theme.colorScheme.primary;
     Color backgroundColor = baseColor;
     Color borderBlendColor = baseColor;
+    final bool forceSolidCategoryFill =
+        hideContent &&
+        !isCancelled &&
+        !hideNoShowColor &&
+        baseColor.opacity > 0.0;
     if (!isCancelled && !hideNoShowColor && baseColor.opacity > 0.0) {
       final double fillAlpha =
-          theme.brightness == Brightness.dark ? 0.22 : 0.60;
+          theme.brightness == Brightness.dark ? 0.34 : 0.74;
       final double borderAlpha =
-          theme.brightness == Brightness.dark ? 0.38 : 0.90;
-      backgroundColor = baseColor.withValues(alpha: fillAlpha);
-      borderBlendColor = baseColor.withValues(alpha: borderAlpha);
+          theme.brightness == Brightness.dark ? 0.55 : 0.98;
+      if (forceSolidCategoryFill) {
+        backgroundColor = baseColor;
+        borderBlendColor = baseColor;
+      } else {
+        backgroundColor = baseColor.withValues(alpha: fillAlpha);
+        borderBlendColor = baseColor.withValues(alpha: borderAlpha);
+      }
     }
     final highlightAnomalies = hasAnomalies && !hideNoShowColor;
     if (highlightAnomalies) {
@@ -6926,9 +7210,12 @@ class _AppointmentCardState extends State<_AppointmentCard> {
     }
     const double stripeWidth = 8.0;
     const double stripeGap = 8.0;
+    final bool showCategoryStripe = !hideContent;
     final double horizontalPadding = 14.0;
+    final double leftPadding =
+        horizontalPadding + (showCategoryStripe ? stripeWidth + stripeGap : 0);
     final padding = EdgeInsets.only(
-      left: horizontalPadding + stripeWidth + stripeGap,
+      left: leftPadding,
       right: horizontalPadding,
       top: verticalPadding,
       bottom: verticalPadding,
@@ -6954,29 +7241,39 @@ class _AppointmentCardState extends State<_AppointmentCard> {
     Color gradientEnd = cardSurface;
     if (hasCategoryTone || backgroundColor.opacity > 0.0) {
       final Color tintSource = hasCategoryTone ? baseColor : borderBlendColor;
-      gradientStart = Color.alphaBlend(
-        tintSource.withValues(
-          alpha: theme.brightness == Brightness.dark ? 0.36 : 0.26,
-        ),
-        cardSurface,
-      );
-      gradientEnd = Color.alphaBlend(
-        tintSource.withValues(
-          alpha: theme.brightness == Brightness.dark ? 0.14 : 0.12,
-        ),
-        cardSurface,
-      );
+      if (forceSolidCategoryFill && hasCategoryTone) {
+        gradientStart = baseColor;
+        gradientEnd = Color.alphaBlend(
+          Colors.black.withOpacity(
+            theme.brightness == Brightness.dark ? 0.24 : 0.14,
+          ),
+          baseColor,
+        );
+      } else {
+        gradientStart = Color.alphaBlend(
+          tintSource.withValues(
+            alpha: theme.brightness == Brightness.dark ? 0.5 : 0.4,
+          ),
+          cardSurface,
+        );
+        gradientEnd = Color.alphaBlend(
+          tintSource.withValues(
+            alpha: theme.brightness == Brightness.dark ? 0.24 : 0.2,
+          ),
+          cardSurface,
+        );
+      }
     }
     if (highlightAnomalies) {
       gradientStart = Color.alphaBlend(
         theme.colorScheme.error.withValues(
-          alpha: theme.brightness == Brightness.dark ? 0.24 : 0.18,
+          alpha: theme.brightness == Brightness.dark ? 0.34 : 0.28,
         ),
         gradientStart,
       );
       gradientEnd = Color.alphaBlend(
         theme.colorScheme.error.withValues(
-          alpha: theme.brightness == Brightness.dark ? 0.14 : 0.12,
+          alpha: theme.brightness == Brightness.dark ? 0.22 : 0.2,
         ),
         gradientEnd,
       );
@@ -7048,32 +7345,34 @@ class _AppointmentCardState extends State<_AppointmentCard> {
               ),
             ),
           ),
-          Positioned(
-            left: 0,
-            top: 0,
-            bottom: 0,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    stripeColor.withValues(
-                      alpha: theme.brightness == Brightness.dark ? 0.9 : 1,
-                    ),
-                    stripeColor.withValues(
-                      alpha: theme.brightness == Brightness.dark ? 0.75 : 0.82,
-                    ),
-                  ],
+          if (showCategoryStripe)
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      stripeColor.withValues(
+                        alpha: theme.brightness == Brightness.dark ? 0.9 : 1,
+                      ),
+                      stripeColor.withValues(
+                        alpha:
+                            theme.brightness == Brightness.dark ? 0.75 : 0.82,
+                      ),
+                    ],
+                  ),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(12),
+                    bottomLeft: Radius.circular(12),
+                  ),
                 ),
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(12),
-                  bottomLeft: Radius.circular(12),
-                ),
+                child: SizedBox(width: stripeWidth),
               ),
-              child: SizedBox(width: stripeWidth),
             ),
-          ),
           Padding(
             padding: padding,
             child: LayoutBuilder(

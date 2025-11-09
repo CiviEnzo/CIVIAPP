@@ -4,6 +4,7 @@ import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/service_category.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/screens/admin/forms/service_category_form_sheet.dart';
+import 'package:you_book/presentation/screens/admin/modules/service_category_zone_sheet.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -150,6 +151,13 @@ class _ServiceCategoryManagerSheetState
                                   ? '1 servizio collegato'
                                   : '$serviceCount servizi collegati',
                             ),
+                            if (category.zoneServiceIds.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  '${category.zoneServiceIds.length} zone configurate',
+                                ),
+                              ),
                             if (category.description != null &&
                                 category.description!.isNotEmpty)
                               Padding(
@@ -161,6 +169,15 @@ class _ServiceCategoryManagerSheetState
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            IconButton(
+                              tooltip: 'Configura zone corpo',
+                              onPressed:
+                                  () => _configureZones(
+                                    category,
+                                    servicesForSalon,
+                                  ),
+                              icon: const Icon(Icons.map_rounded),
+                            ),
                             IconButton(
                               tooltip: 'Modifica categoria',
                               onPressed: () => _editCategory(category),
@@ -343,6 +360,17 @@ class _ServiceCategoryManagerSheetState
         context,
       ).showSnackBar(SnackBar(content: Text(message)));
     }
+  }
+
+  Future<void> _configureZones(
+    ServiceCategory category,
+    List<Service> services,
+  ) {
+    return ServiceCategoryZoneSheet.show(
+      context,
+      category: category,
+      services: services,
+    );
   }
 }
 

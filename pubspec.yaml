@@ -1,5 +1,5 @@
 name: you_book
-description: "Civi App gestionale per saloni di centri estetici"
+description: "You Book gestionale per saloni di centri estetici"
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -38,6 +38,8 @@ dependencies:
   google_fonts: ^6.2.1
   flutter_stripe: ^10.0.0
   image: ^4.1.7
+  flutter_svg: ^2.0.9
+  path_drawing: ^1.0.1
 
 dev_dependencies:
   flutter_test:
@@ -50,6 +52,8 @@ flutter:
   uses-material-design: true
   assets:
     - assets/social_logo/
+    - assets/body_zones.svg
+    - assets/4SlqSS01-2.svg
 
 flutter_launcher_icons:
   android: true

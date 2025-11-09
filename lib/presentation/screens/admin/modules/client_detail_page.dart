@@ -3321,6 +3321,10 @@ class _AppointmentsTab extends ConsumerWidget {
       final sheetStaff = latest.staff.isNotEmpty ? latest.staff : staff;
       final sheetServices =
           latest.services.isNotEmpty ? latest.services : services;
+      final sheetCategories =
+          latest.serviceCategories.isNotEmpty
+              ? latest.serviceCategories
+              : data.serviceCategories;
 
       final result = await showAppModalSheet<AppointmentFormResult>(
         context: context,
@@ -3330,6 +3334,7 @@ class _AppointmentsTab extends ConsumerWidget {
               clients: sheetClients,
               staff: sheetStaff,
               services: sheetServices,
+              serviceCategories: sheetCategories,
               defaultSalonId: existing?.salonId ?? client?.salonId,
               defaultClientId: existing?.clientId ?? client?.id,
               initial: existing,
@@ -3564,19 +3569,22 @@ class _AppointmentsTab extends ConsumerWidget {
       (item) => item.id == appointment.salonId,
     );
     final blockingEquipment = <String>{};
+    var equipmentStart = appointment.start;
     for (final service in appointmentServices) {
+      final equipmentEnd = equipmentStart.add(service.totalDuration);
       final equipmentCheck = EquipmentAvailabilityChecker.check(
         salon: salon,
         service: service,
         allServices: services,
         appointments: combinedAppointments,
-        start: appointment.start,
-        end: appointment.end,
+        start: equipmentStart,
+        end: equipmentEnd,
         excludeAppointmentId: appointment.id,
       );
       if (equipmentCheck.hasConflicts) {
         blockingEquipment.addAll(equipmentCheck.blockingEquipment);
       }
+      equipmentStart = equipmentEnd;
     }
     if (blockingEquipment.isNotEmpty) {
       final equipmentLabel = blockingEquipment.join(', ');
@@ -3790,10 +3798,7 @@ class _AppointmentGroup extends StatelessWidget {
         );
       case AppointmentStatus.noShow:
         return Chip(
-          label: Text(
-            'No show',
-            style: TextStyle(color: scheme.error),
-          ),
+          label: Text('No show', style: TextStyle(color: scheme.error)),
           backgroundColor: scheme.error.withValues(alpha: 0.1),
         );
     }
@@ -7795,10 +7800,7 @@ class _ChipOverlay extends StatelessWidget {
     return Chip(
       backgroundColor: scheme.primaryFixedDim,
       avatar: Icon(icon, size: 18, color: scheme.onPrimaryFixed),
-      label: Text(
-        label,
-        style: TextStyle(color: scheme.onPrimaryFixed),
-      ),
+      label: Text(label, style: TextStyle(color: scheme.onPrimaryFixed)),
     );
   }
 }
