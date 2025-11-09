@@ -27,8 +27,6 @@ Future<T?> showAppModalSheet<T>({
       if (isCompactWidth) {
         return Dialog.fullscreen(
           backgroundColor: theme.colorScheme.surface,
-          shape: shape,
-          clipBehavior: Clip.antiAlias,
           child: SafeArea(child: wrappedContent),
         );
       }
@@ -37,7 +35,6 @@ Future<T?> showAppModalSheet<T>({
         backgroundColor: theme.colorScheme.surface,
         insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
         shape: shape,
-        clipBehavior: Clip.antiAlias,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 720),
           child: wrappedContent,

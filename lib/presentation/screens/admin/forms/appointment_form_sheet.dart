@@ -2441,11 +2441,15 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                       ),
                     if (hasZoneTab) const SizedBox(height: 12),
                     Expanded(
-                      child: hasZoneTab
-                          ? TabBarView(
-                              children: [buildServiceListTab(), buildZoneTab()],
-                            )
-                          : buildServiceListTab(),
+                      child:
+                          hasZoneTab
+                              ? TabBarView(
+                                children: [
+                                  buildServiceListTab(),
+                                  buildZoneTab(),
+                                ],
+                              )
+                              : buildServiceListTab(),
                     ),
                     const SizedBox(height: 16),
                     Row(
@@ -3711,14 +3715,14 @@ class _BodyZoneCategoryPickerState extends State<_BodyZoneCategoryPicker> {
                           ? 'Conferma'
                           : 'Conferma ($selectedCount)',
                     ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-            );
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _toggleService(String serviceId) {
@@ -3845,11 +3849,11 @@ class _BodyZoneOverlayPainter extends CustomPainter {
     final baseFill =
         Paint()
           ..style = PaintingStyle.fill
-          ..color = const Color(0xFFB71C1C).withOpacity(0.18);
+          ..color = Colors.transparent;
     final selectedFill =
         Paint()
           ..style = PaintingStyle.fill
-          ..color = const Color(0xFFB71C1C).withOpacity(0.35);
+          ..color = Colors.transparent; //civi hook color
     for (final entry in entries) {
       final isSelected = selectedServiceIds.contains(entry.service.id);
       final path = entry.zone.path;
