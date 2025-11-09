@@ -2386,89 +2386,91 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
 
             return DefaultTabController(
               length: hasZoneTab ? 2 : 1,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Seleziona servizi',
-                            style: theme.textTheme.titleLarge,
-                          ),
-                          if (selectedStaff != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Text(
-                                'Operatore: ${selectedStaff.fullName}',
-                                style: theme.textTheme.bodySmall,
-                              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Seleziona servizi',
+                              style: theme.textTheme.titleLarge,
                             ),
-                        ],
-                      ),
-                      TextButton(
-                        onPressed:
-                            workingSelection.isEmpty
-                                ? null
-                                : () => setModalState(
-                                  () => workingSelection = const [],
+                            if (selectedStaff != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  'Operatore: ${selectedStaff.fullName}',
+                                  style: theme.textTheme.bodySmall,
                                 ),
-                        child: const Text('Pulisci'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  if (hasZoneTab)
-                    Material(
-                      color: theme.colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(12),
-                      child: TabBar(
-                        labelColor: theme.colorScheme.primary,
-                        indicatorColor: theme.colorScheme.primary,
-                        unselectedLabelColor: theme.colorScheme.onSurface
-                            .withOpacity(0.7),
-                        tabs: const [
-                          Tab(text: 'Elenco servizi'),
-                          Tab(text: 'Servizi a zona'),
-                        ],
-                      ),
+                              ),
+                          ],
+                        ),
+                        TextButton(
+                          onPressed:
+                              workingSelection.isEmpty
+                                  ? null
+                                  : () => setModalState(
+                                    () => workingSelection = const [],
+                                  ),
+                          child: const Text('Pulisci'),
+                        ),
+                      ],
                     ),
-                  if (hasZoneTab) const SizedBox(height: 12),
-                  Expanded(
-                    child:
-                        hasZoneTab
-                            ? TabBarView(
+                    const SizedBox(height: 16),
+                    if (hasZoneTab)
+                      Material(
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(12),
+                        child: TabBar(
+                          labelColor: theme.colorScheme.primary,
+                          indicatorColor: theme.colorScheme.primary,
+                          unselectedLabelColor: theme.colorScheme.onSurface
+                              .withOpacity(0.7),
+                          tabs: const [
+                            Tab(text: 'Elenco servizi'),
+                            Tab(text: 'Servizi a zona'),
+                          ],
+                        ),
+                      ),
+                    if (hasZoneTab) const SizedBox(height: 12),
+                    Expanded(
+                      child: hasZoneTab
+                          ? TabBarView(
                               children: [buildServiceListTab(), buildZoneTab()],
                             )
-                            : buildServiceListTab(),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          child: const Text('Annulla'),
+                          : buildServiceListTab(),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: const Text('Annulla'),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: () {
-                            Navigator.of(
-                              context,
-                            ).pop<List<String>>(workingSelection);
-                          },
-                          child: const Text('Conferma'),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () {
+                              Navigator.of(
+                                context,
+                              ).pop<List<String>>(workingSelection);
+                            },
+                            child: const Text('Conferma'),
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
             );
           },
@@ -3610,7 +3612,19 @@ class _BodyZoneCategoryPickerState extends State<_BodyZoneCategoryPicker> {
         widget.entries
             .where((entry) => entry.zone.pathData.isNotEmpty)
             .toList();
+    final selectedServiceEntries =
+        widget.entries
+            .where((entry) => _selectedServiceIds.contains(entry.service.id))
+            .toList();
     final selectedCount = _selectedServiceIds.length;
+    final seenServiceIds = <String>{};
+    final displayedSelectedEntries = <_ZoneServiceEntry>[];
+    for (final entry in selectedServiceEntries) {
+      if (seenServiceIds.add(entry.service.id)) {
+        displayedSelectedEntries.add(entry);
+      }
+    }
+    final hasSelection = displayedSelectedEntries.isNotEmpty;
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.fromLTRB(
@@ -3620,99 +3634,61 @@ class _BodyZoneCategoryPickerState extends State<_BodyZoneCategoryPicker> {
           24 + MediaQuery.of(context).viewInsets.bottom,
         ),
         child: Column(
-          mainAxisSize: MainAxisSize.max,
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.category.name,
-                        style: theme.textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        availableEntries.isEmpty
-                            ? 'Non sono disponibili zone configurate per questa categoria.'
-                            : 'Tocca una zona per selezionare/deselezionare il servizio associato.',
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Chiudi',
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close_rounded),
+                Text(widget.category.name, style: theme.textTheme.titleLarge),
+                const SizedBox(height: 4),
+                Text(
+                  availableEntries.isEmpty
+                      ? 'Non sono disponibili zone configurate per questa categoria.'
+                      : 'Tocca una zona per selezionare/deselezionare il servizio associato.',
+                  style: theme.textTheme.bodyMedium,
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            if (availableEntries.isNotEmpty)
-              Flexible(
-                flex: 3,
-                child: _BodyZoneInteractiveMap(
-                  entries: availableEntries,
-                  selectedServiceIds: _selectedServiceIds,
-                  onToggle: _toggleService,
-                ),
-              ),
-            if (availableEntries.isNotEmpty) const SizedBox(height: 16),
+
             Expanded(
               child:
                   availableEntries.isEmpty
-                      ? const SizedBox.shrink()
-                      : ListView.separated(
-                        itemCount: availableEntries.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (context, index) {
-                          final entry = availableEntries[index];
-                          final service = entry.service;
-                          final selected = _selectedServiceIds.contains(
-                            service.id,
-                          );
-                          final infoParts = <String>[];
-                          final duration = service.totalDuration.inMinutes;
-                          if (duration > 0) {
-                            infoParts.add('$duration min');
-                          }
-                          if (service.price > 0) {
-                            infoParts.add(
-                              '€ ${service.price.toStringAsFixed(2)}',
-                            );
-                          }
-                          final subtitleText =
-                              infoParts.isEmpty
-                                  ? service.name
-                                  : '${service.name} • ${infoParts.join(' • ')}';
-                          return Material(
-                            color: theme.colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(12),
-                            child: ListTile(
-                              onTap: () => _toggleService(service.id),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
+                      ? Center(
+                        child: Text(
+                          'Non sono disponibili zone configurate per questa categoria.',
+                          style: theme.textTheme.bodyMedium,
+                          textAlign: TextAlign.center,
+                        ),
+                      )
+                      : LayoutBuilder(
+                        builder: (context, constraints) {
+                          return Center(
+                            child: SizedBox(
+                              width: constraints.maxWidth,
+                              height: constraints.maxHeight,
+                              child: AspectRatio(
+                                aspectRatio:
+                                    bodyZonesCanvasSize.width /
+                                    bodyZonesCanvasSize.height,
+                                child: FittedBox(
+                                  fit: BoxFit.contain,
+                                  child: SizedBox(
+                                    width: bodyZonesCanvasSize.width,
+                                    height: bodyZonesCanvasSize.height,
+                                    child: _BodyZoneMapCanvas(
+                                      entries: availableEntries,
+                                      selectedServiceIds: _selectedServiceIds,
+                                      onToggle: _toggleService,
+                                    ),
+                                  ),
+                                ),
                               ),
-                              leading: Icon(
-                                selected
-                                    ? Icons.check_circle_rounded
-                                    : Icons.radio_button_unchecked,
-                                color:
-                                    selected
-                                        ? theme.colorScheme.primary
-                                        : theme.colorScheme.onSurfaceVariant,
-                              ),
-                              title: Text(entry.zone.label),
-                              subtitle: Text(subtitleText),
                             ),
                           );
                         },
                       ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             Row(
               children: [
                 Expanded(
@@ -3735,14 +3711,14 @@ class _BodyZoneCategoryPickerState extends State<_BodyZoneCategoryPicker> {
                           ? 'Conferma'
                           : 'Conferma ($selectedCount)',
                     ),
-                  ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
+              ),
+            );
   }
 
   void _toggleService(String serviceId) {
@@ -3752,6 +3728,12 @@ class _BodyZoneCategoryPickerState extends State<_BodyZoneCategoryPicker> {
       } else {
         _selectedServiceIds.add(serviceId);
       }
+    });
+  }
+
+  void _clearSelection() {
+    setState(() {
+      _selectedServiceIds.clear();
     });
   }
 }
@@ -3808,10 +3790,20 @@ class _BodyZoneMapCanvas extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               SvgPicture.asset('assets/4SlqSS01-2.svg', fit: BoxFit.cover),
-              CustomPaint(
-                painter: _BodyZoneOverlayPainter(
-                  entries: entries,
-                  selectedServiceIds: selectedServiceIds,
+              Center(
+                child: FittedBox(
+                  fit: BoxFit.cover,
+                  alignment: Alignment.center,
+                  child: SizedBox(
+                    width: bodyZonesCanvasSize.width,
+                    height: bodyZonesCanvasSize.height,
+                    child: CustomPaint(
+                      painter: _BodyZoneOverlayPainter(
+                        entries: entries,
+                        selectedServiceIds: selectedServiceIds,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -3858,16 +3850,10 @@ class _BodyZoneOverlayPainter extends CustomPainter {
         Paint()
           ..style = PaintingStyle.fill
           ..color = const Color(0xFFB71C1C).withOpacity(0.35);
-    final stroke =
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 8 / ((scaleX + scaleY) / 2)
-          ..color = const Color(0xFF5E0B0B).withOpacity(0.45);
     for (final entry in entries) {
       final isSelected = selectedServiceIds.contains(entry.service.id);
       final path = entry.zone.path;
       canvas.drawPath(path, isSelected ? selectedFill : baseFill);
-      canvas.drawPath(path, stroke);
     }
     canvas.restore();
 
@@ -3876,13 +3862,13 @@ class _BodyZoneOverlayPainter extends CustomPainter {
         continue;
       }
       final center = entry.zone.bounds.center.scale(scaleX, scaleY);
-      canvas.drawCircle(center, 18, Paint()..color = const Color(0xFFB71C1C));
+      canvas.drawCircle(center, 24, Paint()..color = const Color(0xFFB71C1C));
       final textPainter = TextPainter(
         text: const TextSpan(
           text: '✓',
           style: TextStyle(
             color: Colors.white,
-            fontSize: 18,
+            fontSize: 22,
             fontWeight: FontWeight.bold,
           ),
         ),

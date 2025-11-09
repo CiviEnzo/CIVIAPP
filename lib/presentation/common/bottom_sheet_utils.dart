@@ -20,10 +20,15 @@ Future<T?> showAppModalSheet<T>({
           includeCloseButton
               ? _ModalSheetCloseWrapper(child: content, onClose: onClose)
               : content;
+      final shape = RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(24),
+      );
 
       if (isCompactWidth) {
         return Dialog.fullscreen(
           backgroundColor: theme.colorScheme.surface,
+          shape: shape,
+          clipBehavior: Clip.antiAlias,
           child: SafeArea(child: wrappedContent),
         );
       }
@@ -31,6 +36,8 @@ Future<T?> showAppModalSheet<T>({
       return Dialog(
         backgroundColor: theme.colorScheme.surface,
         insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+        shape: shape,
+        clipBehavior: Clip.antiAlias,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 720),
           child: wrappedContent,

@@ -34,6 +34,62 @@ class ServiceCategoryZoneSheet extends ConsumerStatefulWidget {
       _ServiceCategoryZoneSheetState();
 }
 
+const Map<String, String> _mirroredBodyZonePairs = {
+  'ascella_dx': 'ascella_sx',
+  'ascella_sx': 'ascella_dx',
+  'braccio_dx': 'braccio_sx',
+  'braccio_sx': 'braccio_dx',
+  'avambraccio_dx': 'avambraccio_sx',
+  'avambraccio_sx': 'avambraccio_dx',
+  'coscia_dx': 'coscia_sx',
+  'coscia_sx': 'coscia_dx',
+  'gamba_dx': 'gamba_sx',
+  'gamba_sx': 'gamba_dx',
+};
+
+String _canonicalZoneId(String zoneId) {
+  final counterpart = _mirroredBodyZonePairs[zoneId];
+  if (counterpart == null) {
+    return zoneId;
+  }
+  if (zoneId.endsWith('_dx')) {
+    return zoneId;
+  }
+  if (counterpart.endsWith('_dx')) {
+    return counterpart;
+  }
+  return zoneId.compareTo(counterpart) <= 0 ? zoneId : counterpart;
+}
+
+List<BodyZoneDefinition> _uniqueZoneEntries(List<BodyZoneDefinition> zones) {
+  final byId = <String, BodyZoneDefinition>{
+    for (final zone in zones) zone.id: zone,
+  };
+  final seen = <String>{};
+  final unique = <BodyZoneDefinition>[];
+  for (final zone in zones) {
+    final canonicalId = _canonicalZoneId(zone.id);
+    if (seen.contains(canonicalId)) {
+      continue;
+    }
+    seen.add(canonicalId);
+    unique.add(byId[canonicalId] ?? zone);
+  }
+  return unique;
+}
+
+String _displayZoneLabel(BodyZoneDefinition zone) {
+  final counterpart = _mirroredBodyZonePairs[zone.id];
+  if (counterpart == null) {
+    return zone.label;
+  }
+  final normalized = zone.label.replaceAll(
+    RegExp(r'\s+(destra|sinistra)$', caseSensitive: false),
+    '',
+  ).trim();
+  return '$normalized (dx/sx)';
+}
+
 class _ServiceCategoryZoneSheetState
     extends ConsumerState<ServiceCategoryZoneSheet> {
   late Map<String, String> _assignments;
@@ -51,9 +107,12 @@ class _ServiceCategoryZoneSheetState
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
-    final frontZones =
-        bodyZoneDefinitions.where((zone) => zone.isFront).toList();
-    final backZones = bodyZoneDefinitions.where((zone) => zone.isBack).toList();
+    final frontZones = _uniqueZoneEntries(
+      bodyZoneDefinitions.where((zone) => zone.isFront).toList(),
+    );
+    final backZones = _uniqueZoneEntries(
+      bodyZoneDefinitions.where((zone) => zone.isBack).toList(),
+    );
     final hasServices = _categoryServices.isNotEmpty;
 
     return SafeArea(
@@ -165,11 +224,18 @@ class _ServiceCategoryZoneSheetState
   }
 
   void _setAssignment(String zoneId, String? serviceId) {
+    final counterpart = _mirroredBodyZonePairs[zoneId];
     setState(() {
       if (serviceId == null || serviceId.isEmpty) {
         _assignments.remove(zoneId);
-      } else {
-        _assignments[zoneId] = serviceId;
+        if (counterpart != null) {
+          _assignments.remove(counterpart);
+        }
+        return;
+      }
+      _assignments[zoneId] = serviceId;
+      if (counterpart != null) {
+        _assignments[counterpart] = serviceId;
       }
     });
   }
@@ -255,7 +321,7 @@ class _BodyZoneGroup extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(zone.label, style: textTheme.titleSmall),
+                  Text(_displayZoneLabel(zone), style: textTheme.titleSmall),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String?>(
                     value: assignments[zone.id],
