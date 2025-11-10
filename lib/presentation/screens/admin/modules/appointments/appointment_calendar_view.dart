@@ -6940,44 +6940,271 @@ Color? _categoryAccentColor(String? label, ThemeData theme) {
   return HSLColor.fromAHSL(1, hue, saturation, lightness).toColor();
 }
 
-Color? _resolveCategoryColor(
+Color? _categoryColorForService(
+  Service service,
+  Map<String, ServiceCategory> categoriesById,
+  Map<String, ServiceCategory> categoriesByName,
+  ThemeData theme,
+) {
+  final categoryId = service.categoryId?.trim();
+  if (categoryId != null && categoryId.isNotEmpty) {
+    final colorValue = categoriesById[categoryId]?.color;
+    if (colorValue != null) {
+      return Color(colorValue);
+    }
+  }
+
+  final normalizedName = service.category.trim().toLowerCase();
+  if (normalizedName.isNotEmpty) {
+    final colorValue = categoriesByName[normalizedName]?.color;
+    if (colorValue != null) {
+      return Color(colorValue);
+    }
+  }
+
+  return _categoryAccentColor(service.category, theme);
+}
+
+List<Color> _resolveCategoryColors(
   List<Service> services,
   Map<String, ServiceCategory> categoriesById,
   Map<String, ServiceCategory> categoriesByName,
   String? fallbackLabel,
   ThemeData theme,
 ) {
-  final ids = <String>{};
-  final names = <String>{};
+  final colors = <Color>[];
+  final seenValues = <int>{};
 
   for (final service in services) {
-    final categoryId = service.categoryId?.trim();
-    if (categoryId != null && categoryId.isNotEmpty) {
-      ids.add(categoryId);
-    }
-    final normalizedName = service.category.trim().toLowerCase();
-    if (normalizedName.isNotEmpty) {
-      names.add(normalizedName);
-    }
-  }
-
-  for (final id in ids) {
-    final category = categoriesById[id];
-    final colorValue = category?.color;
-    if (colorValue != null) {
-      return Color(colorValue);
+    final color = _categoryColorForService(
+      service,
+      categoriesById,
+      categoriesByName,
+      theme,
+    );
+    if (color != null && seenValues.add(color.value)) {
+      colors.add(color);
     }
   }
 
-  for (final name in names) {
-    final category = categoriesByName[name];
-    final colorValue = category?.color;
-    if (colorValue != null) {
-      return Color(colorValue);
+  if (colors.isEmpty) {
+    final accent = _categoryAccentColor(fallbackLabel, theme);
+    if (accent != null && seenValues.add(accent.value)) {
+      colors.add(accent);
+    }
+  }
+  if (colors.isEmpty) {
+    final defaultColor = theme.colorScheme.primary;
+    if (seenValues.add(defaultColor.value)) {
+      colors.add(defaultColor);
     }
   }
 
-  return _categoryAccentColor(fallbackLabel, theme);
+  return colors;
+}
+
+List<Color> _buildCardBackgroundGradient(
+  List<Color> colors,
+  Color surface,
+  ThemeData theme,
+) {
+  if (colors.isEmpty) {
+    return [surface, surface];
+  }
+
+  final double solidAlpha =
+      theme.brightness == Brightness.dark ? 0.96 : 0.9;
+  final double fadedAlpha =
+      theme.brightness == Brightness.dark ? 0.38 : 0.25;
+  final gradientColors = <Color>[];
+
+  for (final color in colors) {
+    gradientColors.add(color.withValues(alpha: solidAlpha));
+    gradientColors.add(
+      Color.alphaBlend(
+        color.withValues(alpha: fadedAlpha),
+        surface,
+      ),
+    );
+  }
+
+  gradientColors.add(surface);
+
+  return gradientColors;
+}
+
+String? _formatEquipmentUsageLabel(Duration duration) {
+  if (duration <= Duration.zero) {
+    return null;
+  }
+  final hours = duration.inHours;
+  final minutes = duration.inMinutes % 60;
+  if (hours > 0 && minutes > 0) {
+    return '${hours}h ${minutes}m';
+  }
+  if (hours > 0) {
+    return '${hours}h';
+  }
+  return '${minutes}m';
+}
+
+List<Color> _buildCategoryStripeGradient(
+  List<Color> colors,
+  ThemeData theme,
+) {
+  if (colors.isEmpty) {
+    return _defaultStripeGradient(theme);
+  }
+
+  final double tintAlpha =
+      theme.brightness == Brightness.dark ? 0.75 : 0.88;
+  final double startAlpha =
+      theme.brightness == Brightness.dark ? 0.9 : 1.0;
+  final double endAlpha =
+      theme.brightness == Brightness.dark ? 0.75 : 0.82;
+  final Color baseSurface =
+      theme.colorScheme.surface.withValues(alpha: 0);
+
+  final gradientColors = <Color>[];
+  for (final color in colors) {
+    final tinted = Color.alphaBlend(
+      color.withValues(alpha: tintAlpha),
+      baseSurface,
+    );
+    gradientColors.add(tinted.withValues(alpha: startAlpha));
+    gradientColors.add(tinted.withValues(alpha: endAlpha));
+  }
+
+  return gradientColors;
+}
+
+List<Color> _defaultStripeGradient(ThemeData theme) {
+  final double startAlpha =
+      theme.brightness == Brightness.dark ? 0.9 : 1.0;
+  final double endAlpha =
+      theme.brightness == Brightness.dark ? 0.75 : 0.82;
+  final Color baseColor =
+      theme.colorScheme.outlineVariant.withValues(
+    alpha: theme.brightness == Brightness.dark ? 0.6 : 0.45,
+  );
+  return [
+    baseColor.withValues(alpha: startAlpha),
+    baseColor.withValues(alpha: endAlpha),
+  ];
+}
+
+List<_EquipmentUsageSegment> _equipmentUsageSegments(
+  List<Service> services,
+) {
+  final segments = <_EquipmentUsageSegment>[];
+  var cursorMinutes = 0.0;
+  for (final service in services) {
+    final durationMinutes = service.totalDuration.inMinutes.toDouble();
+    if (durationMinutes <= 0) {
+      continue;
+    }
+    if (service.requiredEquipmentIds.isNotEmpty) {
+      segments.add(
+        _EquipmentUsageSegment(
+          startMinutes: cursorMinutes,
+          endMinutes: cursorMinutes + durationMinutes,
+        ),
+      );
+    }
+    cursorMinutes += durationMinutes;
+  }
+  return segments;
+}
+
+class _EquipmentUsageSegment {
+  const _EquipmentUsageSegment({
+    required this.startMinutes,
+    required this.endMinutes,
+  });
+
+  final double startMinutes;
+  final double endMinutes;
+}
+
+class _EquipmentUsageIndicator extends StatelessWidget {
+  const _EquipmentUsageIndicator({
+    required this.segments,
+    required this.totalMinutes,
+    required this.color,
+    required this.background,
+  });
+
+  final List<_EquipmentUsageSegment> segments;
+  final double totalMinutes;
+  final Color color;
+  final Color background;
+
+  @override
+  Widget build(BuildContext context) {
+    if (segments.isEmpty || totalMinutes <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        if (width <= 0) {
+          return const SizedBox.shrink();
+        }
+
+        final double radius = 3.0;
+        final elementHeight = 6.0;
+        final List<Widget> filledSegments = [];
+
+        for (final segment in segments) {
+          final startFraction =
+              (segment.startMinutes / totalMinutes).clamp(0.0, 1.0);
+          final endFraction =
+              (segment.endMinutes / totalMinutes).clamp(0.0, 1.0);
+          final double widthFraction = endFraction - startFraction;
+          if (widthFraction <= 0) {
+            continue;
+          }
+          filledSegments.add(
+            Positioned(
+              left: startFraction * width,
+              width: max(1.0, widthFraction * width),
+              top: 0,
+              bottom: 0,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: BorderRadius.circular(radius),
+                ),
+              ),
+            ),
+          );
+        }
+
+        if (filledSegments.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        return SizedBox(
+          height: elementHeight,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: background,
+                    borderRadius: BorderRadius.circular(radius),
+                  ),
+                ),
+              ),
+              ...filledSegments,
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
 
 Color _onColorFor(Color background, ThemeData theme) {
@@ -7091,18 +7318,32 @@ class _AppointmentCardState extends State<_AppointmentCard> {
     final bool showServiceInfo = contentDurationMinutes >= 30;
     final bool showClientInfo = contentDurationMinutes >= 45;
     final categoryLabel = _primaryCategoryLabel(servicesToDisplay, service);
-    final categoryColor = _resolveCategoryColor(
+    final categoryColors = _resolveCategoryColors(
       servicesToDisplay,
       categoriesById,
       categoriesByName,
       categoryLabel,
       theme,
     );
+    final categoryColor =
+        categoryColors.isNotEmpty ? categoryColors.first : null;
     final isCancelled = status == AppointmentStatus.cancelled;
     final baseColor =
         (isCancelled || hideNoShowColor)
             ? Colors.transparent
             : categoryColor ?? theme.colorScheme.primary;
+    final double appointmentDurationMinutes =
+        max(1, appointment.duration.inMinutes).toDouble();
+    final equipmentSegments = _equipmentUsageSegments(servicesToDisplay);
+    final double equipmentUsageMinutes = equipmentSegments.fold(
+      0.0,
+      (sum, segment) =>
+          sum + (segment.endMinutes - segment.startMinutes),
+    );
+    final Duration equipmentUsageDuration =
+        Duration(minutes: equipmentUsageMinutes.round());
+    final String? equipmentUsageLabel =
+        _formatEquipmentUsageLabel(equipmentUsageDuration);
     Color backgroundColor = baseColor;
     Color borderBlendColor = baseColor;
     final bool forceSolidCategoryFill =
@@ -7123,17 +7364,24 @@ class _AppointmentCardState extends State<_AppointmentCard> {
         borderBlendColor = baseColor.withValues(alpha: borderAlpha);
       }
     }
+    double? anomalyGradientStartAlpha;
+    double? anomalyGradientEndAlpha;
     final highlightAnomalies = hasAnomalies && !hideNoShowColor;
     if (highlightAnomalies) {
-      final double startAlpha =
+      anomalyGradientStartAlpha =
           theme.brightness == Brightness.dark ? 0.45 : 0.25;
-      final double endAlpha = theme.brightness == Brightness.dark ? 0.3 : 0.12;
+      anomalyGradientEndAlpha =
+          theme.brightness == Brightness.dark ? 0.3 : 0.12;
       backgroundColor = Color.alphaBlend(
-        theme.colorScheme.error.withValues(alpha: startAlpha),
+        theme.colorScheme.error.withValues(
+          alpha: anomalyGradientStartAlpha,
+        ),
         backgroundColor,
       );
       borderBlendColor = Color.alphaBlend(
-        theme.colorScheme.error.withValues(alpha: endAlpha),
+        theme.colorScheme.error.withValues(
+          alpha: anomalyGradientEndAlpha,
+        ),
         borderBlendColor,
       );
     }
@@ -7210,10 +7458,15 @@ class _AppointmentCardState extends State<_AppointmentCard> {
     }
     const double stripeWidth = 8.0;
     const double stripeGap = 8.0;
+    const double equipmentLabelWidth = 34.0;
     final bool showCategoryStripe = !hideContent;
+    final bool showEquipmentUsageLabel =
+        showCategoryStripe && equipmentUsageLabel != null;
+    final double stripeAreaWidth =
+        stripeWidth + (showEquipmentUsageLabel ? equipmentLabelWidth : 0);
     final double horizontalPadding = 14.0;
     final double leftPadding =
-        horizontalPadding + (showCategoryStripe ? stripeWidth + stripeGap : 0);
+        horizontalPadding + (showCategoryStripe ? stripeAreaWidth + stripeGap : 0);
     final padding = EdgeInsets.only(
       left: leftPadding,
       right: horizontalPadding,
@@ -7226,57 +7479,40 @@ class _AppointmentCardState extends State<_AppointmentCard> {
             : Colors.white;
     final bool hasCategoryTone =
         !isCancelled && !hideNoShowColor && baseColor.opacity > 0.0;
-    final Color stripeColor =
+    final List<Color> stripeGradientColors =
         hasCategoryTone
-            ? Color.alphaBlend(
-              baseColor.withValues(
-                alpha: theme.brightness == Brightness.dark ? 0.75 : 0.88,
-              ),
-              theme.colorScheme.surface.withValues(alpha: 0),
-            )
-            : theme.colorScheme.outlineVariant.withValues(
-              alpha: theme.brightness == Brightness.dark ? 0.6 : 0.45,
+            ? _buildCategoryStripeGradient(categoryColors, theme)
+            : _defaultStripeGradient(theme);
+    var cardGradientColors = hasCategoryTone
+        ? _buildCardBackgroundGradient(categoryColors, cardSurface, theme)
+        : [cardSurface, cardSurface];
+    Color gradientStart = cardGradientColors.first;
+    Color gradientEnd = cardGradientColors.length > 1
+        ? cardGradientColors.last
+        : cardGradientColors.first;
+    if (highlightAnomalies &&
+        anomalyGradientStartAlpha != null &&
+        anomalyGradientEndAlpha != null) {
+      final int gradientCount = cardGradientColors.length;
+      cardGradientColors = cardGradientColors
+          .asMap()
+          .entries
+          .map((entry) {
+            final double fraction =
+                gradientCount > 1 ? entry.key / (gradientCount - 1) : 0.0;
+            final double overlayAlpha = anomalyGradientStartAlpha! +
+                (anomalyGradientEndAlpha! - anomalyGradientStartAlpha!) *
+                    fraction;
+            return Color.alphaBlend(
+              theme.colorScheme.error.withValues(alpha: overlayAlpha),
+              entry.value,
             );
-    Color gradientStart = cardSurface;
-    Color gradientEnd = cardSurface;
-    if (hasCategoryTone || backgroundColor.opacity > 0.0) {
-      final Color tintSource = hasCategoryTone ? baseColor : borderBlendColor;
-      if (forceSolidCategoryFill && hasCategoryTone) {
-        gradientStart = baseColor;
-        gradientEnd = Color.alphaBlend(
-          Colors.black.withOpacity(
-            theme.brightness == Brightness.dark ? 0.24 : 0.14,
-          ),
-          baseColor,
-        );
-      } else {
-        gradientStart = Color.alphaBlend(
-          tintSource.withValues(
-            alpha: theme.brightness == Brightness.dark ? 0.5 : 0.4,
-          ),
-          cardSurface,
-        );
-        gradientEnd = Color.alphaBlend(
-          tintSource.withValues(
-            alpha: theme.brightness == Brightness.dark ? 0.24 : 0.2,
-          ),
-          cardSurface,
-        );
-      }
-    }
-    if (highlightAnomalies) {
-      gradientStart = Color.alphaBlend(
-        theme.colorScheme.error.withValues(
-          alpha: theme.brightness == Brightness.dark ? 0.34 : 0.28,
-        ),
-        gradientStart,
-      );
-      gradientEnd = Color.alphaBlend(
-        theme.colorScheme.error.withValues(
-          alpha: theme.brightness == Brightness.dark ? 0.22 : 0.2,
-        ),
-        gradientEnd,
-      );
+          })
+          .toList(growable: false);
+      gradientStart = cardGradientColors.first;
+      gradientEnd = cardGradientColors.length > 1
+          ? cardGradientColors.last
+          : cardGradientColors.first;
     }
     final bool hasTranslucentFill = hasCategoryTone || highlightAnomalies;
     final borderRadius = BorderRadius.circular(12);
@@ -7341,7 +7577,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [gradientStart, gradientEnd],
+                colors: cardGradientColors,
               ),
             ),
           ),
@@ -7350,27 +7586,56 @@ class _AppointmentCardState extends State<_AppointmentCard> {
               left: 0,
               top: 0,
               bottom: 0,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      stripeColor.withValues(
-                        alpha: theme.brightness == Brightness.dark ? 0.9 : 1,
+              child: SizedBox(
+                width: stripeAreaWidth,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
+                      width: stripeWidth,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: stripeGradientColors,
+                          ),
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(12),
+                            bottomLeft: Radius.circular(12),
+                          ),
+                        ),
+                        child: const SizedBox.expand(),
                       ),
-                      stripeColor.withValues(
-                        alpha:
-                            theme.brightness == Brightness.dark ? 0.75 : 0.82,
+                    ),
+                    if (showEquipmentUsageLabel)
+                      SizedBox(
+                        width: equipmentLabelWidth,
+                        child: Center(
+                          child: RotatedBox(
+                            quarterTurns: 3,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                equipmentUsageLabel!.toUpperCase(),
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: primaryContentColor,
+                                  fontWeight: FontWeight.w600,
+                                ) ??
+                                TextStyle(
+                                  color: primaryContentColor,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                maxLines: 2,
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
-                    ],
-                  ),
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(12),
-                    bottomLeft: Radius.circular(12),
-                  ),
+                  ],
                 ),
-                child: SizedBox(width: stripeWidth),
               ),
             ),
           Padding(
@@ -7478,6 +7743,23 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                 }
                 if (showClientInfo) {
                   addDetail(client?.fullName, detailStyle);
+                }
+                if (equipmentSegments.isNotEmpty) {
+                  children.add(const SizedBox(height: 6));
+                  final Color indicatorColor = hasCategoryTone
+                      ? baseColor
+                      : theme.colorScheme.primary;
+                  final Color indicatorBackground = indicatorColor.withValues(
+                    alpha: theme.brightness == Brightness.dark ? 0.18 : 0.24,
+                  );
+                  children.add(
+                    _EquipmentUsageIndicator(
+                      segments: equipmentSegments,
+                      totalMinutes: appointmentDurationMinutes,
+                      color: indicatorColor,
+                      background: indicatorBackground,
+                    ),
+                  );
                 }
 
                 if (children.isEmpty) {
@@ -7867,6 +8149,29 @@ class _SideTooltipState extends State<_SideTooltip> {
     _removeOverlay();
   }
 
+  void _handlePointerHover(PointerHoverEvent event) {
+    if (_overlayEntry == null) {
+      return;
+    }
+    _hideIfPointerOutside(event.position);
+  }
+
+  void _hideIfPointerOutside(Offset globalPosition) {
+    final targetRenderObject = context.findRenderObject() as RenderBox?;
+    if (targetRenderObject == null) {
+      return;
+    }
+    final localPosition =
+        targetRenderObject.globalToLocal(globalPosition);
+    if (localPosition.dx < 0 ||
+        localPosition.dy < 0 ||
+        localPosition.dx > targetRenderObject.size.width ||
+        localPosition.dy > targetRenderObject.size.height) {
+      _cancelShowTimer();
+      _removeOverlay();
+    }
+  }
+
   void _scheduleShow() {
     _cancelShowTimer();
     if (widget.waitDuration <= Duration.zero) {
@@ -7953,6 +8258,7 @@ class _SideTooltipState extends State<_SideTooltip> {
           onPointerDown: _handlePointerDown,
           child: MouseRegion(
             onEnter: _handlePointerEnter,
+            onHover: _handlePointerHover,
             onExit: _handlePointerExit,
             child: widget.child,
           ),

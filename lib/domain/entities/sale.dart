@@ -304,7 +304,7 @@ extension PackagePaymentStatusX on PackagePaymentStatus {
   }
 }
 
-enum SalePaymentStatus { deposit, paid }
+enum SalePaymentStatus { deposit, paid, posticipated }
 
 extension SalePaymentStatusX on SalePaymentStatus {
   String get label {
@@ -313,6 +313,8 @@ extension SalePaymentStatusX on SalePaymentStatus {
         return 'Acconto';
       case SalePaymentStatus.paid:
         return 'Saldato';
+      case SalePaymentStatus.posticipated:
+        return 'Posticipato';
     }
   }
 }
@@ -409,4 +411,4 @@ extension SalePaymentTypeX on SalePaymentType {
 
 enum SaleReferenceType { service, package, product }
 
-enum PaymentMethod { cash, pos, transfer, giftCard }
+enum PaymentMethod { cash, pos, transfer, giftCard, posticipated }

@@ -8845,6 +8845,8 @@ class _ClientPackageGroup extends StatelessWidget {
         return 'Bonifico';
       case PaymentMethod.giftCard:
         return 'Gift card';
+      case PaymentMethod.posticipated:
+        return 'Posticipato';
     }
   }
 

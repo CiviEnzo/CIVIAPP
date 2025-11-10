@@ -59,6 +59,7 @@ class AppointmentFormSheet extends ConsumerStatefulWidget {
     this.suggestedEnd,
     this.suggestedStaffId,
     this.enableDelete = false,
+    this.onSaved,
   });
 
   final List<Salon> salons;
@@ -73,6 +74,7 @@ class AppointmentFormSheet extends ConsumerStatefulWidget {
   final DateTime? suggestedEnd;
   final String? suggestedStaffId;
   final bool enableDelete;
+  final void Function(AppointmentFormResult result)? onSaved;
 
   @override
   ConsumerState<AppointmentFormSheet> createState() =>
@@ -1158,69 +1160,13 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                               );
                             },
                           ),
-                          if (showPackageSection) ...[
-                            const SizedBox(height: 16),
-                            Text(
-                              'Pacchetti disponibili',
-                              style: theme.textTheme.titleMedium,
+                          if (showPackageSection)
+                            _buildPackageSection(
+                              theme: theme,
+                              selectedServices: selectedServices,
+                              packagesByService: packagesByService,
+                              allClientPackages: allClientPackages,
                             ),
-                            const SizedBox(height: 8),
-                            if (selectedServices.isEmpty)
-                              allClientPackages.isEmpty
-                                  ? Text(
-                                    'Il cliente non ha pacchetti attivi.',
-                                    style: theme.textTheme.bodyMedium,
-                                  )
-                                  : _ClientPackageSummaryList(
-                                    packages: allClientPackages,
-                                  )
-                            else if (allClientPackages.isEmpty)
-                              Text(
-                                'Il cliente non ha pacchetti attivi.',
-                                style: theme.textTheme.bodyMedium,
-                              )
-                            else
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  ...selectedServices.map(
-                                    (service) => Padding(
-                                      padding: const EdgeInsets.only(
-                                        bottom: 16,
-                                      ),
-                                      child: _ServicePackageSelector(
-                                        service: service,
-                                        packages:
-                                            packagesByService[service.id] ??
-                                            const [],
-                                        selectedPackageId:
-                                            _servicePackageSelections[service
-                                                .id],
-                                        suggestedPackageId:
-                                            _suggestedPackageForService(
-                                              service.id,
-                                            ),
-                                        uncoveredQuantity:
-                                            _latestSuggestion
-                                                ?.uncoveredServices[service
-                                                .id] ??
-                                            0,
-                                        onSelect: (value) {
-                                          setState(() {
-                                            _manualPackageSelections.add(
-                                              service.id,
-                                            );
-                                            _servicePackageSelections[service
-                                                    .id] =
-                                                value;
-                                          });
-                                        },
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                          ],
                           const SizedBox(height: 24),
 
                           _buildScheduleCard(
@@ -1423,6 +1369,96 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           if (trailing != null) ...[const SizedBox(width: 12), trailing],
         ],
       ),
+    );
+  }
+
+  Widget _buildPackageSection({
+    required ThemeData theme,
+    required List<Service> selectedServices,
+    required Map<String, List<ClientPackagePurchase>> packagesByService,
+    required List<ClientPackagePurchase> allClientPackages,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.layers_rounded, color: theme.colorScheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                'Pacchetti disponibili',
+                style: theme.textTheme.titleMedium,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (selectedServices.isEmpty)
+            allClientPackages.isNotEmpty
+                ? _ClientPackageSummaryList(packages: allClientPackages)
+                : Text(
+                    'Il cliente non ha pacchetti attivi.',
+                    style: theme.textTheme.bodyMedium,
+                  )
+          else if (allClientPackages.isEmpty)
+            Text(
+              'Il cliente non ha pacchetti attivi.',
+              style: theme.textTheme.bodyMedium,
+            )
+          else
+            _buildPerServicePackageList(
+              selectedServices: selectedServices,
+              packagesByService: packagesByService,
+              theme: theme,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPerServicePackageList({
+    required List<Service> selectedServices,
+    required Map<String, List<ClientPackagePurchase>> packagesByService,
+    required ThemeData theme,
+  }) {
+    final entries = selectedServices
+        .map(
+          (service) => MapEntry(
+            service,
+            packagesByService[service.id] ?? const [],
+          ),
+        )
+        .where((entry) => entry.value.isNotEmpty)
+        .toList(growable: false);
+    if (entries.isEmpty) {
+      return Text(
+        'I servizi selezionati non sono coperti da alcun pacchetto.',
+        style: theme.textTheme.bodyMedium,
+      );
+    }
+    return Column(
+      children: [
+        for (final entry in entries) ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _ServicePackageSelector(
+              service: entry.key,
+              packages: entry.value,
+              selectedPackageId: _servicePackageSelections[entry.key.id],
+              suggestedPackageId: _suggestedPackageForService(entry.key.id),
+              uncoveredQuantity:
+                  _latestSuggestion?.uncoveredServices[entry.key.id] ?? 0,
+              onSelect: (value) {
+                setState(() {
+                  _manualPackageSelections.add(entry.key.id);
+                  _servicePackageSelections[entry.key.id] = value;
+                });
+              },
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -2690,12 +2726,15 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
 
     _lastSavedClientId = appointment.clientId;
 
-    Navigator.of(context).pop(
-      AppointmentFormResult(
-        action: AppointmentFormAction.save,
-        appointment: appointment,
-      ),
+    final result = AppointmentFormResult(
+      action: AppointmentFormAction.save,
+      appointment: appointment,
     );
+    if (widget.onSaved != null) {
+      widget.onSaved!(result);
+      return;
+    }
+    Navigator.of(context).pop(result);
   }
 
   void _copy() {
@@ -3298,78 +3337,80 @@ class _ServicePackageSelector extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
+    return Card(
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Text(
-                service.name,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    service.name,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
-              ),
+                if (uncoveredQuantity > 0)
+                  Chip(
+                    label: Text('$uncoveredQuantity fuori pacchetto'),
+                    backgroundColor: colorScheme.errorContainer,
+                    labelStyle: theme.textTheme.labelSmall?.copyWith(
+                      color: colorScheme.onErrorContainer,
+                    ),
+                  ),
+              ],
             ),
-            if (uncoveredQuantity > 0)
-              Chip(
-                label: Text('$uncoveredQuantity fuori pacchetto'),
-                backgroundColor: colorScheme.errorContainer,
-                labelStyle: theme.textTheme.labelMedium?.copyWith(
-                  color: colorScheme.onErrorContainer,
-                ),
+            const SizedBox(height: 10),
+            if (packages.isEmpty)
+              Text(
+                'Nessun pacchetto compatibile.',
+                style: theme.textTheme.bodyMedium,
+              )
+            else
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  ...packages.map((purchase) {
+                    final packageId = purchase.item.referenceId;
+                    final remaining = purchase.remainingSessionsForService(
+                      service.id,
+                    );
+                    final enabled = remaining > 0;
+                    final isSelected = selectedPackageId == packageId;
+                    final isSuggested = suggestedPackageId == packageId;
+                    final expiration = purchase.expirationDate;
+                    final detailsBuffer = StringBuffer(
+                      '$remaining sessioni disponibili',
+                    );
+                    if (expiration != null) {
+                      detailsBuffer
+                        ..write(' • Scade il ')
+                        ..write(DateFormat('dd/MM/yyyy').format(expiration));
+                    }
+                    return _PackageSelectionCard(
+                      title: purchase.displayName,
+                      subtitle: detailsBuffer.toString(),
+                      selected: isSelected,
+                      enabled: enabled || isSelected,
+                      recommended: isSuggested,
+                      onTap: enabled || isSelected
+                          ? () => onSelect(isSelected ? null : packageId)
+                          : null,
+                    );
+                  }),
+                ],
               ),
           ],
         ),
-        const SizedBox(height: 8),
-        if (packages.isEmpty)
-          Text(
-            'Nessun pacchetto compatibile.',
-            style: theme.textTheme.bodyMedium,
-          )
-        else
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              _PackageSelectionCard(
-                title: 'Non scalare pacchetto',
-                subtitle: 'Il servizio resterà fuori pacchetto.',
-                selected: selectedPackageId == null,
-                enabled: true,
-                recommended: suggestedPackageId == null,
-                onTap: () => onSelect(null),
-              ),
-              ...packages.map((purchase) {
-                final packageId = purchase.item.referenceId;
-                final remaining = purchase.remainingSessionsForService(
-                  service.id,
-                );
-                final enabled = remaining > 0;
-                final isSelected = selectedPackageId == packageId;
-                final isSuggested = suggestedPackageId == packageId;
-                final expiration = purchase.expirationDate;
-                final detailsBuffer = StringBuffer(
-                  '$remaining sessioni disponibili',
-                );
-                if (expiration != null) {
-                  detailsBuffer
-                    ..write(' • Scade il ')
-                    ..write(DateFormat('dd/MM/yyyy').format(expiration));
-                }
-                return _PackageSelectionCard(
-                  title: purchase.displayName,
-                  subtitle: detailsBuffer.toString(),
-                  selected: isSelected,
-                  enabled: enabled || isSelected,
-                  recommended: isSuggested,
-                  onTap:
-                      enabled || isSelected ? () => onSelect(packageId) : null,
-                );
-              }),
-            ],
-          ),
-      ],
+      ),
     );
   }
 }
@@ -3414,8 +3455,9 @@ class _PackageSelectionCard extends StatelessWidget {
         onTap: enabled ? onTap : null,
         borderRadius: BorderRadius.circular(12),
         child: Container(
-          width: 240,
-          padding: const EdgeInsets.all(16),
+          width: double.infinity,
+          constraints: const BoxConstraints(minWidth: 200),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
           decoration: BoxDecoration(
             color: backgroundColor,
             borderRadius: BorderRadius.circular(12),

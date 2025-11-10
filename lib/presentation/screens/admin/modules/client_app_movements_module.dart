@@ -852,6 +852,8 @@ class _ClientAppMovementsModuleState
         return 'Bonifico';
       case PaymentMethod.giftCard:
         return 'Gift card';
+      case PaymentMethod.posticipated:
+        return 'Posticipato';
     }
   }
 }

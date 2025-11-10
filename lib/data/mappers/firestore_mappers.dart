@@ -1813,8 +1813,11 @@ Sale saleFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
       (paidAmountRaw != null && (total - paidAmountRaw).abs() > 0.01
           ? SalePaymentStatus.deposit
           : SalePaymentStatus.paid);
-  final paidAmount =
-      paidAmountRaw ?? (paymentStatus == SalePaymentStatus.deposit ? 0 : total);
+  final paidAmount = paidAmountRaw ??
+      (paymentStatus == SalePaymentStatus.deposit ||
+              paymentStatus == SalePaymentStatus.posticipated
+          ? 0
+          : total);
   final paymentHistoryRaw =
       data['paymentHistory'] as List<dynamic>? ?? const [];
   final paymentHistory =
@@ -2369,6 +2372,8 @@ SalePaymentStatus? _salePaymentStatusFromString(String? value) {
       return SalePaymentStatus.deposit;
     case 'paid':
       return SalePaymentStatus.paid;
+    case 'posticipated':
+      return SalePaymentStatus.posticipated;
     default:
       return null;
   }

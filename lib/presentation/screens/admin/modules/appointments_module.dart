@@ -19,11 +19,14 @@ import 'package:you_book/domain/entities/staff_absence.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/screens/admin/forms/appointment_form_sheet.dart';
+import 'package:you_book/presentation/screens/admin/forms/appointment_sale_flow_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/shift_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/staff_absence_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_calendar_view.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_anomaly.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments/express_slot_sheet.dart';
+import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_save_utils.dart';
+import 'package:you_book/presentation/screens/admin/modules/sales_module.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:collection/collection.dart';
@@ -2182,12 +2185,12 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       start: selection.start,
       end: computedEnd,
     );
-    final saved = await _validateAndSaveAppointment(
-      context,
-      ref,
-      appointment,
-      services,
-      salons,
+    final saved = await validateAndSaveAppointment(
+      context: context,
+      ref: ref,
+      appointment: appointment,
+      fallbackServices: services,
+      fallbackSalons: salons,
     );
     if (!saved || !mounted) {
       return;
@@ -3713,8 +3716,9 @@ Future<void> _openForm(
   final serviceCategories = ref.read(appDataProvider).serviceCategories;
   final result = await showAppModalSheet<AppointmentFormResult>(
     context: context,
+    includeCloseButton: false,
     builder:
-        (ctx) => AppointmentFormSheet(
+        (ctx) => AppointmentSaleFlowSheet(
           salons: salons,
           clients: clients,
           staff: staff,
@@ -3747,155 +3751,6 @@ Future<void> _openForm(
   }
   if (result.action == AppointmentFormAction.delete) {
     return;
-  }
-  await _validateAndSaveAppointment(
-    context,
-    ref,
-    result.appointment,
-    services,
-    salons,
-  );
-}
-
-Future<bool> _validateAndSaveAppointment(
-  BuildContext context,
-  WidgetRef ref,
-  Appointment appointment,
-  List<Service> fallbackServices,
-  List<Salon> fallbackSalons,
-) async {
-  final messenger = ScaffoldMessenger.of(context);
-  final data = ref.read(appDataProvider);
-  final existingAppointments = data.appointments;
-  final allServices =
-      data.services.isNotEmpty ? data.services : fallbackServices;
-  final allSalons = data.salons.isNotEmpty ? data.salons : fallbackSalons;
-  final nowReference = DateTime.now();
-  final expressPlaceholders =
-      data.lastMinuteSlots
-          .where((slot) {
-            if (slot.salonId != appointment.salonId) {
-              return false;
-            }
-            if (slot.operatorId != appointment.staffId) {
-              return false;
-            }
-            if (!slot.isAvailable) {
-              return false;
-            }
-            if (!slot.end.isAfter(nowReference)) {
-              return false;
-            }
-            return true;
-          })
-          .map(
-            (slot) => Appointment(
-              id: 'last-minute-${slot.id}',
-              salonId: slot.salonId,
-              clientId: 'last-minute-${slot.id}',
-              staffId: slot.operatorId ?? appointment.staffId,
-              serviceIds:
-                  slot.serviceId != null && slot.serviceId!.isNotEmpty
-                      ? <String>[slot.serviceId!]
-                      : const <String>[],
-              start: slot.start,
-              end: slot.end,
-              status: AppointmentStatus.scheduled,
-              roomId: slot.roomId,
-            ),
-          )
-          .toList();
-  final combinedAppointments = <Appointment>[
-    ...existingAppointments,
-    ...expressPlaceholders,
-  ];
-  final hasStaffConflict = hasStaffBookingConflict(
-    appointments: combinedAppointments,
-    staffId: appointment.staffId,
-    start: appointment.start,
-    end: appointment.end,
-    excludeAppointmentId: appointment.id,
-  );
-  if (hasStaffConflict) {
-    messenger.showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Impossibile salvare: operatore già occupato in quel periodo',
-        ),
-      ),
-    );
-    return false;
-  }
-  final hasClientConflict = hasClientBookingConflict(
-    appointments: existingAppointments,
-    clientId: appointment.clientId,
-    start: appointment.start,
-    end: appointment.end,
-    excludeAppointmentId: appointment.id,
-  );
-  if (hasClientConflict) {
-    messenger.showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Impossibile salvare: il cliente ha già un appuntamento in quel periodo',
-        ),
-      ),
-    );
-    return false;
-  }
-  final appointmentServices = appointment.serviceIds
-      .map((id) => allServices.firstWhereOrNull((service) => service.id == id))
-      .whereType<Service>()
-      .toList(growable: false);
-  if (appointmentServices.isEmpty) {
-    messenger.showSnackBar(
-      const SnackBar(content: Text('Servizio non valido.')),
-    );
-    return false;
-  }
-  final salon = allSalons.firstWhereOrNull(
-    (item) => item.id == appointment.salonId,
-  );
-  final blockingEquipment = <String>{};
-  var equipmentStart = appointment.start;
-  for (final service in appointmentServices) {
-    final equipmentEnd = equipmentStart.add(service.totalDuration);
-    final equipmentCheck = EquipmentAvailabilityChecker.check(
-      salon: salon,
-      service: service,
-      allServices: allServices,
-      appointments: combinedAppointments,
-      start: equipmentStart,
-      end: equipmentEnd,
-      excludeAppointmentId: appointment.id,
-    );
-    if (equipmentCheck.hasConflicts) {
-      blockingEquipment.addAll(equipmentCheck.blockingEquipment);
-    }
-    equipmentStart = equipmentEnd;
-  }
-  if (blockingEquipment.isNotEmpty) {
-    final equipmentLabel = blockingEquipment.join(', ');
-    final message =
-        equipmentLabel.isEmpty
-            ? 'Macchinario non disponibile per questo orario.'
-            : 'Macchinario non disponibile per questo orario: $equipmentLabel.';
-    messenger.showSnackBar(
-      SnackBar(content: Text('$message Scegli un altro slot.')),
-    );
-    return false;
-  }
-  try {
-    await ref.read(appDataProvider.notifier).upsertAppointment(appointment);
-    return true;
-  } on StateError catch (error) {
-    messenger.showSnackBar(SnackBar(content: Text(error.message)));
-    return false;
-  } catch (error) {
-    messenger.showSnackBar(
-      SnackBar(content: Text('Errore durante il salvataggio: $error')),
-    );
-    return false;
   }
 }
 

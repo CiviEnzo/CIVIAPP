@@ -46,6 +46,7 @@ class SaleFormSheet extends StatefulWidget {
     this.initialDate,
     this.initialStaffId,
     this.initialSaleId,
+    this.onSaved,
   });
 
   final List<Salon> salons;
@@ -67,6 +68,7 @@ class SaleFormSheet extends StatefulWidget {
   final DateTime? initialDate;
   final String? initialStaffId;
   final String? initialSaleId;
+  final void Function(Sale sale)? onSaved;
 
   @override
   State<SaleFormSheet> createState() => _SaleFormSheetState();
@@ -92,12 +94,13 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   late final TextEditingController _manualTotalController;
   late final TextEditingController _paidAmountController;
   late final TextEditingController _loyaltyRedeemController;
-
+  final Map<String, int> _coveredServices = {};
   PaymentMethod? _payment;
   SalePaymentStatus? _paymentStatus;
   String? _salonId;
   String? _clientId;
   String? _staffId;
+  String? _recorderStaffId;
   DateTime _date = DateTime.now();
   bool _manualTotalOverridden = false;
   bool _programmaticManualUpdate = false;
@@ -152,6 +155,18 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       if (!matchesSalon) {
         _staffId = null;
       }
+    }
+
+    final existingSale = widget.initialSaleId != null
+        ? widget.sales.firstWhereOrNull(
+            (sale) => sale.id == widget.initialSaleId,
+          )
+        : null;
+    final existingRecorderId = existingSale?.metadata['recordedByStaffId'];
+    if (existingRecorderId is String && existingRecorderId.isNotEmpty) {
+      _recorderStaffId = existingRecorderId;
+    } else {
+      _recorderStaffId = null;
     }
 
     _manualTotalController.addListener(_handleManualTotalChanged);
@@ -383,6 +398,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     required double total,
     required Salon? salon,
     required Client? client,
+    required List<StaffMember> staff,
   }) {
     return [
       Row(
@@ -408,6 +424,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         total: total,
         salon: salon,
         client: client,
+        staff: staff,
       ),
     ];
   }
@@ -422,6 +439,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     required double total,
     required Salon? salon,
     required Client? client,
+    required List<StaffMember> staff,
   }) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -437,21 +455,33 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
           salon: salon,
           client: client,
         );
+        final coverageSummary = _buildPackageCoverageSummary(theme);
         final paymentSection = _buildPaymentSection(
           theme: theme,
           currency: currency,
           total: total,
+          staff: staff,
+        );
+        final summaryStack = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            summaryCard,
+            if (coverageSummary is! SizedBox) ...[
+              const SizedBox(height: 12),
+              coverageSummary,
+            ],
+          ],
         );
         if (!isWide) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [summaryCard, const SizedBox(height: 24), paymentSection],
+            children: [summaryStack, const SizedBox(height: 24), paymentSection],
           );
         }
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(child: summaryCard),
+            Expanded(child: summaryStack),
             const SizedBox(width: 24),
             Expanded(child: paymentSection),
           ],
@@ -646,6 +676,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     required ThemeData theme,
     required NumberFormat currency,
     required double total,
+    required List<StaffMember> staff,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -663,24 +694,6 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
             style: theme.textTheme.bodyMedium,
           ),
         ] else ...[
-          DropdownButtonFormField<PaymentMethod>(
-            value: _payment,
-            decoration: const InputDecoration(labelText: 'Metodo di pagamento'),
-            items:
-                PaymentMethod.values
-                    .map(
-                      (method) => DropdownMenuItem(
-                        value: method,
-                        child: Text(_paymentLabel(method)),
-                      ),
-                    )
-                    .toList(),
-            validator:
-                (value) =>
-                    value == null ? 'Seleziona il metodo di pagamento' : null,
-            onChanged: (value) => setState(() => _payment = value),
-          ),
-          const SizedBox(height: 12),
           DropdownButtonFormField<SalePaymentStatus>(
             value: _paymentStatus,
             decoration: const InputDecoration(labelText: 'Stato pagamento'),
@@ -699,6 +712,9 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
             onChanged: (value) {
               setState(() {
                 _paymentStatus = value;
+                if (value == SalePaymentStatus.posticipated) {
+                  _payment = null;
+                }
               });
               if (value != SalePaymentStatus.deposit) {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -710,35 +726,76 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
               }
             },
           ),
-          if (_paymentStatus == SalePaymentStatus.deposit) ...[
+          if (_paymentStatus != SalePaymentStatus.posticipated) ...[
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _paidAmountController,
-              decoration: const InputDecoration(
-                labelText: 'Importo incassato (€)',
-              ),
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              validator: (value) {
-                if (_paymentStatus != SalePaymentStatus.deposit) {
+            DropdownButtonFormField<PaymentMethod>(
+              value: _payment,
+              decoration: const InputDecoration(labelText: 'Metodo di pagamento'),
+              items:
+                  PaymentMethod.values
+                      .map(
+                        (method) => DropdownMenuItem(
+                          value: method,
+                          child: Text(_paymentLabel(method)),
+                        ),
+                      )
+                      .toList(),
+              validator: (value) =>
+                  value == null ? 'Seleziona il metodo di pagamento' : null,
+              onChanged: (value) => setState(() => _payment = value),
+            ),
+            if (_paymentStatus == SalePaymentStatus.deposit) ...[
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _paidAmountController,
+                decoration: const InputDecoration(
+                  labelText: 'Importo incassato (€)',
+                ),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                validator: (value) {
+                  if (_paymentStatus != SalePaymentStatus.deposit) {
+                    return null;
+                  }
+                  final amount = _parseAmount(value);
+                  if (amount == null || amount <= 0) {
+                    return 'Inserisci un importo valido';
+                  }
+                  if (amount > total + 0.01) {
+                    return 'L\'acconto supera il totale';
+                  }
                   return null;
-                }
-                final amount = _parseAmount(value);
-                if (amount == null || amount <= 0) {
-                  return 'Inserisci un importo valido';
-                }
-                if (amount > total + 0.01) {
-                  return 'L\'acconto supera il totale';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Residuo da incassare: ${currency.format(_remainingBalance(total))}',
-              style: theme.textTheme.bodyMedium,
-            ),
+                },
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Residuo da incassare: ${currency.format(_remainingBalance(total))}',
+                style: theme.textTheme.bodyMedium,
+              ),
+            ],
           ],
+        ],
+        if (staff.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          DropdownButtonFormField<String>(
+            value: staff.any((member) => member.id == _recorderStaffId)
+                ? _recorderStaffId
+                : null,
+            decoration: const InputDecoration(labelText: 'Registrato da'),
+            items:
+                staff
+                    .map(
+                      (member) => DropdownMenuItem(
+                        value: member.id,
+                        child: Text(member.fullName),
+                      ),
+                    )
+                    .toList(),
+            validator: (value) => value == null
+                ? 'Seleziona l\'operatore che registra la vendita'
+                : null,
+            onChanged: (value) => setState(() => _recorderStaffId = value),
+          ),
         ],
         const SizedBox(height: 24),
       ],
@@ -886,6 +943,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                             total: total,
                             salon: salon,
                             client: currentClient,
+                            staff: staff,
                           )
                           : _buildEditingContent(
                             theme: theme,
@@ -1231,7 +1289,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
               children: [
                 Expanded(
                   child: Text(
-                    '$typeLabel • Riga ${index + 1}',
+                    '$typeLabel • ${_lineDisplayLabel(line, index)}',
                     style: theme.textTheme.titleMedium,
                   ),
                 ),
@@ -2504,10 +2562,11 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       return;
     }
 
-    final items = _collectSaleItems();
+    var items = _collectSaleItems();
     if (items == null) {
       return;
     }
+    items = _applyPackageSessionCoverage(items);
     final subtotal = _computeSubtotal();
     final manualDiscount = _currentManualDiscount(subtotal);
     final baseTotal = _currentTotal(subtotal, manualDiscount);
@@ -2524,36 +2583,41 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     SalePaymentStatus paymentStatus;
     double paidAmount;
     if (requiresPayment) {
-      final selectedMethod = _payment;
-      if (selectedMethod == null) {
-        _showSnackBar('Seleziona il metodo di pagamento.');
-        return;
-      }
       final selectedStatus = _paymentStatus;
       if (selectedStatus == null) {
         _showSnackBar('Seleziona lo stato del pagamento.');
         return;
       }
-      paymentMethod = selectedMethod;
       paymentStatus = selectedStatus;
-      if (paymentStatus == SalePaymentStatus.deposit) {
-        final amount = _parseAmount(_paidAmountController.text) ?? 0;
-        if (amount <= 0) {
-          _showSnackBar('Inserisci un importo valido per l\'acconto.');
-          return;
-        }
-        if (amount > total + 0.01) {
-          _showSnackBar('L\'acconto supera il totale della vendita.');
-          return;
-        }
-        if ((total - amount).abs() < 0.01) {
-          paymentStatus = SalePaymentStatus.paid;
-          paidAmount = total;
-        } else {
-          paidAmount = double.parse(amount.toStringAsFixed(2));
-        }
+      if (paymentStatus == SalePaymentStatus.posticipated) {
+        paymentMethod = _payment ?? PaymentMethod.pos;
+        paidAmount = 0;
       } else {
-        paidAmount = total;
+        final selectedMethod = _payment;
+        if (selectedMethod == null) {
+          _showSnackBar('Seleziona il metodo di pagamento.');
+          return;
+        }
+        paymentMethod = selectedMethod;
+        if (paymentStatus == SalePaymentStatus.deposit) {
+          final amount = _parseAmount(_paidAmountController.text) ?? 0;
+          if (amount <= 0) {
+            _showSnackBar('Inserisci un importo valido per l\'acconto.');
+            return;
+          }
+          if (amount > total + 0.01) {
+            _showSnackBar('L\'acconto supera il totale della vendita.');
+            return;
+          }
+          if ((total - amount).abs() < 0.01) {
+            paymentStatus = SalePaymentStatus.paid;
+            paidAmount = total;
+          } else {
+            paidAmount = double.parse(amount.toStringAsFixed(2));
+          }
+        } else {
+          paidAmount = total;
+        }
       }
     } else {
       paymentMethod = _payment ?? PaymentMethod.pos;
@@ -2568,12 +2632,18 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       paymentMethod,
     );
 
-    final recordedByName =
-        _operatorStaff
-            .firstWhereOrNull((member) => member.id == _staffId)
-            ?.fullName;
+    final staffId = _staffId!;
+    final recordedStaffId = _recorderStaffId ?? staffId;
+    final recordedByName = _operatorStaff
+        .firstWhereOrNull((member) => member.id == recordedStaffId)
+        ?.fullName;
     final paymentMovements = <SalePaymentMovement>[];
-    if (paidAmount > 0) {
+    final shouldRegisterMovement =
+        paymentStatus == SalePaymentStatus.posticipated || paidAmount > 0;
+    if (shouldRegisterMovement) {
+      final movementAmount = paymentStatus == SalePaymentStatus.posticipated
+          ? 0.0
+          : paidAmount;
       final movementType =
           paymentStatus == SalePaymentStatus.paid
               ? SalePaymentType.settlement
@@ -2581,7 +2651,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       paymentMovements.add(
         SalePaymentMovement(
           id: _uuid.v4(),
-          amount: paidAmount,
+          amount: movementAmount,
           type: movementType,
           date: _date,
           paymentMethod: paymentMethod,
@@ -2605,6 +2675,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       }
       return const <String, dynamic>{'source': 'backoffice'};
     }();
+    final saleMetadata = Map<String, dynamic>.from(resolvedMetadata);
+    saleMetadata['recordedByStaffId'] = recordedStaffId;
 
     final sale = Sale(
       id: widget.initialSaleId ?? _uuid.v4(),
@@ -2619,12 +2691,16 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       invoiceNumber: invoice.isEmpty ? null : invoice,
       notes: notes.isEmpty ? null : notes,
       discountAmount: totalDiscount,
-      staffId: _staffId,
+      staffId: staffId,
       paymentHistory: paymentMovements,
       loyalty: _loyaltySummary,
-      metadata: resolvedMetadata,
+      metadata: saleMetadata,
     );
 
+    if (widget.onSaved != null) {
+      widget.onSaved!(sale);
+      return;
+    }
     Navigator.of(context).pop(sale);
   }
 
@@ -2724,6 +2800,131 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     }
   }
 
+  Widget _buildPackageCoverageSummary(ThemeData theme) {
+    if (_coveredServices.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Copertura pacchetti', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            for (final entry in _coveredServices.entries)
+              Row(
+                children: [
+                  Icon(Icons.check_circle_outline,
+                      size: 18, color: theme.colorScheme.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${entry.key}: ${entry.value} sessioni scalate',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<SaleItem> _applyPackageSessionCoverage(List<SaleItem> items) {
+    _coveredServices.clear();
+    final updatedPackages = <int, SaleItem>{};
+    for (var i = 0; i < items.length; i++) {
+      final item = items[i];
+      if (item.referenceType == SaleReferenceType.package) {
+        updatedPackages[i] = item;
+      }
+    }
+    final adjustedItems = <SaleItem>[];
+    for (var i = 0; i < items.length; i++) {
+      final item = items[i];
+      if (item.referenceType == SaleReferenceType.package) {
+        adjustedItems.add(updatedPackages[i]!);
+        continue;
+      }
+      if (item.referenceType == SaleReferenceType.service) {
+        final fullyCovered = _consumeServiceFromPackages(
+          serviceItem: item,
+          packages: updatedPackages,
+        );
+        if (fullyCovered) {
+          adjustedItems.add(item.copyWith(unitPrice: 0));
+          continue;
+        }
+      }
+      adjustedItems.add(item);
+    }
+    return adjustedItems;
+  }
+
+  bool _consumeServiceFromPackages({
+    required SaleItem serviceItem,
+    required Map<int, SaleItem> packages,
+  }) {
+    final serviceId = serviceItem.referenceId;
+    if (serviceId == null || serviceId.isEmpty) {
+      return false;
+    }
+    var remaining = serviceItem.quantity.round();
+    if (remaining <= 0) {
+      return false;
+    }
+    var consumedAny = false;
+    for (final index in packages.keys.toList()) {
+      if (remaining <= 0) {
+        break;
+      }
+      var packageItem = packages[index]!;
+      final sessions = packageItem.packageServiceSessions[serviceId] ?? 0;
+      if (sessions <= 0) {
+        continue;
+      }
+      final use = math.min(sessions, remaining);
+      remaining -= use;
+      consumedAny = true;
+      _coveredServices.update(
+        _serviceNameForId(serviceId),
+        (value) => value + use,
+        ifAbsent: () => use,
+      );
+      final updatedSessions = Map<String, int>.from(
+        packageItem.packageServiceSessions,
+      );
+      final updatedValue = sessions - use;
+      if (updatedValue > 0) {
+        updatedSessions[serviceId] = updatedValue;
+      } else {
+        updatedSessions.remove(serviceId);
+      }
+      packageItem = packageItem.copyWith(
+        packageServiceSessions: updatedSessions,
+      );
+      packages[index] = packageItem;
+    }
+    return consumedAny && remaining <= 0;
+  }
+
+  String _serviceNameForId(String serviceId) {
+    final service = widget.services.firstWhereOrNull((item) => item.id == serviceId);
+    return service?.name ?? 'Servizio';
+  }
+
+  String _lineDisplayLabel(_SaleLineDraft line, int index) {
+    final description = line.catalogLabel?.trim().isNotEmpty == true
+        ? line.catalogLabel!.trim()
+        : line.descriptionController.text.trim();
+    if (description.isNotEmpty) {
+      return description;
+    }
+    return 'Voce ${index + 1}';
+  }
+
   String _paymentLabel(PaymentMethod method) {
     switch (method) {
       case PaymentMethod.cash:
@@ -2734,6 +2935,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         return 'Bonifico';
       case PaymentMethod.giftCard:
         return 'Gift card';
+      case PaymentMethod.posticipated:
+        return 'Posticipato';
     }
   }
 

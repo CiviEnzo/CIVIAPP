@@ -124,6 +124,8 @@ class _PackageDepositFormSheetState extends State<PackageDepositFormSheet> {
         return 'Bonifico';
       case PaymentMethod.giftCard:
         return 'Gift card';
+      case PaymentMethod.posticipated:
+        return 'Posticipato';
     }
   }
 

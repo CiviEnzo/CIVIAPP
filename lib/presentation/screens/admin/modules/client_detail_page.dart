@@ -24,6 +24,7 @@ import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/domain/entities/user_role.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/screens/admin/forms/appointment_form_sheet.dart';
+import 'package:you_book/presentation/screens/admin/forms/appointment_sale_flow_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/client_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/outstanding_payment_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/package_deposit_form_sheet.dart';
@@ -34,6 +35,7 @@ import 'package:you_book/presentation/screens/admin/forms/quote_form_sheet.dart'
 import 'package:you_book/presentation/screens/admin/forms/sale_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/widgets/client_overview_section.dart';
 import 'package:you_book/presentation/screens/admin/modules/collage_editor_dialog.dart';
+import 'package:you_book/presentation/screens/admin/modules/sales/sale_helpers.dart';
 import 'package:you_book/presentation/shared/client_package_purchase.dart';
 import 'package:collection/collection.dart';
 import 'package:file_picker/file_picker.dart';
@@ -3328,8 +3330,9 @@ class _AppointmentsTab extends ConsumerWidget {
 
       final result = await showAppModalSheet<AppointmentFormResult>(
         context: context,
+        includeCloseButton: false,
         builder:
-            (ctx) => AppointmentFormSheet(
+            (ctx) => AppointmentSaleFlowSheet(
               salons: sheetSalons,
               clients: sheetClients,
               staff: sheetStaff,
@@ -3364,14 +3367,6 @@ class _AppointmentsTab extends ConsumerWidget {
       if (result.action == AppointmentFormAction.delete) {
         return;
       }
-      await _validateAndSaveAppointment(
-        context,
-        ref,
-        result.appointment,
-        appointments,
-        sheetServices,
-        sheetSalons,
-      );
     }
 
     Future<void> createAppointment() async {
@@ -3460,156 +3455,6 @@ class _AppointmentsTab extends ConsumerWidget {
         ),
       ],
     );
-  }
-
-  Future<bool> _validateAndSaveAppointment(
-    BuildContext context,
-    WidgetRef ref,
-    Appointment appointment,
-    List<Appointment> fallbackAppointments,
-    List<Service> fallbackServices,
-    List<Salon> fallbackSalons,
-  ) async {
-    final messenger = ScaffoldMessenger.of(context);
-    final data = ref.read(appDataProvider);
-    final existingAppointments =
-        data.appointments.isNotEmpty ? data.appointments : fallbackAppointments;
-    final services =
-        data.services.isNotEmpty ? data.services : fallbackServices;
-    final salons = data.salons.isNotEmpty ? data.salons : fallbackSalons;
-
-    final now = DateTime.now();
-    final expressPlaceholders =
-        data.lastMinuteSlots
-            .where((slot) {
-              if (slot.salonId != appointment.salonId) {
-                return false;
-              }
-              if (slot.operatorId != appointment.staffId) {
-                return false;
-              }
-              if (!slot.isAvailable) {
-                return false;
-              }
-              if (!slot.end.isAfter(now)) {
-                return false;
-              }
-              return true;
-            })
-            .map(
-              (slot) => Appointment(
-                id: 'last-minute-${slot.id}',
-                salonId: slot.salonId,
-                clientId: 'last-minute-${slot.id}',
-                staffId: slot.operatorId ?? appointment.staffId,
-                serviceIds:
-                    slot.serviceId != null && slot.serviceId!.isNotEmpty
-                        ? <String>[slot.serviceId!]
-                        : const <String>[],
-                start: slot.start,
-                end: slot.end,
-                status: AppointmentStatus.scheduled,
-                roomId: slot.roomId,
-              ),
-            )
-            .toList();
-    final combinedAppointments = <Appointment>[
-      ...existingAppointments,
-      ...expressPlaceholders,
-    ];
-
-    final hasStaffConflict = hasStaffBookingConflict(
-      appointments: combinedAppointments,
-      staffId: appointment.staffId,
-      start: appointment.start,
-      end: appointment.end,
-      excludeAppointmentId: appointment.id,
-    );
-    if (hasStaffConflict) {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Impossibile salvare: operatore già occupato in quel periodo',
-          ),
-        ),
-      );
-      return false;
-    }
-
-    final hasClientConflict = hasClientBookingConflict(
-      appointments: existingAppointments,
-      clientId: appointment.clientId,
-      start: appointment.start,
-      end: appointment.end,
-      excludeAppointmentId: appointment.id,
-    );
-    if (hasClientConflict) {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Impossibile salvare: il cliente ha già un appuntamento in quel periodo',
-          ),
-        ),
-      );
-      return false;
-    }
-
-    final appointmentServices =
-        appointment.serviceIds
-            .map((id) => services.firstWhereOrNull((item) => item.id == id))
-            .whereType<Service>()
-            .toList();
-    if (appointmentServices.isEmpty) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Servizio non valido.')),
-      );
-      return false;
-    }
-    final salon = salons.firstWhereOrNull(
-      (item) => item.id == appointment.salonId,
-    );
-    final blockingEquipment = <String>{};
-    var equipmentStart = appointment.start;
-    for (final service in appointmentServices) {
-      final equipmentEnd = equipmentStart.add(service.totalDuration);
-      final equipmentCheck = EquipmentAvailabilityChecker.check(
-        salon: salon,
-        service: service,
-        allServices: services,
-        appointments: combinedAppointments,
-        start: equipmentStart,
-        end: equipmentEnd,
-        excludeAppointmentId: appointment.id,
-      );
-      if (equipmentCheck.hasConflicts) {
-        blockingEquipment.addAll(equipmentCheck.blockingEquipment);
-      }
-      equipmentStart = equipmentEnd;
-    }
-    if (blockingEquipment.isNotEmpty) {
-      final equipmentLabel = blockingEquipment.join(', ');
-      final message =
-          equipmentLabel.isEmpty
-              ? 'Macchinario non disponibile per questo orario.'
-              : 'Macchinario non disponibile per questo orario: $equipmentLabel.';
-      messenger.showSnackBar(
-        SnackBar(content: Text('$message Scegli un altro slot.')),
-      );
-      return false;
-    }
-
-    try {
-      await ref.read(appDataProvider.notifier).upsertAppointment(appointment);
-      return true;
-    } on StateError catch (error) {
-      messenger.showSnackBar(SnackBar(content: Text(error.message)));
-      return false;
-    } catch (error) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('Errore durante il salvataggio: $error')),
-      );
-      return false;
-    }
   }
 }
 
@@ -5882,7 +5727,7 @@ class _BillingTab extends ConsumerWidget {
 
     final store = ref.read(appDataProvider.notifier);
     await store.upsertSale(sale);
-    await _recordSaleCashFlow(ref: ref, sale: sale, clients: clients);
+    await recordSaleCashFlow(ref: ref, sale: sale, clients: clients);
 
     if (!context.mounted) {
       return;
@@ -5890,37 +5735,6 @@ class _BillingTab extends ConsumerWidget {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Vendita registrata.')));
-  }
-
-  Future<void> _recordSaleCashFlow({
-    required WidgetRef ref,
-    required Sale sale,
-    required List<Client> clients,
-  }) async {
-    final cashPortion =
-        sale.paymentStatus == SalePaymentStatus.deposit
-            ? sale.paidAmount
-            : sale.total;
-    final normalized = _normalizeCurrency(cashPortion);
-    if (normalized <= 0) {
-      return;
-    }
-    final clientName =
-        clients
-            .firstWhereOrNull((client) => client.id == sale.clientId)
-            ?.fullName ??
-        'Cliente';
-    final description =
-        sale.paymentStatus == SalePaymentStatus.deposit
-            ? 'Acconto vendita a $clientName'
-            : 'Vendita a $clientName';
-    await _recordCashFlowEntry(
-      ref: ref,
-      sale: sale,
-      amount: normalized,
-      description: description,
-      date: sale.createdAt,
-    );
   }
 
   double _packageOutstandingAmount(Sale sale) {
@@ -6733,7 +6547,7 @@ class _BillingTab extends ConsumerWidget {
     }
 
     await store.upsertSale(sale);
-    await _recordSaleCashFlow(ref: ref, sale: sale, clients: clients);
+    await recordSaleCashFlow(ref: ref, sale: sale, clients: clients);
 
     await store.closePaymentTicket(ticket.id, saleId: sale.id);
 
@@ -7460,6 +7274,8 @@ class _PackageGroup extends StatelessWidget {
         return 'Bonifico';
       case PaymentMethod.giftCard:
         return 'Gift card';
+      case PaymentMethod.posticipated:
+        return 'Posticipato';
     }
   }
 
