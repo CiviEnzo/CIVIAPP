@@ -166,13 +166,17 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
 
     if (intent.moduleId == 'clients') {
       final payload = intent.payload;
+      final detailTabIndexValue = payload['detailTabIndex'];
+      final detailTabIndex =
+          detailTabIndexValue is int ? detailTabIndexValue : null;
       ref
           .read(clientsModuleIntentProvider.notifier)
           .state = ClientsModuleIntent(
-        generalQuery: payload['generalQuery'] as String?,
-        clientNumber: payload['clientNumber'] as String?,
-        clientId: payload['clientId'] as String?,
-      );
+            generalQuery: payload['generalQuery'] as String?,
+            clientNumber: payload['clientNumber'] as String?,
+            clientId: payload['clientId'] as String?,
+            detailTabIndex: detailTabIndex,
+          );
     }
   }
 
@@ -338,8 +342,8 @@ class _RailNavigationState extends State<_RailNavigation> {
     final theme = Theme.of(context);
     return LayoutBuilder(
       builder: (context, constraints) {
-        const double destinationExtent = 72;
-        const double extraHeight = 128;
+        const double destinationExtent = 80;
+        const double extraHeight = 120;
         final railTheme = theme.copyWith(
           splashFactory: NoSplash.splashFactory,
           highlightColor: Colors.transparent,
@@ -352,8 +356,9 @@ class _RailNavigationState extends State<_RailNavigation> {
           child: NavigationRail(
             selectedIndex: widget.selectedIndex,
             onDestinationSelected: widget.onSelect,
+            minWidth: 68,
             useIndicator: false,
-            labelType: NavigationRailLabelType.all,
+            labelType: NavigationRailLabelType.none,
             leading: Padding(
               padding: const EdgeInsets.only(top: 16),
               child: Text('Moduli', style: theme.textTheme.titleMedium),
@@ -362,15 +367,11 @@ class _RailNavigationState extends State<_RailNavigation> {
                 widget.modules
                     .map(
                       (module) => NavigationRailDestination(
-                        icon: _adminNavigationIcon(
+                        icon: _navigationRailIcon(module, false, context),
+                        selectedIcon: _navigationRailIcon(
+                          module,
+                          true,
                           context,
-                          icon: module.icon,
-                          selected: false,
-                        ),
-                        selectedIcon: _adminNavigationIcon(
-                          context,
-                          icon: module.icon,
-                          selected: true,
                         ),
                         label: Text(module.title, textAlign: TextAlign.center),
                       ),
@@ -475,7 +476,7 @@ Widget _adminNavigationIcon(
   final scheme = Theme.of(context).colorScheme;
 
   if (!selected) {
-    return Icon(icon, size: 24, color: scheme.onSurfaceVariant);
+    return Icon(icon, size: 28, color: scheme.onSurfaceVariant);
   }
 
   return DecoratedBox(
@@ -492,7 +493,32 @@ Widget _adminNavigationIcon(
     ),
     child: Padding(
       padding: const EdgeInsets.all(8),
-      child: Icon(icon, size: 24, color: scheme.onPrimary),
+      child: Icon(icon, size: 28, color: scheme.onPrimary),
+    ),
+  );
+}
+
+Widget _navigationRailIcon(
+  AdminModuleDefinition module,
+  bool selected,
+  BuildContext context,
+) {
+  return Tooltip(
+    message: module.title,
+    waitDuration: const Duration(milliseconds: 500),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: SizedBox(
+        width: 54,
+        height: 54,
+        child: Center(
+          child: _adminNavigationIcon(
+            context,
+            icon: module.icon,
+            selected: selected,
+          ),
+        ),
+      ),
     ),
   );
 }

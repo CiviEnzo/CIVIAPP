@@ -6980,164 +6980,6 @@ Color? _resolveCategoryColor(
   return _categoryAccentColor(fallbackLabel, theme);
 }
 
-Color _serviceBaseColor(
-  Service service,
-  Map<String, ServiceCategory> categoriesById,
-  Map<String, ServiceCategory> categoriesByName,
-  ThemeData theme,
-) {
-  final categoryId = service.categoryId?.trim();
-  if (categoryId != null && categoryId.isNotEmpty) {
-    final category = categoriesById[categoryId];
-    final colorValue = category?.color;
-    if (colorValue != null) {
-      return Color(colorValue);
-    }
-  }
-
-  final normalizedName = service.category.trim().toLowerCase();
-  if (normalizedName.isNotEmpty) {
-    final category = categoriesByName[normalizedName];
-    final colorValue = category?.color;
-    if (colorValue != null) {
-      return Color(colorValue);
-    }
-  }
-
-  final fallbackLabel =
-      service.category.trim().isNotEmpty
-          ? service.category.trim()
-          : service.name.trim();
-  final accentColor = _categoryAccentColor(
-    fallbackLabel.isNotEmpty ? fallbackLabel : null,
-    theme,
-  );
-  return accentColor ?? theme.colorScheme.primary;
-}
-
-List<Color> _serviceStripeTintColors(
-  List<Service> services,
-  Map<String, ServiceCategory> categoriesById,
-  Map<String, ServiceCategory> categoriesByName,
-  ThemeData theme,
-) {
-  final colors = <Color>[];
-  for (final service in services) {
-    final baseColor = _serviceBaseColor(
-      service,
-      categoriesById,
-      categoriesByName,
-      theme,
-    );
-    colors.add(
-      Color.alphaBlend(
-        baseColor.withValues(
-          alpha: theme.brightness == Brightness.dark ? 0.75 : 0.88,
-        ),
-        theme.colorScheme.surface.withValues(alpha: 0),
-      ),
-    );
-  }
-  return colors;
-}
-
-List<Color> _serviceIndicatorColors(
-  List<Service> services,
-  Map<String, ServiceCategory> categoriesById,
-  Map<String, ServiceCategory> categoriesByName,
-  ThemeData theme,
-) {
-  final indicatorColors = <Color>[];
-  for (final service in services) {
-    final color = _serviceBaseColor(
-      service,
-      categoriesById,
-      categoriesByName,
-      theme,
-    );
-    if (indicatorColors.any((existing) => existing.value == color.value)) {
-      continue;
-    }
-    indicatorColors.add(color);
-  }
-  return indicatorColors;
-}
-
-class _ServiceGradientSegment {
-  const _ServiceGradientSegment({
-    required this.color,
-    required this.start,
-    required this.end,
-  });
-
-  final Color color;
-  final double start;
-  final double end;
-
-  _ServiceGradientSegment copyWith({Color? color, double? start, double? end}) {
-    return _ServiceGradientSegment(
-      color: color ?? this.color,
-      start: start ?? this.start,
-      end: end ?? this.end,
-    );
-  }
-}
-
-List<_ServiceGradientSegment> _serviceGradientSegments(
-  List<Service> services,
-  Map<String, ServiceCategory> categoriesById,
-  Map<String, ServiceCategory> categoriesByName,
-  ThemeData theme,
-) {
-  if (services.isEmpty) {
-    return const <_ServiceGradientSegment>[];
-  }
-  final validServices =
-      services.where((service) {
-        return service.totalDuration.inMinutes > 0;
-      }).toList();
-  if (validServices.isEmpty) {
-    return const <_ServiceGradientSegment>[];
-  }
-  final durations = validServices
-      .map((service) => max(1, service.totalDuration.inMinutes))
-      .toList(growable: false);
-  final totalMinutes = durations.fold<int>(0, (sum, value) => sum + value);
-  if (totalMinutes == 0) {
-    return const <_ServiceGradientSegment>[];
-  }
-  double accumulated = 0.0;
-  final segments = <_ServiceGradientSegment>[];
-  for (var index = 0; index < validServices.length; index++) {
-    final service = validServices[index];
-    final minutes = durations[index];
-    final fraction = minutes / totalMinutes;
-    final start = accumulated;
-    var end = min(1.0, accumulated + fraction);
-    if (index == validServices.length - 1) {
-      end = 1.0;
-    }
-    if (end <= start) {
-      continue;
-    }
-    accumulated = end;
-    final color = _serviceBaseColor(
-      service,
-      categoriesById,
-      categoriesByName,
-      theme,
-    );
-    segments.add(_ServiceGradientSegment(color: color, start: start, end: end));
-  }
-  if (segments.isNotEmpty) {
-    final last = segments.last;
-    if (last.end < 1.0) {
-      segments[segments.length - 1] = last.copyWith(end: 1.0);
-    }
-  }
-  return segments;
-}
-
 Color _onColorFor(Color background, ThemeData theme) {
   final brightness = ThemeData.estimateBrightnessForColor(background);
   if (brightness == Brightness.dark) {
@@ -7241,16 +7083,6 @@ class _AppointmentCardState extends State<_AppointmentCard> {
         servicesToDisplay.isNotEmpty
             ? servicesToDisplay.map((service) => service.name).join(' + ')
             : null;
-    final serviceIndicatorColors =
-        servicesToDisplay.length > 1
-            ? _serviceIndicatorColors(
-              servicesToDisplay,
-              categoriesById,
-              categoriesByName,
-              theme,
-            )
-            : const <Color>[];
-    final showServiceIndicators = serviceIndicatorColors.length > 1;
     final isLastMinute = lastMinuteSlot != null;
     final int contentDurationMinutes = max(
       1,
@@ -7292,174 +7124,20 @@ class _AppointmentCardState extends State<_AppointmentCard> {
       }
     }
     final highlightAnomalies = hasAnomalies && !hideNoShowColor;
-    final double anomalyGradientStartAlpha =
-        theme.brightness == Brightness.dark ? 0.34 : 0.25;
-    final double anomalyGradientEndAlpha =
-        theme.brightness == Brightness.dark ? 0.3 : 0.12;
     if (highlightAnomalies) {
+      final double startAlpha =
+          theme.brightness == Brightness.dark ? 0.45 : 0.25;
+      final double endAlpha = theme.brightness == Brightness.dark ? 0.3 : 0.12;
       backgroundColor = Color.alphaBlend(
-        theme.colorScheme.error.withValues(alpha: anomalyGradientStartAlpha),
+        theme.colorScheme.error.withValues(alpha: startAlpha),
         backgroundColor,
       );
       borderBlendColor = Color.alphaBlend(
-        theme.colorScheme.error.withValues(alpha: anomalyGradientEndAlpha),
+        theme.colorScheme.error.withValues(alpha: endAlpha),
         borderBlendColor,
       );
     }
 
-    final Color cardSurface =
-        theme.brightness == Brightness.dark
-            ? theme.colorScheme.surface
-            : Colors.white;
-    final bool hasCategoryTone =
-        !isCancelled && !hideNoShowColor && baseColor.opacity > 0.0;
-    final Color stripeColor =
-        hasCategoryTone
-            ? Color.alphaBlend(
-              baseColor.withValues(
-                alpha: theme.brightness == Brightness.dark ? 0.75 : 0.88,
-              ),
-              theme.colorScheme.surface.withValues(alpha: 0),
-            )
-            : theme.colorScheme.outlineVariant.withValues(
-              alpha: theme.brightness == Brightness.dark ? 0.6 : 0.45,
-            );
-    final List<Color> serviceStripeColors =
-        hasCategoryTone
-            ? _serviceStripeTintColors(
-              servicesToDisplay,
-              categoriesById,
-              categoriesByName,
-              theme,
-            )
-            : const <Color>[];
-    final bool showMultiServiceStripe = serviceStripeColors.length > 1;
-    final List<_ServiceGradientSegment> serviceGradientSegments =
-        hasCategoryTone
-            ? _serviceGradientSegments(
-              servicesToDisplay,
-              categoriesById,
-              categoriesByName,
-              theme,
-            )
-            : const <_ServiceGradientSegment>[];
-    final bool showMultiServiceGradient = serviceGradientSegments.length > 1;
-    Color gradientStart = cardSurface;
-    Color gradientEnd = cardSurface;
-    if (hasCategoryTone || backgroundColor.opacity > 0.0) {
-      final Color tintSource = hasCategoryTone ? baseColor : borderBlendColor;
-      if (forceSolidCategoryFill && hasCategoryTone) {
-        gradientStart = baseColor;
-        gradientEnd = Color.alphaBlend(
-          Colors.black.withOpacity(
-            theme.brightness == Brightness.dark ? 0.24 : 0.14,
-          ),
-          baseColor,
-        );
-      } else {
-        gradientStart = Color.alphaBlend(
-          tintSource.withValues(
-            alpha: theme.brightness == Brightness.dark ? 0.5 : 0.4,
-          ),
-          cardSurface,
-        );
-        gradientEnd = Color.alphaBlend(
-          tintSource.withValues(
-            alpha: theme.brightness == Brightness.dark ? 0.24 : 0.2,
-          ),
-          cardSurface,
-        );
-      }
-    }
-    final Gradient cardGradient;
-    final Color contentSampleColor;
-    if (showMultiServiceGradient) {
-      final gradientColors = <Color>[];
-      final gradientStops = <double>[];
-      final tintedSegmentColors = <Color>[];
-      for (final segment in serviceGradientSegments) {
-        var tinted = Color.alphaBlend(
-          segment.color.withValues(
-            alpha: theme.brightness == Brightness.dark ? 0.82 : 0.7,
-          ),
-          theme.colorScheme.surface.withValues(alpha: 0),
-        );
-        if (highlightAnomalies) {
-          tinted = Color.alphaBlend(
-            theme.colorScheme.error.withValues(
-              alpha: anomalyGradientStartAlpha,
-            ),
-            tinted,
-          );
-        }
-        tintedSegmentColors.add(tinted);
-      }
-      for (var index = 0; index < serviceGradientSegments.length; index++) {
-        final segment = serviceGradientSegments[index];
-        final color = tintedSegmentColors[index];
-        final start = segment.start;
-        final end = segment.end;
-        final blendWidth = min(0.04, (end - start) * 0.2);
-        gradientColors.add(color);
-        gradientStops.add(start);
-        if (index < serviceGradientSegments.length - 1) {
-          final nextColor = tintedSegmentColors[index + 1];
-          final mixed = Color.lerp(color, nextColor, 0.5)!;
-          final boundary = end;
-          final transitionStart = (boundary - blendWidth * 0.2).clamp(
-            start,
-            boundary,
-          );
-          final transitionEnd = (boundary + blendWidth * 0.2).clamp(
-            boundary,
-            1.0,
-          );
-          final highlightStart = (boundary - blendWidth * 0.1).clamp(
-            start,
-            boundary,
-          );
-          final highlightEnd = (boundary - blendWidth * 0.05).clamp(
-            start,
-            boundary,
-          );
-          final highlightColor = Color.lerp(
-            mixed,
-            Colors.white,
-            0.4,
-          )!.withOpacity(0.6);
-          gradientColors.add(highlightColor);
-          gradientStops.add(highlightStart);
-          gradientColors.add(mixed);
-          gradientStops.add(transitionStart);
-          gradientColors.add(mixed);
-          gradientStops.add(transitionEnd);
-          gradientColors.add(highlightColor.withOpacity(0.0));
-          gradientStops.add(highlightEnd);
-        } else {
-          gradientColors.add(color);
-          gradientStops.add(end);
-        }
-      }
-      cardGradient = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: gradientColors,
-        stops: gradientStops,
-      );
-      final Color firstColor =
-          gradientColors.isNotEmpty ? gradientColors.first : gradientStart;
-      final Color lastColor =
-          gradientColors.isNotEmpty ? gradientColors.last : gradientEnd;
-      contentSampleColor = Color.lerp(firstColor, lastColor, 0.5) ?? firstColor;
-    } else {
-      cardGradient = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [gradientStart, gradientEnd],
-      );
-      contentSampleColor =
-          Color.lerp(gradientStart, gradientEnd, 0.5) ?? gradientStart;
-    }
     final Color surfaceTint = theme.colorScheme.surfaceVariant.withValues(
       alpha: theme.brightness == Brightness.dark ? 0.28 : 0.16,
     );
@@ -7542,8 +7220,68 @@ class _AppointmentCardState extends State<_AppointmentCard> {
       top: verticalPadding,
       bottom: verticalPadding,
     );
+    final Color cardSurface =
+        theme.brightness == Brightness.dark
+            ? theme.colorScheme.surface
+            : Colors.white;
+    final bool hasCategoryTone =
+        !isCancelled && !hideNoShowColor && baseColor.opacity > 0.0;
+    final Color stripeColor =
+        hasCategoryTone
+            ? Color.alphaBlend(
+              baseColor.withValues(
+                alpha: theme.brightness == Brightness.dark ? 0.75 : 0.88,
+              ),
+              theme.colorScheme.surface.withValues(alpha: 0),
+            )
+            : theme.colorScheme.outlineVariant.withValues(
+              alpha: theme.brightness == Brightness.dark ? 0.6 : 0.45,
+            );
+    Color gradientStart = cardSurface;
+    Color gradientEnd = cardSurface;
+    if (hasCategoryTone || backgroundColor.opacity > 0.0) {
+      final Color tintSource = hasCategoryTone ? baseColor : borderBlendColor;
+      if (forceSolidCategoryFill && hasCategoryTone) {
+        gradientStart = baseColor;
+        gradientEnd = Color.alphaBlend(
+          Colors.black.withOpacity(
+            theme.brightness == Brightness.dark ? 0.24 : 0.14,
+          ),
+          baseColor,
+        );
+      } else {
+        gradientStart = Color.alphaBlend(
+          tintSource.withValues(
+            alpha: theme.brightness == Brightness.dark ? 0.5 : 0.4,
+          ),
+          cardSurface,
+        );
+        gradientEnd = Color.alphaBlend(
+          tintSource.withValues(
+            alpha: theme.brightness == Brightness.dark ? 0.24 : 0.2,
+          ),
+          cardSurface,
+        );
+      }
+    }
+    if (highlightAnomalies) {
+      gradientStart = Color.alphaBlend(
+        theme.colorScheme.error.withValues(
+          alpha: theme.brightness == Brightness.dark ? 0.34 : 0.28,
+        ),
+        gradientStart,
+      );
+      gradientEnd = Color.alphaBlend(
+        theme.colorScheme.error.withValues(
+          alpha: theme.brightness == Brightness.dark ? 0.22 : 0.2,
+        ),
+        gradientEnd,
+      );
+    }
     final bool hasTranslucentFill = hasCategoryTone || highlightAnomalies;
     final borderRadius = BorderRadius.circular(12);
+    final Color contentSampleColor =
+        Color.lerp(gradientStart, gradientEnd, 0.5) ?? gradientStart;
     final Brightness contentBrightness = ThemeData.estimateBrightnessForColor(
       contentSampleColor.withAlpha(0xFF),
     );
@@ -7600,7 +7338,11 @@ class _AppointmentCardState extends State<_AppointmentCard> {
           DecoratedBox(
             decoration: BoxDecoration(
               color: cardSurface,
-              gradient: cardGradient,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [gradientStart, gradientEnd],
+              ),
             ),
           ),
           if (showCategoryStripe)
@@ -7608,49 +7350,27 @@ class _AppointmentCardState extends State<_AppointmentCard> {
               left: 0,
               top: 0,
               bottom: 0,
-              child: ClipRRect(
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(12),
-                  bottomLeft: Radius.circular(12),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      stripeColor.withValues(
+                        alpha: theme.brightness == Brightness.dark ? 0.9 : 1,
+                      ),
+                      stripeColor.withValues(
+                        alpha:
+                            theme.brightness == Brightness.dark ? 0.75 : 0.82,
+                      ),
+                    ],
+                  ),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(12),
+                    bottomLeft: Radius.circular(12),
+                  ),
                 ),
-                child: SizedBox(
-                  width: stripeWidth,
-                  child:
-                      showMultiServiceStripe
-                          ? Column(
-                            children:
-                                serviceStripeColors
-                                    .map(
-                                      (color) => Expanded(
-                                        child: ColoredBox(color: color),
-                                      ),
-                                    )
-                                    .toList(),
-                          )
-                          : DecoratedBox(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  stripeColor.withValues(
-                                    alpha:
-                                        theme.brightness == Brightness.dark
-                                            ? 0.9
-                                            : 1,
-                                  ),
-                                  stripeColor.withValues(
-                                    alpha:
-                                        theme.brightness == Brightness.dark
-                                            ? 0.75
-                                            : 0.82,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            child: const SizedBox.expand(),
-                          ),
-                ),
+                child: SizedBox(width: stripeWidth),
               ),
             ),
           Padding(
@@ -7755,40 +7475,6 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                 addDetail(timeLabel, timeStyle);
                 if (showServiceInfo) {
                   addDetail(serviceLabel, detailStyle);
-                  if (showServiceIndicators) {
-                    children.add(const SizedBox(height: 4));
-                    children.add(
-                      Wrap(
-                        spacing: 4,
-                        runSpacing: 2,
-                        children:
-                            serviceIndicatorColors
-                                .map(
-                                  (color) => Container(
-                                    width: 18,
-                                    height: 18,
-                                    decoration: BoxDecoration(
-                                      color: color,
-                                      borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(
-                                        color: theme.colorScheme.surface,
-                                        width: 1.2,
-                                      ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: theme.colorScheme.shadow
-                                              .withValues(alpha: 0.12),
-                                          blurRadius: 6,
-                                          offset: const Offset(0, 2),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                      ),
-                    );
-                  }
                 }
                 if (showClientInfo) {
                   addDetail(client?.fullName, detailStyle);
@@ -7872,7 +7558,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                     bottomWidgets.add(
                       buildInfoPill(
                         icon: Icons.payments_outlined,
-                        label: '',
+                        label: 'Pagamenti da saldare',
                         background: theme.colorScheme.tertiaryContainer
                             .withValues(
                               alpha:

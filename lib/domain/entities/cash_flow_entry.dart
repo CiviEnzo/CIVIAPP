@@ -9,6 +9,7 @@ class CashFlowEntry {
     this.description,
     this.category,
     this.staffId,
+    this.clientId,
   }) : createdAt = createdAt ?? date;
 
   final String id;
@@ -20,6 +21,7 @@ class CashFlowEntry {
   final String? description;
   final String? category;
   final String? staffId;
+  final String? clientId;
 }
 
 enum CashFlowType { income, expense }

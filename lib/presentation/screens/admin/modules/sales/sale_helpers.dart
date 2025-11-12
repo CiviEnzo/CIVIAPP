@@ -37,6 +37,7 @@ Future<void> recordSaleCashFlow({
         : 'Vendita a $clientName',
     category: 'Vendite',
     staffId: sale.staffId,
+    clientId: sale.clientId,
   );
   await ref.read(appDataProvider.notifier).upsertCashFlowEntry(entry);
 }

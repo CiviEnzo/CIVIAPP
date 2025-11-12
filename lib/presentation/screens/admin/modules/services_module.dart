@@ -11,6 +11,7 @@ import 'package:you_book/presentation/screens/admin/forms/service_form_sheet.dar
 import 'package:you_book/presentation/screens/admin/modules/service_category_manager_sheet.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -823,13 +824,11 @@ class _ServicesListState extends State<_ServicesList> {
                 title: Text(group.title),
                 subtitle: Text(serviceCountLabel),
                 onExpansionChanged: (expanded) {
-                  setState(() {
-                    if (expanded) {
-                      _expandedGroupIds.add(group.id);
-                    } else {
-                      _expandedGroupIds.remove(group.id);
-                    }
-                  });
+                  final currentlyExpanded = _expandedGroupIds.contains(group.id);
+                  if (expanded == currentlyExpanded) {
+                    return;
+                  }
+                  _scheduleExpandedGroupUpdate(group.id, expanded);
                 },
                 childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                 children: tileChildren,
@@ -975,6 +974,25 @@ class _ServicesListState extends State<_ServicesList> {
         _selectedGroupId = null;
         _expandedGroupIds.clear();
       }
+    });
+  }
+
+  void _scheduleExpandedGroupUpdate(String groupId, bool expanded) {
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      final currentlyExpanded = _expandedGroupIds.contains(groupId);
+      if (expanded == currentlyExpanded) {
+        return;
+      }
+      setState(() {
+        if (expanded) {
+          _expandedGroupIds.add(groupId);
+        } else {
+          _expandedGroupIds.remove(groupId);
+        }
+      });
     });
   }
 

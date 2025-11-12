@@ -2402,6 +2402,7 @@ CashFlowEntry cashFlowFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     description: data['description'] as String?,
     category: data['category'] as String?,
     staffId: data['staffId'] as String?,
+    clientId: data['clientId'] as String?,
   );
 }
 
@@ -2415,6 +2416,7 @@ Map<String, dynamic> cashFlowToMap(CashFlowEntry entry) {
     'description': entry.description,
     'category': entry.category,
     'staffId': entry.staffId,
+    'clientId': entry.clientId,
   };
 }
 

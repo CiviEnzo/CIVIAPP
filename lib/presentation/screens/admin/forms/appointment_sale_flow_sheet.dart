@@ -100,19 +100,21 @@ class _AppointmentSaleFlowSheetState
     final clients = ref.read(appDataProvider).clients;
     await recordSaleCashFlow(ref: ref, sale: sale, clients: clients);
     final ticket = _pendingTicket;
-    if (ticket != null && sale.paymentStatus != SalePaymentStatus.posticipated) {
+    if (ticket != null &&
+        sale.paymentStatus != SalePaymentStatus.posticipated) {
       await store.closePaymentTicket(ticket.id, saleId: sale.id);
     }
     if (!mounted) {
       return;
     }
-    final result = _lastResult ??
+    final result =
+        _lastResult ??
         (_savedAppointment == null
             ? null
             : AppointmentFormResult(
-                action: AppointmentFormAction.save,
-                appointment: _savedAppointment!,
-              ));
+              action: AppointmentFormAction.save,
+              appointment: _savedAppointment!,
+            ));
     Navigator.of(context).pop(result);
   }
 
@@ -135,9 +137,12 @@ class _AppointmentSaleFlowSheetState
         return items;
       }
     }
-    final matchedService = ticket.serviceId == null || ticket.serviceId!.isEmpty
-        ? null
-        : services.firstWhereOrNull((service) => service.id == ticket.serviceId);
+    final matchedService =
+        ticket.serviceId == null || ticket.serviceId!.isEmpty
+            ? null
+            : services.firstWhereOrNull(
+              (service) => service.id == ticket.serviceId,
+            );
     final unitPrice =
         (matchedService?.price ?? ticket.expectedTotal ?? 0.0).toDouble();
     final description =
@@ -159,9 +164,10 @@ class _AppointmentSaleFlowSheetState
     PaymentTicket ticket,
   ) {
     final serviceById = {for (final service in services) service.id: service};
-    final allocations = appointment.serviceAllocations.isNotEmpty
-        ? appointment.serviceAllocations
-        : _legacyAllocationsForAppointment(appointment);
+    final allocations =
+        appointment.serviceAllocations.isNotEmpty
+            ? appointment.serviceAllocations
+            : _legacyAllocationsForAppointment(appointment);
     final items = <SaleItem>[];
 
     for (final allocation in allocations) {
@@ -173,8 +179,7 @@ class _AppointmentSaleFlowSheetState
         continue;
       }
       final service = serviceById[allocation.serviceId];
-      final description =
-          service?.name ?? ticket.serviceName ?? 'Servizio';
+      final description = service?.name ?? ticket.serviceName ?? 'Servizio';
       final unitPrice =
           (service?.price ?? ticket.expectedTotal ?? 0.0).toDouble();
       final referenceId = service?.id ?? ticket.serviceId;
@@ -210,18 +215,22 @@ class _AppointmentSaleFlowSheetState
   }
 
   Widget _buildTicketSummary(AppDataState data, PaymentTicket ticket) {
-    final clientName = data.clients
+    final clientName =
+        data.clients
             .firstWhereOrNull((client) => client.id == ticket.clientId)
             ?.fullName ??
         'Cliente';
-    final serviceName = data.services
+    final serviceName =
+        data.services
             .firstWhereOrNull((service) => service.id == ticket.serviceId)
             ?.name ??
         ticket.serviceName ??
         'Servizio';
     final amount = ticket.expectedTotal;
-    final ticketDate =
-        DateFormat('dd/MM/yyyy HH:mm', 'it_IT').format(ticket.appointmentStart);
+    final ticketDate = DateFormat(
+      'dd/MM/yyyy HH:mm',
+      'it_IT',
+    ).format(ticket.appointmentStart);
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
 
     return Card(
@@ -315,8 +324,6 @@ class _AppointmentSaleFlowSheetState
     return Column(
       mainAxisSize: MainAxisSize.max,
       children: [
-        _buildTicketSummary(data, ticket),
-        const SizedBox(height: 12),
         Expanded(child: saleForm),
         OutlinedButton(
           onPressed: _closeFlow,
@@ -329,7 +336,8 @@ class _AppointmentSaleFlowSheetState
   @override
   Widget build(BuildContext context) {
     final data = ref.watch(appDataProvider);
-    final content = _showSaleStep ? _buildSaleStep(data) : _buildAppointmentStep(data);
+    final content =
+        _showSaleStep ? _buildSaleStep(data) : _buildAppointmentStep(data);
     return Material(
       color: Colors.transparent,
       child: SafeArea(

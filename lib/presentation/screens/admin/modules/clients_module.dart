@@ -35,6 +35,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
   bool _searchPerformed = false;
   String? _searchError;
   String? _selectedClientId;
+  int? _clientDetailInitialTabIndex;
   bool _isSavingClient = false;
 
   @override
@@ -97,6 +98,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
   void _handleClientTap(String clientId) {
     setState(() {
       _selectedClientId = _selectedClientId == clientId ? null : clientId;
+      _clientDetailInitialTabIndex = null;
     });
   }
 
@@ -104,7 +106,10 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     if (_selectedClientId == null) {
       return;
     }
-    setState(() => _selectedClientId = null);
+    setState(() {
+      _selectedClientId = null;
+      _clientDetailInitialTabIndex = null;
+    });
   }
 
   Future<void> _openClientForm({
@@ -179,7 +184,10 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
       _clientNumberController.text = client.clientNumber ?? '';
     });
     _performSearch(showErrorWhenEmpty: false);
-    setState(() => _selectedClientId = client.id);
+    setState(() {
+      _selectedClientId = client.id;
+      _clientDetailInitialTabIndex = null;
+    });
   }
 
   void _applyIntent(ClientsModuleIntent intent) {
@@ -203,6 +211,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
       _searchPerformed = hasInput;
       _searchError = null;
       _selectedClientId = intent.clientId;
+      _clientDetailInitialTabIndex = intent.detailTabIndex;
     });
   }
 
@@ -878,9 +887,13 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
         children.add(const SizedBox(height: 16));
         children.add(
           ClientDetailView(
+            key: ValueKey(
+              'client-detail-${selectedClient.id}-${_clientDetailInitialTabIndex ?? 0}',
+            ),
             clientId: selectedClient.id,
             showAppBar: false,
             onClose: _clearSelectedClient,
+            initialTabIndex: _clientDetailInitialTabIndex ?? 0,
           ),
         );
       }

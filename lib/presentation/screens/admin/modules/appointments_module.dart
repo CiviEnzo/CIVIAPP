@@ -1119,6 +1119,68 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     }
   }
 
+  Future<void> _reorderChecklistItem(
+    String checklistId,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    if (checklistId.isEmpty) {
+      return;
+    }
+    final store = ref.read(appDataProvider.notifier);
+    final state = ref.read(appDataProvider);
+    final checklist = _findChecklistById(
+      state.appointmentDayChecklists,
+      checklistId,
+    );
+    if (checklist == null) {
+      return;
+    }
+    final items = checklist.items;
+    final itemCount = items.length;
+    if (itemCount <= 1) {
+      return;
+    }
+    if (oldIndex < 0 || oldIndex >= itemCount) {
+      return;
+    }
+    if (newIndex < 0 || newIndex > itemCount) {
+      return;
+    }
+    var targetIndex = newIndex;
+    if (targetIndex > oldIndex) {
+      targetIndex -= 1;
+    }
+    if (targetIndex < 0) {
+      targetIndex = 0;
+    } else if (targetIndex >= itemCount) {
+      targetIndex = itemCount - 1;
+    }
+    if (oldIndex == targetIndex) {
+      return;
+    }
+
+    final reordered = items.toList(growable: true);
+    final moved = reordered.removeAt(oldIndex);
+    reordered.insert(targetIndex, moved);
+
+    final now = DateTime.now();
+    final normalizedItems = <AppointmentChecklistItem>[];
+    for (var index = 0; index < reordered.length; index++) {
+      final current = reordered[index];
+      normalizedItems.add(current.copyWith(position: index, updatedAt: now));
+    }
+    final updatedChecklist = checklist.copyWith(
+      items: normalizedItems,
+      updatedAt: now,
+    );
+    try {
+      await store.upsertAppointmentDayChecklist(updatedChecklist);
+    } catch (error, stackTrace) {
+      _handleChecklistError(error, stackTrace);
+    }
+  }
+
   Map<DateTime, AppointmentDayChecklist> _dayChecklistsInRange({
     required Iterable<AppointmentDayChecklist> source,
     required String? salonId,
@@ -2184,6 +2246,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       staffId: selection.staffId,
       start: selection.start,
       end: computedEnd,
+      status: AppointmentStatus.scheduled,
     );
     final saved = await validateAndSaveAppointment(
       context: context,
@@ -3736,10 +3799,13 @@ Future<void> _openForm(
     return;
   }
   if (result.action == AppointmentFormAction.copy) {
+    final copiedAppointment = result.appointment.copyWith(
+      status: AppointmentStatus.scheduled,
+    );
     ref
         .read(appointmentClipboardProvider.notifier)
         .state = AppointmentClipboard(
-      appointment: result.appointment,
+      appointment: copiedAppointment,
       copiedAt: DateTime.now(),
     );
     messenger.showSnackBar(

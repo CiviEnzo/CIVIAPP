@@ -143,13 +143,21 @@ bool _canUseAnamnesisLayout(ClientQuestionnaireTemplate template) {
 }
 
 class ClientDetailPage extends ConsumerWidget {
-  const ClientDetailPage({super.key, required this.clientId});
+  const ClientDetailPage({
+    super.key,
+    required this.clientId,
+    this.initialTabIndex = 0,
+  });
 
   final String clientId;
+  final int initialTabIndex;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return ClientDetailView(clientId: clientId);
+    return ClientDetailView(
+      clientId: clientId,
+      initialTabIndex: initialTabIndex,
+    );
   }
 }
 
@@ -159,11 +167,13 @@ class ClientDetailView extends ConsumerStatefulWidget {
     required this.clientId,
     this.showAppBar = true,
     this.onClose,
+    this.initialTabIndex = 0,
   });
 
   final String clientId;
   final bool showAppBar;
   final VoidCallback? onClose;
+  final int initialTabIndex;
 
   @override
   ConsumerState<ClientDetailView> createState() => _ClientDetailViewState();
@@ -214,8 +224,14 @@ class _ClientDetailViewState extends ConsumerState<ClientDetailView> {
       _BillingTab(clientId: client.id),
     ];
 
+    final initialTabIndex = widget.initialTabIndex.clamp(
+      0,
+      tabs.length - 1,
+    ).toInt();
+
     if (widget.showAppBar) {
       return DefaultTabController(
+        initialIndex: initialTabIndex,
         length: tabs.length,
         child: Scaffold(
           appBar: AppBar(
@@ -241,6 +257,7 @@ class _ClientDetailViewState extends ConsumerState<ClientDetailView> {
     );
 
     return DefaultTabController(
+      initialIndex: initialTabIndex,
       length: tabs.length,
       child: Card(
         color: theme.colorScheme.surface,
@@ -3351,10 +3368,13 @@ class _AppointmentsTab extends ConsumerWidget {
         return;
       }
       if (result.action == AppointmentFormAction.copy) {
+        final copiedAppointment = result.appointment.copyWith(
+          status: AppointmentStatus.scheduled,
+        );
         ref
             .read(appointmentClipboardProvider.notifier)
             .state = AppointmentClipboard(
-          appointment: result.appointment,
+          appointment: copiedAppointment,
           copiedAt: DateTime.now(),
         );
         ScaffoldMessenger.of(context).showSnackBar(
@@ -4230,6 +4250,7 @@ class _PackagesTabState extends ConsumerState<_PackagesTab> {
       createdAt: DateTime.now(),
       description: description,
       category: 'Acconti',
+      clientId: client.id,
     );
     await ref.read(appDataProvider.notifier).upsertCashFlowEntry(entry);
   }

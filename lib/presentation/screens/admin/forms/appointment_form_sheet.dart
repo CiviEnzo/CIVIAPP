@@ -103,6 +103,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
   final Map<String, int> _serviceQuantities = {};
   final Map<String, String?> _servicePackageSelections = {};
   final Set<String> _manualPackageSelections = {};
+  final Map<String, Duration> _serviceDurationAdjustments = {};
   PackageSessionAllocationSuggestion? _latestSuggestion;
   String _lastSuggestionKey = '';
   final PackageSessionAllocator _sessionAllocator =
@@ -155,17 +156,21 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       for (final allocation in initial.serviceAllocations) {
         if (allocation.serviceId.isEmpty) continue;
         _serviceQuantities[allocation.serviceId] = allocation.quantity;
-        final firstConsumption =
-            allocation.packageConsumptions.isNotEmpty
-                ? allocation.packageConsumptions.first
-                : null;
-        final packageId = firstConsumption?.packageReferenceId;
-        _servicePackageSelections[allocation.serviceId] =
-            packageId != null && packageId.isNotEmpty ? packageId : null;
-        if (packageId != null && packageId.isNotEmpty) {
-          _manualPackageSelections.add(allocation.serviceId);
-        }
+      final firstConsumption =
+          allocation.packageConsumptions.isNotEmpty
+              ? allocation.packageConsumptions.first
+              : null;
+      final packageId = firstConsumption?.packageReferenceId;
+      _servicePackageSelections[allocation.serviceId] =
+          packageId != null && packageId.isNotEmpty ? packageId : null;
+      if (packageId != null && packageId.isNotEmpty) {
+        _manualPackageSelections.add(allocation.serviceId);
       }
+      if (allocation.durationAdjustmentMinutes != 0) {
+        _serviceDurationAdjustments[allocation.serviceId] =
+            Duration(minutes: allocation.durationAdjustmentMinutes);
+      }
+    }
     } else if (initial?.packageId != null &&
         initial!.packageId!.isNotEmpty &&
         _serviceIds.isNotEmpty) {
@@ -341,7 +346,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         });
       });
     }
-    final selectedServices = _selectedServicesInOrder(services);
+    final baseSelectedServices = _selectedServicesInOrder(services);
+    final selectedServices = _applyDurationAdjustments(baseSelectedServices);
     final filteredStaff =
         staffMembers.where((member) {
           if (selectedServices.isNotEmpty) {
@@ -1080,41 +1086,42 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                                       member.id == _staffId,
                                                 ),
                                           );
-                                      if (selection != null) {
-                                        setState(() {
-                                          _serviceIds = selection;
-                                          _ensureServiceState(_serviceIds);
-                                          _manualPackageSelections.removeWhere(
-                                            (serviceId) =>
-                                                !_serviceIds.contains(
-                                                  serviceId,
-                                                ),
-                                          );
-                                          if (_serviceIds.isEmpty) {
-                                            _clearAllPackageSelections();
-                                          } else {
-                                            _lastSuggestionKey = '';
-                                            _latestSuggestion = null;
-                                            final durations = services
-                                                .where(
-                                                  (service) => _serviceIds
-                                                      .contains(service.id),
-                                                )
-                                                .map(
-                                                  (service) =>
-                                                      service.totalDuration,
-                                                )
-                                                .fold(
-                                                  Duration.zero,
-                                                  (acc, value) => acc + value,
+                                          if (selection != null) {
+                                            setState(() {
+                                              _serviceIds = selection;
+                                              _ensureServiceState(_serviceIds);
+                                              _manualPackageSelections.removeWhere(
+                                                (serviceId) =>
+                                                    !_serviceIds.contains(
+                                                      serviceId,
+                                                    ),
+                                              );
+                                              if (_serviceIds.isEmpty) {
+                                                _clearAllPackageSelections();
+                                              } else {
+                                                _lastSuggestionKey = '';
+                                                _latestSuggestion = null;
+                                                final baseSelectedServices =
+                                                    _selectedServicesInOrder(
+                                                  services,
                                                 );
-                                            if (!durations.isNegative &&
-                                                durations > Duration.zero) {
-                                              _end = _start.add(durations);
-                                            }
-                                          }
-                                        });
-                                        _clearInlineError();
+                                                final adjustedServices =
+                                                    _applyDurationAdjustments(
+                                                  baseSelectedServices,
+                                                );
+                                                final totalDuration =
+                                                    _sumServiceDurations(
+                                                  adjustedServices,
+                                                );
+                                                if (totalDuration >
+                                                    Duration.zero) {
+                                                  _end = _start.add(
+                                                    totalDuration,
+                                                  );
+                                                }
+                                              }
+                                            });
+                                            _clearInlineError();
                                         state.didChange(_serviceIds);
                                       }
                                     },
@@ -1129,31 +1136,18 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                         ),
                                       ),
                                       isEmpty: selectedNames.isEmpty,
-                                      child:
-                                          selectedNames.isEmpty
-                                              ? Text(
-                                                'Seleziona uno o più servizi',
-                                                style: theme
-                                                    .textTheme
-                                                    .bodyMedium
-                                                    ?.copyWith(
-                                                      color: theme.hintColor,
-                                                    ),
-                                              )
-                                              : Wrap(
-                                                spacing: 8,
-                                                runSpacing: 8,
-                                                children:
-                                                    selectedServices
-                                                        .map(
-                                                          (service) => Chip(
-                                                            label: Text(
-                                                              service.name,
-                                                            ),
-                                                          ),
-                                                        )
-                                                        .toList(),
+                                      child: selectedNames.isEmpty
+                                          ? Text(
+                                              'Seleziona uno o più servizi',
+                                              style: theme.textTheme.bodyMedium
+                                                  ?.copyWith(
+                                                color: theme.hintColor,
                                               ),
+                                            )
+                                          : _buildReorderableServiceChips(
+                                              theme,
+                                              selectedServices,
+                                            ),
                                     ),
                                   ),
                                 ],
@@ -1173,6 +1167,10 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                             bookingDateLabel: bookingDateLabel,
                             startTimeLabel: startTimeLabel,
                             endTimeLabel: endTimeLabel,
+                          ),
+                          _buildServiceDurationAdjustmentPanel(
+                            baseServices: baseSelectedServices,
+                            adjustedServices: selectedServices,
                           ),
 
                           if (closureConflicts.isNotEmpty) ...[
@@ -1387,10 +1385,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             children: [
               Icon(Icons.layers_rounded, color: theme.colorScheme.primary),
               const SizedBox(width: 8),
-              Text(
-                'Pacchetti disponibili',
-                style: theme.textTheme.titleMedium,
-              ),
+              Text('Pacchetti disponibili', style: theme.textTheme.titleMedium),
             ],
           ),
           const SizedBox(height: 8),
@@ -1398,9 +1393,9 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             allClientPackages.isNotEmpty
                 ? _ClientPackageSummaryList(packages: allClientPackages)
                 : Text(
-                    'Il cliente non ha pacchetti attivi.',
-                    style: theme.textTheme.bodyMedium,
-                  )
+                  'Il cliente non ha pacchetti attivi.',
+                  style: theme.textTheme.bodyMedium,
+                )
           else if (allClientPackages.isEmpty)
             Text(
               'Il cliente non ha pacchetti attivi.',
@@ -1424,10 +1419,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
   }) {
     final entries = selectedServices
         .map(
-          (service) => MapEntry(
-            service,
-            packagesByService[service.id] ?? const [],
-          ),
+          (service) =>
+              MapEntry(service, packagesByService[service.id] ?? const []),
         )
         .where((entry) => entry.value.isNotEmpty)
         .toList(growable: false);
@@ -1534,38 +1527,6 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                     child: _TimelineInfoBox(
                       label: 'Ora di fine',
                       value: endTimeLabel,
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            tooltip: '-$_slotIntervalMinutes min',
-                            visualDensity: VisualDensity.compact,
-                            padding: const EdgeInsets.all(8),
-                            constraints: const BoxConstraints(
-                              minWidth: 36,
-                              minHeight: 36,
-                            ),
-                            onPressed:
-                                canDecreaseDuration
-                                    ? () =>
-                                        _adjustDuration(-_slotIntervalMinutes)
-                                    : null,
-                            icon: const Icon(Icons.remove_rounded),
-                          ),
-                          IconButton(
-                            tooltip: '+$_slotIntervalMinutes min',
-                            visualDensity: VisualDensity.compact,
-                            padding: const EdgeInsets.all(8),
-                            constraints: const BoxConstraints(
-                              minWidth: 36,
-                              minHeight: 36,
-                            ),
-                            onPressed:
-                                () => _adjustDuration(_slotIntervalMinutes),
-                            icon: const Icon(Icons.add_rounded),
-                          ),
-                        ],
-                      ),
                     ),
                   ),
                 ],
@@ -1596,6 +1557,113 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     );
   }
 
+  Widget _buildServiceDurationAdjustmentPanel({
+    required List<Service> baseServices,
+    required List<Service> adjustedServices,
+  }) {
+    if (baseServices.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final adjustedById = {
+      for (final service in adjustedServices) service.id: service,
+    };
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Material(
+        color: Theme.of(context).colorScheme.surfaceVariant,
+        borderRadius: BorderRadius.circular(16),
+        child: Theme(
+          data: Theme.of(context).copyWith(
+            dividerColor: Theme.of(context).dividerColor.withOpacity(0.4),
+          ),
+          child: ExpansionTile(
+            collapsedTextColor: Theme.of(context).colorScheme.onSurfaceVariant,
+            tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            leading: Icon(
+              Icons.timeline,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            title: const Text('Regola durata servizi'),
+            subtitle: Text(
+              'Modifica ogni servizio di ±$_slotIntervalMinutes min',
+            ),
+            children: [
+              for (var index = 0; index < baseServices.length; index++) ...[
+                if (index > 0) const Divider(height: 1),
+                ListTile(
+                  dense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 2),
+                  title: Text(baseServices[index].name),
+                  subtitle: Text(
+                    _serviceDurationAdjustmentSubtitle(
+                      baseServices[index],
+                      adjustedService: adjustedById[baseServices[index].id],
+                    ),
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
+                      ),
+                      icon: const Icon(Icons.remove_circle_outline_rounded),
+                      tooltip: '-$_slotIntervalMinutes min',
+                      onPressed: (adjustedById[baseServices[index].id]
+                                  ?.totalDuration ??
+                              baseServices[index].totalDuration) >
+                          Duration.zero
+                          ? () => _updateServiceDurationDelta(
+                                baseServices[index].id,
+                                -_slotIntervalMinutes,
+                                baseServices,
+                              )
+                          : null,
+                    ),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 32,
+                          minHeight: 32,
+                        ),
+                        icon: const Icon(Icons.add_circle_outline_rounded),
+                        tooltip: '+$_slotIntervalMinutes min',
+                        onPressed: () => _updateServiceDurationDelta(
+                          baseServices[index].id,
+                          _slotIntervalMinutes,
+                          baseServices,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _serviceDurationAdjustmentSubtitle(
+    Service baseService, {
+    Service? adjustedService,
+  }) {
+    final adjustment = _serviceDurationAdjustments[baseService.id] ?? Duration.zero;
+    final adjustedTotal =
+        adjustedService?.totalDuration ?? baseService.totalDuration;
+    final adjustmentMinutes = adjustment.inMinutes;
+    final adjustmentLabel = adjustmentMinutes == 0
+        ? 'Durata standard'
+        : '${adjustmentMinutes > 0 ? '+' : ''}$adjustmentMinutes min';
+    return '${adjustedTotal.inMinutes} min ($adjustmentLabel)';
+  }
+
   Future<void> _pickStart() async {
     if (_salonId == null) {
       _showInlineError(
@@ -1624,15 +1692,14 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     final staffMember = staffMembers.firstWhereOrNull(
       (member) => member.id == _staffId,
     );
-    final selectedServices = _selectedServicesInOrder(services);
+    final baseSelectedServices = _selectedServicesInOrder(services);
+    final selectedServices =
+        _applyDurationAdjustments(baseSelectedServices);
     if (staffMember == null || selectedServices.isEmpty) {
       _showInlineError('Operatore o servizi non validi.');
       return;
     }
-    final totalDuration = selectedServices.fold<Duration>(
-      Duration.zero,
-      (acc, service) => acc + service.totalDuration,
-    );
+    final totalDuration = _sumServiceDurations(selectedServices);
     if (totalDuration <= Duration.zero) {
       _showInlineError('Durata complessiva servizi non valida.');
       return;
@@ -2212,6 +2279,11 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       ),
     );
     final hasZoneTab = zoneCategories.isNotEmpty;
+    final zoneCategoryIds = zoneCategories.map((data) => data.category.id).toSet();
+    final zoneCategoryNames = zoneCategories
+        .map((data) => data.category.name.trim().toLowerCase())
+        .where((name) => name.isNotEmpty)
+        .toSet();
 
     final searchController = TextEditingController();
     final result = await showAppModalSheet<List<String>>(
@@ -2219,6 +2291,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       builder: (context) {
         var query = '';
         var workingSelection = List<String>.from(initialSelection);
+        var selectedZoneCategoryId =
+            zoneCategories.isNotEmpty ? zoneCategories.first.category.id : '';
         return StatefulBuilder(
           builder: (context, setModalState) {
             void toggleSelection(String serviceId) {
@@ -2233,11 +2307,24 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
               });
             }
 
+            final listableServices = sortedServices.where((service) {
+              if (service.categoryId != null &&
+                  zoneCategoryIds.contains(service.categoryId)) {
+                return false;
+              }
+              final normalizedCategory =
+                  service.category.trim().toLowerCase();
+              if (normalizedCategory.isNotEmpty &&
+                  zoneCategoryNames.contains(normalizedCategory)) {
+                return false;
+              }
+              return true;
+            }).toList();
             final lowerQuery = query.trim().toLowerCase();
             final filtered =
                 lowerQuery.isEmpty
-                    ? sortedServices
-                    : sortedServices.where((service) {
+                    ? listableServices
+                    : listableServices.where((service) {
                       final nameMatch = service.name.toLowerCase().contains(
                         lowerQuery,
                       );
@@ -2254,38 +2341,6 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             final categories =
                 grouped.keys.toList()
                   ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-
-            Future<void> openZoneCategory(_ZoneCategoryData data) async {
-              final categoryServiceIds =
-                  data.entries.map((entry) => entry.service.id).toSet();
-              final initialCategorySelection =
-                  workingSelection
-                      .where((id) => categoryServiceIds.contains(id))
-                      .toSet();
-              final zoneSelection = await showAppModalSheet<Set<String>>(
-                context: context,
-                builder:
-                    (ctx) => _BodyZoneCategoryPicker(
-                      category: data.category,
-                      entries: data.entries,
-                      initialSelection: initialCategorySelection,
-                    ),
-              );
-              if (zoneSelection == null) {
-                return;
-              }
-              setModalState(() {
-                final filteredSelection = workingSelection
-                    .where((id) => !categoryServiceIds.contains(id))
-                    .toList(growable: true);
-                for (final serviceId in zoneSelection) {
-                  if (!filteredSelection.contains(serviceId)) {
-                    filteredSelection.add(serviceId);
-                  }
-                }
-                workingSelection = filteredSelection;
-              });
-            }
 
             Widget buildServiceListTab() {
               return Column(
@@ -2384,39 +2439,144 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
               if (!hasZoneTab) {
                 return const SizedBox.shrink();
               }
-              return ListView.separated(
-                itemCount: zoneCategories.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  final data = zoneCategories[index];
-                  final categoryServiceIds =
-                      data.entries.map((entry) => entry.service.id).toSet();
-                  final selectedCount =
+              final activeCategoryIndex = zoneCategories.indexWhere(
+                (data) => data.category.id == selectedZoneCategoryId,
+              );
+              final activeCategoryData =
+                  activeCategoryIndex != -1
+                      ? zoneCategories[activeCategoryIndex]
+                      : zoneCategories.first;
+              final activeEntries = activeCategoryData.entries;
+              final activeServiceIds =
+                  activeEntries.map((entry) => entry.service.id).toSet();
+              final activeSelectedServiceIds =
+                  workingSelection.where(activeServiceIds.contains).toSet();
+              final categorySelectionCounts = {
+                for (final data in zoneCategories)
+                  data.category.id:
                       workingSelection
-                          .where((id) => categoryServiceIds.contains(id))
-                          .length;
-                  final subtitleParts = <String>[
-                    '${data.entries.length} zone configurate',
-                  ];
-                  if (selectedCount > 0) {
-                    subtitleParts.add(
-                      selectedCount == 1
-                          ? '1 servizio selezionato'
-                          : '$selectedCount servizi selezionati',
-                    );
-                  }
-                  return Card(
-                    child: ListTile(
-                      onTap: () => openZoneCategory(data),
-                      title: Text(data.category.name),
-                      subtitle: Text(subtitleParts.join(' • ')),
-                      trailing: const Icon(
-                        Icons.chevron_right_rounded,
-                        size: 20,
-                      ),
+                          .where(
+                            (id) => data.entries.any(
+                              (entry) => entry.service.id == id,
+                            ),
+                          )
+                          .length,
+              };
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children:
+                          zoneCategories.map((data) {
+                            final count =
+                                categorySelectionCounts[data.category.id] ?? 0;
+                            final isActive =
+                                selectedZoneCategoryId == data.category.id;
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: ChoiceChip(
+                                selected: isActive,
+                                label: Text(data.category.name),
+                                avatar:
+                                    count > 0
+                                        ? CircleAvatar(
+                                          radius: 10,
+                                          backgroundColor:
+                                              isActive
+                                                  ? theme.colorScheme.primary
+                                                  : theme.colorScheme.primary
+                                                      .withOpacity(0.6),
+                                          child: Text(
+                                            count.toString(),
+                                            style: theme.textTheme.labelSmall
+                                                ?.copyWith(
+                                                  color: Colors.white,
+                                                  fontSize: 10,
+                                                ),
+                                          ),
+                                        )
+                                        : null,
+                                onSelected:
+                                    (_) => setModalState(() {
+                                      selectedZoneCategoryId = data.category.id;
+                                    }),
+                              ),
+                            );
+                          }).toList(),
                     ),
-                  );
-                },
+                  ),
+
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        if (activeEntries.isEmpty) {
+                          return Center(
+                            child: Text(
+                              'Non ci sono zone configurate per questa categoria.',
+                              style: theme.textTheme.bodyMedium,
+                              textAlign: TextAlign.center,
+                            ),
+                          );
+                        }
+                        return Center(
+                          child: SizedBox(
+                            width: constraints.maxWidth,
+                            height: constraints.maxHeight,
+                            child: AspectRatio(
+                              aspectRatio:
+                                  bodyZonesCanvasSize.width /
+                                  bodyZonesCanvasSize.height,
+                              child: FittedBox(
+                                fit: BoxFit.contain,
+                                child: SizedBox(
+                                  width: bodyZonesCanvasSize.width,
+                                  height: bodyZonesCanvasSize.height,
+                                  child: _BodyZoneMapCanvas(
+                                    entries: activeEntries,
+                                    selectedServiceIds:
+                                        activeSelectedServiceIds,
+                                    onToggle: toggleSelection,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          activeSelectedServiceIds.isEmpty
+                              ? 'Nessun servizio selezionato'
+                              : activeSelectedServiceIds.length == 1
+                              ? '1 servizio selezionato'
+                              : '${activeSelectedServiceIds.length} servizi selezionati',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ),
+                      TextButton(
+                        onPressed:
+                            activeSelectedServiceIds.isEmpty
+                                ? null
+                                : () => setModalState(() {
+                                  workingSelection = workingSelection
+                                      .where(
+                                        (id) => !activeServiceIds.contains(id),
+                                      )
+                                      .toList(growable: true);
+                                }),
+                        child: const Text('Deseleziona'),
+                      ),
+                    ],
+                  ),
+                ],
               );
             }
 
@@ -2555,17 +2715,6 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     _clearInlineError();
   }
 
-  void _adjustDuration(int deltaMinutes) {
-    final currentDuration = _end.difference(_start).inMinutes;
-    final nextDuration = currentDuration + deltaMinutes;
-    if (nextDuration < _slotIntervalMinutes) {
-      return;
-    }
-    setState(() {
-      _end = _start.add(Duration(minutes: nextDuration));
-    });
-    _clearInlineError();
-  }
 
   Appointment? _buildAppointment({required bool skipAvailabilityChecks}) {
     _clearInlineError();
@@ -2586,7 +2735,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     final services = allServices;
     final staffMembers = data.staff.isNotEmpty ? data.staff : widget.staff;
 
-    final selectedServices = _selectedServicesInOrder(services);
+    final baseSelectedServices = _selectedServicesInOrder(services);
+    final selectedServices = _applyDurationAdjustments(baseSelectedServices);
     if (selectedServices.isEmpty) {
       _showInlineError('Servizi non validi.');
       return null;
@@ -2742,7 +2892,10 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     if (appointment == null) {
       return;
     }
-    final copied = appointment.copyWith(id: _uuid.v4());
+    final copied = appointment.copyWith(
+      id: _uuid.v4(),
+      status: AppointmentStatus.scheduled,
+    );
     ref.read(appointmentClipboardProvider.notifier).state =
         AppointmentClipboard(appointment: copied, copiedAt: DateTime.now());
     setState(() {
@@ -3081,6 +3234,160 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         _manualPackageSelections.remove(id);
       }
     }
+    _syncServiceDurationAdjustments(serviceIds);
+  }
+
+  void _syncServiceDurationAdjustments(List<String> serviceIds) {
+    final expected = serviceIds.toSet();
+    _serviceDurationAdjustments.removeWhere((key, _) => !expected.contains(key));
+    for (final id in serviceIds) {
+      _serviceDurationAdjustments.putIfAbsent(id, () => Duration.zero);
+    }
+  }
+
+  List<Service> _applyDurationAdjustments(List<Service> services) {
+    return services
+        .map((service) {
+          final adjustment = _serviceDurationAdjustments[service.id] ?? Duration.zero;
+          return service.copyWith(
+            extraDuration: service.extraDuration + adjustment,
+          );
+        })
+        .toList(growable: false);
+  }
+
+  Duration _sumServiceDurations(List<Service> services) {
+    return services.fold(
+      Duration.zero,
+      (acc, service) => acc + service.totalDuration,
+    );
+  }
+
+  void _updateServiceDurationDelta(
+    String serviceId,
+    int deltaMinutes,
+    List<Service> baseServices,
+  ) {
+    final baseService = baseServices.firstWhereOrNull(
+      (service) => service.id == serviceId,
+    );
+    if (baseService == null || deltaMinutes == 0) {
+      return;
+    }
+    final currentAdjustment =
+        _serviceDurationAdjustments[serviceId] ?? Duration.zero;
+    final currentTotal = baseService.duration +
+        baseService.extraDuration +
+        currentAdjustment;
+    var deltaDuration = Duration(minutes: deltaMinutes);
+    final candidateTotal = currentTotal + deltaDuration;
+    if (candidateTotal < Duration.zero) {
+      deltaDuration = Duration.zero - currentTotal;
+    }
+    if (deltaDuration == Duration.zero) {
+      return;
+    }
+    final nextAdjustment = currentAdjustment + deltaDuration;
+    final newTotal = baseService.duration +
+        baseService.extraDuration +
+        nextAdjustment;
+    if (newTotal < Duration.zero) {
+      return;
+    }
+    setState(() {
+      _serviceDurationAdjustments[serviceId] = nextAdjustment;
+      final adjustedServices = _applyDurationAdjustments(baseServices);
+      final totalDuration = _sumServiceDurations(adjustedServices);
+      if (totalDuration > Duration.zero) {
+        _end = _start.add(totalDuration);
+      }
+      _lastSuggestionKey = '';
+      _latestSuggestion = null;
+    });
+    _clearInlineError();
+  }
+
+  void _reorderService(int fromIndex, int toIndex) {
+    if (fromIndex == toIndex ||
+        fromIndex < 0 ||
+        toIndex < 0 ||
+        fromIndex >= _serviceIds.length ||
+        toIndex >= _serviceIds.length) {
+      return;
+    }
+    setState(() {
+      final ids = List<String>.from(_serviceIds);
+      final serviceId = ids.removeAt(fromIndex);
+      ids.insert(toIndex, serviceId);
+      _serviceIds = ids;
+      _ensureServiceState(_serviceIds);
+      _lastSuggestionKey = '';
+      _latestSuggestion = null;
+    });
+  }
+
+  Widget _buildReorderableServiceChips(
+    ThemeData theme,
+    List<Service> selectedServices,
+  ) {
+    if (selectedServices.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (var index = 0; index < selectedServices.length; index++)
+          Container(
+            key: ValueKey(selectedServices[index].id),
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
+                  iconSize: 18,
+                  tooltip: 'Sposta indietro',
+                  onPressed: index > 0
+                      ? () => _reorderService(index, index - 1)
+                      : null,
+                  icon: Icon(
+                    Icons.arrow_back_ios_new_rounded,
+                    color: theme.iconTheme.color?.withOpacity(
+                      index > 0 ? 1 : 0.35,
+                    ),
+                  ),
+                ),
+                Chip(
+                  label: Text(selectedServices[index].name),
+                ),
+                IconButton(
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
+                  iconSize: 18,
+                  tooltip: 'Sposta avanti',
+                  onPressed: index < selectedServices.length - 1
+                      ? () => _reorderService(index, index + 1)
+                      : null,
+                  icon: Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    color: theme.iconTheme.color?.withOpacity(
+                      index < selectedServices.length - 1 ? 1 : 0.35,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
   }
 
   void _scheduleAllocatorUpdate({
@@ -3194,11 +3501,14 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           ),
         );
       }
+      final adjustmentMinutes =
+          _serviceDurationAdjustments[serviceId]?.inMinutes ?? 0;
       allocations.add(
         AppointmentServiceAllocation(
           serviceId: serviceId,
           quantity: quantity,
           packageConsumptions: consumptions,
+          durationAdjustmentMinutes: adjustmentMinutes,
         ),
       );
     }
@@ -3339,9 +3649,7 @@ class _ServicePackageSelector extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     return Card(
       margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -3401,9 +3709,10 @@ class _ServicePackageSelector extends StatelessWidget {
                       selected: isSelected,
                       enabled: enabled || isSelected,
                       recommended: isSuggested,
-                      onTap: enabled || isSelected
-                          ? () => onSelect(isSelected ? null : packageId)
-                          : null,
+                      onTap:
+                          enabled || isSelected
+                              ? () => onSelect(isSelected ? null : packageId)
+                              : null,
                     );
                   }),
                 ],
@@ -3620,192 +3929,6 @@ class _ZoneServiceEntry {
 
   final BodyZoneDefinition zone;
   final Service service;
-}
-
-class _BodyZoneCategoryPicker extends StatefulWidget {
-  const _BodyZoneCategoryPicker({
-    required this.category,
-    required this.entries,
-    required this.initialSelection,
-  });
-
-  final ServiceCategory category;
-  final List<_ZoneServiceEntry> entries;
-  final Set<String> initialSelection;
-
-  @override
-  State<_BodyZoneCategoryPicker> createState() =>
-      _BodyZoneCategoryPickerState();
-}
-
-class _BodyZoneCategoryPickerState extends State<_BodyZoneCategoryPicker> {
-  late Set<String> _selectedServiceIds;
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedServiceIds =
-        widget.entries
-            .map((entry) => entry.service.id)
-            .where(widget.initialSelection.contains)
-            .toSet();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final availableEntries =
-        widget.entries
-            .where((entry) => entry.zone.pathData.isNotEmpty)
-            .toList();
-    final selectedServiceEntries =
-        widget.entries
-            .where((entry) => _selectedServiceIds.contains(entry.service.id))
-            .toList();
-    final selectedCount = _selectedServiceIds.length;
-    final seenServiceIds = <String>{};
-    final displayedSelectedEntries = <_ZoneServiceEntry>[];
-    for (final entry in selectedServiceEntries) {
-      if (seenServiceIds.add(entry.service.id)) {
-        displayedSelectedEntries.add(entry);
-      }
-    }
-    final hasSelection = displayedSelectedEntries.isNotEmpty;
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          24,
-          24,
-          24,
-          24 + MediaQuery.of(context).viewInsets.bottom,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(widget.category.name, style: theme.textTheme.titleLarge),
-                const SizedBox(height: 4),
-                Text(
-                  availableEntries.isEmpty
-                      ? 'Non sono disponibili zone configurate per questa categoria.'
-                      : 'Tocca una zona per selezionare/deselezionare il servizio associato.',
-                  style: theme.textTheme.bodyMedium,
-                ),
-              ],
-            ),
-
-            Expanded(
-              child:
-                  availableEntries.isEmpty
-                      ? Center(
-                        child: Text(
-                          'Non sono disponibili zone configurate per questa categoria.',
-                          style: theme.textTheme.bodyMedium,
-                          textAlign: TextAlign.center,
-                        ),
-                      )
-                      : LayoutBuilder(
-                        builder: (context, constraints) {
-                          return Center(
-                            child: SizedBox(
-                              width: constraints.maxWidth,
-                              height: constraints.maxHeight,
-                              child: AspectRatio(
-                                aspectRatio:
-                                    bodyZonesCanvasSize.width /
-                                    bodyZonesCanvasSize.height,
-                                child: FittedBox(
-                                  fit: BoxFit.contain,
-                                  child: SizedBox(
-                                    width: bodyZonesCanvasSize.width,
-                                    height: bodyZonesCanvasSize.height,
-                                    child: _BodyZoneMapCanvas(
-                                      entries: availableEntries,
-                                      selectedServiceIds: _selectedServiceIds,
-                                      onToggle: _toggleService,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Annulla'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: () {
-                      Navigator.of(
-                        context,
-                      ).pop<Set<String>>(_selectedServiceIds);
-                    },
-                    icon: const Icon(Icons.check_rounded),
-                    label: Text(
-                      selectedCount == 0
-                          ? 'Conferma'
-                          : 'Conferma ($selectedCount)',
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _toggleService(String serviceId) {
-    setState(() {
-      if (_selectedServiceIds.contains(serviceId)) {
-        _selectedServiceIds.remove(serviceId);
-      } else {
-        _selectedServiceIds.add(serviceId);
-      }
-    });
-  }
-
-  void _clearSelection() {
-    setState(() {
-      _selectedServiceIds.clear();
-    });
-  }
-}
-
-class _BodyZoneInteractiveMap extends StatelessWidget {
-  const _BodyZoneInteractiveMap({
-    required this.entries,
-    required this.selectedServiceIds,
-    required this.onToggle,
-  });
-
-  final List<_ZoneServiceEntry> entries;
-  final Set<String> selectedServiceIds;
-  final ValueChanged<String> onToggle;
-
-  @override
-  Widget build(BuildContext context) {
-    return AspectRatio(
-      aspectRatio: bodyZonesCanvasSize.width / bodyZonesCanvasSize.height,
-      child: _BodyZoneMapCanvas(
-        entries: entries,
-        selectedServiceIds: selectedServiceIds,
-        onToggle: onToggle,
-      ),
-    );
-  }
 }
 
 class _BodyZoneMapCanvas extends StatelessWidget {

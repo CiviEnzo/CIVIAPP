@@ -172,11 +172,13 @@ class ClientsModuleIntent {
     this.generalQuery,
     this.clientNumber,
     this.clientId,
+    this.detailTabIndex,
   });
 
   final String? generalQuery;
   final String? clientNumber;
   final String? clientId;
+  final int? detailTabIndex;
 }
 
 final clientDashboardIntentProvider = StateProvider<ClientDashboardIntent?>(

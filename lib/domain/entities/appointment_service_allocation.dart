@@ -3,21 +3,26 @@ class AppointmentServiceAllocation {
     required this.serviceId,
     this.quantity = 1,
     this.packageConsumptions = const <AppointmentPackageConsumption>[],
+    this.durationAdjustmentMinutes = 0,
   }) : assert(quantity >= 0, 'quantity must be non-negative');
 
   final String serviceId;
   final int quantity;
   final List<AppointmentPackageConsumption> packageConsumptions;
+  final int durationAdjustmentMinutes;
 
   AppointmentServiceAllocation copyWith({
     String? serviceId,
     int? quantity,
     List<AppointmentPackageConsumption>? packageConsumptions,
+    int? durationAdjustmentMinutes,
   }) {
     return AppointmentServiceAllocation(
       serviceId: serviceId ?? this.serviceId,
       quantity: quantity ?? this.quantity,
       packageConsumptions: packageConsumptions ?? this.packageConsumptions,
+      durationAdjustmentMinutes:
+          durationAdjustmentMinutes ?? this.durationAdjustmentMinutes,
     );
   }
 
@@ -30,6 +35,8 @@ class AppointmentServiceAllocation {
             packageConsumptions
                 .map((consumption) => consumption.toMap())
                 .toList(),
+      if (durationAdjustmentMinutes != 0)
+        'durationAdjustmentMinutes': durationAdjustmentMinutes,
     };
   }
 
@@ -42,10 +49,12 @@ class AppointmentServiceAllocation {
         .whereType<Map<String, dynamic>>()
         .map(AppointmentPackageConsumption.fromMap)
         .toList(growable: false);
+    final adjustment = (map['durationAdjustmentMinutes'] as num?)?.toInt() ?? 0;
     return AppointmentServiceAllocation(
       serviceId: serviceId,
       quantity: quantity,
       packageConsumptions: consumptions,
+      durationAdjustmentMinutes: adjustment,
     );
   }
 }

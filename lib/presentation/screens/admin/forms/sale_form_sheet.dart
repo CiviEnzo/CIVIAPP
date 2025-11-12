@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:you_book/app/providers.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/inventory_item.dart';
 import 'package:you_book/domain/entities/package.dart';
@@ -95,6 +97,9 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   late final TextEditingController _paidAmountController;
   late final TextEditingController _loyaltyRedeemController;
   final Map<String, int> _coveredServices = {};
+  final Map<String, int> _coveredLineQuantities = {};
+  final Map<String, String> _lineCachedPrices = {};
+  final Map<String, _ServiceCoverageDetail> _serviceCoverageDetails = {};
   PaymentMethod? _payment;
   SalePaymentStatus? _paymentStatus;
   String? _salonId;
@@ -157,11 +162,12 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       }
     }
 
-    final existingSale = widget.initialSaleId != null
-        ? widget.sales.firstWhereOrNull(
-            (sale) => sale.id == widget.initialSaleId,
-          )
-        : null;
+    final existingSale =
+        widget.initialSaleId != null
+            ? widget.sales.firstWhereOrNull(
+              (sale) => sale.id == widget.initialSaleId,
+            )
+            : null;
     final existingRecorderId = existingSale?.metadata['recordedByStaffId'];
     if (existingRecorderId is String && existingRecorderId.isNotEmpty) {
       _recorderStaffId = existingRecorderId;
@@ -180,6 +186,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         _lines.add(draft);
       }
     }
+
+    _updatePackageCoveragePreview();
 
     final initialPaid = widget.initialPaidAmount;
     if (initialPaid != null && initialPaid > 0) {
@@ -210,19 +218,20 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     final canProceed = _lines.isNotEmpty;
     final buttonLabel =
         _isPaymentStep || !requiresPayment ? 'Salva' : 'Conferma';
-    final VoidCallback? onPressed = canProceed
-        ? () {
-            if (_isPaymentStep) {
-              _submit();
-              return;
+    final VoidCallback? onPressed =
+        canProceed
+            ? () {
+              if (_isPaymentStep) {
+                _submit();
+                return;
+              }
+              if (requiresPayment) {
+                _continueToPaymentStep();
+                return;
+              }
+              _submit(skipReview: true);
             }
-            if (requiresPayment) {
-              _continueToPaymentStep();
-              return;
-            }
-            _submit(skipReview: true);
-          }
-        : null;
+            : null;
     return Align(
       alignment: Alignment.bottomCenter,
       child: Material(
@@ -327,7 +336,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       const SizedBox(height: 24),
       _buildSectionHeader(
         icon: Icons.store_outlined,
-        title: 'Cliente e operatore',
+        title: 'Cliente',
         subtitle:
             'Cerca il cliente e collega l\'operatore per associare il salone automaticamente',
       ),
@@ -342,6 +351,10 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       const SizedBox(height: 12),
       _buildSaleLinesSection(theme, currency),
       const SizedBox(height: 16),
+      if (_serviceCoverageDetails.isNotEmpty) ...[
+        _buildPackageCoverageSummary(theme),
+        const SizedBox(height: 16),
+      ],
       Wrap(
         spacing: 12,
         runSpacing: 8,
@@ -475,7 +488,11 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         if (!isWide) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [summaryStack, const SizedBox(height: 24), paymentSection],
+            children: [
+              summaryStack,
+              const SizedBox(height: 24),
+              paymentSection,
+            ],
           );
         }
         return Row(
@@ -730,7 +747,9 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
             const SizedBox(height: 12),
             DropdownButtonFormField<PaymentMethod>(
               value: _payment,
-              decoration: const InputDecoration(labelText: 'Metodo di pagamento'),
+              decoration: const InputDecoration(
+                labelText: 'Metodo di pagamento',
+              ),
               items:
                   PaymentMethod.values
                       .map(
@@ -740,8 +759,9 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                         ),
                       )
                       .toList(),
-              validator: (value) =>
-                  value == null ? 'Seleziona il metodo di pagamento' : null,
+              validator:
+                  (value) =>
+                      value == null ? 'Seleziona il metodo di pagamento' : null,
               onChanged: (value) => setState(() => _payment = value),
             ),
             if (_paymentStatus == SalePaymentStatus.deposit) ...[
@@ -751,8 +771,9 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                 decoration: const InputDecoration(
                   labelText: 'Importo incassato (€)',
                 ),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 validator: (value) {
                   if (_paymentStatus != SalePaymentStatus.deposit) {
                     return null;
@@ -778,9 +799,10 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         if (staff.isNotEmpty) ...[
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
-            value: staff.any((member) => member.id == _recorderStaffId)
-                ? _recorderStaffId
-                : null,
+            value:
+                staff.any((member) => member.id == _recorderStaffId)
+                    ? _recorderStaffId
+                    : null,
             decoration: const InputDecoration(labelText: 'Registrato da'),
             items:
                 staff
@@ -791,9 +813,11 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                       ),
                     )
                     .toList(),
-            validator: (value) => value == null
-                ? 'Seleziona l\'operatore che registra la vendita'
-                : null,
+            validator:
+                (value) =>
+                    value == null
+                        ? 'Seleziona l\'operatore che registra la vendita'
+                        : null,
             onChanged: (value) => setState(() => _recorderStaffId = value),
           ),
         ],
@@ -1068,20 +1092,33 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                               errorText: state.errorText,
                             ),
                             isEmpty: false,
-                            child: Row(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Expanded(
-                                  child: Text(
-                                    selectedClient.fullName,
-                                    style:
-                                        theme.textTheme.bodyLarge ??
-                                        theme.textTheme.bodyMedium,
-                                  ),
-                                ),
-                                IconButton(
-                                  tooltip: 'Rimuovi cliente',
-                                  icon: const Icon(Icons.close_rounded),
-                                  onPressed: _clearClientSelection,
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        selectedClient.fullName,
+                                        style:
+                                            theme.textTheme.bodyLarge ??
+                                            theme.textTheme.bodyMedium,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Vai al cliente',
+                                      icon: const Icon(
+                                        Icons.open_in_new_rounded,
+                                      ),
+                                      onPressed: _openSelectedClient,
+                                    ),
+                                    SizedBox(width: 10),
+                                    IconButton(
+                                      tooltip: 'Rimuovi cliente',
+                                      icon: const Icon(Icons.close_rounded),
+                                      onPressed: _clearClientSelection,
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -1779,6 +1816,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     _attachLineListeners(line);
     setState(() {
       _lines.add(line);
+      _updatePackageCoveragePreview();
     });
     _syncManualTotalWithSubtotal();
     _recalculateLoyalty();
@@ -1792,7 +1830,9 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     final line = _lines[index];
     setState(() {
       _lines.removeAt(index);
+      _updatePackageCoveragePreview();
     });
+    _lineCachedPrices.remove(line.id);
     line.dispose();
     _syncManualTotalWithSubtotal(force: true);
     _recalculateLoyalty();
@@ -1806,6 +1846,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     _manualTotalController.clear();
     _manualTotalOverridden = false;
     _isPaymentStep = false;
+    _updatePackageCoveragePreview();
+    _lineCachedPrices.clear();
   }
 
   void _handleClientSuggestionTap(Client client) {
@@ -1915,6 +1957,20 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       _clientSuggestions =
           filtered.length > 8 ? filtered.sublist(0, 8) : filtered;
     });
+  }
+
+  void _openSelectedClient() {
+    final clientId = _clientId;
+    if (clientId == null) {
+      return;
+    }
+    final container = ProviderScope.containerOf(context, listen: false);
+    container
+        .read(adminDashboardIntentProvider.notifier)
+        .state = AdminDashboardIntent(
+      moduleId: 'clients',
+      payload: {'clientId': clientId, 'detailTabIndex': 0},
+    );
   }
 
   void _onStaffChanged(String? staffId) {
@@ -2276,6 +2332,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   void _handleLineChanged() {
     _syncManualTotalWithSubtotal();
     _recalculateLoyalty();
+    _updatePackageCoveragePreview();
     setState(() {});
   }
 
@@ -2521,6 +2578,113 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     return items;
   }
 
+  List<_CoverageLine> _saleItemsFromDraftsForCoveragePreview() {
+    final previewItems = <_CoverageLine>[];
+    for (final line in _lines) {
+      final description = line.descriptionController.text.trim();
+      final quantityValue = _parseAmount(line.quantityController.text) ?? 0;
+      final unitPriceValue = _parseAmount(line.priceController.text) ?? 0;
+      final quantity = double.parse(quantityValue.toStringAsFixed(2));
+      final unitPrice = double.parse(unitPriceValue.toStringAsFixed(2));
+      final referenceId = line.referenceId ?? 'manual-${line.id}';
+      if (line.referenceType == SaleReferenceType.package) {
+        previewItems.add(
+          _CoverageLine(
+            lineId: line.id,
+            item: SaleItem(
+              referenceId: referenceId,
+              referenceType: line.referenceType,
+              description: description,
+              quantity: quantity,
+              unitPrice: unitPrice,
+              packageServiceSessions:
+                  line.packageMetadata?.serviceSessions ??
+                  const <String, int>{},
+            ),
+          ),
+        );
+        continue;
+      }
+      previewItems.add(
+        _CoverageLine(
+          lineId: line.id,
+          item: SaleItem(
+            referenceId: referenceId,
+            referenceType: line.referenceType,
+            description: description,
+            quantity: quantity,
+            unitPrice: unitPrice,
+          ),
+        ),
+      );
+    }
+    return previewItems;
+  }
+
+  void _updatePackageCoveragePreview() {
+    final coverage = _packageCoverageFromItems(
+      _saleItemsFromDraftsForCoveragePreview(),
+    );
+    _coveredServices
+      ..clear()
+      ..addEntries(
+        coverage.usedSessions.entries.map(
+          (entry) => MapEntry(_serviceNameForId(entry.key), entry.value),
+        ),
+      );
+    _coveredLineQuantities
+      ..clear()
+      ..addAll(coverage.coveredLineQuantities);
+    _serviceCoverageDetails
+      ..clear()
+      ..addEntries(
+        coverage.usedSessions.entries.map((entry) {
+          final total = coverage.serviceTotals[entry.key] ?? entry.value;
+          return MapEntry(
+            _serviceNameForId(entry.key),
+            _ServiceCoverageDetail(entry.value, total),
+          );
+        }),
+      );
+    _updateServiceLinePrices();
+  }
+
+  void _restoreLinePriceIfNeeded(_SaleLineDraft line) {
+    final cached = _lineCachedPrices.remove(line.id);
+    if (cached != null && line.priceController.text != cached) {
+      line.priceController.text = cached;
+    }
+  }
+
+  void _updateServiceLinePrices() {
+    for (final line in _lines) {
+      if (line.referenceType != SaleReferenceType.service) {
+        _lineCachedPrices.remove(line.id);
+        continue;
+      }
+
+      final referenceId = line.referenceId;
+      final quantity =
+          (_parseAmount(line.quantityController.text) ?? 0).round();
+      if (referenceId == null || referenceId.isEmpty || quantity <= 0) {
+        _restoreLinePriceIfNeeded(line);
+        continue;
+      }
+
+      final coveredQuantity = _coveredLineQuantities[line.id] ?? 0;
+      final isCovered = coveredQuantity >= quantity && quantity > 0;
+      if (isCovered) {
+        _lineCachedPrices.putIfAbsent(line.id, () => line.priceController.text);
+        const zeroPrice = '0.00';
+        if (line.priceController.text != zeroPrice) {
+          line.priceController.text = zeroPrice;
+        }
+      } else {
+        _restoreLinePriceIfNeeded(line);
+      }
+    }
+  }
+
   void _continueToPaymentStep() {
     FocusScope.of(context).unfocus();
     if (_isPaymentStep) {
@@ -2632,18 +2796,22 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       paymentMethod,
     );
 
-    final staffId = _staffId!;
+    final staffId = _staffId;
     final recordedStaffId = _recorderStaffId ?? staffId;
-    final recordedByName = _operatorStaff
-        .firstWhereOrNull((member) => member.id == recordedStaffId)
-        ?.fullName;
+    if (recordedStaffId == null) {
+      _showSnackBar('Seleziona l\'operatore che registra la vendita.');
+      return;
+    }
+    final recordedByName =
+        _operatorStaff
+            .firstWhereOrNull((member) => member.id == recordedStaffId)
+            ?.fullName;
     final paymentMovements = <SalePaymentMovement>[];
     final shouldRegisterMovement =
         paymentStatus == SalePaymentStatus.posticipated || paidAmount > 0;
     if (shouldRegisterMovement) {
-      final movementAmount = paymentStatus == SalePaymentStatus.posticipated
-          ? 0.0
-          : paidAmount;
+      final movementAmount =
+          paymentStatus == SalePaymentStatus.posticipated ? 0.0 : paidAmount;
       final movementType =
           paymentStatus == SalePaymentStatus.paid
               ? SalePaymentType.settlement
@@ -2801,7 +2969,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   }
 
   Widget _buildPackageCoverageSummary(ThemeData theme) {
-    if (_coveredServices.isEmpty) {
+    if (_serviceCoverageDetails.isEmpty) {
       return const SizedBox.shrink();
     }
     return Card(
@@ -2812,15 +2980,18 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
           children: [
             Text('Copertura pacchetti', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
-            for (final entry in _coveredServices.entries)
+            for (final entry in _serviceCoverageDetails.entries)
               Row(
                 children: [
-                  Icon(Icons.check_circle_outline,
-                      size: 18, color: theme.colorScheme.primary),
+                  Icon(
+                    Icons.check_circle_outline,
+                    size: 18,
+                    color: theme.colorScheme.primary,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      '${entry.key}: ${entry.value} sessioni scalate',
+                      _coverageSummaryText(entry.key, entry.value),
                       style: theme.textTheme.bodyMedium,
                     ),
                   ),
@@ -2832,8 +3003,23 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     );
   }
 
+  String _coverageSummaryText(
+    String serviceName,
+    _ServiceCoverageDetail detail,
+  ) {
+    if (detail.total > 0) {
+      final remaining = detail.remaining;
+      return '$serviceName: ${detail.used} sessioni scalate · $remaining/${detail.total} rimanenti';
+    }
+    return '$serviceName: ${detail.used} sessioni scalate';
+  }
+
   List<SaleItem> _applyPackageSessionCoverage(List<SaleItem> items) {
-    _coveredServices.clear();
+    if (!items.any((item) => item.referenceType == SaleReferenceType.package)) {
+      _coveredServices.clear();
+      return items;
+    }
+    final usedSessions = <String, int>{};
     final updatedPackages = <int, SaleItem>{};
     for (var i = 0; i < items.length; i++) {
       final item = items[i];
@@ -2852,6 +3038,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         final fullyCovered = _consumeServiceFromPackages(
           serviceItem: item,
           packages: updatedPackages,
+          usedSessions: usedSessions,
         );
         if (fullyCovered) {
           adjustedItems.add(item.copyWith(unitPrice: 0));
@@ -2860,12 +3047,55 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       }
       adjustedItems.add(item);
     }
+    _coveredServices
+      ..clear()
+      ..addEntries(
+        usedSessions.entries.map(
+          (entry) => MapEntry(_serviceNameForId(entry.key), entry.value),
+        ),
+      );
     return adjustedItems;
+  }
+
+  _PackageCoverageResult _packageCoverageFromItems(List<_CoverageLine> items) {
+    final usedSessions = <String, int>{};
+    final coveredLines = <String, int>{};
+    final serviceTotals = <String, int>{};
+    final updatedPackages = <int, SaleItem>{};
+    for (var i = 0; i < items.length; i++) {
+      final item = items[i].item;
+      if (item.referenceType == SaleReferenceType.package) {
+        updatedPackages[i] = item;
+        for (final entry in item.packageServiceSessions.entries) {
+          serviceTotals.update(
+            entry.key,
+            (value) => value + entry.value,
+            ifAbsent: () => entry.value,
+          );
+        }
+      }
+    }
+    for (var i = 0; i < items.length; i++) {
+      final item = items[i].item;
+      if (item.referenceType != SaleReferenceType.service) {
+        continue;
+      }
+      final fullyCovered = _consumeServiceFromPackages(
+        serviceItem: item,
+        packages: updatedPackages,
+        usedSessions: usedSessions,
+      );
+      if (fullyCovered) {
+        coveredLines[items[i].lineId] = item.quantity.round();
+      }
+    }
+    return _PackageCoverageResult(usedSessions, coveredLines, serviceTotals);
   }
 
   bool _consumeServiceFromPackages({
     required SaleItem serviceItem,
     required Map<int, SaleItem> packages,
+    required Map<String, int> usedSessions,
   }) {
     final serviceId = serviceItem.referenceId;
     if (serviceId == null || serviceId.isEmpty) {
@@ -2888,8 +3118,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       final use = math.min(sessions, remaining);
       remaining -= use;
       consumedAny = true;
-      _coveredServices.update(
-        _serviceNameForId(serviceId),
+      usedSessions.update(
+        serviceId,
         (value) => value + use,
         ifAbsent: () => use,
       );
@@ -2911,14 +3141,17 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   }
 
   String _serviceNameForId(String serviceId) {
-    final service = widget.services.firstWhereOrNull((item) => item.id == serviceId);
+    final service = widget.services.firstWhereOrNull(
+      (item) => item.id == serviceId,
+    );
     return service?.name ?? 'Servizio';
   }
 
   String _lineDisplayLabel(_SaleLineDraft line, int index) {
-    final description = line.catalogLabel?.trim().isNotEmpty == true
-        ? line.catalogLabel!.trim()
-        : line.descriptionController.text.trim();
+    final description =
+        line.catalogLabel?.trim().isNotEmpty == true
+            ? line.catalogLabel!.trim()
+            : line.descriptionController.text.trim();
     if (description.isNotEmpty) {
       return description;
     }
@@ -3031,5 +3264,38 @@ class _SaleLineDraft {
     descriptionController.dispose();
     quantityController.dispose();
     priceController.dispose();
+  }
+}
+
+class _CoverageLine {
+  const _CoverageLine({required this.lineId, required this.item});
+
+  final String lineId;
+  final SaleItem item;
+}
+
+class _PackageCoverageResult {
+  _PackageCoverageResult(
+    this.usedSessions,
+    this.coveredLineQuantities,
+    this.serviceTotals,
+  );
+
+  final Map<String, int> usedSessions;
+  final Map<String, int> coveredLineQuantities;
+  final Map<String, int> serviceTotals;
+}
+
+class _ServiceCoverageDetail {
+  _ServiceCoverageDetail(this.used, this.total);
+
+  final int used;
+  final int total;
+
+  int get remaining {
+    if (total <= used) {
+      return 0;
+    }
+    return total - used;
   }
 }

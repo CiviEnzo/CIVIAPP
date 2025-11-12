@@ -6014,17 +6014,18 @@ class AppDataStore extends StateNotifier<AppDataState> {
       cashFlowEntries: List.unmodifiable(
         state.cashFlowEntries.map((entry) {
           if (entry.staffId == staffId) {
-            return CashFlowEntry(
-              id: entry.id,
-              salonId: entry.salonId,
-              type: entry.type,
-              amount: entry.amount,
-              date: entry.date,
-              createdAt: entry.createdAt,
-              description: entry.description,
-              category: entry.category,
-              staffId: null,
-            );
+          return CashFlowEntry(
+            id: entry.id,
+            salonId: entry.salonId,
+            type: entry.type,
+            amount: entry.amount,
+            date: entry.date,
+            createdAt: entry.createdAt,
+            description: entry.description,
+            category: entry.category,
+            staffId: null,
+            clientId: entry.clientId,
+          );
           }
           return entry;
         }).toList(),

@@ -39,6 +39,7 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
   String? _salonId;
   final Set<String> _selectedServices = {};
   final Map<String, TextEditingController> _serviceControllers = {};
+  final Map<String, FocusNode> _serviceFocusNodes = {};
   final Map<String, int> _serviceSessions = {};
   bool _isUpdatingSessionCount = false;
   bool _sessionCountEdited = false;
@@ -115,6 +116,9 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
     _serviceSearch.dispose();
     for (final controller in _serviceControllers.values) {
       controller.dispose();
+    }
+    for (final focusNode in _serviceFocusNodes.values) {
+      focusNode.dispose();
     }
     super.dispose();
   }
@@ -364,6 +368,7 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
                 SizedBox(
                   width: 110,
                   child: TextFormField(
+                    focusNode: _focusNodeForService(service.id),
                     controller: controller,
                     enabled: selected,
                     decoration: const InputDecoration(
@@ -407,7 +412,15 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
     );
   }
 
+  FocusNode _focusNodeForService(String serviceId) {
+    return _serviceFocusNodes.putIfAbsent(
+      serviceId,
+      () => FocusNode(),
+    );
+  }
+
   void _toggleService(Service service, bool isSelected) {
+    final focusNode = _focusNodeForService(service.id);
     setState(() {
       if (isSelected) {
         _selectedServices.add(service.id);
@@ -423,8 +436,15 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
         _selectedServices.remove(service.id);
         _serviceSessions.remove(service.id);
         _serviceControllers[service.id]?.clear();
+        focusNode.unfocus();
       }
     });
+    if (isSelected) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        FocusScope.of(context).requestFocus(focusNode);
+      });
+    }
     _recalculateSessionCountFromServices();
     _recalculateFullPrice();
   }

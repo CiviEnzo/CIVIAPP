@@ -1,4 +1,5 @@
 import 'package:you_book/app/providers.dart';
+import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/cash_flow_entry.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/inventory_item.dart';
@@ -64,6 +65,17 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
     }
   }
 
+  static const int _clientBillingTabIndex = 6;
+
+  void _openClientBillingTab(String clientId) {
+    ref
+        .read(adminDashboardIntentProvider.notifier)
+        .state = AdminDashboardIntent(
+      moduleId: 'clients',
+      payload: {'clientId': clientId, 'detailTabIndex': _clientBillingTabIndex},
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final ref = this.ref;
@@ -90,6 +102,7 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
     final services = data.services;
     final packages = data.packages;
     final inventoryItems = data.inventoryItems;
+    final appointments = data.appointments;
     final paymentTickets =
         data.paymentTickets
             .where((ticket) => salonId == null || ticket.salonId == salonId)
@@ -198,18 +211,19 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
             children: [
               FilledButton.icon(
                 onPressed:
-                    () => openSaleForm(
-                      context,
-                      ref,
-                      salons: salons,
-                      clients: clients,
-                      staff: staff,
-                      services: services,
-                      packages: packages,
-                      inventory: inventoryItems,
-                      sales: sales,
-                      defaultSalonId: salonId,
-                    ),
+                      () => openSaleForm(
+                        context,
+                        ref,
+                        salons: salons,
+                        clients: clients,
+                        staff: staff,
+                        services: services,
+                        packages: packages,
+                        inventory: inventoryItems,
+                        sales: sales,
+                        appointments: appointments,
+                        defaultSalonId: salonId,
+                      ),
                 icon: const Icon(Icons.point_of_sale_rounded),
                 label: const Text('Registra vendita'),
               ),
@@ -257,12 +271,15 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                               (member) => member.id == ticket.staffId,
                             )
                             ?.fullName;
-                final service = services.firstWhereOrNull(
-                  (item) => item.id == ticket.serviceId,
+                final appointment = appointments.firstWhereOrNull(
+                  (item) => item.id == ticket.appointmentId,
                 );
                 final serviceName =
-                    service?.name ?? ticket.serviceName ?? 'Servizio';
-                final amount = ticket.expectedTotal ?? service?.price;
+                    _ticketServiceLabel(ticket, appointment, services);
+                final fallbackService = services.firstWhereOrNull(
+                  (item) => item.id == ticket.serviceId,
+                );
+                final amount = ticket.expectedTotal ?? fallbackService?.price;
                 final appointmentDate = ticketDateFormat.format(
                   ticket.appointmentStart,
                 );
@@ -279,6 +296,7 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                           packages: packages,
                           inventory: inventoryItems,
                           sales: sales,
+                          appointments: appointments,
                           defaultSalonId: salonId,
                           ticket: ticket,
                         ),
@@ -380,6 +398,16 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
               itemBuilder: (context, index) {
                 final entry = cashFlow[index];
                 final entryDate = entry.date.toLocal();
+                final client =
+                    entry.clientId == null
+                        ? null
+                        : clients.firstWhereOrNull(
+                          (client) => client.id == entry.clientId,
+                        );
+                final titleLabel =
+                    client?.fullName ?? entry.description ?? 'Movimento';
+                final dateLabel = DateFormat('dd/MM/yyyy').format(entryDate);
+                final categoryLabel = entry.category ?? 'Generale';
                 return Card(
                   child: ListTile(
                     leading: CircleAvatar(
@@ -394,10 +422,19 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                         color: Theme.of(context).colorScheme.onPrimary,
                       ),
                     ),
-                    title: Text(entry.description ?? 'Movimento'),
-                    subtitle: Text(
-                      '${DateFormat('dd/MM/yyyy').format(entryDate)} · ${entry.category ?? 'Generale'}',
+                    title: Row(
+                      children: [
+                        Expanded(child: Text(titleLabel)),
+                        if (client != null)
+                          IconButton(
+                            iconSize: 24,
+                            tooltip: 'Apri scheda fatturazione',
+                            onPressed: () => _openClientBillingTab(client.id),
+                            icon: const Icon(Icons.open_in_new_rounded),
+                          ),
+                      ],
                     ),
+                    subtitle: Text('$dateLabel · $categoryLabel'),
                     trailing: Text(
                       currency.format(entry.amount),
                       style: TextStyle(
@@ -529,20 +566,45 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
   }
 
   // ignore: unused_element
-  String _paymentLabel(PaymentMethod method) {
-    switch (method) {
-      case PaymentMethod.cash:
-        return 'Contanti';
+String _paymentLabel(PaymentMethod method) {
+  switch (method) {
+    case PaymentMethod.cash:
+      return 'Contanti';
       case PaymentMethod.pos:
         return 'POS';
       case PaymentMethod.transfer:
         return 'Bonifico';
       case PaymentMethod.giftCard:
         return 'Gift card';
-      case PaymentMethod.posticipated:
-        return 'Posticipato';
+    case PaymentMethod.posticipated:
+      return 'Posticipato';
+  }
+}
+
+String _ticketServiceLabel(
+  PaymentTicket ticket,
+  Appointment? appointment,
+  List<Service> services,
+) {
+  final serviceNames = <String>[];
+  if (appointment != null) {
+    for (final serviceId in appointment.serviceIds) {
+      if (serviceId.isEmpty) {
+        continue;
+      }
+      final service =
+          services.firstWhereOrNull((item) => item.id == serviceId);
+      serviceNames.add(service?.name ?? 'Servizio');
     }
   }
+  if (serviceNames.isNotEmpty) {
+    return serviceNames.join(' · ');
+  }
+  final matchedService = services.firstWhereOrNull(
+    (item) => item.id == ticket.serviceId,
+  );
+  return matchedService?.name ?? ticket.serviceName ?? 'Servizio';
+}
 }
 
 Future<void> openSaleForm(
@@ -555,6 +617,7 @@ Future<void> openSaleForm(
   required List<ServicePackage> packages,
   required List<InventoryItem> inventory,
   required List<Sale> sales,
+  required List<Appointment> appointments,
   String? defaultSalonId,
   PaymentTicket? ticket,
 }) async {
@@ -566,25 +629,14 @@ Future<void> openSaleForm(
     );
     return;
   }
-  final matchedService =
-      ticket == null
-          ? null
-          : services.firstWhereOrNull(
-            (service) => service.id == ticket.serviceId,
-          );
-  final initialItems =
-      ticket == null
-          ? null
-          : [
-            SaleItem(
-              referenceId: ticket.serviceId,
-              referenceType: SaleReferenceType.service,
-              description:
-                  matchedService?.name ?? ticket.serviceName ?? 'Servizio',
-              quantity: 1,
-              unitPrice: matchedService?.price ?? ticket.expectedTotal ?? 0,
-            ),
-          ];
+  final appointment = ticket == null
+      ? null
+      : appointments.firstWhereOrNull(
+          (item) => item.id == ticket.appointmentId,
+        );
+  final initialItems = ticket == null
+      ? null
+      : _initialItemsFromTicket(ticket, appointment, services);
   final sale = await showAppModalSheet<Sale>(
     context: context,
     builder:
@@ -608,10 +660,50 @@ Future<void> openSaleForm(
     final store = ref.read(appDataProvider.notifier);
     await store.upsertSale(sale);
     await recordSaleCashFlow(ref: ref, sale: sale, clients: clients);
-    if (ticket != null && sale.paymentStatus != SalePaymentStatus.posticipated) {
+    if (ticket != null &&
+        sale.paymentStatus != SalePaymentStatus.posticipated) {
       await store.closePaymentTicket(ticket.id, saleId: sale.id);
     }
   }
+}
+
+List<SaleItem> _initialItemsFromTicket(
+  PaymentTicket ticket,
+  Appointment? appointment,
+  List<Service> services,
+) {
+  final serviceIds = appointment?.serviceIds.where((id) => id.isNotEmpty).toList();
+  if (serviceIds != null && serviceIds.isNotEmpty) {
+    return serviceIds
+        .map(
+          (serviceId) {
+            final service =
+                services.firstWhereOrNull((item) => item.id == serviceId);
+            return SaleItem(
+              referenceId: serviceId,
+              referenceType: SaleReferenceType.service,
+              description:
+                  service?.name ?? ticket.serviceName ?? 'Servizio',
+              quantity: 1,
+              unitPrice: service?.price ?? 0,
+            );
+          },
+        )
+        .toList(growable: false);
+  }
+  final matchedService = services.firstWhereOrNull(
+    (item) => item.id == ticket.serviceId,
+  );
+  return [
+    SaleItem(
+      referenceId: ticket.serviceId,
+      referenceType: SaleReferenceType.service,
+      description:
+          matchedService?.name ?? ticket.serviceName ?? 'Servizio',
+      quantity: 1,
+      unitPrice: matchedService?.price ?? ticket.expectedTotal ?? 0,
+    ),
+  ];
 }
 
 // ignore: unused_element
