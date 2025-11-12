@@ -8034,54 +8034,63 @@ class _AppointmentCardState extends State<_AppointmentCard> {
             : Stack(children: [card, ...overlayWidgets]);
 
     final durationMinutes = max(1, appointment.duration.inMinutes);
-    final hoverLines = <String>['Durata: $durationMinutes minuti'];
+    final tooltipLines = <_TooltipLine>[];
+    void addHoverLine(String label, String? value, {int grade = 1}) {
+      if (value == null) return;
+      final trimmedValue = value.trim();
+      if (trimmedValue.isEmpty) return;
+      tooltipLines.add(
+        _TooltipLine(label: label, content: trimmedValue, grade: grade),
+      );
+    }
 
     final clientName = client?.fullName;
     final normalizedClientName = clientName?.trim();
-    if (normalizedClientName != null && normalizedClientName.isNotEmpty) {
-      hoverLines.add('Cliente: $normalizedClientName');
-    }
+    addHoverLine('', normalizedClientName, grade: 3);
     final clientPhone = client?.phone;
     final normalizedClientPhone = clientPhone?.trim();
-    if (normalizedClientPhone != null && normalizedClientPhone.isNotEmpty) {
-      hoverLines.add('Telefono: $normalizedClientPhone');
-    }
+    addHoverLine('', normalizedClientPhone, grade: 1);
     final normalizedServiceName = serviceLabel?.trim();
-    if (normalizedServiceName != null && normalizedServiceName.isNotEmpty) {
-      hoverLines.add('Servizio: $normalizedServiceName');
-    }
+    addHoverLine('', normalizedServiceName, grade: 1);
+    addHoverLine('', '$durationMinutes minuti', grade: 1);
 
     if (appointment.packageId != null) {
-      hoverLines.add('Scalato da sessione');
+      tooltipLines.add(const _TooltipLine(content: 'Scalato da sessione'));
     }
     if (hasOutstandingPayments) {
-      hoverLines.add('Pagamenti: da saldare');
+      tooltipLines.add(
+        const _TooltipLine(label: 'Pagamenti', content: 'da saldare'),
+      );
     }
     if (lastMinuteSlot != null) {
-      hoverLines.add(
-        lastMinuteSlot.isAvailable
-            ? 'Slot last-minute disponibile'
-            : 'Appuntamento last-minute',
+      tooltipLines.add(
+        _TooltipLine(
+          content:
+              lastMinuteSlot.isAvailable
+                  ? 'Slot last-minute disponibile'
+                  : 'Appuntamento last-minute',
+        ),
       );
     }
     if (lockReason != null && lockReason!.trim().isNotEmpty) {
-      hoverLines.add('Bloccato: ${lockReason!.trim()}');
+      tooltipLines.add(
+        _TooltipLine(label: 'Bloccato', content: lockReason!.trim()),
+      );
     }
     for (final description in issueDescriptions) {
       final normalizedDescription = description.trim();
       if (normalizedDescription.isNotEmpty) {
-        hoverLines.add('Anomalia: $normalizedDescription');
+        tooltipLines.add(
+          _TooltipLine(label: 'Anomalia', content: normalizedDescription),
+        );
       }
     }
     final notes = appointment.notes?.trim();
     if (notes != null && notes.isNotEmpty) {
-      hoverLines.add('Note: $notes');
+      tooltipLines.add(_TooltipLine(label: 'Note', content: notes));
     }
-    final hoverTooltipLines =
-        hoverLines.where((line) => line.trim().isNotEmpty).toList();
-    final hoverTooltip =
-        hoverTooltipLines.isEmpty ? null : hoverTooltipLines.join('\n');
-
+    final filteredTooltipLines =
+        tooltipLines.where((line) => !line.isEmpty).toList();
     final bool enableHover = onTap != null;
     final double targetScale = enableHover && _isHovering ? 1.06 : 1.0;
 
@@ -8104,9 +8113,9 @@ class _AppointmentCardState extends State<_AppointmentCard> {
       ),
     );
 
-    if (hoverTooltip != null) {
+    if (filteredTooltipLines.isNotEmpty) {
       interactiveCard = _SideTooltip(
-        message: hoverTooltip,
+        lines: filteredTooltipLines,
         waitDuration: const Duration(milliseconds: 250),
         child: interactiveCard,
       );
@@ -8135,9 +8144,22 @@ class _DragFeedback extends StatelessWidget {
 
 enum _SideTooltipDirection { auto, left, right }
 
+class _TooltipLine {
+  const _TooltipLine({this.label, required this.content, this.grade = 1});
+
+  final String? label;
+  final String content;
+  final int grade;
+
+  bool get isEmpty {
+    final hasLabel = label?.trim().isNotEmpty ?? false;
+    return !hasLabel && content.trim().isEmpty;
+  }
+}
+
 class _SideTooltip extends StatefulWidget {
   const _SideTooltip({
-    required this.message,
+    required this.lines,
     required this.child,
     this.direction = _SideTooltipDirection.auto,
     this.waitDuration = const Duration(milliseconds: 250),
@@ -8145,7 +8167,7 @@ class _SideTooltip extends StatefulWidget {
     this.gap = 12.0,
   });
 
-  final String message;
+  final List<_TooltipLine> lines;
   final Widget child;
   final _SideTooltipDirection direction;
   final Duration waitDuration;
@@ -8170,7 +8192,7 @@ class _SideTooltipState extends State<_SideTooltip> {
   }
 
   void _handlePointerEnter(PointerEnterEvent event) {
-    if (widget.message.trim().isEmpty) {
+    if (widget.lines.isEmpty) {
       return;
     }
     _scheduleShow();
@@ -8179,6 +8201,28 @@ class _SideTooltipState extends State<_SideTooltip> {
   void _handlePointerExit(PointerExitEvent event) {
     _cancelShowTimer();
     _removeOverlay();
+  }
+
+  void _handlePointerHover(PointerHoverEvent event) {
+    if (_overlayEntry == null) {
+      return;
+    }
+    _hideIfPointerOutside(event.position);
+  }
+
+  void _hideIfPointerOutside(Offset globalPosition) {
+    final targetRenderObject = context.findRenderObject() as RenderBox?;
+    if (targetRenderObject == null) {
+      return;
+    }
+    final localPosition = targetRenderObject.globalToLocal(globalPosition);
+    if (localPosition.dx < 0 ||
+        localPosition.dy < 0 ||
+        localPosition.dx > targetRenderObject.size.width ||
+        localPosition.dy > targetRenderObject.size.height) {
+      _cancelShowTimer();
+      _removeOverlay();
+    }
   }
 
   void _scheduleShow() {
@@ -8196,7 +8240,7 @@ class _SideTooltipState extends State<_SideTooltip> {
   }
 
   void _showTooltip() {
-    if (!mounted || widget.message.trim().isEmpty) {
+    if (!mounted || widget.lines.isEmpty) {
       return;
     }
     if (_overlayEntry != null) {
@@ -8212,7 +8256,7 @@ class _SideTooltipState extends State<_SideTooltip> {
       builder:
           (context) => _SideTooltipOverlay(
             link: _layerLink,
-            message: widget.message,
+            lines: widget.lines,
             direction: _resolvedDirection,
             verticalOffset: widget.verticalOffset,
             gap: widget.gap,
@@ -8259,14 +8303,26 @@ class _SideTooltipState extends State<_SideTooltip> {
 
   @override
   Widget build(BuildContext context) {
+    final semanticsTooltip = widget.lines
+        .where((line) => !line.isEmpty)
+        .map((line) {
+          final label = line.label?.trim();
+          if (label != null && label.isNotEmpty) {
+            return '$label: ${line.content}';
+          }
+          return line.content;
+        })
+        .join('\n');
+
     return Semantics(
-      tooltip: widget.message,
+      tooltip: semanticsTooltip.isEmpty ? null : semanticsTooltip,
       child: CompositedTransformTarget(
         link: _layerLink,
         child: Listener(
           onPointerDown: _handlePointerDown,
           child: MouseRegion(
             onEnter: _handlePointerEnter,
+            onHover: _handlePointerHover,
             onExit: _handlePointerExit,
             child: widget.child,
           ),
@@ -8279,14 +8335,14 @@ class _SideTooltipState extends State<_SideTooltip> {
 class _SideTooltipOverlay extends StatelessWidget {
   const _SideTooltipOverlay({
     required this.link,
-    required this.message,
+    required this.lines,
     required this.direction,
     required this.verticalOffset,
     required this.gap,
   });
 
   final LayerLink link;
-  final String message;
+  final List<_TooltipLine> lines;
   final _SideTooltipDirection direction;
   final double verticalOffset;
   final double gap;
@@ -8325,6 +8381,43 @@ class _SideTooltipOverlay extends StatelessWidget {
         const EdgeInsets.symmetric(horizontal: 8, vertical: 4);
     final margin = tooltipTheme.margin ?? EdgeInsets.zero;
     final textAlign = tooltipTheme.textAlign ?? TextAlign.start;
+    final baseFontSize = textStyle.fontSize ?? 13;
+
+    TextStyle _lineTextStyle(int grade) {
+      final normalizedGrade =
+          grade < 1
+              ? 1
+              : grade > 3
+              ? 3
+              : grade;
+      final sizeDelta = (normalizedGrade - 1) * 1.6;
+      final weight =
+          normalizedGrade == 3
+              ? FontWeight.w700
+              : normalizedGrade == 2
+              ? FontWeight.w600
+              : FontWeight.w500;
+      return textStyle.copyWith(
+        fontSize: baseFontSize + sizeDelta,
+        fontWeight: weight,
+      );
+    }
+
+    Widget _buildLine(_TooltipLine line) {
+      final label = line.label?.trim();
+      final spanStyle = _lineTextStyle(line.grade);
+      final children = <InlineSpan>[];
+      if (label != null && label.isNotEmpty) {
+        children.add(
+          TextSpan(
+            text: '$label: ',
+            style: spanStyle.copyWith(fontWeight: FontWeight.w700),
+          ),
+        );
+      }
+      children.add(TextSpan(text: line.content, style: spanStyle));
+      return RichText(text: TextSpan(children: children), textAlign: textAlign);
+    }
 
     final targetAnchor =
         direction == _SideTooltipDirection.right
@@ -8336,6 +8429,14 @@ class _SideTooltipOverlay extends StatelessWidget {
             : Alignment.centerRight;
     final horizontalOffset =
         direction == _SideTooltipDirection.right ? gap : -gap;
+
+    final contentChildren = <Widget>[];
+    for (var i = 0; i < lines.length; i++) {
+      contentChildren.add(_buildLine(lines[i]));
+      if (i != lines.length - 1) {
+        contentChildren.add(const SizedBox(height: 4));
+      }
+    }
 
     return Positioned.fill(
       child: IgnorePointer(
@@ -8356,7 +8457,11 @@ class _SideTooltipOverlay extends StatelessWidget {
                   constraints: const BoxConstraints(maxWidth: 200),
                   padding: padding,
                   decoration: decoration,
-                  child: Text(message, style: textStyle, textAlign: textAlign),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: contentChildren,
+                  ),
                 ),
               ),
             ),
