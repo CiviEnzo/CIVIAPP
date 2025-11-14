@@ -2243,13 +2243,6 @@ class _WeekSchedule extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SizedBox(
-                width: _timeScaleExtent,
-                child: Center(
-                  child: Text('Ora', style: theme.textTheme.labelMedium),
-                ),
-              ),
-              const SizedBox(width: 12),
               Expanded(
                 child: ScrollConfiguration(
                   behavior: const _CompactMacScrollBehavior(),
@@ -2907,44 +2900,6 @@ class _WeekSchedule extends StatelessWidget {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: _timeScaleExtent,
-                      decoration: BoxDecoration(
-                        color: dayHeaderColor,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: theme.dividerColor.withValues(alpha: 0.35),
-                        ),
-                      ),
-                      child: SizedBox(
-                        height: gridHeight,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 4,
-                            vertical: 0,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: List.generate(slotCount, (index) {
-                              final slotTime = timeSlots[index];
-                              final showLabel = slotTime.minute == 0;
-                              final label =
-                                  showLabel ? timeFormat.format(slotTime) : '';
-                              return SizedBox(
-                                height: _slotExtent,
-                                child: Center(
-                                  child: Text(
-                                    label,
-                                    style: theme.textTheme.bodySmall,
-                                  ),
-                                ),
-                              );
-                            }),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
                     Expanded(
                       child: ScrollConfiguration(
                         behavior: const _CompactMacScrollBehavior(),
@@ -7902,18 +7857,6 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                           : 32;
                   return Center(
                     child: Icon(iconData, color: iconColor, size: iconSize),
-                  );
-                }
-
-                if (hideContent) {
-                  return Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      "",
-                      style: theme.textTheme.bodySmall,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
                   );
                 }
 

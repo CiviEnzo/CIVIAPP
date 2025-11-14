@@ -543,29 +543,38 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Dettagli principali', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 12),
-            _buildReviewInfoTile(
-              theme: theme,
-              label: 'Data',
-              value: dateFormat.format(_date),
-            ),
-            _buildReviewInfoTile(
-              theme: theme,
-              label: 'Cliente',
-              value: clientName,
-            ),
-            _buildReviewInfoTile(
-              theme: theme,
-              label: 'Operatore',
-              value: staffName,
-            ),
-            _buildReviewInfoTile(
-              theme: theme,
-              label: 'Salone',
-              value: salonName,
+            Row(
+              children: [
+                Text('Dettagli principali', style: theme.textTheme.titleMedium),
+                Spacer(),
+
+                _buildReviewInfoTile(
+                  theme: theme,
+                  label: 'Data',
+                  value: dateFormat.format(_date),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildReviewInfoTile(
+                  theme: theme,
+                  label: 'Cliente',
+                  value: clientName,
+                ),
+                SizedBox(width: 36),
+
+                _buildReviewInfoTile(
+                  theme: theme,
+                  label: 'Operatore',
+                  value: staffName,
+                ),
+              ],
+            ),
+
             Text('Elementi', style: theme.textTheme.titleSmall),
             const SizedBox(height: 8),
             if (_lines.isEmpty)
@@ -1090,19 +1099,23 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                               floatingLabelBehavior:
                                   FloatingLabelBehavior.always,
                               errorText: state.errorText,
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 12,
+                              ),
                             ),
                             isEmpty: false,
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
                               children: [
                                 Row(
                                   children: [
                                     Expanded(
                                       child: Text(
                                         selectedClient.fullName,
-                                        style:
-                                            theme.textTheme.bodyMedium ??
-                                            theme.textTheme.bodyMedium,
+                                        style: theme.textTheme.bodyLarge,
                                       ),
                                     ),
                                     IconButton(
@@ -1112,7 +1125,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                                       ),
                                       onPressed: _openSelectedClient,
                                     ),
-                                    SizedBox(width: 10),
+                                    const SizedBox(width: 6),
                                     IconButton(
                                       tooltip: 'Rimuovi cliente',
                                       icon: const Icon(Icons.close_rounded),
@@ -1120,6 +1133,37 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                                     ),
                                   ],
                                 ),
+                                if (selectedClient.phone?.trim().isNotEmpty ??
+                                    false)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.phone,
+                                          size: 16,
+                                          color:
+                                              theme
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Flexible(
+                                          child: Text(
+                                            selectedClient.phone!.trim(),
+                                            style: theme.textTheme.bodyMedium
+                                                ?.copyWith(
+                                                  color: theme
+                                                      .textTheme
+                                                      .bodySmall
+                                                      ?.color
+                                                      ?.withOpacity(0.75),
+                                                ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                               ],
                             ),
                           )
@@ -1164,16 +1208,24 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                               labelText: 'Numero cliente',
                               floatingLabelBehavior:
                                   FloatingLabelBehavior.always,
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 12,
+                              ),
                             ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              child: Text(
-                                clientNumberText.isNotEmpty
-                                    ? clientNumberText
-                                    : 'Numero non disponibile',
-                                style:
-                                    theme.textTheme.bodyLarge ??
-                                    theme.textTheme.bodyMedium,
+                            child: SizedBox(
+                              height: 48,
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  clientNumberText.isNotEmpty
+                                      ? clientNumberText
+                                      : 'Numero non disponibile',
+                                  style:
+                                      theme.textTheme.bodyLarge ??
+                                      theme.textTheme.bodyMedium,
+                                ),
                               ),
                             ),
                           )

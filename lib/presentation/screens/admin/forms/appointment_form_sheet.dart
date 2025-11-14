@@ -1167,6 +1167,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                             bookingDateLabel: bookingDateLabel,
                             startTimeLabel: startTimeLabel,
                             endTimeLabel: endTimeLabel,
+                            baseServices: baseSelectedServices,
                           ),
                           _buildServiceDurationAdjustmentPanel(
                             baseServices: baseSelectedServices,
@@ -1459,11 +1460,21 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     required String bookingDateLabel,
     required String startTimeLabel,
     required String endTimeLabel,
+    required List<Service> baseServices,
   }) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final durationMinutes = _end.difference(_start).inMinutes;
     final canDecreaseDuration = durationMinutes > _slotIntervalMinutes;
+    final lastService =
+        baseServices.isNotEmpty ? baseServices.last : null;
+    final canAdjustLastService = lastService != null;
+    final canDecreaseLastService = canDecreaseDuration && canAdjustLastService;
+    final canIncreaseLastService = canAdjustLastService;
+    void adjustLastService(int delta) {
+      if (lastService == null || delta == 0) return;
+      _updateServiceDurationDelta(lastService.id, delta, baseServices);
+    }
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1528,6 +1539,50 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                       label: 'Ora di fine',
                       value: endTimeLabel,
                     ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Text(
+                    'Regola durata complessiva',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const Spacer(),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 32,
+                          minHeight: 32,
+                        ),
+                        icon: const Icon(Icons.remove_circle_outline_rounded),
+                        tooltip: '-$_slotIntervalMinutes min',
+                        onPressed: canDecreaseLastService
+                            ? () => adjustLastService(-_slotIntervalMinutes)
+                            : null,
+                      ),
+                      const SizedBox(width: 4),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 32,
+                          minHeight: 32,
+                        ),
+                        icon: const Icon(Icons.add_circle_outline_rounded),
+                        tooltip: '+$_slotIntervalMinutes min',
+                        onPressed: canIncreaseLastService
+                            ? () => adjustLastService(_slotIntervalMinutes)
+                            : null,
+                      ),
+                    ],
                   ),
                 ],
               ),

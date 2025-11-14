@@ -2983,23 +2983,50 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       builder: (dialogContext) {
         final theme = Theme.of(dialogContext);
         final body = <Widget>[
-          _buildAppointmentDetailRow('Cliente', client?.fullName ?? 'Cliente'),
+          _buildAppointmentDetailRow(
+            'Cliente',
+            client != null
+                ? TextButton.icon(
+                    style: TextButton.styleFrom(
+                      alignment: Alignment.centerLeft,
+                      padding: EdgeInsets.zero,
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      foregroundColor: theme.colorScheme.primary,
+                      textStyle: theme.textTheme.bodyMedium,
+                    ),
+                    icon: Icon(
+                      Icons.open_in_new_rounded,
+                      size: 16,
+                      color: theme.colorScheme.primary,
+                    ),
+                    label: Text(client.fullName),
+                    onPressed: () {
+                      _openClientDetails(client);
+                      Navigator.of(dialogContext).pop();
+                    },
+                  )
+                : const Text('Cliente'),
+          ),
           _buildAppointmentDetailRow(
             'Servizi',
-            appointmentServices.isNotEmpty
-                ? appointmentServices.map((service) => service.name).join(' + ')
-                : 'Servizio',
+            Text(
+              appointmentServices.isNotEmpty
+                  ? appointmentServices.map((service) => service.name).join(' + ')
+                  : 'Servizio',
+            ),
           ),
           _buildAppointmentDetailRow(
             'Operatore',
-            staffMember?.fullName ?? 'Staff',
+            Text(staffMember?.fullName ?? 'Staff'),
           ),
-          if (salon != null) _buildAppointmentDetailRow('Salone', salon.name),
-          _buildAppointmentDetailRow('Inizio', dateLabel),
-          _buildAppointmentDetailRow('Fine', endLabel),
-          _buildAppointmentDetailRow('Stato', _statusLabel(appointment.status)),
+          if (salon != null)
+            _buildAppointmentDetailRow('Salone', Text(salon.name)),
+          _buildAppointmentDetailRow('Inizio', Text(dateLabel)),
+          _buildAppointmentDetailRow('Fine', Text(endLabel)),
+          _buildAppointmentDetailRow('Stato', Text(_statusLabel(appointment.status))),
           if (appointment.notes != null && appointment.notes!.isNotEmpty)
-            _buildAppointmentDetailRow('Note', appointment.notes!),
+            _buildAppointmentDetailRow('Note', Text(appointment.notes!)),
         ];
 
         return AlertDialog(
@@ -3035,7 +3062,17 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     );
   }
 
-  Widget _buildAppointmentDetailRow(String label, String value) {
+  void _openClientDetails(Client client) {
+    final payload = <String, Object?>{'clientId': client.id};
+    final clientNumber = client.clientNumber?.trim();
+    if (clientNumber != null && clientNumber.isNotEmpty) {
+      payload['clientNumber'] = clientNumber;
+    }
+    ref.read(adminDashboardIntentProvider.notifier).state =
+        AdminDashboardIntent(moduleId: 'clients', payload: payload);
+  }
+
+  Widget _buildAppointmentDetailRow(String label, Widget value) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Column(
@@ -3043,7 +3080,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         children: [
           Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 2),
-          Text(value),
+          value,
         ],
       ),
     );
