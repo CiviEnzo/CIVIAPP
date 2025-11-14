@@ -333,27 +333,27 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         constraints: const BoxConstraints(maxWidth: 320),
         child: _buildDateTimeField(dateFormat),
       ),
-      const SizedBox(height: 24),
+      const SizedBox(height: 8),
       _buildSectionHeader(
         icon: Icons.store_outlined,
         title: 'Cliente',
         subtitle:
             'Cerca il cliente e collega l\'operatore per associare il salone automaticamente',
       ),
-      const SizedBox(height: 12),
+      const SizedBox(height: 4),
       _buildClientSelector(filteredClients),
-      const SizedBox(height: 24),
+      const SizedBox(height: 6),
       _buildSectionHeader(
         icon: Icons.receipt_long,
         title: 'Elementi vendita',
         subtitle: 'Aggiungi servizi, pacchetti o prodotti',
       ),
-      const SizedBox(height: 12),
+      const SizedBox(height: 4),
       _buildSaleLinesSection(theme, currency),
-      const SizedBox(height: 16),
+      const SizedBox(height: 4),
       if (_serviceCoverageDetails.isNotEmpty) ...[
         _buildPackageCoverageSummary(theme),
-        const SizedBox(height: 16),
+        const SizedBox(height: 4),
       ],
       Wrap(
         spacing: 12,
@@ -1101,7 +1101,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                                       child: Text(
                                         selectedClient.fullName,
                                         style:
-                                            theme.textTheme.bodyLarge ??
+                                            theme.textTheme.bodyMedium ??
                                             theme.textTheme.bodyMedium,
                                       ),
                                     ),
@@ -1306,7 +1306,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       children: [
         for (var i = 0; i < _lines.length; i++) ...[
           _buildLineCard(_lines[i], i, currency),
-          if (i < _lines.length - 1) const SizedBox(height: 12),
+          if (i < _lines.length - 1) const SizedBox(height: 2),
         ],
       ],
     );
@@ -1318,7 +1318,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     final typeLabel = _lineTypeLabel(line.referenceType);
     return Card(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 1),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1345,17 +1345,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                   style: theme.textTheme.bodyMedium,
                 ),
               ),
-            TextFormField(
-              controller: line.descriptionController,
-              decoration: const InputDecoration(labelText: 'Descrizione'),
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return 'Inserisci la descrizione';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 8),
+
             Row(
               children: [
                 Expanded(

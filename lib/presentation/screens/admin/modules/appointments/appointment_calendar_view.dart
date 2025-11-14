@@ -7468,7 +7468,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
         );
         var tinted = Color.alphaBlend(
           durationAwareColor.withValues(
-            alpha: theme.brightness == Brightness.dark ? 0.82 : 1,
+            alpha: theme.brightness == Brightness.dark ? 0.82 : 0.5,
           ),
           theme.colorScheme.surface.withValues(alpha: 0),
         );
@@ -7505,9 +7505,11 @@ class _AppointmentCardState extends State<_AppointmentCard> {
             start,
             end,
           );
+
           gradientColors.add(color);
           gradientStops.add(start);
           gradientColors.add(color);
+
           gradientStops.add(blendStart);
           gradientColors.add(endBlendColor);
           gradientStops.add(end);
@@ -7725,7 +7727,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
               gradient: cardGradient, //civi
             ),
           ),
-          if (showEquipmentStripe)
+          /* if (showEquipmentStripe)
             Positioned(
               left: 0,
               top: 0,
@@ -7860,7 +7862,8 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                   ),
                 ),
               ),
-            ),
+            ),*/
+          //civi stripe striscia
           Padding(
             padding: padding,
             child: LayoutBuilder(

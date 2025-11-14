@@ -224,10 +224,8 @@ class _ClientDetailViewState extends ConsumerState<ClientDetailView> {
       _BillingTab(clientId: client.id),
     ];
 
-    final initialTabIndex = widget.initialTabIndex.clamp(
-      0,
-      tabs.length - 1,
-    ).toInt();
+    final initialTabIndex =
+        widget.initialTabIndex.clamp(0, tabs.length - 1).toInt();
 
     if (widget.showAppBar) {
       return DefaultTabController(
@@ -269,17 +267,6 @@ class _ClientDetailViewState extends ConsumerState<ClientDetailView> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      client.fullName,
-                      style: theme.textTheme.titleLarge,
-                    ),
-                  ),
-                ],
-              ),
-
               TabBar(isScrollable: true, tabs: tabs),
               const SizedBox(height: 16),
               SizedBox(

@@ -580,93 +580,102 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
             final right = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
             return right.compareTo(left);
           });
+    final Client? selectedClient =
+        _selectedClientId == null
+            ? null
+            : filteredClients.firstWhereOrNull(
+              (client) => client.id == _selectedClientId,
+            );
+    final bool showDetailOnly = selectedClient != null && _searchPerformed;
 
-    final children = <Widget>[
-      Card(
-        color: theme.colorScheme.surface,
-        elevation: 2,
-        surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Ricerca cliente', style: theme.textTheme.titleMedium),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _generalQueryController,
-                decoration: const InputDecoration(
-                  labelText: 'Nome, cognome, telefono, email',
-                  prefixIcon: Icon(Icons.search_rounded),
+    final List<Widget> children = [];
+    if (!showDetailOnly) {
+      children.addAll([
+        Card(
+          color: theme.colorScheme.surface,
+          elevation: 2,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Ricerca cliente', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _generalQueryController,
+                  decoration: const InputDecoration(
+                    labelText: 'Nome, cognome, telefono, email',
+                    prefixIcon: Icon(Icons.search_rounded),
+                  ),
+                  textInputAction: TextInputAction.search,
+                  onChanged: (_) => _performSearch(showErrorWhenEmpty: false),
+                  onSubmitted: (_) => _performSearch(),
                 ),
-                textInputAction: TextInputAction.search,
-                onChanged: (_) => _performSearch(showErrorWhenEmpty: false),
-                onSubmitted: (_) => _performSearch(),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _clientNumberController,
-                decoration: const InputDecoration(
-                  labelText: 'Numero cliente',
-                  prefixIcon: Icon(Icons.badge_outlined),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _clientNumberController,
+                  decoration: const InputDecoration(
+                    labelText: 'Numero cliente',
+                    prefixIcon: Icon(Icons.badge_outlined),
+                  ),
+                  textInputAction: TextInputAction.search,
+                  onChanged: (_) => _performSearch(showErrorWhenEmpty: false),
+                  onSubmitted: (_) => _performSearch(),
                 ),
-                textInputAction: TextInputAction.search,
-                onChanged: (_) => _performSearch(showErrorWhenEmpty: false),
-                onSubmitted: (_) => _performSearch(),
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  FilledButton.icon(
-                    onPressed: _performSearch,
-                    icon: const Icon(Icons.manage_search_rounded),
-                    label: const Text('Cerca'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: _clearSearch,
-                    icon: const Icon(Icons.clear_rounded),
-                    label: const Text('Azzera'),
-                  ),
-                  FilledButton.icon(
-                    onPressed:
-                        () => _openClientForm(
-                          salons: salons,
-                          clients: data.clients,
-                        ),
-                    icon: const Icon(Icons.person_add_alt_1_rounded),
-                    label: const Text('Nuovo cliente'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed:
-                        () => _openImport(
-                          context,
-                          ref,
-                          salons: salons,
-                          clients: data.clients,
-                          defaultSalonId: widget.salonId,
-                        ),
-                    icon: const Icon(Icons.upload_file_rounded),
-                    label: const Text('Importa CSV'),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: _performSearch,
+                      icon: const Icon(Icons.manage_search_rounded),
+                      label: const Text('Cerca'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _clearSearch,
+                      icon: const Icon(Icons.clear_rounded),
+                      label: const Text('Azzera'),
+                    ),
+                    FilledButton.icon(
+                      onPressed:
+                          () => _openClientForm(
+                            salons: salons,
+                            clients: data.clients,
+                          ),
+                      icon: const Icon(Icons.person_add_alt_1_rounded),
+                      label: const Text('Nuovo cliente'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed:
+                          () => _openImport(
+                            context,
+                            ref,
+                            salons: salons,
+                            clients: data.clients,
+                            defaultSalonId: widget.salonId,
+                          ),
+                      icon: const Icon(Icons.upload_file_rounded),
+                      label: const Text('Importa CSV'),
+                    ),
+                  ],
+                ),
+                if (_searchError != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    _searchError!,
+                    style: TextStyle(color: theme.colorScheme.error),
                   ),
                 ],
-              ),
-              if (_searchError != null) ...[
-                const SizedBox(height: 12),
-                Text(
-                  _searchError!,
-                  style: TextStyle(color: theme.colorScheme.error),
-                ),
               ],
-            ],
+            ),
           ),
         ),
-      ),
-      const SizedBox(height: 16),
-    ];
-
+        const SizedBox(height: 16),
+      ]);
+    }
     if (false && pendingRequests.isNotEmpty) {
       children.add(
         _buildAccessRequestsCard(
@@ -705,12 +714,6 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
         ),
       );
     } else {
-      final selectedClient =
-          _selectedClientId == null
-              ? null
-              : filteredClients.firstWhereOrNull(
-                (client) => client.id == _selectedClientId,
-              );
       final clientsToRender =
           selectedClient != null ? [selectedClient] : filteredClients;
 
@@ -899,6 +902,16 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
       }
     }
 
+    final Widget searchTabContent;
+    if (showDetailOnly && selectedClient != null) {
+      searchTabContent = _buildDetailOnlyClientView(selectedClient, theme);
+    } else {
+      searchTabContent = ListView(
+        padding: const EdgeInsets.all(16),
+        children: children,
+      );
+    }
+
     // Ultimi clienti (ordinati per data di creazione desc, max 20)
     final recentClients = [...salonClients]
       ..sort((a, b) {
@@ -907,11 +920,6 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
         return right.compareTo(left);
       });
     final latestClients = recentClients.take(20).toList();
-
-    final listView = ListView(
-      padding: const EdgeInsets.all(16),
-      children: children,
-    );
 
     // Tab 2: richieste di accesso
     final requestsTab = ListView(
@@ -1045,7 +1053,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
               Expanded(
                 child: TabBarView(
                   children: [
-                    listView,
+                    searchTabContent,
                     AdvancedSearchTab(
                       salonId: widget.salonId,
                       onCreateClient: () => _openClientForm(
@@ -1087,6 +1095,39 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
             ),
         ],
       ),
+    );
+  }
+
+  Widget _buildDetailOnlyClientView(Client client, ThemeData theme) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Scheda ${_displayName(client)}',
+                style: theme.textTheme.titleLarge,
+              ),
+            ),
+            TextButton.icon(
+              onPressed: _clearSelectedClient,
+              icon: const Icon(Icons.close_rounded),
+              label: const Text('Chiudi'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ClientDetailView(
+          key: ValueKey(
+            'client-detail-${client.id}-${_clientDetailInitialTabIndex ?? 0}',
+          ),
+          clientId: client.id,
+          showAppBar: false,
+          onClose: _clearSelectedClient,
+          initialTabIndex: _clientDetailInitialTabIndex ?? 0,
+        ),
+      ],
     );
   }
 
