@@ -1318,7 +1318,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     final typeLabel = _lineTypeLabel(line.referenceType);
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1339,7 +1339,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
             ),
             if (line.catalogLabel != null && line.catalogLabel!.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.only(bottom: 6),
                 child: Text(
                   line.catalogLabel!,
                   style: theme.textTheme.bodyMedium,
@@ -1348,13 +1348,14 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
             TextFormField(
               controller: line.descriptionController,
               decoration: const InputDecoration(labelText: 'Descrizione'),
-              validator:
-                  (value) =>
-                      value == null || value.trim().isEmpty
-                          ? 'Inserisci la descrizione'
-                          : null,
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Inserisci la descrizione';
+                }
+                return null;
+              },
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
@@ -1394,7 +1395,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Align(
               alignment: Alignment.centerRight,
               child: Text(

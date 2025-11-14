@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:math';
 
 import 'package:you_book/app/providers.dart';
@@ -7068,39 +7069,107 @@ class _ServiceGradientSegment {
     required this.color,
     required this.start,
     required this.end,
+    required this.requiresEquipment,
+    required this.weight,
   });
 
   final Color color;
   final double start;
   final double end;
+  final bool requiresEquipment;
+  final double weight;
 
-  _ServiceGradientSegment copyWith({Color? color, double? start, double? end}) {
+  _ServiceGradientSegment copyWith({
+    Color? color,
+    double? start,
+    double? end,
+    bool? requiresEquipment,
+    double? weight,
+  }) {
     return _ServiceGradientSegment(
       color: color ?? this.color,
       start: start ?? this.start,
       end: end ?? this.end,
+      requiresEquipment: requiresEquipment ?? this.requiresEquipment,
+      weight: weight ?? this.weight,
     );
   }
 }
 
-List<_ServiceGradientSegment> _serviceGradientSegments(
+class _ServiceDurationEntry {
+  const _ServiceDurationEntry({required this.service, required this.duration});
+
+  final Service service;
+  final Duration duration;
+}
+
+List<_ServiceDurationEntry> _serviceDurationEntries(
+  Appointment appointment,
   List<Service> services,
+  Service? fallbackService,
+) {
+  final entries = <_ServiceDurationEntry>[];
+  if (appointment.serviceAllocations.isNotEmpty) {
+    final serviceQueue = <String, Queue<Service>>{};
+    for (final service in services) {
+      serviceQueue.putIfAbsent(service.id, () => Queue<Service>()).add(service);
+    }
+    for (final allocation in appointment.serviceAllocations) {
+      final serviceId = allocation.serviceId;
+      if (serviceId.isEmpty) {
+        continue;
+      }
+      Service? service;
+      final queue = serviceQueue[serviceId];
+      if (queue != null && queue.isNotEmpty) {
+        service = queue.removeFirst();
+      } else {
+        service = services.firstWhereOrNull(
+          (candidate) => candidate.id == serviceId,
+        );
+      }
+      if (service == null) {
+        continue;
+      }
+      final adjustment = Duration(
+        minutes: allocation.durationAdjustmentMinutes,
+      );
+      final rawDuration = service.totalDuration + adjustment;
+      final duration = rawDuration.isNegative ? Duration.zero : rawDuration;
+      entries.add(_ServiceDurationEntry(service: service, duration: duration));
+    }
+  }
+  if (entries.isEmpty) {
+    final fallback = services.isNotEmpty ? services.first : fallbackService;
+    if (fallback != null) {
+      entries.add(
+        _ServiceDurationEntry(
+          service: fallback,
+          duration: fallback.totalDuration,
+        ),
+      );
+    }
+  }
+  return entries;
+}
+
+List<_ServiceGradientSegment> _serviceGradientSegments(
+  List<_ServiceDurationEntry> serviceEntries,
   Map<String, ServiceCategory> categoriesById,
   Map<String, ServiceCategory> categoriesByName,
   ThemeData theme,
 ) {
-  if (services.isEmpty) {
+  if (serviceEntries.isEmpty) {
     return const <_ServiceGradientSegment>[];
   }
-  final validServices =
-      services.where((service) {
-        return service.totalDuration.inMinutes > 0;
-      }).toList();
-  if (validServices.isEmpty) {
+  final validEntries = serviceEntries
+      .where((entry) => entry.duration > Duration.zero)
+      .toList(growable: false);
+  if (validEntries.isEmpty) {
     return const <_ServiceGradientSegment>[];
   }
-  final durations = validServices
-      .map((service) => max(1, service.totalDuration.inMinutes))
+  final durations = validEntries
+      .map((entry) => max(1, entry.duration.inMinutes))
       .toList(growable: false);
   final totalMinutes = durations.fold<int>(0, (sum, value) => sum + value);
   if (totalMinutes == 0) {
@@ -7108,13 +7177,13 @@ List<_ServiceGradientSegment> _serviceGradientSegments(
   }
   double accumulated = 0.0;
   final segments = <_ServiceGradientSegment>[];
-  for (var index = 0; index < validServices.length; index++) {
-    final service = validServices[index];
+  for (var index = 0; index < validEntries.length; index++) {
+    final service = validEntries[index].service;
     final minutes = durations[index];
     final fraction = minutes / totalMinutes;
     final start = accumulated;
     var end = min(1.0, accumulated + fraction);
-    if (index == validServices.length - 1) {
+    if (index == validEntries.length - 1) {
       end = 1.0;
     }
     if (end <= start) {
@@ -7127,7 +7196,15 @@ List<_ServiceGradientSegment> _serviceGradientSegments(
       categoriesByName,
       theme,
     );
-    segments.add(_ServiceGradientSegment(color: color, start: start, end: end));
+    segments.add(
+      _ServiceGradientSegment(
+        color: color,
+        start: start,
+        end: end,
+        requiresEquipment: service.requiredEquipmentIds.isNotEmpty,
+        weight: fraction,
+      ),
+    );
   }
   if (segments.isNotEmpty) {
     final last = segments.last;
@@ -7136,6 +7213,25 @@ List<_ServiceGradientSegment> _serviceGradientSegments(
     }
   }
   return segments;
+}
+
+Color _durationAwareTint(Color base, double fraction) {
+  final normalized = fraction.clamp(0.0, 1.0);
+  final hsl = HSLColor.fromColor(base);
+  final double lightnessAdjustment =
+      (0.18 * (1.0 - normalized)) - (0.08 * normalized);
+  final double saturationAdjustment = (0.08 + normalized * 0.25);
+  return hsl
+      .withLightness((hsl.lightness + lightnessAdjustment).clamp(0.0, 1.0))
+      .withSaturation((hsl.saturation + saturationAdjustment).clamp(0.0, 1.0))
+      .toColor();
+}
+
+Color _equipmentStripeTint(Color base, ThemeData theme, double alpha) {
+  return Color.alphaBlend(
+    base.withValues(alpha: alpha),
+    theme.colorScheme.surface.withValues(alpha: 0),
+  );
 }
 
 Color _onColorFor(Color background, ThemeData theme) {
@@ -7251,6 +7347,11 @@ class _AppointmentCardState extends State<_AppointmentCard> {
             )
             : const <Color>[];
     final showServiceIndicators = serviceIndicatorColors.length > 1;
+    final serviceDurationEntries = _serviceDurationEntries(
+      appointment,
+      services,
+      service,
+    );
     final isLastMinute = lastMinuteSlot != null;
     final int contentDurationMinutes = max(
       1,
@@ -7313,36 +7414,19 @@ class _AppointmentCardState extends State<_AppointmentCard> {
             : Colors.white;
     final bool hasCategoryTone =
         !isCancelled && !hideNoShowColor && baseColor.opacity > 0.0;
-    final Color stripeColor =
-        hasCategoryTone
-            ? Color.alphaBlend(
-              baseColor.withValues(
-                alpha: theme.brightness == Brightness.dark ? 0.75 : 0.88,
-              ),
-              theme.colorScheme.surface.withValues(alpha: 0),
-            )
-            : theme.colorScheme.outlineVariant.withValues(
-              alpha: theme.brightness == Brightness.dark ? 0.6 : 0.45,
-            );
-    final List<Color> serviceStripeColors =
-        hasCategoryTone
-            ? _serviceStripeTintColors(
-              servicesToDisplay,
-              categoriesById,
-              categoriesByName,
-              theme,
-            )
-            : const <Color>[];
-    final bool showMultiServiceStripe = serviceStripeColors.length > 1;
     final List<_ServiceGradientSegment> serviceGradientSegments =
         hasCategoryTone
             ? _serviceGradientSegments(
-              servicesToDisplay,
+              serviceDurationEntries,
               categoriesById,
               categoriesByName,
               theme,
             )
             : const <_ServiceGradientSegment>[];
+    final List<_ServiceGradientSegment> equipmentSegments =
+        serviceGradientSegments
+            .where((segment) => segment.requiresEquipment)
+            .toList(growable: false);
     final bool showMultiServiceGradient = serviceGradientSegments.length > 1;
     Color gradientStart = cardSurface;
     Color gradientEnd = cardSurface;
@@ -7378,9 +7462,13 @@ class _AppointmentCardState extends State<_AppointmentCard> {
       final gradientStops = <double>[];
       final tintedSegmentColors = <Color>[];
       for (final segment in serviceGradientSegments) {
+        final durationAwareColor = _durationAwareTint(
+          segment.color,
+          segment.weight,
+        );
         var tinted = Color.alphaBlend(
-          segment.color.withValues(
-            alpha: theme.brightness == Brightness.dark ? 0.82 : 0.7,
+          durationAwareColor.withValues(
+            alpha: theme.brightness == Brightness.dark ? 0.82 : 1,
           ),
           theme.colorScheme.surface.withValues(alpha: 0),
         );
@@ -7394,49 +7482,60 @@ class _AppointmentCardState extends State<_AppointmentCard> {
         }
         tintedSegmentColors.add(tinted);
       }
+      const double blendPortion = 0.2;
       for (var index = 0; index < serviceGradientSegments.length; index++) {
         final segment = serviceGradientSegments[index];
         final color = tintedSegmentColors[index];
         final start = segment.start;
         final end = segment.end;
-        final blendWidth = min(0.04, (end - start) * 0.2);
-        gradientColors.add(color);
-        gradientStops.add(start);
-        if (index < serviceGradientSegments.length - 1) {
-          final nextColor = tintedSegmentColors[index + 1];
-          final mixed = Color.lerp(color, nextColor, 0.5)!;
-          final boundary = end;
-          final transitionStart = (boundary - blendWidth * 0.2).clamp(
+        final length = max(end - start, 0.0);
+        if (length <= 0.0) {
+          continue;
+        }
+        final bool isFirst = index == 0;
+        final bool isLast = index == serviceGradientSegments.length - 1;
+        final Color startBlendColor =
+            index > 0 ? tintedSegmentColors[index - 1] : color;
+        final Color endBlendColor =
+            index < serviceGradientSegments.length - 1
+                ? tintedSegmentColors[index + 1]
+                : color;
+        if (isFirst) {
+          final double blendStart = (end - length * blendPortion).clamp(
             start,
-            boundary,
+            end,
           );
-          final transitionEnd = (boundary + blendWidth * 0.2).clamp(
-            boundary,
-            1.0,
-          );
-          final highlightStart = (boundary - blendWidth * 0.1).clamp(
-            start,
-            boundary,
-          );
-          final highlightEnd = (boundary - blendWidth * 0.05).clamp(
-            start,
-            boundary,
-          );
-          final highlightColor = Color.lerp(
-            mixed,
-            Colors.white,
-            0.4,
-          )!.withOpacity(0.6);
-          gradientColors.add(highlightColor);
-          gradientStops.add(highlightStart);
-          gradientColors.add(mixed);
-          gradientStops.add(transitionStart);
-          gradientColors.add(mixed);
-          gradientStops.add(transitionEnd);
-          gradientColors.add(highlightColor.withOpacity(0.0));
-          gradientStops.add(highlightEnd);
-        } else {
           gradientColors.add(color);
+          gradientStops.add(start);
+          gradientColors.add(color);
+          gradientStops.add(blendStart);
+          gradientColors.add(endBlendColor);
+          gradientStops.add(end);
+        } else if (isLast) {
+          final double blendEnd = (start + length * blendPortion).clamp(
+            start,
+            end,
+          );
+
+          gradientColors.add(color);
+          gradientStops.add(blendEnd);
+          gradientColors.add(color);
+          gradientStops.add(end);
+        } else {
+          final double topEnd = (start + length * blendPortion).clamp(
+            start,
+            end,
+          );
+          final double bottomStart = (end - length * blendPortion).clamp(
+            start,
+            end,
+          );
+
+          gradientColors.add(color);
+          gradientStops.add(topEnd);
+          gradientColors.add(color);
+          gradientStops.add(bottomStart);
+          gradientColors.add(endBlendColor);
           gradientStops.add(end);
         }
       }
@@ -7452,10 +7551,32 @@ class _AppointmentCardState extends State<_AppointmentCard> {
           gradientColors.isNotEmpty ? gradientColors.last : gradientEnd;
       contentSampleColor = Color.lerp(firstColor, lastColor, 0.5) ?? firstColor;
     } else {
+      const double highlightThickness = 0.04;
+      final double highlightStart = (1.0 - highlightThickness).clamp(0.0, 1.0);
+      final double highlightMiddle = (highlightStart + highlightThickness * 0.5)
+          .clamp(0.0, 1.0);
+      final Color highlightColor = Color.lerp(
+        gradientEnd,
+        Colors.white,
+        0.15,
+      )!.withOpacity(0.45);
+      final List<Color> cardColors = [
+        gradientStart,
+        gradientEnd,
+        highlightColor,
+        highlightColor.withOpacity(0.0),
+      ];
+      final List<double> cardStops = [
+        0.0,
+        highlightStart,
+        highlightMiddle,
+        1.0,
+      ];
       cardGradient = LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        colors: [gradientStart, gradientEnd],
+        colors: cardColors,
+        stops: cardStops,
       );
       contentSampleColor =
           Color.lerp(gradientStart, gradientEnd, 0.5) ?? gradientStart;
@@ -7532,10 +7653,11 @@ class _AppointmentCardState extends State<_AppointmentCard> {
     }
     const double stripeWidth = 8.0;
     const double stripeGap = 8.0;
-    final bool showCategoryStripe = !hideContent;
+    final bool showEquipmentStripe =
+        !hideContent && equipmentSegments.isNotEmpty;
     final double horizontalPadding = 14.0;
     final double leftPadding =
-        horizontalPadding + (showCategoryStripe ? stripeWidth + stripeGap : 0);
+        horizontalPadding + (showEquipmentStripe ? stripeWidth + stripeGap : 0);
     final padding = EdgeInsets.only(
       left: leftPadding,
       right: horizontalPadding,
@@ -7600,10 +7722,10 @@ class _AppointmentCardState extends State<_AppointmentCard> {
           DecoratedBox(
             decoration: BoxDecoration(
               color: cardSurface,
-              gradient: cardGradient,
+              gradient: cardGradient, //civi
             ),
           ),
-          if (showCategoryStripe)
+          if (showEquipmentStripe)
             Positioned(
               left: 0,
               top: 0,
@@ -7615,41 +7737,127 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                 ),
                 child: SizedBox(
                   width: stripeWidth,
-                  child:
-                      showMultiServiceStripe
-                          ? Column(
-                            children:
-                                serviceStripeColors
-                                    .map(
-                                      (color) => Expanded(
-                                        child: ColoredBox(color: color),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final height = constraints.maxHeight;
+                      if (!height.isFinite || height <= 0) {
+                        return const SizedBox.expand();
+                      }
+                      final double topAlpha =
+                          theme.brightness == Brightness.dark ? 0.9 : 1;
+                      final double bottomAlpha =
+                          theme.brightness == Brightness.dark ? 0.75 : 0.82;
+                      return Stack(
+                        fit: StackFit.expand,
+                        children:
+                            equipmentSegments.map((segment) {
+                              final double segmentTop = (segment.start * height)
+                                  .clamp(0.0, height);
+                              final double segmentEnd = (segment.end * height)
+                                  .clamp(0.0, height);
+                              final double segmentHeight = max(
+                                1.0,
+                                segmentEnd - segmentTop,
+                              );
+                              final Color topTint = _equipmentStripeTint(
+                                segment.color,
+                                theme,
+                                topAlpha,
+                              );
+                              final Color bottomTint = _equipmentStripeTint(
+                                segment.color,
+                                theme,
+                                bottomAlpha,
+                              );
+                              final Color highlightTint =
+                                  Color.lerp(
+                                    topTint,
+                                    Colors.white,
+                                    theme.brightness == Brightness.dark
+                                        ? 0.45
+                                        : 0.6,
+                                  )!;
+                              final Color depthTint =
+                                  Color.lerp(
+                                    bottomTint,
+                                    Colors.black,
+                                    theme.brightness == Brightness.dark
+                                        ? 0.35
+                                        : 0.2,
+                                  )!;
+                              return Positioned(
+                                top: segmentTop,
+                                left: 0,
+                                right: 0,
+                                height: segmentHeight,
+                                child: Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topCenter,
+                                          end: Alignment.bottomCenter,
+                                          colors: [
+                                            highlightTint,
+                                            topTint,
+                                            bottomTint,
+                                            depthTint,
+                                          ],
+                                          stops: const [0, 0.36, 0.85, 1],
+                                        ),
+                                        border: Border(
+                                          left: BorderSide(
+                                            color: highlightTint.withOpacity(
+                                              0.8,
+                                            ),
+                                            width: 0.85,
+                                          ),
+                                          right: BorderSide(
+                                            color: depthTint.withOpacity(0.8),
+                                            width: 0.85,
+                                          ),
+                                        ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: depthTint.withOpacity(
+                                              theme.brightness ==
+                                                      Brightness.dark
+                                                  ? 0.45
+                                                  : 0.25,
+                                            ),
+                                            blurRadius: 4,
+                                            offset: const Offset(1.2, 0),
+                                          ),
+                                        ],
                                       ),
-                                    )
-                                    .toList(),
-                          )
-                          : DecoratedBox(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  stripeColor.withValues(
-                                    alpha:
-                                        theme.brightness == Brightness.dark
-                                            ? 0.9
-                                            : 1,
-                                  ),
-                                  stripeColor.withValues(
-                                    alpha:
-                                        theme.brightness == Brightness.dark
-                                            ? 0.75
-                                            : 0.82,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            child: const SizedBox.expand(),
-                          ),
+                                      child: const SizedBox.expand(),
+                                    ),
+                                    Align(
+                                      alignment: Alignment.centerRight,
+                                      child: FractionallySizedBox(
+                                        widthFactor: 0.18,
+                                        child: DecoratedBox(
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              begin: Alignment.topCenter,
+                                              end: Alignment.bottomCenter,
+                                              colors: [
+                                                Colors.white.withOpacity(0.32),
+                                                Colors.white.withOpacity(0.08),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                      );
+                    },
+                  ),
                 ),
               ),
             ),
@@ -7755,40 +7963,6 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                 addDetail(timeLabel, timeStyle);
                 if (showServiceInfo) {
                   addDetail(serviceLabel, detailStyle);
-                  if (showServiceIndicators) {
-                    children.add(const SizedBox(height: 4));
-                    children.add(
-                      Wrap(
-                        spacing: 4,
-                        runSpacing: 2,
-                        children:
-                            serviceIndicatorColors
-                                .map(
-                                  (color) => Container(
-                                    width: 18,
-                                    height: 18,
-                                    decoration: BoxDecoration(
-                                      color: color,
-                                      borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(
-                                        color: theme.colorScheme.surface,
-                                        width: 1.2,
-                                      ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: theme.colorScheme.shadow
-                                              .withValues(alpha: 0.12),
-                                          blurRadius: 6,
-                                          offset: const Offset(0, 2),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                      ),
-                    );
-                  }
                 }
                 if (showClientInfo) {
                   addDetail(client?.fullName, detailStyle);

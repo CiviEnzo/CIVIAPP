@@ -211,19 +211,19 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
             children: [
               FilledButton.icon(
                 onPressed:
-                      () => openSaleForm(
-                        context,
-                        ref,
-                        salons: salons,
-                        clients: clients,
-                        staff: staff,
-                        services: services,
-                        packages: packages,
-                        inventory: inventoryItems,
-                        sales: sales,
-                        appointments: appointments,
-                        defaultSalonId: salonId,
-                      ),
+                    () => openSaleForm(
+                      context,
+                      ref,
+                      salons: salons,
+                      clients: clients,
+                      staff: staff,
+                      services: services,
+                      packages: packages,
+                      inventory: inventoryItems,
+                      sales: sales,
+                      appointments: appointments,
+                      defaultSalonId: salonId,
+                    ),
                 icon: const Icon(Icons.point_of_sale_rounded),
                 label: const Text('Registra vendita'),
               ),
@@ -274,8 +274,11 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                 final appointment = appointments.firstWhereOrNull(
                   (item) => item.id == ticket.appointmentId,
                 );
-                final serviceName =
-                    _ticketServiceLabel(ticket, appointment, services);
+                final serviceName = _ticketServiceLabel(
+                  ticket,
+                  appointment,
+                  services,
+                );
                 final fallbackService = services.firstWhereOrNull(
                   (item) => item.id == ticket.serviceId,
                 );
@@ -566,45 +569,46 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
   }
 
   // ignore: unused_element
-String _paymentLabel(PaymentMethod method) {
-  switch (method) {
-    case PaymentMethod.cash:
-      return 'Contanti';
+  String _paymentLabel(PaymentMethod method) {
+    switch (method) {
+      case PaymentMethod.cash:
+        return 'Contanti';
       case PaymentMethod.pos:
         return 'POS';
       case PaymentMethod.transfer:
         return 'Bonifico';
       case PaymentMethod.giftCard:
         return 'Gift card';
-    case PaymentMethod.posticipated:
-      return 'Posticipato';
-  }
-}
-
-String _ticketServiceLabel(
-  PaymentTicket ticket,
-  Appointment? appointment,
-  List<Service> services,
-) {
-  final serviceNames = <String>[];
-  if (appointment != null) {
-    for (final serviceId in appointment.serviceIds) {
-      if (serviceId.isEmpty) {
-        continue;
-      }
-      final service =
-          services.firstWhereOrNull((item) => item.id == serviceId);
-      serviceNames.add(service?.name ?? 'Servizio');
+      case PaymentMethod.posticipated:
+        return 'Posticipato';
     }
   }
-  if (serviceNames.isNotEmpty) {
-    return serviceNames.join(' · ');
+
+  String _ticketServiceLabel(
+    PaymentTicket ticket,
+    Appointment? appointment,
+    List<Service> services,
+  ) {
+    final serviceNames = <String>[];
+    if (appointment != null) {
+      for (final serviceId in appointment.serviceIds) {
+        if (serviceId.isEmpty) {
+          continue;
+        }
+        final service = services.firstWhereOrNull(
+          (item) => item.id == serviceId,
+        );
+        serviceNames.add(service?.name ?? 'Servizio');
+      }
+    }
+    if (serviceNames.isNotEmpty) {
+      return serviceNames.join(' · ');
+    }
+    final matchedService = services.firstWhereOrNull(
+      (item) => item.id == ticket.serviceId,
+    );
+    return matchedService?.name ?? ticket.serviceName ?? 'Servizio';
   }
-  final matchedService = services.firstWhereOrNull(
-    (item) => item.id == ticket.serviceId,
-  );
-  return matchedService?.name ?? ticket.serviceName ?? 'Servizio';
-}
 }
 
 Future<void> openSaleForm(
@@ -629,14 +633,16 @@ Future<void> openSaleForm(
     );
     return;
   }
-  final appointment = ticket == null
-      ? null
-      : appointments.firstWhereOrNull(
-          (item) => item.id == ticket.appointmentId,
-        );
-  final initialItems = ticket == null
-      ? null
-      : _initialItemsFromTicket(ticket, appointment, services);
+  final appointment =
+      ticket == null
+          ? null
+          : appointments.firstWhereOrNull(
+            (item) => item.id == ticket.appointmentId,
+          );
+  final initialItems =
+      ticket == null
+          ? null
+          : _initialItemsFromTicket(ticket, appointment, services);
   final sale = await showAppModalSheet<Sale>(
     context: context,
     builder:
@@ -672,23 +678,22 @@ List<SaleItem> _initialItemsFromTicket(
   Appointment? appointment,
   List<Service> services,
 ) {
-  final serviceIds = appointment?.serviceIds.where((id) => id.isNotEmpty).toList();
+  final serviceIds =
+      appointment?.serviceIds.where((id) => id.isNotEmpty).toList();
   if (serviceIds != null && serviceIds.isNotEmpty) {
     return serviceIds
-        .map(
-          (serviceId) {
-            final service =
-                services.firstWhereOrNull((item) => item.id == serviceId);
-            return SaleItem(
-              referenceId: serviceId,
-              referenceType: SaleReferenceType.service,
-              description:
-                  service?.name ?? ticket.serviceName ?? 'Servizio',
-              quantity: 1,
-              unitPrice: service?.price ?? 0,
-            );
-          },
-        )
+        .map((serviceId) {
+          final service = services.firstWhereOrNull(
+            (item) => item.id == serviceId,
+          );
+          return SaleItem(
+            referenceId: serviceId,
+            referenceType: SaleReferenceType.service,
+            description: service?.name ?? ticket.serviceName ?? 'Servizio',
+            quantity: 1,
+            unitPrice: service?.price ?? 0,
+          );
+        })
         .toList(growable: false);
   }
   final matchedService = services.firstWhereOrNull(
@@ -698,8 +703,7 @@ List<SaleItem> _initialItemsFromTicket(
     SaleItem(
       referenceId: ticket.serviceId,
       referenceType: SaleReferenceType.service,
-      description:
-          matchedService?.name ?? ticket.serviceName ?? 'Servizio',
+      description: matchedService?.name ?? ticket.serviceName ?? 'Servizio',
       quantity: 1,
       unitPrice: matchedService?.price ?? ticket.expectedTotal ?? 0,
     ),
