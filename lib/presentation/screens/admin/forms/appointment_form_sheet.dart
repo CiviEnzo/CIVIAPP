@@ -156,21 +156,22 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       for (final allocation in initial.serviceAllocations) {
         if (allocation.serviceId.isEmpty) continue;
         _serviceQuantities[allocation.serviceId] = allocation.quantity;
-      final firstConsumption =
-          allocation.packageConsumptions.isNotEmpty
-              ? allocation.packageConsumptions.first
-              : null;
-      final packageId = firstConsumption?.packageReferenceId;
-      _servicePackageSelections[allocation.serviceId] =
-          packageId != null && packageId.isNotEmpty ? packageId : null;
-      if (packageId != null && packageId.isNotEmpty) {
-        _manualPackageSelections.add(allocation.serviceId);
+        final firstConsumption =
+            allocation.packageConsumptions.isNotEmpty
+                ? allocation.packageConsumptions.first
+                : null;
+        final packageId = firstConsumption?.packageReferenceId;
+        _servicePackageSelections[allocation.serviceId] =
+            packageId != null && packageId.isNotEmpty ? packageId : null;
+        if (packageId != null && packageId.isNotEmpty) {
+          _manualPackageSelections.add(allocation.serviceId);
+        }
+        if (allocation.durationAdjustmentMinutes != 0) {
+          _serviceDurationAdjustments[allocation.serviceId] = Duration(
+            minutes: allocation.durationAdjustmentMinutes,
+          );
+        }
       }
-      if (allocation.durationAdjustmentMinutes != 0) {
-        _serviceDurationAdjustments[allocation.serviceId] =
-            Duration(minutes: allocation.durationAdjustmentMinutes);
-      }
-    }
     } else if (initial?.packageId != null &&
         initial!.packageId!.isNotEmpty &&
         _serviceIds.isNotEmpty) {
@@ -1086,42 +1087,39 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                                       member.id == _staffId,
                                                 ),
                                           );
-                                          if (selection != null) {
-                                            setState(() {
-                                              _serviceIds = selection;
-                                              _ensureServiceState(_serviceIds);
-                                              _manualPackageSelections.removeWhere(
-                                                (serviceId) =>
-                                                    !_serviceIds.contains(
-                                                      serviceId,
-                                                    ),
-                                              );
-                                              if (_serviceIds.isEmpty) {
-                                                _clearAllPackageSelections();
-                                              } else {
-                                                _lastSuggestionKey = '';
-                                                _latestSuggestion = null;
-                                                final baseSelectedServices =
-                                                    _selectedServicesInOrder(
+                                      if (selection != null) {
+                                        setState(() {
+                                          _serviceIds = selection;
+                                          _ensureServiceState(_serviceIds);
+                                          _manualPackageSelections.removeWhere(
+                                            (serviceId) =>
+                                                !_serviceIds.contains(
+                                                  serviceId,
+                                                ),
+                                          );
+                                          if (_serviceIds.isEmpty) {
+                                            _clearAllPackageSelections();
+                                          } else {
+                                            _lastSuggestionKey = '';
+                                            _latestSuggestion = null;
+                                            final baseSelectedServices =
+                                                _selectedServicesInOrder(
                                                   services,
                                                 );
-                                                final adjustedServices =
-                                                    _applyDurationAdjustments(
+                                            final adjustedServices =
+                                                _applyDurationAdjustments(
                                                   baseSelectedServices,
                                                 );
-                                                final totalDuration =
-                                                    _sumServiceDurations(
+                                            final totalDuration =
+                                                _sumServiceDurations(
                                                   adjustedServices,
                                                 );
-                                                if (totalDuration >
-                                                    Duration.zero) {
-                                                  _end = _start.add(
-                                                    totalDuration,
-                                                  );
-                                                }
-                                              }
-                                            });
-                                            _clearInlineError();
+                                            if (totalDuration > Duration.zero) {
+                                              _end = _start.add(totalDuration);
+                                            }
+                                          }
+                                        });
+                                        _clearInlineError();
                                         state.didChange(_serviceIds);
                                       }
                                     },
@@ -1136,18 +1134,21 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                         ),
                                       ),
                                       isEmpty: selectedNames.isEmpty,
-                                      child: selectedNames.isEmpty
-                                          ? Text(
-                                              'Seleziona uno o più servizi',
-                                              style: theme.textTheme.bodyMedium
-                                                  ?.copyWith(
-                                                color: theme.hintColor,
+                                      child:
+                                          selectedNames.isEmpty
+                                              ? Text(
+                                                'Seleziona uno o più servizi',
+                                                style: theme
+                                                    .textTheme
+                                                    .bodyMedium
+                                                    ?.copyWith(
+                                                      color: theme.hintColor,
+                                                    ),
+                                              )
+                                              : _buildReorderableServiceChips(
+                                                theme,
+                                                selectedServices,
                                               ),
-                                            )
-                                          : _buildReorderableServiceChips(
-                                              theme,
-                                              selectedServices,
-                                            ),
                                     ),
                                   ),
                                 ],
@@ -1251,11 +1252,10 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         ValueListenableBuilder<TextEditingValue>(
           valueListenable: _notes,
           builder: (context, value, _) {
-            final hasNote = value.text.trim().isNotEmpty;
             return FilledButton.tonalIcon(
               onPressed: _isDeleting ? null : _showNotesDialog,
               icon: const Icon(Icons.note_alt_rounded),
-              label: Text(hasNote ? 'Modifica nota' : 'Nota'),
+              label: Text('Nota'),
             );
           },
         ),
@@ -1466,8 +1466,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     final colorScheme = theme.colorScheme;
     final durationMinutes = _end.difference(_start).inMinutes;
     final canDecreaseDuration = durationMinutes > _slotIntervalMinutes;
-    final lastService =
-        baseServices.isNotEmpty ? baseServices.last : null;
+    final lastService = baseServices.isNotEmpty ? baseServices.last : null;
     final canAdjustLastService = lastService != null;
     final canDecreaseLastService = canDecreaseDuration && canAdjustLastService;
     final canIncreaseLastService = canAdjustLastService;
@@ -1475,6 +1474,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       if (lastService == null || delta == 0) return;
       _updateServiceDurationDelta(lastService.id, delta, baseServices);
     }
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1564,9 +1564,10 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                         ),
                         icon: const Icon(Icons.remove_circle_outline_rounded),
                         tooltip: '-$_slotIntervalMinutes min',
-                        onPressed: canDecreaseLastService
-                            ? () => adjustLastService(-_slotIntervalMinutes)
-                            : null,
+                        onPressed:
+                            canDecreaseLastService
+                                ? () => adjustLastService(-_slotIntervalMinutes)
+                                : null,
                       ),
                       const SizedBox(width: 4),
                       IconButton(
@@ -1578,9 +1579,10 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                         ),
                         icon: const Icon(Icons.add_circle_outline_rounded),
                         tooltip: '+$_slotIntervalMinutes min',
-                        onPressed: canIncreaseLastService
-                            ? () => adjustLastService(_slotIntervalMinutes)
-                            : null,
+                        onPressed:
+                            canIncreaseLastService
+                                ? () => adjustLastService(_slotIntervalMinutes)
+                                : null,
                       ),
                     ],
                   ),
@@ -1659,26 +1661,27 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 32,
-                        minHeight: 32,
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 32,
+                          minHeight: 32,
+                        ),
+                        icon: const Icon(Icons.remove_circle_outline_rounded),
+                        tooltip: '-$_slotIntervalMinutes min',
+                        onPressed:
+                            (adjustedById[baseServices[index].id]
+                                            ?.totalDuration ??
+                                        baseServices[index].totalDuration) >
+                                    Duration.zero
+                                ? () => _updateServiceDurationDelta(
+                                  baseServices[index].id,
+                                  -_slotIntervalMinutes,
+                                  baseServices,
+                                )
+                                : null,
                       ),
-                      icon: const Icon(Icons.remove_circle_outline_rounded),
-                      tooltip: '-$_slotIntervalMinutes min',
-                      onPressed: (adjustedById[baseServices[index].id]
-                                  ?.totalDuration ??
-                              baseServices[index].totalDuration) >
-                          Duration.zero
-                          ? () => _updateServiceDurationDelta(
-                                baseServices[index].id,
-                                -_slotIntervalMinutes,
-                                baseServices,
-                              )
-                          : null,
-                    ),
                       IconButton(
                         visualDensity: VisualDensity.compact,
                         padding: EdgeInsets.zero,
@@ -1688,11 +1691,12 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                         ),
                         icon: const Icon(Icons.add_circle_outline_rounded),
                         tooltip: '+$_slotIntervalMinutes min',
-                        onPressed: () => _updateServiceDurationDelta(
-                          baseServices[index].id,
-                          _slotIntervalMinutes,
-                          baseServices,
-                        ),
+                        onPressed:
+                            () => _updateServiceDurationDelta(
+                              baseServices[index].id,
+                              _slotIntervalMinutes,
+                              baseServices,
+                            ),
                       ),
                     ],
                   ),
@@ -1709,13 +1713,15 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     Service baseService, {
     Service? adjustedService,
   }) {
-    final adjustment = _serviceDurationAdjustments[baseService.id] ?? Duration.zero;
+    final adjustment =
+        _serviceDurationAdjustments[baseService.id] ?? Duration.zero;
     final adjustedTotal =
         adjustedService?.totalDuration ?? baseService.totalDuration;
     final adjustmentMinutes = adjustment.inMinutes;
-    final adjustmentLabel = adjustmentMinutes == 0
-        ? 'Durata standard'
-        : '${adjustmentMinutes > 0 ? '+' : ''}$adjustmentMinutes min';
+    final adjustmentLabel =
+        adjustmentMinutes == 0
+            ? 'Durata standard'
+            : '${adjustmentMinutes > 0 ? '+' : ''}$adjustmentMinutes min';
     return '${adjustedTotal.inMinutes} min ($adjustmentLabel)';
   }
 
@@ -1748,8 +1754,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       (member) => member.id == _staffId,
     );
     final baseSelectedServices = _selectedServicesInOrder(services);
-    final selectedServices =
-        _applyDurationAdjustments(baseSelectedServices);
+    final selectedServices = _applyDurationAdjustments(baseSelectedServices);
     if (staffMember == null || selectedServices.isEmpty) {
       _showInlineError('Operatore o servizi non validi.');
       return;
@@ -2334,11 +2339,13 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       ),
     );
     final hasZoneTab = zoneCategories.isNotEmpty;
-    final zoneCategoryIds = zoneCategories.map((data) => data.category.id).toSet();
-    final zoneCategoryNames = zoneCategories
-        .map((data) => data.category.name.trim().toLowerCase())
-        .where((name) => name.isNotEmpty)
-        .toSet();
+    final zoneCategoryIds =
+        zoneCategories.map((data) => data.category.id).toSet();
+    final zoneCategoryNames =
+        zoneCategories
+            .map((data) => data.category.name.trim().toLowerCase())
+            .where((name) => name.isNotEmpty)
+            .toSet();
 
     final searchController = TextEditingController();
     final result = await showAppModalSheet<List<String>>(
@@ -2362,19 +2369,20 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
               });
             }
 
-            final listableServices = sortedServices.where((service) {
-              if (service.categoryId != null &&
-                  zoneCategoryIds.contains(service.categoryId)) {
-                return false;
-              }
-              final normalizedCategory =
-                  service.category.trim().toLowerCase();
-              if (normalizedCategory.isNotEmpty &&
-                  zoneCategoryNames.contains(normalizedCategory)) {
-                return false;
-              }
-              return true;
-            }).toList();
+            final listableServices =
+                sortedServices.where((service) {
+                  if (service.categoryId != null &&
+                      zoneCategoryIds.contains(service.categoryId)) {
+                    return false;
+                  }
+                  final normalizedCategory =
+                      service.category.trim().toLowerCase();
+                  if (normalizedCategory.isNotEmpty &&
+                      zoneCategoryNames.contains(normalizedCategory)) {
+                    return false;
+                  }
+                  return true;
+                }).toList();
             final lowerQuery = query.trim().toLowerCase();
             final filtered =
                 lowerQuery.isEmpty
@@ -2769,7 +2777,6 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     });
     _clearInlineError();
   }
-
 
   Appointment? _buildAppointment({required bool skipAvailabilityChecks}) {
     _clearInlineError();
@@ -3294,7 +3301,9 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
 
   void _syncServiceDurationAdjustments(List<String> serviceIds) {
     final expected = serviceIds.toSet();
-    _serviceDurationAdjustments.removeWhere((key, _) => !expected.contains(key));
+    _serviceDurationAdjustments.removeWhere(
+      (key, _) => !expected.contains(key),
+    );
     for (final id in serviceIds) {
       _serviceDurationAdjustments.putIfAbsent(id, () => Duration.zero);
     }
@@ -3303,7 +3312,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
   List<Service> _applyDurationAdjustments(List<Service> services) {
     return services
         .map((service) {
-          final adjustment = _serviceDurationAdjustments[service.id] ?? Duration.zero;
+          final adjustment =
+              _serviceDurationAdjustments[service.id] ?? Duration.zero;
           return service.copyWith(
             extraDuration: service.extraDuration + adjustment,
           );
@@ -3331,9 +3341,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     }
     final currentAdjustment =
         _serviceDurationAdjustments[serviceId] ?? Duration.zero;
-    final currentTotal = baseService.duration +
-        baseService.extraDuration +
-        currentAdjustment;
+    final currentTotal =
+        baseService.duration + baseService.extraDuration + currentAdjustment;
     var deltaDuration = Duration(minutes: deltaMinutes);
     final candidateTotal = currentTotal + deltaDuration;
     if (candidateTotal < Duration.zero) {
@@ -3343,9 +3352,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       return;
     }
     final nextAdjustment = currentAdjustment + deltaDuration;
-    final newTotal = baseService.duration +
-        baseService.extraDuration +
-        nextAdjustment;
+    final newTotal =
+        baseService.duration + baseService.extraDuration + nextAdjustment;
     if (newTotal < Duration.zero) {
       return;
     }
@@ -3407,9 +3415,10 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                   ),
                   iconSize: 18,
                   tooltip: 'Sposta indietro',
-                  onPressed: index > 0
-                      ? () => _reorderService(index, index - 1)
-                      : null,
+                  onPressed:
+                      index > 0
+                          ? () => _reorderService(index, index - 1)
+                          : null,
                   icon: Icon(
                     Icons.arrow_back_ios_new_rounded,
                     color: theme.iconTheme.color?.withOpacity(
@@ -3417,9 +3426,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                     ),
                   ),
                 ),
-                Chip(
-                  label: Text(selectedServices[index].name),
-                ),
+                Chip(label: Text(selectedServices[index].name)),
                 IconButton(
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(
@@ -3428,9 +3435,10 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                   ),
                   iconSize: 18,
                   tooltip: 'Sposta avanti',
-                  onPressed: index < selectedServices.length - 1
-                      ? () => _reorderService(index, index + 1)
-                      : null,
+                  onPressed:
+                      index < selectedServices.length - 1
+                          ? () => _reorderService(index, index + 1)
+                          : null,
                   icon: Icon(
                     Icons.arrow_forward_ios_rounded,
                     color: theme.iconTheme.color?.withOpacity(

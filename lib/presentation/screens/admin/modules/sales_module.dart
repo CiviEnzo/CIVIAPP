@@ -121,6 +121,19 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                   DateUtils.isSameDay(entry.createdAt.toLocal(), _selectedDate),
             )
             .toList();
+    final closedTickets =
+        paymentTickets
+            .where((ticket) => ticket.status == PaymentTicketStatus.closed)
+            .where((ticket) {
+              final closedAt = ticket.closedAt ?? ticket.createdAt;
+              return DateUtils.isSameDay(closedAt.toLocal(), _selectedDate);
+            })
+            .toList()
+          ..sort((a, b) {
+            final aAt = a.closedAt ?? a.createdAt;
+            final bAt = b.closedAt ?? b.createdAt;
+            return bAt.compareTo(aAt);
+          });
     final today = DateUtils.dateOnly(DateTime.now());
     final fallbackStartDate = today.subtract(const Duration(days: 365));
     final earliestEntryDate =
@@ -147,6 +160,77 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                   DateUtils.isSameDay(sale.createdAt.toLocal(), _selectedDate),
             )
             .toList();
+    final closedTicketSaleIds =
+        closedTickets.map((ticket) => ticket.saleId).whereNotNull().toSet();
+    final salesWithoutTicket =
+        selectedSales
+            .where((sale) => !closedTicketSaleIds.contains(sale.id))
+            .toList();
+    final completedEntries = <_CompletedEntry>[];
+    for (final ticket in closedTickets) {
+      final client = clients.firstWhereOrNull(
+        (client) => client.id == ticket.clientId,
+      );
+      final staffName =
+          ticket.staffId == null
+              ? null
+              : staff
+                  .firstWhereOrNull((member) => member.id == ticket.staffId)
+                  ?.fullName;
+      final appointment = appointments.firstWhereOrNull(
+        (item) => item.id == ticket.appointmentId,
+      );
+      final sale =
+          ticket.saleId == null
+              ? null
+              : sales.firstWhereOrNull((item) => item.id == ticket.saleId);
+      final serviceName = _ticketServiceLabel(ticket, appointment, services);
+      final amount =
+          sale?.total ??
+          ticket.expectedTotal ??
+          services
+              .firstWhereOrNull((item) => item.id == ticket.serviceId)
+              ?.price;
+      completedEntries.add(
+        _CompletedEntry(
+          date: ticket.createdAt,
+          clientName: client?.fullName ?? 'Cliente',
+          clientId: client?.id,
+          onOpenClientBilling:
+              client == null ? null : () => _openClientBillingTab(client.id),
+          staffName: staffName,
+          serviceName: serviceName,
+          amount: amount,
+          ticket: ticket,
+          sale: sale,
+        ),
+      );
+    }
+    for (final sale in salesWithoutTicket) {
+      final client = clients.firstWhereOrNull(
+        (client) => client.id == sale.clientId,
+      );
+      final staffName =
+          sale.staffId == null
+              ? null
+              : staff
+                  .firstWhereOrNull((member) => member.id == sale.staffId)
+                  ?.fullName;
+      completedEntries.add(
+        _CompletedEntry(
+          date: sale.createdAt,
+          clientName: client?.fullName ?? 'Cliente',
+          clientId: client?.id,
+          onOpenClientBilling:
+              client == null ? null : () => _openClientBillingTab(client.id),
+          staffName: staffName,
+          paymentLabel: _paymentMethodLabel(sale.paymentMethod),
+          amount: sale.total,
+          sale: sale,
+        ),
+      );
+    }
+    completedEntries.sort((a, b) => b.date.compareTo(a.date));
     final selectedEarnedPoints = selectedSales.fold<int>(
       0,
       (sum, sale) => sum + sale.loyalty.resolvedEarnedPoints,
@@ -256,13 +340,10 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
               separatorBuilder: (_, __) => const SizedBox(height: 12),
               itemBuilder: (context, index) {
                 final ticket = openTickets[index];
-                final clientName =
-                    clients
-                        .firstWhereOrNull(
-                          (client) => client.id == ticket.clientId,
-                        )
-                        ?.fullName ??
-                    'Cliente';
+                final client = clients.firstWhereOrNull(
+                  (client) => client.id == ticket.clientId,
+                );
+                final clientName = client?.fullName ?? 'Cliente';
                 final staffName =
                     ticket.staffId == null
                         ? null
@@ -336,6 +417,7 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                               currency.format(amount),
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
+                                fontSize: 16,
                               ),
                             )
                             : const Icon(
@@ -347,7 +429,10 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
               },
             ),
           const SizedBox(height: 24),
-          Text('Ticket chiusi', style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            'Vendite concluse',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -388,7 +473,123 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
             ],
           ),
           const SizedBox(height: 12),
-          if (cashFlow.isEmpty)
+          if (completedEntries.isEmpty)
+            const Card(
+              child: ListTile(
+                leading: Icon(Icons.receipt_long_rounded),
+                title: Text('Nessuna vendita conclusa in questa data'),
+              ),
+            )
+          else
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: completedEntries.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final entry = completedEntries[index];
+                final creationLabel = DateFormat(
+                  'dd/MM/yyyy HH:mm',
+                  'it_IT',
+                ).format(entry.date.toLocal());
+                final subtitleLines = <String>['Registrato il $creationLabel'];
+                if (entry.ticket != null) {
+                  subtitleLines.add(entry.serviceName ?? 'Servizio');
+                  subtitleLines.add(
+                    '${ticketDateFormat.format(entry.ticket!.appointmentStart)} · Chiuso ${DateFormat('HH:mm', 'it_IT').format((entry.ticket!.closedAt ?? entry.ticket!.createdAt).toLocal())}',
+                  );
+                  if (entry.staffName != null) {
+                    subtitleLines.add(entry.staffName!);
+                  }
+                } else if (entry.sale != null) {
+                  if (entry.staffName != null) {
+                    subtitleLines.add(entry.staffName!);
+                  }
+                  if (entry.paymentLabel != null) {
+                    subtitleLines.add(entry.paymentLabel!);
+                  }
+                  final outstanding = entry.sale!.outstandingAmount;
+                  if (outstanding > 0) {
+                    subtitleLines.add(
+                      'Residuo ${currency.format(outstanding)}',
+                    );
+                  }
+                  if (entry.sale!.notes != null &&
+                      entry.sale!.notes!.isNotEmpty) {
+                    subtitleLines.add(entry.sale!.notes!);
+                  }
+                }
+                return Card(
+                  child: ListTile(
+                    onTap:
+                        entry.ticket != null
+                            ? () => _showClosedTicketDetails(
+                              context: context,
+                              ticket: entry.ticket!,
+                              clients: clients,
+                              services: services,
+                              staff: staff,
+                              sales: sales,
+                              clientId: entry.clientId,
+                              onOpenClientBilling: entry.onOpenClientBilling,
+                            )
+                            : () => _showSaleDetails(
+                              context: context,
+                              sale: entry.sale!,
+                              clientName: entry.clientName,
+                              staffName: entry.staffName,
+                              onOpenClientBilling: entry.onOpenClientBilling,
+                            ),
+                    leading: CircleAvatar(
+                      backgroundColor:
+                          Theme.of(context).colorScheme.surfaceContainerHighest,
+                      child: Icon(
+                        entry.ticket != null
+                            ? Icons.receipt_long_rounded
+                            : Icons.point_of_sale_rounded,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    title: Text(entry.clientName),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (var line in subtitleLines) ...[Text(line)],
+                      ],
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        if (entry.amount != null)
+                          Text(
+                            currency.format(entry.amount!),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          )
+                        else
+                          const Icon(Icons.info_outline_rounded, size: 16),
+                        if (entry.onOpenClientBilling != null) ...[
+                          const SizedBox(width: 6),
+                          IconButton(
+                            padding: EdgeInsets.zero,
+                            iconSize: 20,
+                            tooltip: 'Apri scheda fatturazione',
+                            onPressed: entry.onOpenClientBilling,
+                            icon: const Icon(Icons.open_in_new_rounded),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          const SizedBox(height: 12),
+          /*  if (cashFlow.isEmpty)
             const Card(
               child: ListTile(title: Text('Nessun movimento registrato')),
             )
@@ -442,6 +643,7 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                       currency.format(entry.amount),
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
+                        fontSize: 16,
                         color:
                             entry.type == CashFlowType.income
                                 ? Theme.of(context).colorScheme.primary
@@ -453,7 +655,8 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
               },
             ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 24),*/
+          // civi cash test
           /* Text(
             'Vendite recenti',
             style: Theme.of(context).textTheme.titleLarge,
@@ -494,7 +697,7 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                           const SizedBox(height: 4),
                         ],
                         Text(
-                          'Pagamento: ${_paymentLabel(sale.paymentMethod)} · Stato: ${sale.paymentStatus.label} · ${sale.invoiceNumber ?? 'No Fiscale'}',
+                          'Pagamento: ${_paymentMethodLabel(sale.paymentMethod)} · Stato: ${sale.paymentStatus.label} · ${sale.invoiceNumber ?? 'No Fiscale'}',
                         ),
                         const SizedBox(height: 6),
                         Wrap(
@@ -568,22 +771,6 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
     );
   }
 
-  // ignore: unused_element
-  String _paymentLabel(PaymentMethod method) {
-    switch (method) {
-      case PaymentMethod.cash:
-        return 'Contanti';
-      case PaymentMethod.pos:
-        return 'POS';
-      case PaymentMethod.transfer:
-        return 'Bonifico';
-      case PaymentMethod.giftCard:
-        return 'Gift card';
-      case PaymentMethod.posticipated:
-        return 'Posticipato';
-    }
-  }
-
   String _ticketServiceLabel(
     PaymentTicket ticket,
     Appointment? appointment,
@@ -608,6 +795,21 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
       (item) => item.id == ticket.serviceId,
     );
     return matchedService?.name ?? ticket.serviceName ?? 'Servizio';
+  }
+}
+
+String _paymentMethodLabel(PaymentMethod method) {
+  switch (method) {
+    case PaymentMethod.cash:
+      return 'Contanti';
+    case PaymentMethod.pos:
+      return 'POS';
+    case PaymentMethod.transfer:
+      return 'Bonifico';
+    case PaymentMethod.giftCard:
+      return 'Gift card';
+    case PaymentMethod.posticipated:
+      return 'Posticipato';
   }
 }
 
@@ -666,11 +868,68 @@ Future<void> openSaleForm(
     final store = ref.read(appDataProvider.notifier);
     await store.upsertSale(sale);
     await recordSaleCashFlow(ref: ref, sale: sale, clients: clients);
-    if (ticket != null &&
-        sale.paymentStatus != SalePaymentStatus.posticipated) {
+    if (ticket != null) {
       await store.closePaymentTicket(ticket.id, saleId: sale.id);
     }
   }
+}
+
+Future<void> _showClosedTicketDetails({
+  required BuildContext context,
+  required PaymentTicket ticket,
+  required List<Client> clients,
+  required List<Service> services,
+  required List<StaffMember> staff,
+  required List<Sale> sales,
+  String? clientId,
+  VoidCallback? onOpenClientBilling,
+}) async {
+  final client = clients.firstWhereOrNull(
+    (client) => client.id == ticket.clientId,
+  );
+  final staffMember =
+      ticket.staffId == null
+          ? null
+          : staff.firstWhereOrNull((member) => member.id == ticket.staffId);
+  final service = services.firstWhereOrNull(
+    (service) => service.id == ticket.serviceId,
+  );
+  final sale =
+      ticket.saleId == null
+          ? null
+          : sales.firstWhereOrNull((item) => item.id == ticket.saleId);
+  await showAppModalSheet<void>(
+    context: context,
+    builder:
+        (_) => _ClosedTicketDetailsSheet(
+          ticket: ticket,
+          clientName: client?.fullName ?? 'Cliente',
+          serviceName: service?.name ?? ticket.serviceName ?? 'Servizio',
+          staffName: staffMember?.fullName,
+          sale: sale,
+          expectedTotal: ticket.expectedTotal,
+          onOpenClientBilling: onOpenClientBilling,
+        ),
+  );
+}
+
+Future<void> _showSaleDetails({
+  required BuildContext context,
+  required Sale sale,
+  required String clientName,
+  String? staffName,
+  VoidCallback? onOpenClientBilling,
+}) async {
+  await showAppModalSheet<void>(
+    context: context,
+    builder:
+        (_) => _SaleDetailsSheet(
+          sale: sale,
+          clientName: clientName,
+          staffName: staffName,
+          onOpenClientBilling: onOpenClientBilling,
+        ),
+  );
 }
 
 List<SaleItem> _initialItemsFromTicket(
@@ -781,4 +1040,297 @@ class _SummaryTile extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ClosedTicketDetailsSheet extends StatelessWidget {
+  const _ClosedTicketDetailsSheet({
+    required this.ticket,
+    required this.clientName,
+    required this.serviceName,
+    required this.sale,
+    this.staffName,
+    this.expectedTotal,
+    this.onOpenClientBilling,
+  });
+
+  final PaymentTicket ticket;
+  final String clientName;
+  final String serviceName;
+  final String? staffName;
+  final Sale? sale;
+  final double? expectedTotal;
+  final VoidCallback? onOpenClientBilling;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    final dateFormat = DateFormat('dd/MM/yyyy HH:mm', 'it_IT');
+    final timeFormat = DateFormat('HH:mm', 'it_IT');
+    final closedAt = ticket.closedAt ?? ticket.createdAt;
+    final appointmentLabel =
+        '${dateFormat.format(ticket.appointmentStart.toLocal())} – ${timeFormat.format(ticket.appointmentEnd.toLocal())}';
+    final associatedSale = sale;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('Dettaglio ticket chiuso', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 16),
+          _DetailRow(
+            label: 'Cliente',
+            value: clientName,
+            action: _buildClientHyperlinkAction(
+              context,
+              onOpenClientBilling,
+              clientName,
+            ),
+          ),
+          _DetailRow(label: 'Servizio', value: serviceName),
+          if (staffName != null)
+            _DetailRow(label: 'Operatore', value: staffName!),
+          _DetailRow(label: 'Appuntamento', value: appointmentLabel),
+          _DetailRow(
+            label: 'Chiuso il',
+            value: dateFormat.format(closedAt.toLocal()),
+          ),
+          _DetailRow(label: 'ID ticket', value: ticket.id),
+          const Divider(height: 24),
+          if (associatedSale != null) ...[
+            Text('Vendita collegata', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 8),
+            _DetailRow(
+              label: 'Stato pagamento',
+              value: associatedSale.paymentStatus.label,
+            ),
+            _DetailRow(
+              label: 'Totale registrato',
+              value: currency.format(associatedSale.total),
+            ),
+            _DetailRow(
+              label: 'Pagato',
+              value: currency.format(associatedSale.paidAmount),
+            ),
+            if (associatedSale.outstandingAmount > 0)
+              _DetailRow(
+                label: 'Residuo',
+                value: currency.format(associatedSale.outstandingAmount),
+              ),
+          ] else if (expectedTotal != null) ...[
+            Text('Vendita collegata', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 8),
+            _DetailRow(
+              label: 'Totale previsto',
+              value: currency.format(expectedTotal!),
+            ),
+          ],
+          if (ticket.notes != null && ticket.notes!.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text('Note', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 6),
+            Text(ticket.notes!, style: theme.textTheme.bodyMedium),
+          ],
+          const SizedBox(height: 24),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Chiudi'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SaleDetailsSheet extends StatelessWidget {
+  const _SaleDetailsSheet({
+    required this.sale,
+    required this.clientName,
+    this.staffName,
+    this.onOpenClientBilling,
+  });
+
+  final Sale sale;
+  final String clientName;
+  final String? staffName;
+  final VoidCallback? onOpenClientBilling;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    final dateFormat = DateFormat('dd/MM/yyyy HH:mm', 'it_IT');
+    final createdAt = sale.createdAt.toLocal();
+    final outstanding = sale.outstandingAmount;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('Dettaglio vendita', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 16),
+          _DetailRow(
+            label: 'Cliente',
+            value: clientName,
+            action: _buildClientHyperlinkAction(
+              context,
+              onOpenClientBilling,
+              clientName,
+            ),
+          ),
+          if (staffName != null) ...[
+            _DetailRow(label: 'Operatore', value: staffName!),
+          ],
+          _DetailRow(label: 'Data', value: dateFormat.format(createdAt)),
+          _DetailRow(
+            label: 'Metodo di pagamento',
+            value: _paymentMethodLabel(sale.paymentMethod),
+          ),
+          _DetailRow(label: 'Stato pagamento', value: sale.paymentStatus.label),
+          _DetailRow(
+            label: 'Totale registrato',
+            value: currency.format(sale.total),
+          ),
+          _DetailRow(label: 'Pagato', value: currency.format(sale.paidAmount)),
+          if (outstanding > 0)
+            _DetailRow(label: 'Residuo', value: currency.format(outstanding)),
+          if (sale.items.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text('Articoli', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 8),
+            for (final item in sale.items) ...[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      item.description.isNotEmpty
+                          ? item.description
+                          : 'Servizio',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ),
+                  Text(
+                    currency.format(item.amount),
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ],
+              ),
+              Text(
+                '${item.quantity} × ${currency.format(item.unitPrice)}',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
+            ],
+          ],
+          if (sale.notes != null && sale.notes!.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text('Note', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 6),
+            Text(sale.notes!, style: theme.textTheme.bodyMedium),
+          ],
+          const SizedBox(height: 24),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Chiudi'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({required this.label, required this.value, this.action});
+
+  final String label;
+  final String value;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final valueStyle =
+        theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600) ??
+        const TextStyle(fontWeight: FontWeight.w600);
+    final labelStyle = theme.textTheme.bodySmall;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: labelStyle),
+          const SizedBox(height: 2),
+          if (action == null) Text(value, style: valueStyle) else action!,
+        ],
+      ),
+    );
+  }
+}
+
+class _CompletedEntry {
+  const _CompletedEntry({
+    required this.date,
+    required this.clientName,
+    required this.clientId,
+    required this.onOpenClientBilling,
+    this.staffName,
+    this.serviceName,
+    this.paymentLabel,
+    this.amount,
+    this.ticket,
+    this.sale,
+  });
+
+  final DateTime date;
+  final String clientName;
+  final String? clientId;
+  final VoidCallback? onOpenClientBilling;
+  final String? staffName;
+  final String? serviceName;
+  final String? paymentLabel;
+  final double? amount;
+  final PaymentTicket? ticket;
+  final Sale? sale;
+}
+
+Widget? _buildClientHyperlinkAction(
+  BuildContext context,
+  VoidCallback? action,
+  String value,
+) {
+  if (action == null) {
+    return null;
+  }
+  final theme = Theme.of(context);
+  return TextButton.icon(
+    style: TextButton.styleFrom(
+      alignment: Alignment.centerLeft,
+      padding: EdgeInsets.zero,
+      minimumSize: Size.zero,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      foregroundColor: theme.colorScheme.primary,
+      textStyle: theme.textTheme.bodyMedium,
+    ),
+    icon: Icon(
+      Icons.open_in_new_rounded,
+      size: 16,
+      color: theme.colorScheme.primary,
+    ),
+    label: Text(value),
+    onPressed: () {
+      Navigator.of(context).pop();
+      action();
+    },
+  );
 }

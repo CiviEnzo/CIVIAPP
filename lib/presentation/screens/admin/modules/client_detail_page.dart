@@ -5589,7 +5589,8 @@ class _BillingTab extends ConsumerWidget {
 
     final outstandingSales = <_OutstandingSale>[];
     for (final sale in sales) {
-      if (sale.paymentStatus != SalePaymentStatus.deposit ||
+      if ((sale.paymentStatus != SalePaymentStatus.deposit &&
+              sale.paymentStatus != SalePaymentStatus.posticipated) ||
           sale.outstandingAmount <= 0) {
         continue;
       }
@@ -6589,6 +6590,7 @@ class _BillingTab extends ConsumerWidget {
       description: description,
       category: 'Vendite',
       staffId: sale.staffId,
+      clientId: sale.clientId,
     );
     await ref.read(appDataProvider.notifier).upsertCashFlowEntry(entry);
   }

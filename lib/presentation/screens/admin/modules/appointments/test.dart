@@ -7239,6 +7239,10 @@ class _AppointmentCardState extends State<_AppointmentCard> {
             );
     Color gradientStart = cardSurface;
     Color gradientEnd = cardSurface;
+    final double primaryTintAlpha =
+        theme.brightness == Brightness.dark ? 0.68 : 0.58;
+    final double secondaryTintAlpha =
+        theme.brightness == Brightness.dark ? 0.42 : 0.32;
     if (hasCategoryTone || backgroundColor.opacity > 0.0) {
       final Color tintSource = hasCategoryTone ? baseColor : borderBlendColor;
       if (forceSolidCategoryFill && hasCategoryTone) {
@@ -7251,15 +7255,11 @@ class _AppointmentCardState extends State<_AppointmentCard> {
         );
       } else {
         gradientStart = Color.alphaBlend(
-          tintSource.withValues(
-            alpha: theme.brightness == Brightness.dark ? 0.5 : 0.4,
-          ),
+          tintSource.withValues(alpha: primaryTintAlpha),
           cardSurface,
         );
         gradientEnd = Color.alphaBlend(
-          tintSource.withValues(
-            alpha: theme.brightness == Brightness.dark ? 0.24 : 0.2,
-          ),
+          tintSource.withValues(alpha: secondaryTintAlpha),
           cardSurface,
         );
       }

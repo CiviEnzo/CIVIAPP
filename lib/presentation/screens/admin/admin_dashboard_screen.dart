@@ -503,9 +503,27 @@ Widget _navigationRailIcon(
   bool selected,
   BuildContext context,
 ) {
+  final theme = Theme.of(context);
+  final scheme = theme.colorScheme;
   return Tooltip(
     message: module.title,
-    waitDuration: const Duration(milliseconds: 500),
+    waitDuration: const Duration(milliseconds: 350),
+    decoration: ShapeDecoration(
+      color: scheme.inverseSurface.withOpacity(0.95),
+      shape: const StadiumBorder(),
+      shadows: const [
+        BoxShadow(
+          color: Color(0x33000000),
+          blurRadius: 16,
+          offset: Offset(0, 8),
+        ),
+      ],
+    ),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    textStyle: theme.textTheme.labelMedium?.copyWith(
+      color: scheme.onInverseSurface,
+      fontWeight: FontWeight.w600,
+    ),
     child: Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: SizedBox(

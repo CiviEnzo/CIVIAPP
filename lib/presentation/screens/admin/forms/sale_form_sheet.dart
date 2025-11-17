@@ -49,6 +49,7 @@ class SaleFormSheet extends StatefulWidget {
     this.initialStaffId,
     this.initialSaleId,
     this.onSaved,
+    this.onSkipTicket,
   });
 
   final List<Salon> salons;
@@ -71,6 +72,7 @@ class SaleFormSheet extends StatefulWidget {
   final String? initialStaffId;
   final String? initialSaleId;
   final void Function(Sale sale)? onSaved;
+  final VoidCallback? onSkipTicket;
 
   @override
   State<SaleFormSheet> createState() => _SaleFormSheetState();
@@ -266,6 +268,22 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                     ],
                   ),
                 ),
+                if (widget.onSkipTicket != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: OutlinedButton(
+                      onPressed: widget.onSkipTicket,
+                      child: const Text('Non gestire ora il ticket'),
+                    ),
+                  ),
+                if (_isPaymentStep)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: OutlinedButton(
+                      onPressed: _exitPaymentStep,
+                      child: const Text('Indietro'),
+                    ),
+                  ),
                 FilledButton(
                   style: FilledButton.styleFrom(
                     backgroundColor: colorScheme.primary,
@@ -418,11 +436,6 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         children: [
           Expanded(
             child: Text('Riepilogo vendita', style: theme.textTheme.titleLarge),
-          ),
-          TextButton.icon(
-            onPressed: _exitPaymentStep,
-            icon: const Icon(Icons.edit),
-            label: const Text('Modifica'),
           ),
         ],
       ),

@@ -100,8 +100,7 @@ class _AppointmentSaleFlowSheetState
     final clients = ref.read(appDataProvider).clients;
     await recordSaleCashFlow(ref: ref, sale: sale, clients: clients);
     final ticket = _pendingTicket;
-    if (ticket != null &&
-        sale.paymentStatus != SalePaymentStatus.posticipated) {
+    if (ticket != null) {
       await store.closePaymentTicket(ticket.id, saleId: sale.id);
     }
     if (!mounted) {
@@ -303,7 +302,7 @@ class _AppointmentSaleFlowSheetState
       return const SizedBox.shrink();
     }
     final initialItems = _buildInitialSaleItems(ticket, data.services);
-    final saleForm = SaleFormSheet(
+    return SaleFormSheet(
       key: const ValueKey('sale-step'),
       salons: data.salons,
       clients: data.clients,
@@ -319,17 +318,7 @@ class _AppointmentSaleFlowSheetState
       initialDate: ticket.appointmentEnd,
       initialStaffId: ticket.staffId,
       onSaved: _handleSaleSaved,
-    );
-
-    return Column(
-      mainAxisSize: MainAxisSize.max,
-      children: [
-        Expanded(child: saleForm),
-        OutlinedButton(
-          onPressed: _closeFlow,
-          child: const Text('Non gestire ora il ticket'),
-        ),
-      ],
+      onSkipTicket: _closeFlow,
     );
   }
 

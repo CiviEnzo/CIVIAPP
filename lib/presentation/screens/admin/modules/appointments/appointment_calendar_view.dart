@@ -7366,7 +7366,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
     final Color cardSurface =
         theme.brightness == Brightness.dark
             ? theme.colorScheme.surface
-            : Colors.white;
+            : theme.colorScheme.surface;
     final bool hasCategoryTone =
         !isCancelled && !hideNoShowColor && baseColor.opacity > 0.0;
     final List<_ServiceGradientSegment> serviceGradientSegments =
@@ -7385,6 +7385,10 @@ class _AppointmentCardState extends State<_AppointmentCard> {
     final bool showMultiServiceGradient = serviceGradientSegments.length > 1;
     Color gradientStart = cardSurface;
     Color gradientEnd = cardSurface;
+    final double primaryTintAlpha =
+        theme.brightness == Brightness.dark ? 0.68 : 1.0;
+    final double secondaryTintAlpha =
+        theme.brightness == Brightness.dark ? 0.42 : 1;
     if (hasCategoryTone || backgroundColor.opacity > 0.0) {
       final Color tintSource = hasCategoryTone ? baseColor : borderBlendColor;
       if (forceSolidCategoryFill && hasCategoryTone) {
@@ -7397,15 +7401,11 @@ class _AppointmentCardState extends State<_AppointmentCard> {
         );
       } else {
         gradientStart = Color.alphaBlend(
-          tintSource.withValues(
-            alpha: theme.brightness == Brightness.dark ? 0.5 : 0.4,
-          ),
+          tintSource.withValues(alpha: primaryTintAlpha),
           cardSurface,
         );
         gradientEnd = Color.alphaBlend(
-          tintSource.withValues(
-            alpha: theme.brightness == Brightness.dark ? 0.24 : 0.2,
-          ),
+          tintSource.withValues(alpha: secondaryTintAlpha),
           cardSurface,
         );
       }
@@ -7416,15 +7416,15 @@ class _AppointmentCardState extends State<_AppointmentCard> {
       final gradientColors = <Color>[];
       final gradientStops = <double>[];
       final tintedSegmentColors = <Color>[];
+      final double multiServiceTintAlpha =
+          theme.brightness == Brightness.dark ? 0.76 : 0.88;
       for (final segment in serviceGradientSegments) {
         final durationAwareColor = _durationAwareTint(
           segment.color,
           segment.weight,
         );
         var tinted = Color.alphaBlend(
-          durationAwareColor.withValues(
-            alpha: theme.brightness == Brightness.dark ? 0.82 : 0.5,
-          ),
+          durationAwareColor.withValues(alpha: multiServiceTintAlpha),
           theme.colorScheme.surface.withValues(alpha: 0),
         );
         if (highlightAnomalies) {
@@ -7508,25 +7508,30 @@ class _AppointmentCardState extends State<_AppointmentCard> {
           gradientColors.isNotEmpty ? gradientColors.last : gradientEnd;
       contentSampleColor = Color.lerp(firstColor, lastColor, 0.5) ?? firstColor;
     } else {
-      const double highlightThickness = 0.04;
-      final double highlightStart = (1.0 - highlightThickness).clamp(0.0, 1.0);
-      final double highlightMiddle = (highlightStart + highlightThickness * 0.5)
+      // Strong color on top/bottom with a bright band around the center.
+      const double highlightThickness = 0.85;
+      const double highlightCenter = 0.5;
+      final double highlightStart = (highlightCenter - highlightThickness * 0.5)
+          .clamp(0.0, 1.0);
+      final double highlightEnd = (highlightCenter + highlightThickness * 0.5)
           .clamp(0.0, 1.0);
       final Color highlightColor = Color.lerp(
         gradientEnd,
         Colors.white,
-        0.15,
-      )!.withOpacity(0.45);
+        0.5,
+      )!.withOpacity(0.95);
       final List<Color> cardColors = [
+        gradientEnd,
+        gradientStart,
+        highlightColor,
         gradientStart,
         gradientEnd,
-        highlightColor,
-        highlightColor.withOpacity(0.0),
       ];
       final List<double> cardStops = [
         0.0,
         highlightStart,
-        highlightMiddle,
+        highlightCenter,
+        highlightEnd,
         1.0,
       ];
       cardGradient = LinearGradient(
