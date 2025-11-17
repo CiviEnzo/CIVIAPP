@@ -137,6 +137,9 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     _loyaltyRedeemController = TextEditingController(text: '0');
     _payment = widget.initialPaymentMethod;
     _paymentStatus = widget.initialPaymentStatus;
+    if (_paymentStatus == SalePaymentStatus.posticipated) {
+      _payment = PaymentMethod.posticipated;
+    }
     _date = widget.initialDate ?? DateTime.now();
     _salonId =
         widget.defaultSalonId ??
@@ -752,6 +755,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
               setState(() {
                 _paymentStatus = value;
                 if (value == SalePaymentStatus.posticipated) {
+                  _payment = PaymentMethod.posticipated;
+                } else if (_payment == PaymentMethod.posticipated) {
                   _payment = null;
                 }
               });
@@ -765,57 +770,82 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
               }
             },
           ),
-          if (_paymentStatus != SalePaymentStatus.posticipated) ...[
-            const SizedBox(height: 12),
-            DropdownButtonFormField<PaymentMethod>(
-              value: _payment,
-              decoration: const InputDecoration(
-                labelText: 'Metodo di pagamento',
-              ),
-              items:
-                  PaymentMethod.values
-                      .map(
-                        (method) => DropdownMenuItem(
-                          value: method,
-                          child: Text(_paymentLabel(method)),
-                        ),
-                      )
-                      .toList(),
-              validator:
-                  (value) =>
-                      value == null ? 'Seleziona il metodo di pagamento' : null,
-              onChanged: (value) => setState(() => _payment = value),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<PaymentMethod>(
+            value:
+                _paymentStatus == SalePaymentStatus.posticipated
+                    ? PaymentMethod.posticipated
+                    : _payment,
+            decoration: const InputDecoration(
+              labelText: 'Metodo di pagamento',
             ),
-            if (_paymentStatus == SalePaymentStatus.deposit) ...[
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _paidAmountController,
-                decoration: const InputDecoration(
-                  labelText: 'Importo incassato (€)',
-                ),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                validator: (value) {
-                  if (_paymentStatus != SalePaymentStatus.deposit) {
+            items:
+                (_paymentStatus == SalePaymentStatus.posticipated
+                    ? const [PaymentMethod.posticipated]
+                    : PaymentMethod.values
+                        .where(
+                          (method) =>
+                              method != PaymentMethod.posticipated,
+                        ))
+                    .map(
+                      (method) => DropdownMenuItem(
+                        value: method,
+                        child: Text(_paymentLabel(method)),
+                      ),
+                    )
+                    .toList(),
+            validator:
+                (value) {
+                  if (_paymentStatus == SalePaymentStatus.posticipated) {
                     return null;
                   }
-                  final amount = _parseAmount(value);
-                  if (amount == null || amount <= 0) {
-                    return 'Inserisci un importo valido';
-                  }
-                  if (amount > total + 0.01) {
-                    return 'L\'acconto supera il totale';
-                  }
-                  return null;
+                  return value == null
+                      ? 'Seleziona il metodo di pagamento'
+                      : null;
                 },
+            onChanged:
+                _paymentStatus == SalePaymentStatus.posticipated
+                    ? null
+                    : (value) => setState(() => _payment = value),
+          ),
+          if (_paymentStatus == SalePaymentStatus.posticipated) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Pagamento posticipato: registriamo un acconto di 0 € e potrai incassare in seguito.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Residuo da incassare: ${currency.format(_remainingBalance(total))}',
-                style: theme.textTheme.bodyMedium,
+            ),
+          ],
+          if (_paymentStatus == SalePaymentStatus.deposit) ...[
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _paidAmountController,
+              decoration: const InputDecoration(
+                labelText: 'Importo incassato (€)',
               ),
-            ],
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              validator: (value) {
+                if (_paymentStatus != SalePaymentStatus.deposit) {
+                  return null;
+                }
+                final amount = _parseAmount(value);
+                if (amount == null || amount <= 0) {
+                  return 'Inserisci un importo valido';
+                }
+                if (amount > total + 0.01) {
+                  return 'L\'acconto supera il totale';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Residuo da incassare: ${currency.format(_remainingBalance(total))}',
+              style: theme.textTheme.bodyMedium,
+            ),
           ],
         ],
         if (staff.isNotEmpty) ...[
@@ -2810,7 +2840,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       }
       paymentStatus = selectedStatus;
       if (paymentStatus == SalePaymentStatus.posticipated) {
-        paymentMethod = _payment ?? PaymentMethod.pos;
+        paymentMethod = PaymentMethod.posticipated;
         paidAmount = 0;
       } else {
         final selectedMethod = _payment;

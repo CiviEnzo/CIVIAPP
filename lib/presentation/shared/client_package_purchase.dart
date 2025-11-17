@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/package.dart';
 import 'package:you_book/domain/entities/sale.dart';
@@ -39,33 +41,65 @@ class ClientPackagePurchase {
   }
 
   int? get totalSessions {
-    if (item.totalSessions != null) {
-      return item.totalSessions;
+    final explicit = item.totalSessions;
+    if (explicit != null) {
+      return explicit;
     }
-    final sessionsPerPackage =
-        package?.totalConfiguredSessions ??
-        (item.packageServiceSessions.isNotEmpty
-            ? item.packageServiceSessions.values.fold<int>(
-              0,
-              (sum, value) => sum + value,
-            )
-            : null);
-    if (sessionsPerPackage == null) {
+
+    final configured = package?.totalConfiguredSessions;
+    if (configured != null) {
+      final total = configured * item.quantity;
+      return total.isFinite ? total.round() : null;
+    }
+
+    final serviceIds = <String>{
+      ...package?.serviceSessionCounts?.keys ?? const <String>{},
+      ...item.packageServiceSessions.keys,
+      ...item.remainingPackageServiceSessions.keys,
+      ...usedSessionsByService.keys,
+    }..removeWhere((id) => id.isEmpty);
+
+    if (serviceIds.isEmpty) {
       return null;
     }
-    return (sessionsPerPackage * item.quantity).round();
+
+    var sum = 0;
+    var hasAny = false;
+    for (final serviceId in serviceIds) {
+      final totalForService = totalSessionsForService(serviceId);
+      if (totalForService != null) {
+        sum += totalForService;
+        hasAny = true;
+      }
+    }
+    if (!hasAny) {
+      return null;
+    }
+    return sum;
   }
 
   int? get remainingSessions {
-    if (item.remainingPackageServiceSessions.isNotEmpty) {
-      return item.remainingPackageServiceSessions.values.fold<int>(
+    final remainingByService = item.remainingPackageServiceSessions;
+    if (remainingByService.isNotEmpty) {
+      return remainingByService.values.fold<int>(
         0,
         (sum, value) => sum + value,
       );
     }
+
     if (item.remainingSessions != null) {
       return item.remainingSessions;
     }
+
+    if (item.packageServiceSessions.isNotEmpty) {
+      final baseline = item.packageServiceSessions.values.fold<int>(
+        0,
+        (sum, value) => sum + value,
+      );
+      final effective = baseline - usedSessions;
+      return effective <= 0 ? 0 : effective;
+    }
+
     final total = totalSessions;
     if (total == null) {
       return null;
@@ -75,29 +109,31 @@ class ClientPackagePurchase {
   }
 
   int remainingSessionsForService(String serviceId) {
-    final manualByService = item.remainingPackageServiceSessions;
-    if (manualByService.isNotEmpty) {
-      final manual = manualByService[serviceId];
-      if (manual != null) {
-        return manual;
-      }
+    final byService = item.remainingPackageServiceSessions;
+    if (byService.isNotEmpty && byService.containsKey(serviceId)) {
+      return byService[serviceId]!;
     }
+
+    if (item.packageServiceSessions.containsKey(serviceId)) {
+      final baseline = item.packageServiceSessions[serviceId] ?? 0;
+      final used = usedSessionsByService[serviceId] ?? 0;
+      final remaining = baseline - used;
+      return remaining <= 0 ? 0 : remaining;
+    }
+
     final total = totalSessionsForService(serviceId);
-    if (total == null) {
-      return effectiveRemainingSessions;
-    }
     final used = usedSessionsByService[serviceId] ?? 0;
-    final remaining = total - used;
-    return remaining <= 0 ? 0 : remaining;
+
+    if (total != null) {
+      final remaining = total - used;
+      return remaining <= 0 ? 0 : remaining;
+    }
+
+    // Fallback when totals are unknown: preserve the overall remaining snapshot.
+    return math.max(0, effectiveRemainingSessions - used);
   }
 
   int? totalSessionsForService(String serviceId) {
-    if (item.packageServiceSessions.isNotEmpty) {
-      final configured = item.packageServiceSessions[serviceId];
-      if (configured != null) {
-        return (configured * item.quantity).round();
-      }
-    }
     final packageSessions = package?.serviceSessionCounts;
     if (packageSessions != null && packageSessions.isNotEmpty) {
       final configured = packageSessions[serviceId];
@@ -105,6 +141,25 @@ class ClientPackagePurchase {
         return (configured * item.quantity).round();
       }
     }
+
+    if (item.packageServiceSessions.isNotEmpty) {
+      final remaining = item.packageServiceSessions[serviceId];
+      if (remaining != null) {
+        final used = usedSessionsByService[serviceId] ?? 0;
+        final estimated = remaining + used;
+        return estimated > 0 ? estimated : null;
+      }
+    }
+
+    if (item.remainingPackageServiceSessions.isNotEmpty) {
+      final remaining = item.remainingPackageServiceSessions[serviceId];
+      if (remaining != null) {
+        final used = usedSessionsByService[serviceId] ?? 0;
+        final estimated = remaining + used;
+        return estimated > 0 ? estimated : null;
+      }
+    }
+
     return null;
   }
 

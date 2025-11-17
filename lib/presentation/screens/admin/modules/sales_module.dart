@@ -193,7 +193,7 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
               ?.price;
       completedEntries.add(
         _CompletedEntry(
-          date: ticket.createdAt,
+          date: ticket.closedAt ?? ticket.createdAt,
           clientName: client?.fullName ?? 'Cliente',
           clientId: client?.id,
           onOpenClientBilling:

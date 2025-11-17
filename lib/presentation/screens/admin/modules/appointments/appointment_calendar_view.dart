@@ -7829,6 +7829,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final availableHeight = constraints.maxHeight;
+                final availableWidth = constraints.maxWidth;
                 if (availableHeight <= 0) {
                   return const SizedBox.shrink();
                 }
@@ -7869,6 +7870,10 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                 final showOutstandingChip =
                     hasOutstandingPayments && availableHeight >= 72;
                 final hasBottomSection = showRoomInfo || showOutstandingChip;
+                const double _minInfoPillWidth = 40.0;
+                final bool canShowBottomSection = hasBottomSection &&
+                    (!availableWidth.isFinite || availableWidth >=
+                        _minInfoPillWidth);
 
                 final timeStyle =
                     theme.textTheme.bodyMedium?.copyWith(
@@ -7888,6 +7893,8 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                     ) ??
                     TextStyle(color: secondaryContentColor, fontSize: 11);
                 final List<Widget> children = [];
+                final bool showInfoPillLabels = !hideContent;
+                final bool showDetails = !hideContent;
 
                 void addDetail(
                   String? value,
@@ -7911,27 +7918,27 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                   );
                 }
 
-                addDetail(timeLabel, timeStyle);
-                if (showServiceInfo) {
-                  addDetail(serviceLabel, detailStyle);
-                }
-                if (showClientInfo) {
-                  addDetail(client?.fullName, detailStyle);
-                }
-
-                if (children.isEmpty) {
-                  return const SizedBox.shrink();
+                if (showDetails) {
+                  addDetail(timeLabel, timeStyle);
+                  if (showServiceInfo) {
+                    addDetail(serviceLabel, detailStyle);
+                  }
+                  if (showClientInfo) {
+                    addDetail(client?.fullName, detailStyle);
+                  }
                 }
 
-                if (hasBottomSection) {
-                  if (availableHeight >= 88) {
-                    children
-                      ..add(const Spacer())
-                      ..add(const SizedBox(height: 4));
-                  } else {
-                    children.add(
-                      SizedBox(height: availableHeight >= 76 ? 4 : 2),
-                    );
+                if (canShowBottomSection) {
+                  if (children.isNotEmpty) {
+                    if (availableHeight >= 88) {
+                      children
+                        ..add(const Spacer())
+                        ..add(const SizedBox(height: 4));
+                    } else {
+                      children.add(
+                        SizedBox(height: availableHeight >= 76 ? 4 : 2),
+                      );
+                    }
                   }
 
                   final List<Widget> bottomWidgets = [];
@@ -7939,6 +7946,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                   Widget buildInfoPill({
                     required IconData icon,
                     required String label,
+                    String? tooltip,
                     Color? background,
                     Color? iconColor,
                     Color? textColor,
@@ -7953,7 +7961,10 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                         textColor ?? infoPillTextColor;
                     final Color pillBackground =
                         background ?? infoPillBackgroundColor;
-                    return Container(
+                    final trimmedLabel = label.trim();
+                    final bool hasLabel =
+                        showInfoPillLabels && trimmedLabel.isNotEmpty;
+                    final pill = Container(
                       padding: padding,
                       decoration: BoxDecoration(
                         color: pillBackground,
@@ -7963,25 +7974,36 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(icon, size: 14, color: defaultIconColor),
-                          const SizedBox(width: 4),
-                          Text(
-                            label,
-                            style:
-                                theme.textTheme.labelSmall?.copyWith(
-                                  color: defaultTextColor,
-                                  fontWeight: FontWeight.w600,
-                                ) ??
-                                TextStyle(
-                                  color: defaultTextColor,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
-                          ),
+                          if (hasLabel) ...[
+                            const SizedBox(width: 4),
+                            Text(
+                              trimmedLabel,
+                              style:
+                                  theme.textTheme.labelSmall?.copyWith(
+                                        color: defaultTextColor,
+                                        fontWeight: FontWeight.w600,
+                                      ) ??
+                                  TextStyle(
+                                    color: defaultTextColor,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                          ],
                         ],
                       ),
                     );
+                    final tooltipMessage = tooltip?.trim();
+                    if (tooltipMessage?.isNotEmpty == true) {
+                      return Tooltip(
+                        message: tooltipMessage!,
+                        waitDuration: const Duration(milliseconds: 250),
+                        child: pill,
+                      );
+                    }
+                    return pill;
                   }
 
                   if (showRoomInfo) {
@@ -7989,6 +8011,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                       buildInfoPill(
                         icon: Icons.room_outlined,
                         label: 'Stanza: $roomName',
+                        tooltip: 'Stanza: $roomName',
                       ),
                     );
                   }
@@ -7998,6 +8021,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                       buildInfoPill(
                         icon: Icons.payments_outlined,
                         label: '',
+                        tooltip: 'Pagamenti da saldare',
                         background: theme.colorScheme.tertiaryContainer
                             .withValues(
                               alpha:
@@ -8020,6 +8044,10 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                       Wrap(spacing: 8, runSpacing: 4, children: bottomWidgets),
                     );
                   }
+                }
+
+                if (children.isEmpty) {
+                  return const SizedBox.shrink();
                 }
 
                 return Column(
