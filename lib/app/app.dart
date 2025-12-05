@@ -178,7 +178,7 @@ class CiviApp extends ConsumerWidget {
     });
 
     return MaterialApp.router(
-      title: 'Civi App Gestionale',
+      title: 'YouBook',
       debugShowCheckedModeBanner: false,
       routerConfig: router,
       themeMode: themeMode,

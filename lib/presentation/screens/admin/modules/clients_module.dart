@@ -1099,10 +1099,12 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
   }
 
   Widget _buildDetailOnlyClientView(Client client, ThemeData theme) {
+    final data = ref.read(appDataProvider);
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
               child: Text(
@@ -1110,10 +1112,32 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                 style: theme.textTheme.titleLarge,
               ),
             ),
-            TextButton.icon(
-              onPressed: _clearSelectedClient,
-              icon: const Icon(Icons.close_rounded),
-              label: const Text('Chiudi'),
+            Flexible(
+              child: Align(
+                alignment: Alignment.bottomRight,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.end,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed:
+                          () => _openClientForm(
+                            salons: data.salons,
+                            clients: data.clients,
+                            existing: client,
+                          ),
+                      icon: const Icon(Icons.edit_rounded),
+                      label: const Text('Modifica'),
+                    ),
+                    TextButton.icon(
+                      onPressed: _clearSelectedClient,
+                      icon: const Icon(Icons.close_rounded),
+                      label: const Text('Chiudi'),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),

@@ -5777,8 +5777,11 @@ class _BillingTab extends ConsumerWidget {
     }
 
     final updated = <SaleItem>[];
-    if (paymentStatus == SalePaymentStatus.deposit) {
-      var remaining = _normalizeCurrency(paidAmount);
+    if (paymentStatus != SalePaymentStatus.paid) {
+      var remaining =
+          paymentStatus == SalePaymentStatus.posticipated
+              ? 0.0
+              : _normalizeCurrency(paidAmount);
       for (final item in items) {
         if (item.referenceType == SaleReferenceType.package) {
           final lineTotal = item.amount;

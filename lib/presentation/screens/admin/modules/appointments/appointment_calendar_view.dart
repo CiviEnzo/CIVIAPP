@@ -26,6 +26,7 @@ import 'package:intl/intl.dart';
 
 const double _kStaffColumnWidth = 220.0;
 const double _kStaffHeaderHeight = 48.0;
+const double _kBasePreviewHeight = 170.0;
 
 final DateFormat _calendarWeekdayFormat = DateFormat('EEEE', 'it_IT');
 final DateFormat _calendarDayNumberFormat = DateFormat('dd', 'it_IT');
@@ -1703,6 +1704,8 @@ class _DaySchedule extends StatelessWidget {
                                                 interactionSlotMinutes:
                                                     interactionSlotMinutes,
                                                 slotExtent: _slotExtent,
+                                                verticalController:
+                                                    verticalController,
                                                 clientsWithOutstandingPayments:
                                                     clientsWithOutstandingPayments,
                                                 clientsById: clientsById,
@@ -3087,6 +3090,8 @@ class _WeekSchedule extends StatelessWidget {
                                                       interactionSlotMinutes:
                                                           interactionSlotMinutes,
                                                       slotExtent: _slotExtent,
+                                                      verticalController:
+                                                          verticalController,
                                                       clientsWithOutstandingPayments:
                                                           clientsWithOutstandingPayments,
                                                       clientsById: clientsById,
@@ -4634,6 +4639,7 @@ class _WeekCompactView extends StatelessWidget {
                 slotMinutes: slotMinutes,
                 interactionSlotMinutes: interactionSlotMinutes,
                 slotExtent: slotExtent,
+                verticalController: verticalController,
                 clientsWithOutstandingPayments: clientsWithOutstandingPayments,
                 clientsById: clientsById,
                 servicesById: servicesById,
@@ -5723,6 +5729,7 @@ class _StaffDayColumn extends StatefulWidget {
     required this.slotMinutes,
     required this.interactionSlotMinutes,
     required this.slotExtent,
+    required this.verticalController,
     required this.clientsWithOutstandingPayments,
     required this.clientsById,
     required this.servicesById,
@@ -5755,6 +5762,7 @@ class _StaffDayColumn extends StatefulWidget {
   final int slotMinutes;
   final int interactionSlotMinutes;
   final double slotExtent;
+  final ScrollController verticalController;
   final Set<String> clientsWithOutstandingPayments;
   final Map<String, Client> clientsById;
   final Map<String, Service> servicesById;
@@ -5778,6 +5786,9 @@ class _StaffDayColumn extends StatefulWidget {
 
 class _StaffDayColumnState extends State<_StaffDayColumn> {
   static final DateFormat _timeLabel = DateFormat('HH:mm', 'it_IT');
+  static const double _kAutoScrollEdgeExtent = 120.0;
+  static const double _kAutoScrollMinStep = 10.0;
+  static const double _kAutoScrollMaxStep = 34.0;
   DateTime? _hoverStart;
   DateTime? _dragPreviewStart;
   Duration? _dragPreviewDuration;
@@ -5810,6 +5821,58 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
           _hoverStart = null;
         }
       });
+    }
+  }
+
+  void _maybeAutoScroll(Offset globalPosition) {
+    final controller = widget.verticalController;
+    if (!controller.hasClients) {
+      return;
+    }
+    final position = controller.position;
+    if (!position.hasPixels || !position.haveDimensions) {
+      return;
+    }
+    if (position.maxScrollExtent <= 0) {
+      return;
+    }
+    final scrollableContext = position.context.notificationContext;
+    final renderBox = scrollableContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null || !renderBox.hasSize) {
+      return;
+    }
+
+    final topLeft = renderBox.localToGlobal(Offset.zero);
+    final bottom = topLeft.dy + renderBox.size.height;
+    final edgeTop = topLeft.dy + _kAutoScrollEdgeExtent;
+    final edgeBottom = bottom - _kAutoScrollEdgeExtent;
+
+    double? targetOffset;
+    if (globalPosition.dy < edgeTop && position.pixels > 0) {
+      final distanceIntoEdge = (edgeTop - globalPosition.dy).clamp(
+        0.0,
+        _kAutoScrollEdgeExtent,
+      );
+      final t = distanceIntoEdge / _kAutoScrollEdgeExtent;
+      final delta =
+          _kAutoScrollMinStep + (_kAutoScrollMaxStep - _kAutoScrollMinStep) * t;
+      targetOffset = max(0.0, position.pixels - delta);
+    } else if (globalPosition.dy > edgeBottom &&
+        position.pixels < position.maxScrollExtent) {
+      final distanceIntoEdge = (globalPosition.dy - edgeBottom).clamp(
+        0.0,
+        _kAutoScrollEdgeExtent,
+      );
+      final t = distanceIntoEdge / _kAutoScrollEdgeExtent;
+      final delta =
+          _kAutoScrollMinStep + (_kAutoScrollMaxStep - _kAutoScrollMinStep) * t;
+      targetOffset = min(position.maxScrollExtent, position.pixels + delta);
+    }
+
+    if (targetOffset != null &&
+        (targetOffset - position.pixels).abs() >= 0.5 &&
+        !position.outOfRange) {
+      controller.jumpTo(targetOffset);
     }
   }
 
@@ -6056,14 +6119,11 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
         final top =
             segment.start.difference(widget.timelineStart).inMinutes *
             pixelsPerMinute;
-        final height = max(
-          widget.slotExtent,
-          segment.end.difference(segment.start).inMinutes * pixelsPerMinute,
-        );
         final previewed = dragAppointment.copyWith(
           start: dragStart,
           end: dragEnd,
         );
+        final client = widget.clientsById[previewed.clientId];
         final anomalies =
             widget.anomalies[dragAppointment.id] ??
             const <AppointmentAnomalyType>{};
@@ -6082,26 +6142,51 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                 : widget.servicesById[previewed.serviceId];
         final hasOutstandingPayments = widget.clientsWithOutstandingPayments
             .contains(previewed.clientId);
-        final visibleMinutes = max(
-          1,
-          segment.end.difference(segment.start).inMinutes,
+        final visibleMinutes = max(1, dragDuration.inMinutes);
+        final serviceLabel =
+            services.isNotEmpty
+                ? services.map((service) => service.name).join(' + ')
+                : previewService?.name;
+        final clientPhone =
+            client?.phone != null && client!.phone.trim().isNotEmpty
+                ? client!.phone.trim()
+                : null;
+        final bool showClientPhone = clientPhone != null;
+        final noteText = previewed.notes?.trim();
+        final bool hasPreviewNote =
+            noteText != null && noteText.isNotEmpty;
+        final previewHeight = _contentAwareHeight(
+          baseHeight: _kBasePreviewHeight,
+          expandToContent: true,
+          highlight: true,
+          showDurationChip: true,
+          showServiceInfo: true,
+          showClientInfo: true,
+          showClientPhone: showClientPhone,
+          hasPreviewNote: hasPreviewNote,
+          hasOutstandingPayments: hasOutstandingPayments,
+          serviceLabel: serviceLabel,
+          clientName: client?.fullName,
+          clientPhone: showClientPhone ? clientPhone : null,
+          noteText: noteText,
+          roomName: roomName,
         );
         dragOverlay = Positioned(
           top: top,
           left: 0,
           right: 0,
           child: SizedBox(
-            height: height,
+            height: previewHeight,
             child: Opacity(
               opacity: _dragPreviewHasConflict ? 0.65 : 1,
               child: _AppointmentCard(
                 appointment: previewed,
-                client: widget.clientsById[previewed.clientId],
+                client: client,
                 service: previewService,
                 services: services,
                 staff: widget.staffMember,
                 roomName: roomName,
-                height: height,
+                height: previewHeight,
                 visibleDurationMinutes: visibleMinutes,
                 anomalies: anomalies,
                 lockReason: null,
@@ -6110,6 +6195,8 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                 categoriesByName: widget.categoriesByName,
                 hideContent: false,
                 hasOutstandingPayments: hasOutstandingPayments,
+                expandToContent: true,
+                showNotes: true,
               ),
             ),
           ),
@@ -6226,6 +6313,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
             if (!_isDragging) {
               _setDragging(true);
             }
+            _maybeAutoScroll(details.offset);
             final renderBox = context.findRenderObject() as RenderBox?;
             if (renderBox == null) {
               return;
@@ -6734,6 +6822,9 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                               categoriesById: widget.categoriesById,
                               categoriesByName: widget.categoriesByName,
                               hasOutstandingPayments: hasOutstandingPayments,
+                              showDuration: true,
+                              expandToContent: true,
+                              showNotes: true,
                             ),
                           ),
                           childWhenDragging: Opacity(
@@ -7216,6 +7307,10 @@ class _AppointmentCard extends StatefulWidget {
     this.hideContent = false,
     this.visibleDurationMinutes,
     this.hasOutstandingPayments = false,
+    this.enableHoverOverlay = true,
+    this.showDuration = true,
+    this.expandToContent = false,
+    this.showNotes = false,
   });
 
   final Appointment appointment;
@@ -7235,15 +7330,87 @@ class _AppointmentCard extends StatefulWidget {
   final bool hideContent;
   final int? visibleDurationMinutes;
   final bool hasOutstandingPayments;
+  final bool enableHoverOverlay;
+  final bool showDuration;
+  final bool expandToContent;
+  final bool showNotes;
 
   @override
   State<_AppointmentCard> createState() => _AppointmentCardState();
 }
 
+double _contentAwareHeight({
+  required double baseHeight,
+  required bool expandToContent,
+  required bool highlight,
+  required bool showDurationChip,
+  required bool showServiceInfo,
+  required bool showClientInfo,
+  required bool showClientPhone,
+  required bool hasPreviewNote,
+  required bool hasOutstandingPayments,
+  required String? serviceLabel,
+  required String? clientName,
+  required String? clientPhone,
+  required String? noteText,
+  required String? roomName,
+}) {
+  var height = expandToContent ? max(baseHeight, _kBasePreviewHeight) : baseHeight;
+  if (!expandToContent) {
+    return height;
+  }
+
+  final int serviceLength =
+      showServiceInfo ? (serviceLabel ?? '').trim().length : 0;
+  final int clientNameLength =
+      showClientInfo ? (clientName ?? '').trim().length : 0;
+  final int phoneLength =
+      showClientPhone ? (clientPhone ?? '').trim().length : 0;
+  final int noteLength = hasPreviewNote ? (noteText ?? '').length : 0;
+  final int estimatedServiceLines =
+      showServiceInfo ? max(1, (serviceLength / 26).ceil()) : 0;
+  final int estimatedClientLines =
+      showClientInfo ? max(1, (clientNameLength / 22).ceil()) : 0;
+  final int estimatedPhoneLines =
+      showClientPhone ? max(1, (phoneLength / 24).ceil()) : 0;
+  final int estimatedNoteLines =
+      hasPreviewNote ? max(1, (noteLength / 28).ceil()) : 0;
+  final int estimatedLines =
+      1 +
+      estimatedServiceLines +
+      estimatedClientLines +
+      estimatedPhoneLines +
+      estimatedNoteLines;
+  final double lineHeight = highlight ? 21.0 : 18.0;
+  final double gapUnit = highlight ? 7.0 : 6.0;
+  final double gapHeight =
+      estimatedLines > 1 ? (estimatedLines - 1) * gapUnit : 0;
+  final bool bottomSectionLikely =
+      roomName != null || hasOutstandingPayments || (showDurationChip && highlight);
+  final double baseHeadroom = highlight ? 64 : 56; // time + paddings
+  final double bottomAllowance =
+      bottomSectionLikely ? (highlight ? 64 : 52) : (highlight ? 24 : 0);
+  const double safetyBuffer = 8;
+  return max(
+    height,
+    baseHeadroom +
+        estimatedLines * lineHeight +
+        gapHeight +
+        bottomAllowance +
+        safetyBuffer,
+  );
+}
+
 class _AppointmentCardState extends State<_AppointmentCard> {
   static final DateFormat _timeFormat = DateFormat('HH:mm', 'it_IT');
+  static const double _kHoverPreviewWidth = 320;
+  static const double _kHoverPreviewGap = 12;
+  static OverlayEntry? _activeHoverEntry;
+  static _AppointmentCardState? _activeHoverOwner;
 
   bool _isHovering = false;
+  final LayerLink _hoverLink = LayerLink();
+  OverlayEntry? _hoverEntry;
 
   void _updateHovering(bool hovering) {
     if (_isHovering == hovering) {
@@ -7255,13 +7422,189 @@ class _AppointmentCardState extends State<_AppointmentCard> {
   }
 
   @override
+  void dispose() {
+    _removeHoverOverlay();
+    super.dispose();
+  }
+
+  void _removeHoverOverlay() {
+    if (_hoverEntry != null) {
+      _hoverEntry!.remove();
+      if (_activeHoverOwner == this) {
+        _activeHoverEntry = null;
+        _activeHoverOwner = null;
+      }
+      _hoverEntry = null;
+    }
+  }
+
+  void _removeActiveHoverOverlay() {
+    if (_activeHoverEntry != null) {
+      _activeHoverEntry!.remove();
+      _activeHoverEntry = null;
+      _activeHoverOwner = null;
+    }
+  }
+
+  void _showHoverOverlay() {
+    if (!widget.enableHoverOverlay) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    final overlay = Overlay.of(context);
+    if (overlay == null) {
+      return;
+    }
+    final target = context.findRenderObject() as RenderBox?;
+    final overlayBox = overlay.context.findRenderObject() as RenderBox?;
+    if (target == null || overlayBox == null || !target.hasSize) {
+      return;
+    }
+
+    _removeHoverOverlay();
+    _removeActiveHoverOverlay();
+
+    final targetOffset = target.localToGlobal(
+      Offset.zero,
+      ancestor: overlayBox,
+    );
+    final targetRect = targetOffset & target.size;
+    final spaceLeft = targetRect.left;
+    final spaceRight = overlayBox.size.width - targetRect.right;
+    var placeRight = spaceRight >= spaceLeft;
+    final desiredWidth = _kHoverPreviewWidth;
+    if (placeRight &&
+        spaceRight < desiredWidth + _kHoverPreviewGap &&
+        spaceLeft > spaceRight) {
+      placeRight = false;
+    } else if (!placeRight &&
+        spaceLeft < desiredWidth + _kHoverPreviewGap &&
+        spaceRight > spaceLeft) {
+      placeRight = true;
+    }
+    final availableWidth =
+        placeRight
+            ? spaceRight - _kHoverPreviewGap
+            : spaceLeft - _kHoverPreviewGap;
+    final hoverWidth = min(desiredWidth, max(0.0, availableWidth));
+    if (hoverWidth <= 0) return;
+    final top = targetRect.top;
+    final left =
+        placeRight
+            ? (targetRect.right + _kHoverPreviewGap)
+            : (targetRect.left - _kHoverPreviewGap - hoverWidth);
+
+    final previewDurationMinutes = max(
+      1,
+      widget.visibleDurationMinutes ?? widget.appointment.duration.inMinutes,
+    );
+    final previewDuration = Duration(minutes: previewDurationMinutes);
+    final services = widget.services;
+    final service = widget.service;
+    final client = widget.client;
+    final servicesToDisplay =
+        services.isNotEmpty ? services : [if (service != null) service];
+    final serviceLabel =
+        servicesToDisplay.isNotEmpty
+            ? servicesToDisplay
+                .whereType<Service>()
+                .map((service) => service.name)
+                .join(' + ')
+            : null;
+    final clientPhone =
+        client?.phone != null && client!.phone.trim().isNotEmpty
+            ? client!.phone.trim()
+            : null;
+    final noteText = widget.appointment.notes?.trim();
+    final bool hasPreviewNote = noteText != null && noteText.isNotEmpty;
+    final double hoverHeightEstimate = _contentAwareHeight(
+      baseHeight: _kBasePreviewHeight,
+      expandToContent: true,
+      highlight: true,
+      showDurationChip: widget.showDuration,
+      showServiceInfo: true,
+      showClientInfo: true,
+      showClientPhone: clientPhone != null,
+      hasPreviewNote: hasPreviewNote,
+      hasOutstandingPayments: widget.hasOutstandingPayments,
+      serviceLabel: serviceLabel,
+      clientName: client?.fullName,
+      clientPhone: clientPhone,
+      noteText: noteText,
+      roomName: widget.roomName,
+    );
+
+    _hoverEntry = OverlayEntry(
+      builder: (context) {
+        final clampedLeft = min(
+          max(0.0, left),
+          max(0.0, overlayBox.size.width - hoverWidth),
+        );
+        final desiredTop = targetRect.top;
+        final maxTop =
+            max(
+              0.0,
+              overlayBox.size.height - hoverHeightEstimate - _kHoverPreviewGap,
+            );
+        final clampedTop =
+            hoverHeightEstimate.isFinite && hoverHeightEstimate > 0
+                ? desiredTop.clamp(0.0, maxTop)
+                : desiredTop;
+        return IgnorePointer(
+          child: Stack(
+            children: [
+              Positioned(
+                left: clampedLeft,
+                top: clampedTop,
+                width: hoverWidth,
+                child: Material(
+                  color: Colors.transparent,
+                  child: _DragFeedback(
+                    child: _DragPreviewCard(
+                      appointment: widget.appointment,
+                      client: widget.client,
+                      service: widget.service,
+                      services: widget.services,
+                      staff: widget.staff,
+                      roomName: widget.roomName,
+                      height: widget.height,
+                      anomalies: widget.anomalies,
+                      previewStart: widget.appointment.start,
+                      previewDuration: previewDuration,
+                      slotMinutes: previewDurationMinutes,
+                      lastMinuteSlot: widget.lastMinuteSlot,
+                      categoriesById: widget.categoriesById,
+                      categoriesByName: widget.categoriesByName,
+                      hasOutstandingPayments: widget.hasOutstandingPayments,
+                      enableHoverOverlay: false,
+                      showDuration: true,
+                      expandToContent: true,
+                      showNotes: true,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    overlay.insert(_hoverEntry!);
+    _activeHoverEntry = _hoverEntry;
+    _activeHoverOwner = this;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final appointment = widget.appointment;
     final client = widget.client;
     final service = widget.service;
     final services = widget.services;
-    final height = widget.height;
+    var height = widget.height;
     final roomName = widget.roomName;
     final onTap = widget.onTap;
     final anomalies = widget.anomalies;
@@ -7273,6 +7616,10 @@ class _AppointmentCardState extends State<_AppointmentCard> {
     final hideContent = widget.hideContent;
     final visibleDurationMinutes = widget.visibleDurationMinutes;
     final hasOutstandingPayments = widget.hasOutstandingPayments;
+    final showDuration = widget.showDuration;
+    final expandToContent = widget.expandToContent;
+    final showNotes = widget.showNotes;
+    final bool wantsDurationChip = showDuration && highlight;
 
     final status = appointment.status;
     final now = DateTime.now();
@@ -7312,8 +7659,41 @@ class _AppointmentCardState extends State<_AppointmentCard> {
       1,
       visibleDurationMinutes ?? appointment.duration.inMinutes,
     );
-    final bool showServiceInfo = contentDurationMinutes >= 30;
-    final bool showClientInfo = contentDurationMinutes >= 45;
+    final bool showServiceInfo =
+        expandToContent || contentDurationMinutes >= 30;
+    final bool showClientInfo =
+        expandToContent || highlight || contentDurationMinutes >= 45;
+    final String? clientPhone =
+        client?.phone != null && client!.phone.trim().isNotEmpty
+            ? client!.phone.trim()
+            : null;
+    final bool showClientPhone =
+        clientPhone != null && (highlight || expandToContent);
+    final noteText = appointment.notes?.trim();
+    final bool hasPreviewNote =
+        showNotes && noteText != null && noteText.isNotEmpty;
+    final double baseHeight =
+        expandToContent ? _kBasePreviewHeight : widget.height;
+    height = _contentAwareHeight(
+      baseHeight: baseHeight,
+      expandToContent: expandToContent,
+      highlight: highlight,
+      showDurationChip: wantsDurationChip,
+      showServiceInfo: showServiceInfo,
+      showClientInfo: showClientInfo,
+      showClientPhone: showClientPhone,
+      hasPreviewNote: hasPreviewNote,
+      hasOutstandingPayments: hasOutstandingPayments,
+      serviceLabel: serviceLabel,
+      clientName: client?.fullName,
+      clientPhone: showClientPhone ? clientPhone : null,
+      noteText: noteText,
+      roomName: roomName,
+    );
+    if (highlight && !expandToContent) {
+      final bool isVeryShort = contentDurationMinutes <= 15;
+      height = max(height, isVeryShort ? 170.0 : 150.0);
+    }
     final categoryLabel = _primaryCategoryLabel(servicesToDisplay, service);
     final categoryColor = _resolveCategoryColor(
       servicesToDisplay,
@@ -7606,7 +7986,9 @@ class _AppointmentCardState extends State<_AppointmentCard> {
             ? attentionTooltipLines.join('\n')
             : null;
     final double verticalPadding;
-    if (height < 72) {
+    if (expandToContent) {
+      verticalPadding = 12;
+    } else if (height < 72) {
       verticalPadding = 6;
     } else if (height < 120) {
       verticalPadding = 10;
@@ -7628,31 +8010,18 @@ class _AppointmentCardState extends State<_AppointmentCard> {
     );
     final bool hasTranslucentFill = hasCategoryTone || highlightAnomalies;
     final borderRadius = BorderRadius.circular(12);
-    final Brightness contentBrightness = ThemeData.estimateBrightnessForColor(
-      contentSampleColor.withAlpha(0xFF),
-    );
-    final bool prefersDarkContent = contentBrightness == Brightness.light;
-    final Color primaryContentColor =
-        prefersDarkContent ? theme.colorScheme.onSurface : Colors.white;
-    final Color secondaryContentColor =
-        prefersDarkContent
-            ? theme.colorScheme.onSurface.withValues(alpha: 0.82)
-            : Colors.white.withValues(alpha: 0.9);
+    final bool isDark = theme.brightness == Brightness.dark;
+    final Color primaryContentColor = isDark ? Colors.white : Colors.black;
+    final Color secondaryContentColor = isDark
+        ? Colors.white.withValues(alpha: 0.85)
+        : Colors.black.withValues(alpha: 0.82);
     final Color iconContentColor = primaryContentColor;
     final Color infoPillBackgroundColor =
-        prefersDarkContent
-            ? theme.colorScheme.onSurface.withValues(alpha: 0.08)
-            : Colors.white.withValues(
-              alpha: theme.brightness == Brightness.dark ? 0.12 : 0.18,
-            );
-    final Color infoPillTextColor =
-        prefersDarkContent
-            ? primaryContentColor
-            : Colors.white.withValues(alpha: 0.92);
-    final Color infoPillIconColor =
-        prefersDarkContent
-            ? primaryContentColor.withValues(alpha: 0.9)
-            : Colors.white.withValues(alpha: 0.9);
+        isDark
+            ? Colors.white.withValues(alpha: 0.12)
+            : Colors.black.withValues(alpha: 0.08);
+    final Color infoPillTextColor = primaryContentColor;
+    final Color infoPillIconColor = primaryContentColor.withValues(alpha: 0.9);
 
     final card = Container(
       height: height,
@@ -7828,13 +8197,19 @@ class _AppointmentCardState extends State<_AppointmentCard> {
             padding: padding,
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final availableHeight = constraints.maxHeight;
-                final availableWidth = constraints.maxWidth;
-                if (availableHeight <= 0) {
+                final availableHeight =
+                    constraints.hasBoundedHeight
+                        ? constraints.maxHeight
+                        : double.infinity;
+                final availableWidth =
+                    constraints.hasBoundedWidth
+                        ? constraints.maxWidth
+                        : double.infinity;
+                if (constraints.hasBoundedHeight && availableHeight <= 0) {
                   return const SizedBox.shrink();
                 }
 
-                if (hidePastCompletedContent) {
+                if (hidePastCompletedContent && !highlight) {
                   if (hideContent) {
                     return Align(
                       alignment: Alignment.centerLeft,
@@ -7853,7 +8228,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                     iconColor = theme.colorScheme.error;
                   } else {
                     iconData = Icons.check;
-                    iconColor = iconContentColor;
+                    iconColor = Colors.white;
                   }
                   final double iconSize =
                       availableHeight < 48
@@ -7866,14 +8241,23 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                   );
                 }
 
-                final showRoomInfo = roomName != null && availableHeight >= 120;
+                final showRoomInfo =
+                    roomName != null &&
+                    (expandToContent || availableHeight >= 120);
                 final showOutstandingChip =
-                    hasOutstandingPayments && availableHeight >= 72;
-                final hasBottomSection = showRoomInfo || showOutstandingChip;
+                    hasOutstandingPayments &&
+                    (expandToContent || availableHeight >= 72);
+                final showDurationChip =
+                    wantsDurationChip &&
+                    (expandToContent || availableHeight >= 60);
+                final hasBottomSection =
+                    showRoomInfo || showOutstandingChip || showDurationChip;
                 const double _minInfoPillWidth = 40.0;
-                final bool canShowBottomSection = hasBottomSection &&
-                    (!availableWidth.isFinite || availableWidth >=
-                        _minInfoPillWidth);
+                final bool canShowBottomSection =
+                    hasBottomSection &&
+                    (expandToContent ||
+                        !availableWidth.isFinite ||
+                        availableWidth >= _minInfoPillWidth);
 
                 final timeStyle =
                     theme.textTheme.bodyMedium?.copyWith(
@@ -7889,31 +8273,70 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                 final detailStyle =
                     theme.textTheme.bodySmall?.copyWith(
                       color: secondaryContentColor,
-                      fontSize: 11,
+                      fontSize: 12,
                     ) ??
-                    TextStyle(color: secondaryContentColor, fontSize: 11);
+                    TextStyle(color: secondaryContentColor, fontSize: 12);
+                final double baseDetailSize = detailStyle.fontSize ?? 12;
+                final serviceStyle =
+                    highlight
+                        ? detailStyle.copyWith(
+                          fontSize: baseDetailSize + 8,
+                          fontWeight: FontWeight.w600,
+                        )
+                        : detailStyle.copyWith(
+                          fontSize: baseDetailSize + 1,
+                          fontWeight: FontWeight.w700,
+                        );
+                final clientStyle =
+                    highlight
+                        ? detailStyle.copyWith(
+                          fontSize: baseDetailSize + 9,
+                          fontWeight: FontWeight.w800,
+                        )
+                        : detailStyle.copyWith(
+                          fontSize: baseDetailSize + 1,
+                          fontWeight: FontWeight.w700,
+                        );
+                final TextStyle phoneStyle =
+                    highlight
+                        ? detailStyle.copyWith(
+                          fontSize: baseDetailSize + 8,
+                          fontWeight: FontWeight.w700,
+                        )
+                        : detailStyle;
                 final List<Widget> children = [];
                 final bool showInfoPillLabels = !hideContent;
                 final bool showDetails = !hideContent;
+                final note = noteText;
+                final bool showNoteLine = hasPreviewNote;
 
                 void addDetail(
                   String? value,
                   TextStyle style, {
-                  double gap = 2,
+                  double gap = 2.0,
+                  int? maxLines,
+                  TextOverflow? overflow,
                 }) {
                   final text = value?.trim();
                   if (text == null || text.isEmpty) {
                     return;
                   }
+                  final effectiveGap = expandToContent ? max(gap, 4.0) : gap;
                   if (children.isNotEmpty) {
-                    children.add(SizedBox(height: gap));
+                    children.add(SizedBox(height: effectiveGap));
                   }
                   children.add(
                     Text(
                       text,
                       style: style,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      maxLines: maxLines ?? (expandToContent ? null : 1),
+                      overflow:
+                          overflow ??
+                          (expandToContent
+                              ? TextOverflow.visible
+                              : TextOverflow.ellipsis),
+                      softWrap:
+                          expandToContent || (maxLines != null && maxLines > 1),
                     ),
                   );
                 }
@@ -7921,24 +8344,34 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                 if (showDetails) {
                   addDetail(timeLabel, timeStyle);
                   if (showServiceInfo) {
-                    addDetail(serviceLabel, detailStyle);
+                    addDetail(serviceLabel, serviceStyle);
                   }
                   if (showClientInfo) {
-                    addDetail(client?.fullName, detailStyle);
+                    addDetail(client?.fullName, clientStyle);
+                    if (showClientPhone) {
+                      addDetail(clientPhone, phoneStyle);
+                    }
+                    if (showNoteLine) {
+                      addDetail(
+                        'Note: $note',
+                        detailStyle,
+                        gap: expandToContent ? 8 : 4,
+                        maxLines: expandToContent ? null : 2,
+                      );
+                    }
                   }
                 }
 
                 if (canShowBottomSection) {
                   if (children.isNotEmpty) {
-                    if (availableHeight >= 88) {
-                      children
-                        ..add(const Spacer())
-                        ..add(const SizedBox(height: 4));
-                    } else {
-                      children.add(
-                        SizedBox(height: availableHeight >= 76 ? 4 : 2),
-                      );
-                    }
+                    children.add(
+                      SizedBox(
+                        height:
+                            expandToContent
+                                ? 10
+                                : (availableHeight >= 76 ? 4 : 2),
+                      ),
+                    );
                   }
 
                   final List<Widget> bottomWidgets = [];
@@ -7950,6 +8383,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                     Color? background,
                     Color? iconColor,
                     Color? textColor,
+                    TextStyle? labelStyle,
                     EdgeInsets padding = const EdgeInsets.symmetric(
                       horizontal: 8,
                       vertical: 4,
@@ -7979,10 +8413,11 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                             Text(
                               trimmedLabel,
                               style:
+                                  labelStyle ??
                                   theme.textTheme.labelSmall?.copyWith(
-                                        color: defaultTextColor,
-                                        fontWeight: FontWeight.w600,
-                                      ) ??
+                                    color: defaultTextColor,
+                                    fontWeight: FontWeight.w600,
+                                  ) ??
                                   TextStyle(
                                     color: defaultTextColor,
                                     fontSize: 11,
@@ -8012,6 +8447,45 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                         icon: Icons.room_outlined,
                         label: 'Stanza: $roomName',
                         tooltip: 'Stanza: $roomName',
+                      ),
+                    );
+                  }
+
+                  if (showDurationChip) {
+                    final durationStyle =
+                        highlight
+                            ? theme.textTheme.labelMedium?.copyWith(
+                                  color: infoPillTextColor,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w800,
+                                ) ??
+                                TextStyle(
+                                  color: infoPillTextColor,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w800,
+                                )
+                            : null;
+                    final durationLabel =
+                        highlight
+                            ? '${contentDurationMinutes}m'
+                            : '$contentDurationMinutes min';
+                    bottomWidgets.add(
+                      buildInfoPill(
+                        icon: Icons.access_time_rounded,
+                        label: durationLabel,
+                        tooltip:
+                            'Durata appuntamento: $contentDurationMinutes minuti',
+                        labelStyle: durationStyle,
+                        padding:
+                            highlight
+                                ? const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 3,
+                                )
+                                : const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
                       ),
                     );
                   }
@@ -8052,6 +8526,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
 
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: children,
                 );
               },
@@ -8186,440 +8661,67 @@ class _AppointmentCardState extends State<_AppointmentCard> {
             ? card
             : Stack(children: [card, ...overlayWidgets]);
 
-    final durationMinutes = max(1, appointment.duration.inMinutes);
-    final tooltipLines = <_TooltipLine>[];
-    void addHoverLine(String label, String? value, {int grade = 1}) {
-      if (value == null) return;
-      final trimmedValue = value.trim();
-      if (trimmedValue.isEmpty) return;
-      tooltipLines.add(
-        _TooltipLine(label: label, content: trimmedValue, grade: grade),
-      );
-    }
-
-    final clientName = client?.fullName;
-    final normalizedClientName = clientName?.trim();
-    addHoverLine('', normalizedClientName, grade: 3);
-    final clientPhone = client?.phone;
-    final normalizedClientPhone = clientPhone?.trim();
-    addHoverLine('', normalizedClientPhone, grade: 1);
-    final normalizedServiceName = serviceLabel?.trim();
-    addHoverLine('', normalizedServiceName, grade: 1);
-    addHoverLine('', '$durationMinutes minuti', grade: 1);
-
-    if (appointment.packageId != null) {
-      tooltipLines.add(const _TooltipLine(content: 'Scalato da sessione'));
-    }
-    if (hasOutstandingPayments) {
-      tooltipLines.add(
-        const _TooltipLine(label: 'Pagamenti', content: 'da saldare'),
-      );
-    }
-    if (lastMinuteSlot != null) {
-      tooltipLines.add(
-        _TooltipLine(
-          content:
-              lastMinuteSlot.isAvailable
-                  ? 'Slot last-minute disponibile'
-                  : 'Appuntamento last-minute',
-        ),
-      );
-    }
-    if (lockReason != null && lockReason!.trim().isNotEmpty) {
-      tooltipLines.add(
-        _TooltipLine(label: 'Bloccato', content: lockReason!.trim()),
-      );
-    }
-    for (final description in issueDescriptions) {
-      final normalizedDescription = description.trim();
-      if (normalizedDescription.isNotEmpty) {
-        tooltipLines.add(
-          _TooltipLine(label: 'Anomalia', content: normalizedDescription),
-        );
-      }
-    }
-    final notes = appointment.notes?.trim();
-    if (notes != null && notes.isNotEmpty) {
-      tooltipLines.add(_TooltipLine(label: 'Note', content: notes));
-    }
-    final filteredTooltipLines =
-        tooltipLines.where((line) => !line.isEmpty).toList();
-    final bool enableHover = onTap != null;
-    final double targetScale = enableHover && _isHovering ? 1.06 : 1.0;
-
-    Widget interactiveCard = MouseRegion(
-      cursor: enableHover ? SystemMouseCursors.click : MouseCursor.defer,
-      onEnter: enableHover ? (_) => _updateHovering(true) : null,
-      onExit: enableHover ? (_) => _updateHovering(false) : null,
-      child: AnimatedScale(
-        scale: targetScale,
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: borderRadius,
-            child: decoratedCard,
+    final bool enableScale = onTap != null;
+    Widget interactiveCard = Listener(
+      onPointerDown: (_) => _removeHoverOverlay(),
+      child: MouseRegion(
+        cursor: enableScale ? SystemMouseCursors.click : MouseCursor.defer,
+        onEnter: (_) {
+          if (enableScale) {
+            _updateHovering(true);
+          }
+          _showHoverOverlay();
+        },
+        onExit: (_) {
+          if (enableScale) {
+            _updateHovering(false);
+          }
+          _removeHoverOverlay();
+        },
+        child: AnimatedScale(
+          scale: enableScale && _isHovering ? 1.06 : 1.0,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap:
+                  onTap != null
+                      ? () {
+                        _removeHoverOverlay();
+                        onTap();
+                      }
+                      : null,
+              borderRadius: borderRadius,
+              child: decoratedCard,
+            ),
           ),
         ),
       ),
     );
 
-    if (filteredTooltipLines.isNotEmpty) {
-      interactiveCard = _SideTooltip(
-        lines: filteredTooltipLines,
-        waitDuration: const Duration(milliseconds: 250),
-        child: interactiveCard,
-      );
-    }
-
-    return interactiveCard;
+    return CompositedTransformTarget(link: _hoverLink, child: interactiveCard);
   }
 }
 
 class _DragFeedback extends StatelessWidget {
-  const _DragFeedback({required this.child});
+  const _DragFeedback({
+    required this.child,
+    this.minWidth = 220,
+    this.maxWidth = 380,
+  });
 
   final Widget child;
+  final double minWidth;
+  final double maxWidth;
 
   @override
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 240),
+        constraints: BoxConstraints(minWidth: minWidth, maxWidth: maxWidth),
         child: child,
-      ),
-    );
-  }
-}
-
-enum _SideTooltipDirection { auto, left, right }
-
-class _TooltipLine {
-  const _TooltipLine({this.label, required this.content, this.grade = 1});
-
-  final String? label;
-  final String content;
-  final int grade;
-
-  bool get isEmpty {
-    final hasLabel = label?.trim().isNotEmpty ?? false;
-    return !hasLabel && content.trim().isEmpty;
-  }
-}
-
-class _SideTooltip extends StatefulWidget {
-  const _SideTooltip({
-    required this.lines,
-    required this.child,
-    this.direction = _SideTooltipDirection.auto,
-    this.waitDuration = const Duration(milliseconds: 250),
-    this.verticalOffset = 0.0,
-    this.gap = 12.0,
-  });
-
-  final List<_TooltipLine> lines;
-  final Widget child;
-  final _SideTooltipDirection direction;
-  final Duration waitDuration;
-  final double verticalOffset;
-  final double gap;
-
-  @override
-  State<_SideTooltip> createState() => _SideTooltipState();
-}
-
-class _SideTooltipState extends State<_SideTooltip> {
-  final LayerLink _layerLink = LayerLink();
-  OverlayEntry? _overlayEntry;
-  Timer? _showTimer;
-  _SideTooltipDirection _resolvedDirection = _SideTooltipDirection.right;
-
-  @override
-  void dispose() {
-    _cancelShowTimer();
-    _removeOverlay();
-    super.dispose();
-  }
-
-  void _handlePointerEnter(PointerEnterEvent event) {
-    if (widget.lines.isEmpty) {
-      return;
-    }
-    _scheduleShow();
-  }
-
-  void _handlePointerExit(PointerExitEvent event) {
-    _cancelShowTimer();
-    _removeOverlay();
-  }
-
-  void _handlePointerHover(PointerHoverEvent event) {
-    if (_overlayEntry == null) {
-      return;
-    }
-    _hideIfPointerOutside(event.position);
-  }
-
-  void _hideIfPointerOutside(Offset globalPosition) {
-    final targetRenderObject = context.findRenderObject() as RenderBox?;
-    if (targetRenderObject == null) {
-      return;
-    }
-    final localPosition = targetRenderObject.globalToLocal(globalPosition);
-    if (localPosition.dx < 0 ||
-        localPosition.dy < 0 ||
-        localPosition.dx > targetRenderObject.size.width ||
-        localPosition.dy > targetRenderObject.size.height) {
-      _cancelShowTimer();
-      _removeOverlay();
-    }
-  }
-
-  void _scheduleShow() {
-    _cancelShowTimer();
-    if (widget.waitDuration <= Duration.zero) {
-      _showTooltip();
-    } else {
-      _showTimer = Timer(widget.waitDuration, _showTooltip);
-    }
-  }
-
-  void _cancelShowTimer() {
-    _showTimer?.cancel();
-    _showTimer = null;
-  }
-
-  void _showTooltip() {
-    if (!mounted || widget.lines.isEmpty) {
-      return;
-    }
-    if (_overlayEntry != null) {
-      return;
-    }
-    final overlay = Overlay.of(context);
-    if (overlay == null) {
-      return;
-    }
-
-    _resolvedDirection = _resolveDirection(overlay);
-    _overlayEntry = OverlayEntry(
-      builder:
-          (context) => _SideTooltipOverlay(
-            link: _layerLink,
-            lines: widget.lines,
-            direction: _resolvedDirection,
-            verticalOffset: widget.verticalOffset,
-            gap: widget.gap,
-          ),
-    );
-    overlay.insert(_overlayEntry!);
-  }
-
-  _SideTooltipDirection _resolveDirection(OverlayState overlay) {
-    if (widget.direction != _SideTooltipDirection.auto) {
-      return widget.direction;
-    }
-
-    final targetRenderObject = context.findRenderObject() as RenderBox?;
-    final overlayRenderObject =
-        overlay.context.findRenderObject() as RenderBox?;
-    if (targetRenderObject == null || overlayRenderObject == null) {
-      return _SideTooltipDirection.right;
-    }
-
-    final targetOffset = targetRenderObject.localToGlobal(
-      Offset.zero,
-      ancestor: overlayRenderObject,
-    );
-    final targetWidth = targetRenderObject.size.width;
-    final spaceLeft = targetOffset.dx;
-    final spaceRight =
-        overlayRenderObject.size.width - (targetOffset.dx + targetWidth);
-
-    return spaceRight >= spaceLeft
-        ? _SideTooltipDirection.right
-        : _SideTooltipDirection.left;
-  }
-
-  void _removeOverlay() {
-    _overlayEntry?.remove();
-    _overlayEntry = null;
-  }
-
-  void _handlePointerDown(PointerDownEvent event) {
-    _cancelShowTimer();
-    _removeOverlay();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final semanticsTooltip = widget.lines
-        .where((line) => !line.isEmpty)
-        .map((line) {
-          final label = line.label?.trim();
-          if (label != null && label.isNotEmpty) {
-            return '$label: ${line.content}';
-          }
-          return line.content;
-        })
-        .join('\n');
-
-    return Semantics(
-      tooltip: semanticsTooltip.isEmpty ? null : semanticsTooltip,
-      child: CompositedTransformTarget(
-        link: _layerLink,
-        child: Listener(
-          onPointerDown: _handlePointerDown,
-          child: MouseRegion(
-            onEnter: _handlePointerEnter,
-            onHover: _handlePointerHover,
-            onExit: _handlePointerExit,
-            child: widget.child,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SideTooltipOverlay extends StatelessWidget {
-  const _SideTooltipOverlay({
-    required this.link,
-    required this.lines,
-    required this.direction,
-    required this.verticalOffset,
-    required this.gap,
-  });
-
-  final LayerLink link;
-  final List<_TooltipLine> lines;
-  final _SideTooltipDirection direction;
-  final double verticalOffset;
-  final double gap;
-
-  @override
-  Widget build(BuildContext context) {
-    final tooltipTheme = TooltipTheme.of(context);
-    final theme = Theme.of(context);
-    final decoration =
-        tooltipTheme.decoration ??
-        BoxDecoration(
-          color: theme.colorScheme.inverseSurface.withValues(alpha: 0.95),
-          borderRadius: BorderRadius.circular(8),
-          boxShadow: [
-            BoxShadow(
-              color: theme.colorScheme.shadow.withValues(alpha: 0.2),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        );
-    final textStyle =
-        tooltipTheme.textStyle ??
-        theme.textTheme.labelMedium?.copyWith(
-          color: theme.colorScheme.onInverseSurface,
-          fontSize: 13,
-          height: 1.2,
-        ) ??
-        TextStyle(
-          color: theme.colorScheme.onInverseSurface,
-          fontSize: 13,
-          height: 1.2,
-        );
-    final padding =
-        tooltipTheme.padding ??
-        const EdgeInsets.symmetric(horizontal: 8, vertical: 4);
-    final margin = tooltipTheme.margin ?? EdgeInsets.zero;
-    final textAlign = tooltipTheme.textAlign ?? TextAlign.start;
-    final baseFontSize = textStyle.fontSize ?? 13;
-
-    TextStyle _lineTextStyle(int grade) {
-      final normalizedGrade =
-          grade < 1
-              ? 1
-              : grade > 3
-              ? 3
-              : grade;
-      final sizeDelta = (normalizedGrade - 1) * 1.6;
-      final weight =
-          normalizedGrade == 3
-              ? FontWeight.w700
-              : normalizedGrade == 2
-              ? FontWeight.w600
-              : FontWeight.w500;
-      return textStyle.copyWith(
-        fontSize: baseFontSize + sizeDelta,
-        fontWeight: weight,
-      );
-    }
-
-    Widget _buildLine(_TooltipLine line) {
-      final label = line.label?.trim();
-      final spanStyle = _lineTextStyle(line.grade);
-      final children = <InlineSpan>[];
-      if (label != null && label.isNotEmpty) {
-        children.add(
-          TextSpan(
-            text: '$label: ',
-            style: spanStyle.copyWith(fontWeight: FontWeight.w700),
-          ),
-        );
-      }
-      children.add(TextSpan(text: line.content, style: spanStyle));
-      return RichText(text: TextSpan(children: children), textAlign: textAlign);
-    }
-
-    final targetAnchor =
-        direction == _SideTooltipDirection.right
-            ? Alignment.centerRight
-            : Alignment.centerLeft;
-    final followerAnchor =
-        direction == _SideTooltipDirection.right
-            ? Alignment.centerLeft
-            : Alignment.centerRight;
-    final horizontalOffset =
-        direction == _SideTooltipDirection.right ? gap : -gap;
-
-    final contentChildren = <Widget>[];
-    for (var i = 0; i < lines.length; i++) {
-      contentChildren.add(_buildLine(lines[i]));
-      if (i != lines.length - 1) {
-        contentChildren.add(const SizedBox(height: 4));
-      }
-    }
-
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: Padding(
-          padding: margin,
-          child: Align(
-            alignment: Alignment.topLeft,
-            widthFactor: 1,
-            heightFactor: 1,
-            child: CompositedTransformFollower(
-              link: link,
-              targetAnchor: targetAnchor,
-              followerAnchor: followerAnchor,
-              offset: Offset(horizontalOffset, verticalOffset),
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  constraints: const BoxConstraints(maxWidth: 200),
-                  padding: padding,
-                  decoration: decoration,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: contentChildren,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -8642,6 +8744,10 @@ class _DragPreviewCard extends StatelessWidget {
     required this.categoriesById,
     required this.categoriesByName,
     this.hasOutstandingPayments = false,
+    this.enableHoverOverlay = false,
+    this.showDuration = true,
+    this.expandToContent = false,
+    this.showNotes = false,
   });
 
   final Appointment appointment;
@@ -8659,6 +8765,10 @@ class _DragPreviewCard extends StatelessWidget {
   final Map<String, ServiceCategory> categoriesById;
   final Map<String, ServiceCategory> categoriesByName;
   final bool hasOutstandingPayments;
+  final bool enableHoverOverlay;
+  final bool showDuration;
+  final bool expandToContent;
+  final bool showNotes;
 
   @override
   Widget build(BuildContext context) {
@@ -8670,6 +8780,7 @@ class _DragPreviewCard extends StatelessWidget {
     final previewed = appointment.copyWith(start: start, end: normalizedEnd);
     final visibleMinutes =
         previewDuration?.inMinutes ?? previewed.duration.inMinutes;
+    final baseHeight = expandToContent ? _kBasePreviewHeight : height;
     return _AppointmentCard(
       appointment: previewed,
       client: client,
@@ -8677,7 +8788,7 @@ class _DragPreviewCard extends StatelessWidget {
       services: services,
       staff: staff,
       roomName: roomName,
-      height: height,
+      height: baseHeight,
       visibleDurationMinutes: visibleMinutes,
       anomalies: anomalies,
       lockReason: null,
@@ -8686,6 +8797,10 @@ class _DragPreviewCard extends StatelessWidget {
       categoriesById: categoriesById,
       categoriesByName: categoriesByName,
       hasOutstandingPayments: hasOutstandingPayments,
+      enableHoverOverlay: enableHoverOverlay,
+      showDuration: showDuration,
+      expandToContent: expandToContent,
+      showNotes: showNotes,
     );
   }
 }

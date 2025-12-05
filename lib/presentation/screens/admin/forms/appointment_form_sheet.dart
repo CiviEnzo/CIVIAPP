@@ -83,6 +83,9 @@ class AppointmentFormSheet extends ConsumerStatefulWidget {
 
 class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
   static const _slotIntervalMinutes = 15;
+  static const Duration _minTotalDuration = Duration(
+    minutes: _slotIntervalMinutes,
+  );
   static String? _lastSavedClientId;
   final _formKey = GlobalKey<FormState>();
   final _clientFieldKey = GlobalKey<FormFieldState<String>>();
@@ -1464,15 +1467,25 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
   }) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final durationMinutes = _end.difference(_start).inMinutes;
-    final canDecreaseDuration = durationMinutes > _slotIntervalMinutes;
-    final lastService = baseServices.isNotEmpty ? baseServices.last : null;
-    final canAdjustLastService = lastService != null;
-    final canDecreaseLastService = canDecreaseDuration && canAdjustLastService;
-    final canIncreaseLastService = canAdjustLastService;
+    final adjustedServices = _applyDurationAdjustments(baseServices);
+    final totalDuration = _sumServiceDurations(adjustedServices);
+    final durationMinutes = totalDuration.inMinutes;
+    final canDecreaseDuration = totalDuration > _minTotalDuration;
+    final lastAdjustableIndex =
+        adjustedServices.lastIndexWhere(
+          (service) => service.totalDuration > Duration.zero,
+        );
+    final Service? decreaseTarget =
+        lastAdjustableIndex == -1 ? null : baseServices[lastAdjustableIndex];
+    final Service? increaseTarget =
+        baseServices.isNotEmpty ? baseServices.last : null;
+    final canDecreaseLastService = canDecreaseDuration && decreaseTarget != null;
+    final canIncreaseLastService = increaseTarget != null;
     void adjustLastService(int delta) {
-      if (lastService == null || delta == 0) return;
-      _updateServiceDurationDelta(lastService.id, delta, baseServices);
+      if (delta == 0) return;
+      final target = delta < 0 ? decreaseTarget : increaseTarget;
+      if (target == null) return;
+      _updateServiceDurationDelta(target.id, delta, baseServices);
     }
 
     return Material(
@@ -1624,6 +1637,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     final adjustedById = {
       for (final service in adjustedServices) service.id: service,
     };
+    final totalDuration = _sumServiceDurations(adjustedServices);
+    final canDecreaseOverall = totalDuration > _minTotalDuration;
     return Padding(
       padding: const EdgeInsets.only(top: 16),
       child: Material(
@@ -1674,7 +1689,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                             (adjustedById[baseServices[index].id]
                                             ?.totalDuration ??
                                         baseServices[index].totalDuration) >
-                                    Duration.zero
+                                    Duration.zero &&
+                                canDecreaseOverall
                                 ? () => _updateServiceDurationDelta(
                                   baseServices[index].id,
                                   -_slotIntervalMinutes,
@@ -2954,6 +2970,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     if (appointment == null) {
       return;
     }
+    _lastSavedClientId = appointment.clientId;
     final copied = appointment.copyWith(
       id: _uuid.v4(),
       status: AppointmentStatus.scheduled,
@@ -3350,6 +3367,25 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     }
     if (deltaDuration == Duration.zero) {
       return;
+    }
+    final currentAdjustedServices = _applyDurationAdjustments(baseServices);
+    final totalDurationBefore = _sumServiceDurations(currentAdjustedServices);
+    if (deltaDuration.isNegative) {
+      final allowableDecrease = totalDurationBefore - _minTotalDuration;
+      if (allowableDecrease <= Duration.zero) {
+        return;
+      }
+      final requestedDecrease = deltaDuration.abs();
+      if (requestedDecrease > allowableDecrease) {
+        deltaDuration = -allowableDecrease;
+      }
+      final adjustedCandidateTotal = currentTotal + deltaDuration;
+      if (adjustedCandidateTotal < Duration.zero) {
+        deltaDuration = Duration.zero - currentTotal;
+      }
+      if (deltaDuration == Duration.zero) {
+        return;
+      }
     }
     final nextAdjustment = currentAdjustment + deltaDuration;
     final newTotal =

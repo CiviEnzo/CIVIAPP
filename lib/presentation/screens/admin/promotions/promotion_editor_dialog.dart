@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:you_book/app/providers.dart';
@@ -278,11 +277,12 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final mediaSize = MediaQuery.of(context).size;
     return Dialog(
-      insetPadding: const EdgeInsets.all(24),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       child: SizedBox(
-        width: min(MediaQuery.of(context).size.width * 0.9, 960),
-        height: min(MediaQuery.of(context).size.height * 0.9, 720),
+        width: mediaSize.width * 0.96,
+        height: mediaSize.height * 0.96,
         child: DefaultTabController(
           length: 3,
           child: Form(

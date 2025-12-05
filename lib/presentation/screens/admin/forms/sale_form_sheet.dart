@@ -2841,7 +2841,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       paymentStatus = selectedStatus;
       if (paymentStatus == SalePaymentStatus.posticipated) {
         paymentMethod = PaymentMethod.posticipated;
-        paidAmount = 0;
+        paidAmount = 0.0;
       } else {
         final selectedMethod = _payment;
         if (selectedMethod == null) {
@@ -2968,8 +2968,9 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       return items;
     }
     final updated = <SaleItem>[];
-    if (paymentStatus == SalePaymentStatus.deposit) {
-      var remaining = paidAmount;
+    if (paymentStatus != SalePaymentStatus.paid) {
+      var remaining =
+          paymentStatus == SalePaymentStatus.posticipated ? 0.0 : paidAmount;
       for (final item in items) {
         if (item.referenceType == SaleReferenceType.package) {
           final lineTotal = item.amount;
