@@ -49,6 +49,42 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 
+const double _clientStandaloneWidthThreshold = 900;
+
+bool isCompactClientLayout(BuildContext context) {
+  final mediaQuery = MediaQuery.maybeOf(context);
+  if (mediaQuery == null) {
+    return true;
+  }
+  return mediaQuery.size.width < _clientStandaloneWidthThreshold;
+}
+
+Future<bool> openClientDetailPage(
+  BuildContext context, {
+  required String clientId,
+  int initialTabIndex = 0,
+  bool popCurrent = false,
+  bool compactOnly = false,
+}) async {
+  if (compactOnly && !isCompactClientLayout(context)) {
+    return false;
+  }
+  final navigator = Navigator.of(context, rootNavigator: true);
+  if (popCurrent) {
+    await navigator.maybePop();
+  }
+  await navigator.push(
+    MaterialPageRoute(
+      builder:
+          (_) => ClientDetailPage(
+            clientId: clientId,
+            initialTabIndex: initialTabIndex,
+          ),
+    ),
+  );
+  return true;
+}
+
 const Set<String> _anamnesisRequiredGroupIds = {
   'grp-cardiovascular',
   'grp-pregnancy',
@@ -213,7 +249,7 @@ class _ClientDetailViewState extends ConsumerState<ClientDetailView> {
     );
     final salonName = salon?.name;
 
-    final tabs = _buildTabs();
+    final tabDefinitions = _buildTabDefinitions();
     final tabViews = [
       _ProfileTab(client: client, salon: salon),
       _QuestionnaireTab(client: client),
@@ -225,16 +261,16 @@ class _ClientDetailViewState extends ConsumerState<ClientDetailView> {
     ];
 
     final initialTabIndex =
-        widget.initialTabIndex.clamp(0, tabs.length - 1).toInt();
+        widget.initialTabIndex.clamp(0, tabDefinitions.length - 1).toInt();
 
     if (widget.showAppBar) {
       return DefaultTabController(
         initialIndex: initialTabIndex,
-        length: tabs.length,
+        length: tabDefinitions.length,
         child: Scaffold(
           appBar: AppBar(
             title: Text(client.fullName),
-            bottom: TabBar(tabs: tabs),
+            bottom: _buildTabBar(context, tabDefinitions),
             actions: [
               IconButton(
                 tooltip: 'Modifica scheda',
@@ -256,7 +292,7 @@ class _ClientDetailViewState extends ConsumerState<ClientDetailView> {
 
     return DefaultTabController(
       initialIndex: initialTabIndex,
-      length: tabs.length,
+      length: tabDefinitions.length,
       child: Card(
         color: theme.colorScheme.surface,
         elevation: 2,
@@ -267,7 +303,7 @@ class _ClientDetailViewState extends ConsumerState<ClientDetailView> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              TabBar(isScrollable: true, tabs: tabs),
+              _buildTabBar(context, tabDefinitions),
               const SizedBox(height: 16),
               SizedBox(
                 height: embeddedHeight,
@@ -299,15 +335,50 @@ class _ClientDetailViewState extends ConsumerState<ClientDetailView> {
     }
   }
 
-  List<Tab> _buildTabs() => const [
-    Tab(text: 'Scheda'),
-    Tab(text: 'Questionario'),
-    Tab(text: 'Archivio foto'),
-    Tab(text: 'Appuntamenti'),
-    Tab(text: 'Pacchetti'),
-    Tab(text: 'Preventivi'),
-    Tab(text: 'Fatturazione'),
+  List<_ClientTabDefinition> _buildTabDefinitions() => const [
+    _ClientTabDefinition(label: 'Scheda', icon: Icons.person),
+    _ClientTabDefinition(label: 'Questionario', icon: Icons.list_alt_rounded),
+    _ClientTabDefinition(
+      label: 'Archivio foto',
+      icon: Icons.photo_library_outlined,
+    ),
+    _ClientTabDefinition(label: 'Appuntamenti', icon: Icons.calendar_month),
+    _ClientTabDefinition(label: 'Pacchetti', icon: Icons.card_giftcard_rounded),
+    _ClientTabDefinition(label: 'Preventivi', icon: Icons.description_rounded),
+    _ClientTabDefinition(
+      label: 'Fatturazione',
+      icon: Icons.receipt_long_rounded,
+    ),
   ];
+
+  TabBar _buildTabBar(BuildContext context, List<_ClientTabDefinition> tabs) {
+    final theme = Theme.of(context);
+    return TabBar(
+      isScrollable: true,
+      indicatorColor: theme.colorScheme.primary,
+      indicatorWeight: 3,
+      indicatorPadding: const EdgeInsets.symmetric(horizontal: 12),
+      labelColor: theme.colorScheme.primary,
+      unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
+      labelStyle: theme.textTheme.labelLarge?.copyWith(
+        fontWeight: FontWeight.w600,
+      ),
+      unselectedLabelStyle: theme.textTheme.labelLarge,
+      tabs:
+          tabs
+              .map(
+                (tab) => Tab(icon: Icon(tab.icon, size: 20), text: tab.label),
+              )
+              .toList(),
+    );
+  }
+}
+
+class _ClientTabDefinition {
+  const _ClientTabDefinition({required this.label, required this.icon});
+
+  final String label;
+  final IconData icon;
 }
 
 class _ProfileTab extends ConsumerWidget {
@@ -528,6 +599,7 @@ class _ClientQuestionnaireCardState
 
     final content = <Widget>[
       DropdownButtonFormField<String>(
+        isExpanded: true,
         value: _selectedTemplateId,
         decoration: const InputDecoration(labelText: 'Modello questionario'),
         items:
@@ -1063,6 +1135,7 @@ class _ClientQuestionnaireCardState
     final selected = answer.optionIds.isEmpty ? null : answer.optionIds.first;
 
     return DropdownButtonFormField<String>(
+      isExpanded: true,
       key: ValueKey('single-${question.id}'),
       value: selected,
       decoration: InputDecoration(
@@ -1184,6 +1257,7 @@ class _ClientQuestionnaireCardState
     switch (question.type) {
       case ClientQuestionType.boolean:
         return DropdownButtonFormField<bool?>(
+          isExpanded: true,
           value: answer.boolValue,
           decoration: InputDecoration(
             labelText: label,
@@ -1217,6 +1291,7 @@ class _ClientQuestionnaireCardState
         final selected =
             answer.optionIds.isEmpty ? null : answer.optionIds.first;
         return DropdownButtonFormField<String>(
+          isExpanded: true,
           value: selected,
           decoration: InputDecoration(
             labelText: label,
@@ -2854,6 +2929,7 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   DropdownButtonFormField<ClientPhotoSetType>(
+                                    isExpanded: true,
                                     value: selections[i],
                                     decoration: const InputDecoration(
                                       labelText: 'Set assegnato',
@@ -3511,108 +3587,76 @@ class _AppointmentGroup extends StatelessWidget {
                 if (appointments.isEmpty)
                   Text(emptyMessage, style: theme.textTheme.bodyMedium)
                 else
-                  ...appointments.map((appointment) {
-                    final appointmentServices =
-                        appointment.serviceIds
-                            .map(
-                              (id) => services.firstWhereOrNull(
-                                (element) => element.id == id,
-                              ),
-                            )
-                            .whereType<Service>()
-                            .toList();
-                    final operator = staff.firstWhereOrNull(
-                      (element) => element.id == appointment.staffId,
-                    );
-                    final statusChip = _statusChip(context, appointment.status);
-                    final amount =
-                        appointmentServices.isNotEmpty
-                            ? appointmentServices
-                                .map((service) => service.price)
-                                .fold<double>(
-                                  0,
-                                  (value, price) => value + price,
-                                )
-                            : null;
-                    final packageLabel =
-                        appointment.packageId == null
-                            ? null
-                            : 'Pacchetto #${appointment.packageId}';
-                    final serviceLabel =
-                        appointmentServices.isNotEmpty
-                            ? appointmentServices
-                                .map((service) => service.name)
-                                .join(' + ')
-                            : 'Servizio';
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        // Allow enough vertical space when actions are visible.
-                        isThreeLine: packageLabel != null || showActions,
-                        leading: const Icon(Icons.calendar_month_rounded),
-                        title: Text(serviceLabel),
-                        subtitle: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(dateFormat.format(appointment.start)),
-                            Text(
-                              'Operatore: ${operator?.fullName ?? 'Da assegnare'}',
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children:
+                        appointments.map((appointment) {
+                          final appointmentServices =
+                              appointment.serviceIds
+                                  .map(
+                                    (id) => services.firstWhereOrNull(
+                                      (element) => element.id == id,
+                                    ),
+                                  )
+                                  .whereType<Service>()
+                                  .toList();
+                          final operator = staff.firstWhereOrNull(
+                            (element) => element.id == appointment.staffId,
+                          );
+                          final statusChip = _statusChip(
+                            context,
+                            appointment.status,
+                          );
+                          final amount =
+                              appointmentServices.isNotEmpty
+                                  ? appointmentServices
+                                      .map((service) => service.price)
+                                      .fold<double>(
+                                        0,
+                                        (value, price) => value + price,
+                                      )
+                                  : null;
+                          final packageLabel =
+                              appointment.packageId == null
+                                  ? null
+                                  : 'Pacchetto #${appointment.packageId}';
+                          final serviceLabel =
+                              appointmentServices.isNotEmpty
+                                  ? appointmentServices
+                                      .map((service) => service.name)
+                                      .join(' + ')
+                                  : 'Servizio';
+                          final onEdit =
+                              showActions && onEditAppointment != null
+                                  ? () async {
+                                    await onEditAppointment!(appointment);
+                                  }
+                                  : null;
+                          final onDelete =
+                              showActions && onDeleteAppointment != null
+                                  ? () async {
+                                    await onDeleteAppointment!(appointment);
+                                  }
+                                  : null;
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _AppointmentCard(
+                              serviceLabel: serviceLabel,
+                              dateLabel: dateFormat.format(appointment.start),
+                              operatorLabel:
+                                  'Operatore: ${operator?.fullName ?? 'Da assegnare'}',
+                              packageLabel: packageLabel,
+                              amountLabel:
+                                  amount != null
+                                      ? currency.format(amount)
+                                      : null,
+                              statusChip: statusChip,
+                              onEdit: onEdit,
+                              onDelete: onDelete,
                             ),
-                            if (packageLabel != null) Text(packageLabel),
-                          ],
-                        ),
-                        trailing: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Wrap(
-                              spacing: 4,
-                              runSpacing: 4,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              alignment: WrapAlignment.end,
-                              children: [
-                                statusChip,
-                                if (showActions && onEditAppointment != null)
-                                  IconButton(
-                                    tooltip: 'Modifica appuntamento',
-                                    visualDensity: VisualDensity.compact,
-                                    constraints: const BoxConstraints.tightFor(
-                                      width: 36,
-                                      height: 36,
-                                    ),
-                                    icon: const Icon(
-                                      Icons.edit_rounded,
-                                      size: 20,
-                                    ),
-                                    onPressed: () async {
-                                      await onEditAppointment!(appointment);
-                                    },
-                                  ),
-                                if (showActions && onDeleteAppointment != null)
-                                  IconButton(
-                                    tooltip: 'Elimina appuntamento',
-                                    visualDensity: VisualDensity.compact,
-                                    constraints: const BoxConstraints.tightFor(
-                                      width: 36,
-                                      height: 36,
-                                    ),
-                                    icon: const Icon(
-                                      Icons.delete_outline_rounded,
-                                      size: 20,
-                                    ),
-                                    onPressed: () async {
-                                      await onDeleteAppointment!(appointment);
-                                    },
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }),
+                          );
+                        }).toList(),
+                  ),
               ],
             ),
           ),
@@ -3654,6 +3698,122 @@ class _AppointmentGroup extends StatelessWidget {
           backgroundColor: scheme.error.withValues(alpha: 0.1),
         );
     }
+  }
+}
+
+class _AppointmentCard extends StatelessWidget {
+  const _AppointmentCard({
+    required this.serviceLabel,
+    required this.dateLabel,
+    required this.operatorLabel,
+    required this.statusChip,
+    this.packageLabel,
+    this.amountLabel,
+    this.onEdit,
+    this.onDelete,
+  });
+
+  final String serviceLabel;
+  final String dateLabel;
+  final String operatorLabel;
+  final String? packageLabel;
+  final String? amountLabel;
+  final Widget statusChip;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: scheme.outlineVariant.withOpacity(0.35)),
+      ),
+      color: scheme.surfaceVariant,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: scheme.primaryContainer.withOpacity(0.25),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.calendar_month_rounded, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        serviceLabel,
+                        style: theme.textTheme.titleMedium,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(dateLabel, style: theme.textTheme.bodyMedium),
+                      const SizedBox(height: 2),
+                      Text(operatorLabel, style: theme.textTheme.bodySmall),
+                      if (packageLabel != null)
+                        Text(packageLabel!, style: theme.textTheme.bodySmall),
+                    ],
+                  ),
+                ),
+                if (amountLabel != null)
+                  Text(
+                    amountLabel!,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(spacing: 8, runSpacing: 4, children: [statusChip]),
+            if (onEdit != null || onDelete != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (onEdit != null)
+                    IconButton(
+                      tooltip: 'Modifica appuntamento',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 36,
+                        height: 36,
+                      ),
+                      icon: const Icon(Icons.edit_rounded, size: 20),
+                      onPressed: onEdit,
+                    ),
+                  if (onDelete != null)
+                    IconButton(
+                      tooltip: 'Elimina appuntamento',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 36,
+                        height: 36,
+                      ),
+                      icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                      onPressed: onDelete,
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -5199,7 +5359,7 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
     final currencySymbol =
         currency.currencySymbol == '€' ? 'EUR' : currency.currencySymbol;
     final validUntil = quote.validUntil;
-    final salonName = _sanitizePdfText(salon?.name ?? 'Civiapp');
+    final salonName = _sanitizePdfText(salon?.name ?? 'YouBook');
     final sanitizedFirstName = _sanitizePdfText(client.firstName);
     buffer.writeln('Ciao $sanitizedFirstName,');
     buffer.writeln();
@@ -6998,35 +7158,96 @@ class _PaymentHistoryTileState extends State<_PaymentHistoryTile> {
               style: const TextStyle(fontWeight: FontWeight.bold),
             );
 
+    final detailLine =
+        widget.subtitleLines.isNotEmpty ? widget.subtitleLines.first : null;
+    final extraLines =
+        widget.subtitleLines.length > 1
+            ? widget.subtitleLines.sublist(1)
+            : <String>[];
+    final detailSegments =
+        detailLine == null
+            ? const <String>[]
+            : detailLine
+                .split(' • ')
+                .map((segment) => segment.trim())
+                .where((segment) => segment.isNotEmpty)
+                .toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ListTile(
-          key: ValueKey('payment-history-tile-${sale.id}'),
-          contentPadding: EdgeInsets.zero,
-          onTap: _toggle,
-          leading: CircleAvatar(
-            backgroundColor: scheme.surfaceContainerHighest,
-            child: Icon(Icons.payment_rounded, color: scheme.primary),
-          ),
-          title: Text(widget.title),
-          subtitle: Text(widget.subtitleLines.join('\n')),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              trailingAmount,
-              const SizedBox(width: 8),
-              Icon(
-                _expanded
-                    ? Icons.expand_less_rounded
-                    : Icons.expand_more_rounded,
-                color:
-                    hasDeposits
-                        ? widget.theme.iconTheme.color
-                        : widget.theme.disabledColor,
+        Card(
+          margin: EdgeInsets.zero,
+          child: InkWell(
+            onTap: _toggle,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: scheme.surfaceContainerHighest,
+                    child: Icon(Icons.payment_rounded, color: scheme.primary),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.title,
+                          style: widget.theme.textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 4),
+                        if (detailSegments.isNotEmpty)
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children:
+                                detailSegments
+                                    .map(
+                                      (segment) => Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: _buildDetailSegment(segment),
+                                      ),
+                                    )
+                                    .toList(),
+                          )
+                        else if (detailLine != null)
+                          Text(
+                            detailLine,
+                            style: widget.theme.textTheme.bodySmall,
+                          ),
+                        for (final line in extraLines)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              line,
+                              style: widget.theme.textTheme.bodySmall,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      trailingAmount,
+                      const SizedBox(height: 4),
+                      Icon(
+                        _expanded
+                            ? Icons.expand_less_rounded
+                            : Icons.expand_more_rounded,
+                        color:
+                            hasDeposits
+                                ? widget.theme.iconTheme.color
+                                : widget.theme.disabledColor,
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
         if (_expanded)
@@ -7098,6 +7319,28 @@ class _PaymentHistoryTileState extends State<_PaymentHistoryTile> {
         ],
       ),
     );
+  }
+
+  Widget _buildDetailSegment(String segment) {
+    final colonIndex = segment.indexOf(':');
+    if (colonIndex > 0) {
+      final label = segment.substring(0, colonIndex).trim();
+      final value = segment.substring(colonIndex + 1).trim();
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$label:',
+            style: widget.theme.textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(child: Text(value, style: widget.theme.textTheme.bodySmall)),
+        ],
+      );
+    }
+    return Text(segment, style: widget.theme.textTheme.bodySmall);
   }
 }
 
@@ -7233,8 +7476,38 @@ class _PackageGroup extends StatelessWidget {
                   LayoutBuilder(
                     builder: (context, constraints) {
                       const spacing = 16.0;
-                      const minTileWidth = 320.0;
                       final available = constraints.maxWidth;
+                      if (available < 640) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children:
+                              items
+                                  .asMap()
+                                  .entries
+                                  .map(
+                                    (entry) => Padding(
+                                      padding: EdgeInsets.only(
+                                        bottom:
+                                            entry.key == items.length - 1
+                                                ? 0
+                                                : spacing,
+                                      ),
+                                      child: _PackageTile(
+                                        purchase: entry.value,
+                                        currency: currency,
+                                        dateFormat: dateFormat,
+                                        servicesById: servicesById,
+                                        onEdit: onEdit,
+                                        onDelete: onDelete,
+                                        onAddDeposit: onAddDeposit,
+                                        onDeleteDeposit: onDeleteDeposit,
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                        );
+                      }
+                      const minTileWidth = 320.0;
                       final estimatedColumns =
                           ((available + spacing) / (minTileWidth + spacing))
                               .floor();
@@ -7485,28 +7758,25 @@ class _PackageTile extends StatelessWidget {
               const SizedBox(height: 4),
               Column(
                 children:
-                    serviceUsage
-                        .map(
-                          (usage) => Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    usage.name,
-                                    style: theme.textTheme.bodyMedium,
-                                  ),
-                                ),
-                                _Chip(
-                                  label: usage.usageLabel,
-                                  icon: Icons.circle,
-                                ),
-                              ],
+                    serviceUsage.map((usage) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(usage.name, style: theme.textTheme.bodyMedium),
+                            const SizedBox(height: 8),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: _Chip(
+                                label: usage.usageLabel,
+                                icon: Icons.circle,
+                              ),
                             ),
-                          ),
-                        )
-                        .toList(),
+                          ],
+                        ),
+                      );
+                    }).toList(),
               ),
             ],
             if (canAddDeposit) ...[

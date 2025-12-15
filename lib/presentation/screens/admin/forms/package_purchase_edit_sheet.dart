@@ -102,6 +102,7 @@ class _PackagePurchaseEditSheetState
             Text('Modifica pacchetto', style: theme.textTheme.titleLarge),
             const SizedBox(height: 16),
             DropdownButtonFormField<PackagePurchaseStatus>(
+              isExpanded: true,
               value: _status,
               decoration: const InputDecoration(labelText: 'Stato'),
               items:

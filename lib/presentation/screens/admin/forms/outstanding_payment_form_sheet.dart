@@ -95,6 +95,7 @@ class _OutstandingPaymentFormSheetState
             if (staffOptions.isNotEmpty) ...[
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 value: selectedStaffId,
                 decoration: const InputDecoration(
                   labelText: 'Operatore vendita',
@@ -162,6 +163,7 @@ class _OutstandingPaymentFormSheetState
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<PaymentMethod>(
+              isExpanded: true,
               value: _method,
               decoration: const InputDecoration(
                 labelText: 'Metodo di pagamento',

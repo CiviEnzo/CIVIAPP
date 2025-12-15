@@ -13,6 +13,7 @@ import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/screens/admin/forms/package_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/client_search_utils.dart';
+import 'package:you_book/presentation/screens/admin/modules/client_detail_page.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -317,37 +318,54 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     required Client? client,
   }) {
     return [
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Expanded(
-            child: Text(
-              'Registra una vendita',
-              style: theme.textTheme.titleLarge,
+      LayoutBuilder(
+        builder: (context, constraints) {
+          final isCompact = constraints.maxWidth < 640;
+          final title = Text(
+            'Registra una vendita',
+            style: theme.textTheme.titleLarge,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          );
+          final staffPicker = DropdownButtonFormField<String>(
+            isExpanded: true,
+            value: _staffId,
+            decoration: const InputDecoration(
+              labelText: 'Operatore',
+              floatingLabelBehavior: FloatingLabelBehavior.always,
             ),
-          ),
-          const SizedBox(width: 16),
-          SizedBox(
-            width: 280,
-            child: DropdownButtonFormField<String>(
-              value: _staffId,
-              decoration: const InputDecoration(
-                labelText: 'Operatore',
-                floatingLabelBehavior: FloatingLabelBehavior.always,
-              ),
-              items:
-                  staff
-                      .map(
-                        (member) => DropdownMenuItem(
-                          value: member.id,
-                          child: Text(member.fullName),
-                        ),
-                      )
-                      .toList(),
-              onChanged: _onStaffChanged,
-            ),
-          ),
-        ],
+            items:
+                staff
+                    .map(
+                      (member) => DropdownMenuItem(
+                        value: member.id,
+                        child: Text(member.fullName),
+                      ),
+                    )
+                    .toList(),
+            onChanged: _onStaffChanged,
+          );
+
+          if (isCompact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                title,
+                const SizedBox(height: 12),
+                staffPicker,
+              ],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(child: title),
+              const SizedBox(width: 16),
+              SizedBox(width: 280, child: staffPicker),
+            ],
+          );
+        },
       ),
       const SizedBox(height: 12),
       ConstrainedBox(
@@ -559,36 +577,61 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Text('Dettagli principali', style: theme.textTheme.titleMedium),
-                Spacer(),
-
-                _buildReviewInfoTile(
-                  theme: theme,
-                  label: 'Data',
-                  value: dateFormat.format(_date),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildReviewInfoTile(
-                  theme: theme,
-                  label: 'Cliente',
-                  value: clientName,
-                ),
-                SizedBox(width: 36),
-
-                _buildReviewInfoTile(
-                  theme: theme,
-                  label: 'Operatore',
-                  value: staffName,
-                ),
-              ],
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final wrapSpacing = 12.0;
+                final tileWidth = math.max(
+                  (constraints.maxWidth - wrapSpacing) / 2,
+                  constraints.maxWidth * 0.45,
+                );
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      alignment: WrapAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Dettagli principali',
+                          style: theme.textTheme.titleMedium,
+                        ),
+                        _buildReviewInfoTile(
+                          theme: theme,
+                          label: 'Data',
+                          value: dateFormat.format(_date),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: wrapSpacing,
+                      runSpacing: 8,
+                      alignment: WrapAlignment.spaceBetween,
+                      children: [
+                        SizedBox(
+                          width: tileWidth,
+                          child: _buildReviewInfoTile(
+                            theme: theme,
+                            label: 'Cliente',
+                            value: clientName,
+                          ),
+                        ),
+                        SizedBox(
+                          width: tileWidth,
+                          child: _buildReviewInfoTile(
+                            theme: theme,
+                            label: 'Operatore',
+                            value: staffName,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                );
+              },
             ),
 
             Text('Elementi', style: theme.textTheme.titleSmall),
@@ -737,6 +780,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
           ),
         ] else ...[
           DropdownButtonFormField<SalePaymentStatus>(
+            isExpanded: true,
             value: _paymentStatus,
             decoration: const InputDecoration(labelText: 'Stato pagamento'),
             items:
@@ -772,6 +816,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<PaymentMethod>(
+            isExpanded: true,
             value:
                 _paymentStatus == SalePaymentStatus.posticipated
                     ? PaymentMethod.posticipated
@@ -851,6 +896,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         if (staff.isNotEmpty) ...[
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
+            isExpanded: true,
             value:
                 staff.any((member) => member.id == _recorderStaffId)
                     ? _recorderStaffId
@@ -1127,191 +1173,197 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
             hasSelection ? const <Client>[] : _clientSuggestions;
         final theme = Theme.of(context);
         final clientNumberText = selectedClient?.clientNumber ?? '';
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+        final clientField =
+            hasSelection
+                ? InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: 'Cliente',
+                    floatingLabelBehavior: FloatingLabelBehavior.always,
+                    errorText: state.errorText,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                  ),
+                  isEmpty: false,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              selectedClient.fullName,
+                              style: theme.textTheme.bodyLarge,
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Vai al cliente',
+                            icon: const Icon(
+                              Icons.open_in_new_rounded,
+                            ),
+                            onPressed: () async {
+                              await _openSelectedClient();
+                            },
+                          ),
+                          const SizedBox(width: 6),
+                          IconButton(
+                            tooltip: 'Rimuovi cliente',
+                            icon: const Icon(Icons.close_rounded),
+                            onPressed: _clearClientSelection,
+                          ),
+                        ],
+                      ),
+                      if (selectedClient.phone?.trim().isNotEmpty ?? false)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.phone,
+                                size: 16,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  selectedClient.phone!.trim(),
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: theme.textTheme.bodySmall?.color
+                                        ?.withOpacity(0.75),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                )
+                : TextField(
+                  controller: _clientSearchController,
+                  focusNode: _clientSearchFocusNode,
+                  decoration: InputDecoration(
+                    labelText: 'Cliente',
+                    floatingLabelBehavior: FloatingLabelBehavior.always,
+                    hintText: 'Nome, cognome, telefono o email',
+                    errorText: state.errorText,
+                    suffixIcon:
+                        _clientSearchController.text.isEmpty
+                            ? const Icon(
+                              Icons.search_rounded,
+                              size: 20,
+                            )
+                            : IconButton(
+                              tooltip: 'Pulisci ricerca',
+                              icon: const Icon(Icons.clear_rounded),
+                              onPressed: _clearClientSearch,
+                            ),
+                  ),
+                  keyboardType: TextInputType.text,
+                  textInputAction: TextInputAction.search,
+                  onChanged:
+                      (value) => _onClientSearchChanged(
+                        value,
+                        clients,
+                        _ClientSearchMode.general,
+                      ),
+                );
+
+        final clientNumberField =
+            hasSelection
+                ? InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'Numero cliente',
+                    floatingLabelBehavior: FloatingLabelBehavior.always,
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                  ),
+                  child: SizedBox(
+                    height: 48,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        clientNumberText.isNotEmpty
+                            ? clientNumberText
+                            : 'Numero non disponibile',
+                        style:
+                            theme.textTheme.bodyLarge ??
+                            theme.textTheme.bodyMedium,
+                      ),
+                    ),
+                  ),
+                )
+                : TextField(
+                  controller: _clientNumberSearchController,
+                  focusNode: _clientNumberSearchFocusNode,
+                  decoration: InputDecoration(
+                    labelText: 'Numero cliente',
+                    floatingLabelBehavior: FloatingLabelBehavior.always,
+                    hintText: 'Numero cliente',
+                    suffixIcon:
+                        _clientNumberSearchController.text.isEmpty
+                            ? const Icon(
+                              Icons.search_rounded,
+                              size: 20,
+                            )
+                            : IconButton(
+                              tooltip: 'Pulisci ricerca',
+                              icon: const Icon(Icons.clear_rounded),
+                              onPressed: _clearClientNumberSearch,
+                            ),
+                  ),
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.search,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                  ],
+                  onChanged:
+                      (value) => _onClientSearchChanged(
+                        value,
+                        clients,
+                        _ClientSearchMode.number,
+                      ),
+                );
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final isNarrow = constraints.maxWidth < 640;
+            final clientFields =
+                isNarrow
+                    ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        clientField,
+                        const SizedBox(height: 12),
+                        clientNumberField,
+                      ],
+                    )
+                    : Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: clientField),
+                        const SizedBox(width: 12),
+                        SizedBox(width: 220, child: clientNumberField),
+                      ],
+                    );
+
+            return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child:
-                      hasSelection
-                          ? InputDecorator(
-                            decoration: InputDecoration(
-                              labelText: 'Cliente',
-                              floatingLabelBehavior:
-                                  FloatingLabelBehavior.always,
-                              errorText: state.errorText,
-                              isDense: true,
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 12,
-                              ),
-                            ),
-                            isEmpty: false,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        selectedClient.fullName,
-                                        style: theme.textTheme.bodyLarge,
-                                      ),
-                                    ),
-                                    IconButton(
-                                      tooltip: 'Vai al cliente',
-                                      icon: const Icon(
-                                        Icons.open_in_new_rounded,
-                                      ),
-                                      onPressed: _openSelectedClient,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    IconButton(
-                                      tooltip: 'Rimuovi cliente',
-                                      icon: const Icon(Icons.close_rounded),
-                                      onPressed: _clearClientSelection,
-                                    ),
-                                  ],
-                                ),
-                                if (selectedClient.phone?.trim().isNotEmpty ??
-                                    false)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 4),
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          Icons.phone,
-                                          size: 16,
-                                          color:
-                                              theme
-                                                  .colorScheme
-                                                  .onSurfaceVariant,
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Flexible(
-                                          child: Text(
-                                            selectedClient.phone!.trim(),
-                                            style: theme.textTheme.bodyMedium
-                                                ?.copyWith(
-                                                  color: theme
-                                                      .textTheme
-                                                      .bodySmall
-                                                      ?.color
-                                                      ?.withOpacity(0.75),
-                                                ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          )
-                          : TextField(
-                            controller: _clientSearchController,
-                            focusNode: _clientSearchFocusNode,
-                            decoration: InputDecoration(
-                              labelText: 'Cliente',
-                              floatingLabelBehavior:
-                                  FloatingLabelBehavior.always,
-                              hintText: 'Nome, cognome, telefono o email',
-                              errorText: state.errorText,
-                              suffixIcon:
-                                  _clientSearchController.text.isEmpty
-                                      ? const Icon(
-                                        Icons.search_rounded,
-                                        size: 20,
-                                      )
-                                      : IconButton(
-                                        tooltip: 'Pulisci ricerca',
-                                        icon: const Icon(Icons.clear_rounded),
-                                        onPressed: _clearClientSearch,
-                                      ),
-                            ),
-                            keyboardType: TextInputType.text,
-                            textInputAction: TextInputAction.search,
-                            onChanged:
-                                (value) => _onClientSearchChanged(
-                                  value,
-                                  clients,
-                                  _ClientSearchMode.general,
-                                ),
-                          ),
-                ),
-                const SizedBox(width: 12),
-                SizedBox(
-                  width: 220,
-                  child:
-                      hasSelection
-                          ? InputDecorator(
-                            decoration: const InputDecoration(
-                              labelText: 'Numero cliente',
-                              floatingLabelBehavior:
-                                  FloatingLabelBehavior.always,
-                              isDense: true,
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 12,
-                              ),
-                            ),
-                            child: SizedBox(
-                              height: 48,
-                              child: Align(
-                                alignment: Alignment.centerLeft,
-                                child: Text(
-                                  clientNumberText.isNotEmpty
-                                      ? clientNumberText
-                                      : 'Numero non disponibile',
-                                  style:
-                                      theme.textTheme.bodyLarge ??
-                                      theme.textTheme.bodyMedium,
-                                ),
-                              ),
-                            ),
-                          )
-                          : TextField(
-                            controller: _clientNumberSearchController,
-                            focusNode: _clientNumberSearchFocusNode,
-                            decoration: InputDecoration(
-                              labelText: 'Numero cliente',
-                              floatingLabelBehavior:
-                                  FloatingLabelBehavior.always,
-                              hintText: 'Numero cliente',
-                              suffixIcon:
-                                  _clientNumberSearchController.text.isEmpty
-                                      ? const Icon(
-                                        Icons.search_rounded,
-                                        size: 20,
-                                      )
-                                      : IconButton(
-                                        tooltip: 'Pulisci ricerca',
-                                        icon: const Icon(Icons.clear_rounded),
-                                        onPressed: _clearClientNumberSearch,
-                                      ),
-                            ),
-                            keyboardType: TextInputType.number,
-                            textInputAction: TextInputAction.search,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                            ],
-                            onChanged:
-                                (value) => _onClientSearchChanged(
-                                  value,
-                                  clients,
-                                  _ClientSearchMode.number,
-                                ),
-                          ),
-                ),
+                clientFields,
+                if (!hasSelection) ...[
+                  const SizedBox(height: 8),
+                  _buildClientSuggestions(suggestions),
+                ],
               ],
-            ),
-            if (!hasSelection) ...[
-              const SizedBox(height: 8),
-              _buildClientSuggestions(suggestions),
-            ],
-          ],
+            );
+          },
         );
       },
     );
@@ -2045,17 +2097,26 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     });
   }
 
-  void _openSelectedClient() {
+  Future<void> _openSelectedClient() async {
     final clientId = _clientId;
     if (clientId == null) {
       return;
     }
+    final isCompact = isCompactClientLayout(context);
     final container = ProviderScope.containerOf(context, listen: false);
-    container
-        .read(adminDashboardIntentProvider.notifier)
-        .state = AdminDashboardIntent(
-      moduleId: 'clients',
-      payload: {'clientId': clientId, 'detailTabIndex': 0},
+    if (!isCompact) {
+      container
+          .read(adminDashboardIntentProvider.notifier)
+          .state = AdminDashboardIntent(
+        moduleId: 'clients',
+        payload: {'clientId': clientId, 'detailTabIndex': 0},
+      );
+    }
+    await openClientDetailPage(
+      context,
+      clientId: clientId,
+      initialTabIndex: 0,
+      compactOnly: true,
     );
   }
 

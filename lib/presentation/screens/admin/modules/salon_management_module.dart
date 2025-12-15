@@ -170,6 +170,7 @@ class SalonManagementModule extends ConsumerWidget {
     if (salons.length > 1) {
       salonSelector = DropdownButtonHideUnderline(
         child: DropdownButton<String?>(
+          isExpanded: true,
           value: effectiveSalonId,
           hint: const Text('Tutti i saloni'),
           items: [
@@ -191,29 +192,62 @@ class SalonManagementModule extends ConsumerWidget {
       );
     }
 
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isCompactLayout = screenWidth < 720;
+    final horizontalPadding = isCompactLayout ? 16.0 : 24.0;
+    final topPadding = isCompactLayout ? 16.0 : 24.0;
+    final bottomPadding = isCompactLayout ? 24.0 : 32.0;
+
+    final addSalonButton = FilledButton.icon(
+      onPressed: () => _startCreateFlow(context, ref),
+      icon: const Icon(Icons.add_business_rounded),
+      label: const Text('Nuovo salone'),
+    );
+
+    final header =
+        isCompactLayout
+            ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                addSalonButton,
+                if (salonSelector != null) ...[
+                  const SizedBox(height: 12),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: salonSelector,
+                    ),
+                  ),
+                ],
+              ],
+            )
+            : Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                addSalonButton,
+                if (salonSelector != null) ...[
+                  const Spacer(),
+                  Flexible(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: salonSelector,
+                    ),
+                  ),
+                ],
+              ],
+            );
+
     return ListView(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+      padding: EdgeInsets.fromLTRB(
+        horizontalPadding,
+        topPadding,
+        horizontalPadding,
+        bottomPadding,
+      ),
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            FilledButton.icon(
-              onPressed: () => _startCreateFlow(context, ref),
-              icon: const Icon(Icons.add_business_rounded),
-              label: const Text('Nuovo salone'),
-            ),
-            if (salonSelector != null) ...[
-              const Spacer(),
-              Flexible(
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: salonSelector,
-                ),
-              ),
-            ],
-          ],
-        ),
-        const SizedBox(height: 24),
+        header,
+        SizedBox(height: isCompactLayout ? 16 : 24),
         for (final salon in selected) ...[
           _SalonDashboard(salon: salon),
           const SizedBox(height: 32),
@@ -419,69 +453,91 @@ class _SalonOverviewCard extends StatelessWidget {
       );
     }
 
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 640;
+        final statusChip = _StatusChip(status: salon.status);
+        final editButton = OutlinedButton.icon(
+          onPressed: onEdit,
+          icon: const Icon(Icons.edit_outlined),
+          label: const Text('Modifica dettagli'),
+        );
+
+        final infoColumn = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(salon.name, style: textTheme.headlineSmall),
-                      const SizedBox(height: 8),
-                      Text(
-                        '${salon.address}, ${salon.city}',
-                        style: textTheme.bodyLarge,
-                      ),
-                      if (salon.description != null &&
-                          salon.description!.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        Text(salon.description!, style: textTheme.bodyMedium),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 24),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    _StatusChip(status: salon.status),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: onEdit,
-                      icon: const Icon(Icons.edit_outlined),
-                      label: const Text('Modifica dettagli'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            Wrap(spacing: 12, runSpacing: 12, children: contactChips),
-            if (salon.bookingLink != null && salon.bookingLink!.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Tooltip(
-                message: salon.bookingLink!,
-                child: TextButton.icon(
-                  onPressed:
-                      () => launchUrl(
-                        Uri.parse(salon.bookingLink!),
-                        mode: LaunchMode.externalApplication,
-                      ),
-                  icon: const Icon(Icons.link),
-                  label: const Text('Apri pagina prenotazioni'),
-                ),
-              ),
+            Text(salon.name, style: textTheme.headlineSmall),
+            const SizedBox(height: 8),
+            Text('${salon.address}, ${salon.city}', style: textTheme.bodyLarge),
+            if (salon.description != null && salon.description!.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(salon.description!, style: textTheme.bodyMedium),
             ],
           ],
-        ),
-      ),
+        );
+
+        final header =
+            isCompact
+                ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    infoColumn,
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [statusChip, editButton],
+                    ),
+                  ],
+                )
+                : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: infoColumn),
+                    const SizedBox(width: 24),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        statusChip,
+                        const SizedBox(height: 12),
+                        editButton,
+                      ],
+                    ),
+                  ],
+                );
+
+        return Card(
+          clipBehavior: Clip.antiAlias,
+          child: Padding(
+            padding: EdgeInsets.all(isCompact ? 20 : 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                header,
+                SizedBox(height: isCompact ? 16 : 20),
+                Wrap(spacing: 12, runSpacing: 12, children: contactChips),
+                if (salon.bookingLink != null &&
+                    salon.bookingLink!.isNotEmpty) ...[
+                  SizedBox(height: isCompact ? 12 : 16),
+                  Tooltip(
+                    message: salon.bookingLink!,
+                    child: TextButton.icon(
+                      onPressed:
+                          () => launchUrl(
+                            Uri.parse(salon.bookingLink!),
+                            mode: LaunchMode.externalApplication,
+                          ),
+                      icon: const Icon(Icons.link),
+                      label: const Text('Apri pagina prenotazioni'),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -508,14 +564,12 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
                   appointment.start.isAfter(DateTime.now()),
             )
             .length;
-    final questionnaireTemplates =
-        data.clientQuestionnaireTemplates
-            .where((template) => template.salonId == salon.id)
-            .toList(growable: false);
-    final clientQuestionnaires =
-        data.clientQuestionnaires
-            .where((entry) => entry.salonId == salon.id)
-            .toList(growable: false);
+    final questionnaireTemplates = data.clientQuestionnaireTemplates
+        .where((template) => template.salonId == salon.id)
+        .toList(growable: false);
+    final clientQuestionnaires = data.clientQuestionnaires
+        .where((entry) => entry.salonId == salon.id)
+        .toList(growable: false);
 
     Future<void> updateSections(SalonDashboardSections newPrefs) async {
       await ref
@@ -740,10 +794,11 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
                           title: 'Registrazione clienti',
                           subtitle: 'Accesso e campi richiesti',
                           value: prefsDraft.showClientRegistration,
-                          updater: (prefs) => prefs.copyWith(
-                            showClientRegistration:
-                                !prefs.showClientRegistration,
-                          ),
+                          updater:
+                              (prefs) => prefs.copyWith(
+                                showClientRegistration:
+                                    !prefs.showClientRegistration,
+                              ),
                         ),
                         buildToggle(
                           title: 'Macchinari',
@@ -1049,20 +1104,21 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
     if (extras.isEmpty) {
       extrasLabel = 'Nessuno';
     } else {
-      final names = extras.map((f) {
-        switch (f) {
-          case ClientRegistrationExtraField.address:
-            return 'Città di residenza';
-          case ClientRegistrationExtraField.profession:
-            return 'Professione';
-          case ClientRegistrationExtraField.referralSource:
-            return 'Come ci ha conosciuto';
-          case ClientRegistrationExtraField.notes:
-            return 'Note';
-          case ClientRegistrationExtraField.gender:
-            return 'Sesso';
-        }
-      }).toList();
+      final names =
+          extras.map((f) {
+            switch (f) {
+              case ClientRegistrationExtraField.address:
+                return 'Città di residenza';
+              case ClientRegistrationExtraField.profession:
+                return 'Professione';
+              case ClientRegistrationExtraField.referralSource:
+                return 'Come ci ha conosciuto';
+              case ClientRegistrationExtraField.notes:
+                return 'Note';
+              case ClientRegistrationExtraField.gender:
+                return 'Sesso';
+            }
+          }).toList();
       extrasLabel = names.join(', ');
     }
 
@@ -1386,8 +1442,8 @@ class _SectionBlock extends StatelessWidget {
                   TextButton.icon(
                     onPressed: onEdit,
                     style: TextButton.styleFrom(foregroundColor: primaryColor),
-                    icon: const Icon(Icons.edit_outlined, size: 18),
-                    label: Text(editLabel ?? 'Modifica'),
+                    icon: const Icon(Icons.edit_outlined, size: 26),
+                    label: Text(''),
                   ),
               ],
             ),
@@ -1556,7 +1612,7 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
           children: [
             Row(
               children: [
-                Text('Pagamenti Stripe', style: theme.textTheme.titleMedium),
+                Text('Stripe', style: theme.textTheme.titleMedium),
                 const SizedBox(width: 12),
                 Chip(
                   label: Text(statusText),

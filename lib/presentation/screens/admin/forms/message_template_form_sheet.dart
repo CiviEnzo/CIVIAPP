@@ -80,6 +80,7 @@ class _MessageTemplateFormSheetState extends State<MessageTemplateFormSheet> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<MessageChannel>(
+              isExpanded: true,
               value: _channel,
               decoration: const InputDecoration(labelText: 'Canale'),
               items:
@@ -98,6 +99,7 @@ class _MessageTemplateFormSheetState extends State<MessageTemplateFormSheet> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<TemplateUsage>(
+              isExpanded: true,
               value: _usage,
               decoration: const InputDecoration(labelText: 'Uso'),
               items:

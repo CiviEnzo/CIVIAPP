@@ -257,19 +257,32 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
           sidebarWidth = 420;
         }
 
-        final header = Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: Text(
-                _isEditing ? 'Modifica cliente' : 'Nuovo cliente',
-                style: theme.textTheme.titleLarge,
-              ),
-            ),
-            const SizedBox(width: 12),
-            _ClientNumberBadge(number: numberDisplay),
-          ],
+        final isCompactHeader = constraints.maxWidth < 640;
+        final headerTitle = Text(
+          _isEditing ? 'Modifica cliente' : 'Nuovo cliente',
+          style: theme.textTheme.titleLarge,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
         );
+        final headerBadge = _ClientNumberBadge(number: numberDisplay);
+        final header =
+            isCompactHeader
+                ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    headerTitle,
+                    const SizedBox(height: 8),
+                    headerBadge,
+                  ],
+                )
+                : Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(child: headerTitle),
+                    const SizedBox(width: 12),
+                    headerBadge,
+                  ],
+                );
 
         final anagraficaSection = _FormSection(
           icon: Icons.badge_rounded,

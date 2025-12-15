@@ -300,6 +300,7 @@ class _ClientQuestionnaireTemplateFormSheetState
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<ClientQuestionType>(
+              isExpanded: true,
               value: question.type,
               decoration: const InputDecoration(labelText: 'Tipo risposta'),
               items:

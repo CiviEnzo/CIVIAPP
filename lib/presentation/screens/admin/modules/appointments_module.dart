@@ -22,8 +22,17 @@ import 'package:you_book/presentation/screens/admin/forms/appointment_form_sheet
 import 'package:you_book/presentation/screens/admin/forms/appointment_sale_flow_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/shift_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/staff_absence_form_sheet.dart';
-import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_calendar_view.dart';
+import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_calendar_view.dart'
+    show
+        AppointmentCalendarView,
+        AppointmentCalendarScope,
+        AppointmentWeekLayoutMode,
+        AppointmentRescheduleRequest,
+        AppointmentSlotSelection;
+import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_calendar_view.dart'
+    as appointment_calendar show showAppointmentChecklistDialog;
 import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_anomaly.dart';
+import 'package:you_book/presentation/screens/admin/modules/client_detail_page.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments/express_slot_sheet.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_save_utils.dart';
 import 'package:you_book/presentation/screens/admin/modules/sales_module.dart';
@@ -125,6 +134,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   Set<String> _selectedStaffIds = <String>{};
   bool _isRescheduling = false;
   int _calendarSlotMinutes = 30;
+  int? _preferredSlotMinutes;
   bool _checklistEditingEnabled = true;
   _WeekLayoutMode _weekLayoutMode = _WeekLayoutMode.detailed;
   final Set<int> _visibleWeekdays = {
@@ -136,6 +146,8 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     DateTime.saturday,
     DateTime.sunday,
   };
+  DateTime? _calendarScrollTarget;
+  int _calendarScrollRequestId = 0;
   bool _isAgendaPreferencesReady = false;
   SharedPreferences? _agendaPreferences;
 
@@ -166,7 +178,13 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   int _resolveSlotMinutes({
     required AppointmentCalendarScope scope,
     required _WeekLayoutMode weekLayout,
+    int? preferred,
   }) {
+    final normalizedPreferred =
+        preferred != null ? preferred.clamp(5, 120) : null;
+    if (normalizedPreferred != null) {
+      return normalizedPreferred;
+    }
     if (scope == AppointmentCalendarScope.day) {
       return 30;
     }
@@ -354,9 +372,11 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         nextWeekLayout = restoredLayout;
       }
 
+      final restoredSlotMinutes = prefs.getInt(_agendaSlotMinutesKey);
       final nextSlotMinutes = _resolveSlotMinutes(
         scope: nextScope,
         weekLayout: nextWeekLayout,
+        preferred: restoredSlotMinutes,
       );
 
       final shouldApplyStaff = restoredStaff != null;
@@ -385,6 +405,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
           _mode = nextMode;
           _scope = nextScope;
           _calendarSlotMinutes = nextSlotMinutes;
+          _preferredSlotMinutes = restoredSlotMinutes;
           _weekLayoutMode = nextWeekLayout;
           if (shouldApplyStaff) {
             _selectedStaffIds = restoredStaff!;
@@ -425,7 +446,10 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       final prefs = await _ensureAgendaPreferences();
       await prefs.setString(_agendaModeKey, _mode.name);
       await prefs.setString(_agendaScopeKey, _scope.name);
-      await prefs.setInt(_agendaSlotMinutesKey, _calendarSlotMinutes);
+      await prefs.setInt(
+        _agendaSlotMinutesKey,
+        _preferredSlotMinutes ?? _calendarSlotMinutes,
+      );
       await prefs.setString(_agendaWeekLayoutKey, _weekLayoutMode.name);
       final staffList = _selectedStaffIds.toList()..sort();
       await prefs.setStringList(_agendaStaffKey, staffList);
@@ -697,6 +721,23 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                       staff.isNotEmpty && staff.length < 10;
                   final showStaffFilterButton =
                       staff.length >= 10 && staffLabel != null;
+                  final isCompactScreen =
+                      MediaQuery.of(context).size.width < 720;
+                  final weekLayoutSegments =
+                      isCompactScreen
+                          ? _weekLayoutSegments
+                              .where(
+                                (segment) =>
+                                    segment.value != _WeekLayoutMode.compact,
+                              )
+                              .toList(growable: false)
+                          : _weekLayoutSegments;
+                  final selectedWeekLayout =
+                      weekLayoutSegments.any(
+                        (segment) => segment.value == _weekLayoutMode,
+                      )
+                          ? _weekLayoutMode
+                          : _WeekLayoutMode.detailed;
 
                   return SingleChildScrollView(
                     child: Column(
@@ -753,8 +794,8 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                           const SizedBox(height: 12),
                           SegmentedButton<_WeekLayoutMode>(
                             style: segmentedStyle,
-                            segments: _weekLayoutSegments,
-                            selected: {_weekLayoutMode},
+                            segments: weekLayoutSegments,
+                            selected: {selectedWeekLayout},
                             onSelectionChanged: (selection) {
                               final newLayout = selection.first;
                               _updateWeekLayout(newLayout);
@@ -1488,172 +1529,204 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     final theme = Theme.of(context);
     final moduleBackground = theme.colorScheme.surfaceContainerLowest;
 
-    return ColoredBox(
-      color: moduleBackground,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: _buildToolbar(
-              context,
-              salons: salons,
-              clients: clients,
-              staff: staffMembers,
-              services: services,
-              rangeLabel: rangeLabel,
-              selectedSalon: selectedSalon,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 720;
+        final content = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: _buildToolbar(
+                context,
+                salons: salons,
+                clients: clients,
+                staff: staffMembers,
+                services: services,
+                rangeLabel: rangeLabel,
+                selectedSalon: selectedSalon,
+                showVisionButton: !isCompact,
+              ),
             ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 250),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
-              child:
-                  _mode == _AppointmentDisplayMode.calendar
-                      ? AppointmentCalendarView(
-                        key: ValueKey(
-                          'calendar-${_scope.name}-${_weekLayoutMode.name}-$staffSelectionKey-${rangeStart.toIso8601String()}',
+            const Divider(height: 1),
+            Expanded(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 250),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                child:
+                    _mode == _AppointmentDisplayMode.calendar
+                        ? AppointmentCalendarView(
+                          key: ValueKey(
+                            'calendar-${_scope.name}-${_weekLayoutMode.name}-$staffSelectionKey-${rangeStart.toIso8601String()}',
+                          ),
+                          anchorDate: rangeStart,
+                          scope: _scope,
+                          weekLayout:
+                              _scope == AppointmentCalendarScope.week
+                                  ? weekLayout
+                                  : AppointmentWeekLayoutMode.detailed,
+                          extraDetailedDay: extraDetailedDay,
+                          appointments: filteredAppointments,
+                          allAppointments: allAppointmentsWithPlaceholders,
+                          lastMinutePlaceholders: expressPlaceholders,
+                          lastMinuteSlots: lastMinuteSlotsInRange,
+                          staff: visibleStaff,
+                          clients: clients,
+                          clientsWithOutstandingPayments:
+                              clientsWithOutstandingPayments,
+                          services: services,
+                          serviceCategories: data.serviceCategories,
+                          shifts: filteredShifts,
+                          absences: filteredAbsences,
+                          roles: data.staffRoles,
+                          schedule: selectedSalon?.schedule,
+                          roomsById: roomsById,
+                          salonsById: salonsById,
+                          selectedSalonId: effectiveSalonId,
+                          visibleWeekdays: _visibleWeekdays,
+                          lockedAppointmentReasons: lockedAppointmentReasons,
+                          anomalies: anomalies,
+                          statusColor:
+                              (status) => _colorForStatus(context, status),
+                          dayChecklists: dayChecklists,
+                          onTapLastMinuteSlot:
+                              (slot) => _onTapLastMinuteSlot(
+                                context,
+                                slot,
+                                salons: salons,
+                                staff: staffMembers,
+                                services: services,
+                              ),
+                          onReschedule:
+                              _isRescheduling ? (_) async {} : _onReschedule,
+                          onEdit:
+                              (appointment) => _handleEditAppointment(
+                                context,
+                                appointment,
+                                salons: salons,
+                                clients: clients,
+                                staff: staffMembers,
+                                services: services,
+                              ),
+                          onCreate:
+                              (selection) => _onSlotSelected(
+                                context,
+                                selection,
+                                salons,
+                                clients,
+                                staffMembers,
+                                services,
+                              ),
+                          onCreateShift:
+                              (staffMember, day) => _openShiftForm(
+                                context,
+                                salons: salons,
+                                staff: staffMembers,
+                                defaultSalonId: staffMember.salonId,
+                                defaultStaffId: staffMember.id,
+                                defaultDay: day,
+                              ),
+                          onEditShift:
+                              (shift) => _openShiftForm(
+                                context,
+                                salons: salons,
+                                staff: staffMembers,
+                                initial: shift,
+                              ),
+                          onDeleteShift:
+                              (shift) => _confirmDeleteShift(context, shift),
+                          onCreateAbsence:
+                              (staffMember, day) => _openAbsenceForm(
+                                context,
+                                salons: salons,
+                                staff: staffMembers,
+                                defaultSalonId: staffMember.salonId,
+                                defaultStaffId: staffMember.id,
+                                defaultDay: day,
+                              ),
+                          onEditAbsence:
+                              (absence) => _openAbsenceForm(
+                                context,
+                                salons: salons,
+                                staff: staffMembers,
+                                initial: absence,
+                              ),
+                          onDeleteAbsence:
+                              (absence) =>
+                                  _confirmDeleteAbsence(context, absence),
+                          slotMinutes: _calendarSlotMinutes,
+                          scrollToDate: _calendarScrollTarget,
+                          scrollToDateRequestId: _calendarScrollRequestId,
+                          onAddChecklistItem:
+                              _checklistEditingEnabled
+                                  ? _addChecklistItem
+                                  : null,
+                          onToggleChecklistItem:
+                              _checklistEditingEnabled
+                                  ? _toggleChecklistItem
+                                  : null,
+                          onRenameChecklistItem:
+                              _checklistEditingEnabled
+                                  ? _renameChecklistItem
+                                  : null,
+                          onDeleteChecklistItem:
+                              _checklistEditingEnabled
+                                  ? _deleteChecklistItem
+                                  : null,
+                          onJumpToNextWeek:
+                              _scope == AppointmentCalendarScope.week
+                                  ? () => _shiftAnchor(1)
+                                  : null,
+                        )
+                        : _ListAppointmentsView(
+                          key: ValueKey(
+                            'list-${_scope.name}-$staffSelectionKey-${rangeStart.toIso8601String()}',
+                          ),
+                          appointments: filteredAppointments,
+                          lastMinutePlaceholders: expressPlaceholders,
+                          data: data,
+                          rangeStart: rangeStart,
+                          rangeEnd: rangeEnd,
+                          lockedReasons: lockedAppointmentReasons,
+                          anomalies: anomalies,
+                          attentionAppointments: attentionAppointments,
+                          onEdit:
+                              (appointment) => _handleEditAppointment(
+                                context,
+                                appointment,
+                                salons: salons,
+                                clients: clients,
+                                staff: staffMembers,
+                                services: services,
+                              ),
                         ),
-                        anchorDate: rangeStart,
-                        scope: _scope,
-                        weekLayout:
-                            _scope == AppointmentCalendarScope.week
-                                ? weekLayout
-                                : AppointmentWeekLayoutMode.detailed,
-                        extraDetailedDay: extraDetailedDay,
-                        appointments: filteredAppointments,
-                        allAppointments: allAppointmentsWithPlaceholders,
-                        lastMinutePlaceholders: expressPlaceholders,
-                        lastMinuteSlots: lastMinuteSlotsInRange,
-                        staff: visibleStaff,
-                        clients: clients,
-                        clientsWithOutstandingPayments:
-                            clientsWithOutstandingPayments,
-                        services: services,
-                        serviceCategories: data.serviceCategories,
-                        shifts: filteredShifts,
-                        absences: filteredAbsences,
-                        roles: data.staffRoles,
-                        schedule: selectedSalon?.schedule,
-                        roomsById: roomsById,
-                        salonsById: salonsById,
-                        selectedSalonId: effectiveSalonId,
-                        visibleWeekdays: _visibleWeekdays,
-                        lockedAppointmentReasons: lockedAppointmentReasons,
-                        anomalies: anomalies,
-                        statusColor:
-                            (status) => _colorForStatus(context, status),
-                        dayChecklists: dayChecklists,
-                        onTapLastMinuteSlot:
-                            (slot) => _onTapLastMinuteSlot(
-                              context,
-                              slot,
-                              salons: salons,
-                              staff: staffMembers,
-                              services: services,
-                            ),
-                        onReschedule:
-                            _isRescheduling ? (_) async {} : _onReschedule,
-                        onEdit:
-                            (appointment) => _handleEditAppointment(
-                              context,
-                              appointment,
-                              salons: salons,
-                              clients: clients,
-                              staff: staffMembers,
-                              services: services,
-                            ),
-                        onCreate:
-                            (selection) => _onSlotSelected(
-                              context,
-                              selection,
-                              salons,
-                              clients,
-                              staffMembers,
-                              services,
-                            ),
-                        onCreateShift:
-                            (staffMember, day) => _openShiftForm(
-                              context,
-                              salons: salons,
-                              staff: staffMembers,
-                              defaultSalonId: staffMember.salonId,
-                              defaultStaffId: staffMember.id,
-                              defaultDay: day,
-                            ),
-                        onEditShift:
-                            (shift) => _openShiftForm(
-                              context,
-                              salons: salons,
-                              staff: staffMembers,
-                              initial: shift,
-                            ),
-                        onDeleteShift:
-                            (shift) => _confirmDeleteShift(context, shift),
-                        onCreateAbsence:
-                            (staffMember, day) => _openAbsenceForm(
-                              context,
-                              salons: salons,
-                              staff: staffMembers,
-                              defaultSalonId: staffMember.salonId,
-                              defaultStaffId: staffMember.id,
-                              defaultDay: day,
-                            ),
-                        onEditAbsence:
-                            (absence) => _openAbsenceForm(
-                              context,
-                              salons: salons,
-                              staff: staffMembers,
-                              initial: absence,
-                            ),
-                        onDeleteAbsence:
-                            (absence) =>
-                                _confirmDeleteAbsence(context, absence),
-                        slotMinutes: _calendarSlotMinutes,
-                        onAddChecklistItem:
-                            _checklistEditingEnabled ? _addChecklistItem : null,
-                        onToggleChecklistItem:
-                            _checklistEditingEnabled
-                                ? _toggleChecklistItem
-                                : null,
-                        onRenameChecklistItem:
-                            _checklistEditingEnabled
-                                ? _renameChecklistItem
-                                : null,
-                        onDeleteChecklistItem:
-                            _checklistEditingEnabled
-                                ? _deleteChecklistItem
-                                : null,
-                      )
-                      : _ListAppointmentsView(
-                        key: ValueKey(
-                          'list-${_scope.name}-$staffSelectionKey-${rangeStart.toIso8601String()}',
-                        ),
-                        appointments: filteredAppointments,
-                        lastMinutePlaceholders: expressPlaceholders,
-                        data: data,
-                        rangeStart: rangeStart,
-                        rangeEnd: rangeEnd,
-                        lockedReasons: lockedAppointmentReasons,
-                        anomalies: anomalies,
-                        attentionAppointments: attentionAppointments,
-                        onEdit:
-                            (appointment) => _handleEditAppointment(
-                              context,
-                              appointment,
-                              salons: salons,
-                              clients: clients,
-                              staff: staffMembers,
-                              services: services,
-                            ),
-                      ),
+              ),
             ),
+          ],
+        );
+
+        return ColoredBox(
+          color: moduleBackground,
+          child: Stack(
+            children: [
+              content,
+              if (isCompact)
+                Positioned(
+                  right: 16,
+                  bottom: 16,
+                  child: _buildCompactFab(
+                    context: context,
+                    staff: staffMembers,
+                    anchorDate: rangeStart,
+                    dayChecklists: dayChecklists,
+                    salonId: effectiveSalonId,
+                  ),
+                ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -1665,6 +1738,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     required List<Service> services,
     required String rangeLabel,
     Salon? selectedSalon,
+    bool showVisionButton = true,
   }) {
     const compactDensity = VisualDensity(horizontal: -2, vertical: -2);
     final tonalButtonStyle = FilledButton.styleFrom(
@@ -1676,12 +1750,28 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isCompact = constraints.maxWidth < 720;
-        final visionButton = FilledButton.tonalIcon(
-          style: tonalButtonStyle,
-          onPressed: () => _openAgendaVisionDialog(context, staff: staff),
-          icon: const Icon(Icons.tune_rounded),
-          label: const Text('Visione agenda'),
-        );
+        if (isCompact) {
+          return _MobileAgendaToolbar(
+            label: rangeLabel,
+            onPrevious: () => _shiftAnchor(-1),
+            onNext: () => _shiftAnchor(1),
+            onToday: _goToToday,
+            onPickDate: () => _pickDate(),
+          );
+        }
+
+        final visionButton =
+            showVisionButton
+                ? FilledButton.tonalIcon(
+                  style: tonalButtonStyle,
+                  onPressed: () => _openAgendaVisionDialog(
+                    context,
+                    staff: staff,
+                  ),
+                  icon: const Icon(Icons.tune_rounded),
+                  label: const Text('Visione agenda'),
+                )
+                : null;
         final todayButton = FilledButton.tonal(
           style: tonalButtonStyle,
           onPressed: _goToToday,
@@ -1709,28 +1799,120 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
           ],
         );
 
-        if (isCompact) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              visionButton,
-              const SizedBox(height: 12),
-              Center(child: centerControls),
-            ],
-          );
-        }
-
         return Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            visionButton,
-            const SizedBox(width: 16),
+            if (visionButton != null) ...[
+              visionButton,
+              const SizedBox(width: 16),
+            ],
             Expanded(
               child: Align(alignment: Alignment.center, child: centerControls),
             ),
           ],
         );
       },
+    );
+  }
+
+  Widget _buildCompactFab({
+    required BuildContext context,
+    required List<StaffMember> staff,
+    required DateTime anchorDate,
+    required Map<DateTime, AppointmentDayChecklist> dayChecklists,
+    required String? salonId,
+  }) {
+    final normalizedDay = DateUtils.dateOnly(anchorDate);
+    final dayChecklist = dayChecklists[normalizedDay];
+    final checklistTotal = dayChecklist?.items.length ?? 0;
+    final checklistCompleted =
+        dayChecklist?.items.where((item) => item.isCompleted).length ?? 0;
+    var checklistPending = checklistTotal - checklistCompleted;
+    if (checklistPending < 0) {
+      checklistPending = 0;
+    }
+    final onAddChecklist = _checklistEditingEnabled ? _addChecklistItem : null;
+    final onToggleChecklist =
+        _checklistEditingEnabled ? _toggleChecklistItem : null;
+    final onRenameChecklist =
+        _checklistEditingEnabled ? _renameChecklistItem : null;
+    final onDeleteChecklist =
+        _checklistEditingEnabled ? _deleteChecklistItem : null;
+    final showChecklistItem =
+        _scope == AppointmentCalendarScope.day &&
+        (checklistTotal > 0 ||
+            onAddChecklist != null ||
+            onToggleChecklist != null ||
+            onRenameChecklist != null ||
+            onDeleteChecklist != null);
+    final checklistLabel =
+        checklistPending > 0
+            ? 'Checklist ($checklistPending da fare)'
+            : 'Checklist';
+
+    return SafeArea(
+      child: MenuAnchor(
+        alignmentOffset: const Offset(0, -8),
+        builder: (context, controller, child) {
+          return FloatingActionButton(
+            onPressed: () {
+              if (controller.isOpen) {
+                controller.close();
+              } else {
+                controller.open();
+              }
+            },
+            tooltip: 'Visione rapida agenda',
+            child: const Icon(Icons.tune_rounded),
+          );
+        },
+        menuChildren: [
+          MenuItemButton(
+            leadingIcon: const Icon(Icons.visibility_rounded),
+            onPressed: () async {
+              await _openAgendaVisionDialog(context, staff: staff);
+            },
+            child: const Text('Visione'),
+          ),
+          MenuItemButton(
+            leadingIcon: const Icon(Icons.schedule_rounded),
+            trailingIcon:
+                (_preferredSlotMinutes ?? _calendarSlotMinutes) == 15
+                    ? const Icon(Icons.check_rounded)
+                    : null,
+            onPressed: () {
+              final isFifteen =
+                  (_preferredSlotMinutes ?? _calendarSlotMinutes) == 15;
+              _setSlotPreference(isFifteen ? null : 15);
+            },
+            child: const Text('Slot ogni 15 min'),
+          ),
+          if (showChecklistItem)
+            MenuItemButton(
+              leadingIcon: const Icon(Icons.checklist_rounded),
+              onPressed: () async {
+                await _showChecklistDialog(
+                  context: context,
+                  day: normalizedDay,
+                  checklist: dayChecklist,
+                  salonId: salonId,
+                  onAdd: onAddChecklist,
+                  onToggle: onToggleChecklist,
+                  onRename: onRenameChecklist,
+                  onDelete: onDeleteChecklist,
+                );
+              },
+              child: Text(checklistLabel),
+            ),
+          MenuItemButton(
+            leadingIcon: const Icon(Icons.people_alt_rounded),
+            onPressed: () async {
+              await _openStaffFilterSheet(staff, _selectedStaffIds);
+            },
+            child: const Text('Filtra staff'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1766,6 +1948,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       _calendarSlotMinutes = _resolveSlotMinutes(
         scope: _scope,
         weekLayout: _weekLayoutMode,
+        preferred: _preferredSlotMinutes,
       );
       if (_scope == AppointmentCalendarScope.week) {
         _anchorDate = _startOfWeek(_anchorDate);
@@ -1785,9 +1968,48 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       _calendarSlotMinutes = _resolveSlotMinutes(
         scope: _scope,
         weekLayout: _weekLayoutMode,
+        preferred: _preferredSlotMinutes,
       );
     });
     unawaited(_persistAgendaPreferences());
+  }
+
+  void _setSlotPreference(int? minutes) {
+    final normalized = minutes?.clamp(5, 120);
+    setState(() {
+      _preferredSlotMinutes = normalized;
+      _calendarSlotMinutes = _resolveSlotMinutes(
+        scope: _scope,
+        weekLayout: _weekLayoutMode,
+        preferred: _preferredSlotMinutes,
+      );
+    });
+    unawaited(_persistAgendaPreferences());
+  }
+
+  Future<void> _showChecklistDialog({
+    required BuildContext context,
+    required DateTime day,
+    AppointmentDayChecklist? checklist,
+    String? salonId,
+    Future<void> Function(DateTime day, String label)? onAdd,
+    Future<void> Function(String checklistId, String itemId, bool isCompleted)?
+    onToggle,
+    Future<void> Function(String checklistId, String itemId, String label)?
+    onRename,
+    Future<void> Function(String checklistId, String itemId)? onDelete,
+  }) {
+    return appointment_calendar.showAppointmentChecklistDialog(
+      context: context,
+      day: day,
+      checklist: checklist,
+      salonId: salonId,
+      onAdd: onAdd,
+      onToggle: onToggle,
+      onRename: onRename,
+      onDelete: onDelete,
+      compact: true,
+    );
   }
 
   void _shiftAnchor(int direction) {
@@ -1807,10 +2029,23 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     final now = DateTime.now();
     setState(() {
       final today = DateTime(now.year, now.month, now.day);
+      final weekStart = _startOfWeek(today);
+      final shouldRequestScroll =
+          _scope == AppointmentCalendarScope.week &&
+          _visibleWeekdays.contains(today.weekday);
       _anchorDate =
           _scope == AppointmentCalendarScope.week
-              ? _startOfWeek(today)
+              ? weekStart
               : _findNextVisibleDay(today, 1);
+      if (shouldRequestScroll) {
+        _calendarScrollTarget = today;
+        _calendarScrollRequestId++;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() => _calendarScrollTarget = null);
+          }
+        });
+      }
     });
   }
 
@@ -2866,14 +3101,16 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       return;
     }
     final allServices = data.services;
+    final servicesById = {for (final service in allServices) service.id: service};
     final allSalons = data.salons;
-    final appointmentServices = updated.serviceIds
-        .map(
-          (id) => allServices.firstWhereOrNull((service) => service.id == id),
-        )
-        .whereType<Service>()
-        .toList(growable: false);
-    if (appointmentServices.isEmpty) {
+    final serviceWindows =
+        EquipmentAvailabilityChecker.serviceWindowsForAppointment(
+      appointment: updated,
+      servicesById: servicesById,
+      startOverride: updated.start,
+      endOverride: updated.end,
+    );
+    if (serviceWindows.isEmpty) {
       if (mounted) {
         setState(() => _isRescheduling = false);
         messenger.showSnackBar(
@@ -2886,22 +3123,23 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       (item) => item.id == updated.salonId,
     );
     final blockingEquipment = <String>{};
-    var equipmentStart = updated.start;
-    for (final service in appointmentServices) {
-      final equipmentEnd = equipmentStart.add(service.totalDuration);
+    for (final window in serviceWindows) {
+      final service = window.service;
+      if (service.requiredEquipmentIds.isEmpty) {
+        continue;
+      }
       final equipmentCheck = EquipmentAvailabilityChecker.check(
         salon: salon,
         service: service,
         allServices: allServices,
         appointments: combinedAppointments,
-        start: equipmentStart,
-        end: equipmentEnd,
+        start: window.start,
+        end: window.end,
         excludeAppointmentId: updated.id,
       );
       if (equipmentCheck.hasConflicts) {
         blockingEquipment.addAll(equipmentCheck.blockingEquipment);
       }
-      equipmentStart = equipmentEnd;
     }
     if (blockingEquipment.isNotEmpty) {
       if (mounted) {
@@ -3001,9 +3239,9 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                       color: theme.colorScheme.primary,
                     ),
                     label: Text(client.fullName),
-                    onPressed: () {
-                      _openClientDetails(client);
+                    onPressed: () async {
                       Navigator.of(dialogContext).pop();
+                      await _openClientDetails(client);
                     },
                   )
                 : const Text('Cliente'),
@@ -3062,14 +3300,23 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     );
   }
 
-  void _openClientDetails(Client client) {
+  Future<void> _openClientDetails(Client client) async {
+    final isCompact = isCompactClientLayout(context);
     final payload = <String, Object?>{'clientId': client.id};
     final clientNumber = client.clientNumber?.trim();
     if (clientNumber != null && clientNumber.isNotEmpty) {
       payload['clientNumber'] = clientNumber;
     }
-    ref.read(adminDashboardIntentProvider.notifier).state =
-        AdminDashboardIntent(moduleId: 'clients', payload: payload);
+    if (!isCompact) {
+      ref.read(adminDashboardIntentProvider.notifier).state =
+          AdminDashboardIntent(moduleId: 'clients', payload: payload);
+    }
+    await openClientDetailPage(
+      context,
+      clientId: client.id,
+      initialTabIndex: 0,
+      compactOnly: true,
+    );
   }
 
   Widget _buildAppointmentDetailRow(String label, Widget value) {
@@ -3369,6 +3616,94 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       case AppointmentStatus.noShow:
         return scheme.error.withAlpha(180);
     }
+  }
+}
+
+class _MobileAgendaToolbar extends StatelessWidget {
+  const _MobileAgendaToolbar({
+    required this.label,
+    required this.onPrevious,
+    required this.onNext,
+    required this.onToday,
+    required this.onPickDate,
+  });
+
+  final String label;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+  final VoidCallback onToday;
+  final VoidCallback onPickDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    const dense = VisualDensity(horizontal: -2, vertical: -2);
+
+    return Row(
+      children: [
+        IconButton(
+          tooltip: 'Periodo precedente',
+          onPressed: onPrevious,
+          visualDensity: dense,
+          icon: const Icon(Icons.chevron_left_rounded),
+        ),
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                alignment: WrapAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  FilledButton.tonal(
+                    style: FilledButton.styleFrom(
+                      visualDensity: dense,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      minimumSize: const Size(0, 36),
+                    ),
+                    onPressed: onToday,
+                    child: const Text('Oggi'),
+                  ),
+                  IconButton(
+                    tooltip: 'Vai a data',
+                    onPressed: onPickDate,
+                    visualDensity: dense,
+                    style: IconButton.styleFrom(
+                      backgroundColor: colorScheme.surfaceVariant,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    icon: const Icon(Icons.event_available_rounded),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        IconButton(
+          tooltip: 'Periodo successivo',
+          onPressed: onNext,
+          visualDensity: dense,
+          icon: const Icon(Icons.chevron_right_rounded),
+        ),
+      ],
+    );
   }
 }
 

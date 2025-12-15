@@ -199,6 +199,7 @@ class _SalonLoyaltySheetState extends State<SalonLoyaltySheet> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: DropdownButtonFormField<LoyaltyRoundingMode>(
+                          isExpanded: true,
                           value: _roundingMode,
                           decoration: const InputDecoration(
                             labelText: 'Arrotondamento',

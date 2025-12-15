@@ -82,7 +82,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        'Accedi a CiviApp',
+                        'Accedi a YouBook',
                         style: theme.textTheme.headlineSmall,
                       ),
                       const SizedBox(height: 8),

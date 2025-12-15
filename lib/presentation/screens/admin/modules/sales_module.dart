@@ -10,6 +10,7 @@ import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
+import 'package:you_book/presentation/screens/admin/modules/client_detail_page.dart';
 import 'package:you_book/presentation/screens/admin/forms/cash_flow_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/sale_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/modules/sales/sale_helpers.dart';
@@ -67,12 +68,24 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
 
   static const int _clientBillingTabIndex = 6;
 
-  void _openClientBillingTab(String clientId) {
-    ref
-        .read(adminDashboardIntentProvider.notifier)
-        .state = AdminDashboardIntent(
-      moduleId: 'clients',
-      payload: {'clientId': clientId, 'detailTabIndex': _clientBillingTabIndex},
+  Future<void> _openClientBillingTab(String clientId) async {
+    final isCompact = isCompactClientLayout(context);
+    if (!isCompact) {
+      ref
+          .read(adminDashboardIntentProvider.notifier)
+          .state = AdminDashboardIntent(
+        moduleId: 'clients',
+        payload: {
+          'clientId': clientId,
+          'detailTabIndex': _clientBillingTabIndex,
+        },
+      );
+    }
+    await openClientDetailPage(
+      context,
+      clientId: clientId,
+      initialTabIndex: _clientBillingTabIndex,
+      compactOnly: true,
     );
   }
 
@@ -488,6 +501,8 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
               separatorBuilder: (_, __) => const SizedBox(height: 12),
               itemBuilder: (context, index) {
                 final entry = completedEntries[index];
+                final isCompact =
+                    MediaQuery.of(context).size.width < 520.0;
                 final creationLabel = DateFormat(
                   'dd/MM/yyyy HH:mm',
                   'it_IT',
@@ -519,8 +534,20 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                     subtitleLines.add(entry.sale!.notes!);
                   }
                 }
+                final amountWidget =
+                    entry.amount != null
+                        ? Text(
+                          currency.format(entry.amount!),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        )
+                        : const Icon(Icons.info_outline_rounded, size: 16);
+
                 return Card(
-                  child: ListTile(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
                     onTap:
                         entry.ticket != null
                             ? () => _showClosedTicketDetails(
@@ -540,49 +567,102 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                               staffName: entry.staffName,
                               onOpenClientBilling: entry.onOpenClientBilling,
                             ),
-                    leading: CircleAvatar(
-                      backgroundColor:
-                          Theme.of(context).colorScheme.surfaceContainerHighest,
-                      child: Icon(
-                        entry.ticket != null
-                            ? Icons.receipt_long_rounded
-                            : Icons.point_of_sale_rounded,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    title: Text(entry.clientName),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        for (var line in subtitleLines) ...[Text(line)],
-                      ],
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        if (entry.amount != null)
-                          Text(
-                            currency.format(entry.amount!),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          )
-                        else
-                          const Icon(Icons.info_outline_rounded, size: 16),
-                        if (entry.onOpenClientBilling != null) ...[
-                          const SizedBox(width: 6),
-                          IconButton(
-                            padding: EdgeInsets.zero,
-                            iconSize: 20,
-                            tooltip: 'Apri scheda fatturazione',
-                            onPressed: entry.onOpenClientBilling,
-                            icon: const Icon(Icons.open_in_new_rounded),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              CircleAvatar(
+                                backgroundColor:
+                                    Theme.of(context)
+                                        .colorScheme
+                                        .surfaceContainerHighest,
+                                child: Icon(
+                                  entry.ticket != null
+                                      ? Icons.receipt_long_rounded
+                                      : Icons.point_of_sale_rounded,
+                                  color:
+                                      Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      entry.clientName,
+                                      style:
+                                          Theme.of(
+                                            context,
+                                          ).textTheme.titleMedium,
+                                    ),
+                                    const SizedBox(height: 6),
+                                    ...subtitleLines.map(
+                                      (line) => Padding(
+                                        padding:
+                                            const EdgeInsets.only(bottom: 4),
+                                        child: Text(
+                                          line,
+                                          style:
+                                              Theme.of(
+                                                context,
+                                              ).textTheme.bodySmall,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (!isCompact) ...[
+                                const SizedBox(width: 12),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    amountWidget,
+                                    if (entry.onOpenClientBilling != null)
+                                      IconButton(
+                                        padding: EdgeInsets.zero,
+                                        iconSize: 20,
+                                        tooltip: 'Apri scheda fatturazione',
+                                        onPressed: () async {
+                                          await entry.onOpenClientBilling!();
+                                        },
+                                        icon:
+                                            const Icon(Icons.open_in_new_rounded),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ],
                           ),
+                          if (isCompact) ...[
+                            const SizedBox(height: 12),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                amountWidget,
+                                if (entry.onOpenClientBilling != null)
+                                  IconButton(
+                                    padding: EdgeInsets.zero,
+                                    iconSize: 20,
+                                    tooltip: 'Apri scheda fatturazione',
+                                    onPressed: () async {
+                                      await entry.onOpenClientBilling!();
+                                    },
+                                    icon:
+                                        const Icon(Icons.open_in_new_rounded),
+                                  ),
+                              ],
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
                   ),
                 );
@@ -633,7 +713,9 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                           IconButton(
                             iconSize: 24,
                             tooltip: 'Apri scheda fatturazione',
-                            onPressed: () => _openClientBillingTab(client.id),
+                            onPressed: () async {
+                              await _openClientBillingTab(client.id);
+                            },
                             icon: const Icon(Icons.open_in_new_rounded),
                           ),
                       ],
@@ -882,7 +964,7 @@ Future<void> _showClosedTicketDetails({
   required List<StaffMember> staff,
   required List<Sale> sales,
   String? clientId,
-  VoidCallback? onOpenClientBilling,
+  Future<void> Function()? onOpenClientBilling,
 }) async {
   final client = clients.firstWhereOrNull(
     (client) => client.id == ticket.clientId,
@@ -918,7 +1000,7 @@ Future<void> _showSaleDetails({
   required Sale sale,
   required String clientName,
   String? staffName,
-  VoidCallback? onOpenClientBilling,
+  Future<void> Function()? onOpenClientBilling,
 }) async {
   await showAppModalSheet<void>(
     context: context,
@@ -1059,7 +1141,7 @@ class _ClosedTicketDetailsSheet extends StatelessWidget {
   final String? staffName;
   final Sale? sale;
   final double? expectedTotal;
-  final VoidCallback? onOpenClientBilling;
+  final Future<void> Function()? onOpenClientBilling;
 
   @override
   Widget build(BuildContext context) {
@@ -1158,7 +1240,7 @@ class _SaleDetailsSheet extends StatelessWidget {
   final Sale sale;
   final String clientName;
   final String? staffName;
-  final VoidCallback? onOpenClientBilling;
+  final Future<void> Function()? onOpenClientBilling;
 
   @override
   Widget build(BuildContext context) {
@@ -1295,7 +1377,7 @@ class _CompletedEntry {
   final DateTime date;
   final String clientName;
   final String? clientId;
-  final VoidCallback? onOpenClientBilling;
+  final Future<void> Function()? onOpenClientBilling;
   final String? staffName;
   final String? serviceName;
   final String? paymentLabel;
@@ -1306,7 +1388,7 @@ class _CompletedEntry {
 
 Widget? _buildClientHyperlinkAction(
   BuildContext context,
-  VoidCallback? action,
+  Future<void> Function()? action,
   String value,
 ) {
   if (action == null) {
@@ -1328,9 +1410,9 @@ Widget? _buildClientHyperlinkAction(
       color: theme.colorScheme.primary,
     ),
     label: Text(value),
-    onPressed: () {
+    onPressed: () async {
       Navigator.of(context).pop();
-      action();
+      await action();
     },
   );
 }

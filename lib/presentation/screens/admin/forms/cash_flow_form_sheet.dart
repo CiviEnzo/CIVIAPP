@@ -138,6 +138,7 @@ class _CashFlowFormSheetState extends State<CashFlowFormSheet> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
+              isExpanded: true,
               value: _staffId,
               decoration: const InputDecoration(
                 labelText: 'Operatore (opzionale)',

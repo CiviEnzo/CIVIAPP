@@ -206,6 +206,7 @@ class _EquipmentCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<SalonEquipmentStatus>(
+              isExpanded: true,
               value: data.status,
               decoration: const InputDecoration(labelText: 'Stato operativo'),
               items:

@@ -18,6 +18,7 @@ import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/domain/entities/staff_role.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_anomaly.dart';
 import 'package:collection/collection.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -27,6 +28,10 @@ import 'package:intl/intl.dart';
 const double _kStaffColumnWidth = 220.0;
 const double _kStaffHeaderHeight = 48.0;
 const double _kBasePreviewHeight = 170.0;
+const double _kAutoScrollEdgeExtent = 120.0;
+const double _kAutoScrollMinStep = 10.0;
+const double _kAutoScrollMaxStep = 34.0;
+const Duration _kMinDragUpdateInterval = Duration(milliseconds: 16);
 
 final DateFormat _calendarWeekdayFormat = DateFormat('EEEE', 'it_IT');
 final DateFormat _calendarDayNumberFormat = DateFormat('dd', 'it_IT');
@@ -300,6 +305,9 @@ class AppointmentCalendarView extends StatefulWidget {
     this.onEditAbsence,
     this.onDeleteAbsence,
     this.extraDetailedDay,
+    this.onJumpToNextWeek,
+    this.scrollToDate,
+    this.scrollToDateRequestId = 0,
   });
   final DateTime anchorDate;
   final AppointmentCalendarScope scope;
@@ -323,6 +331,9 @@ class AppointmentCalendarView extends StatefulWidget {
   final Map<String, String> lockedAppointmentReasons;
   final Map<DateTime, AppointmentDayChecklist> dayChecklists;
   final DateTime? extraDetailedDay;
+  final VoidCallback? onJumpToNextWeek;
+  final DateTime? scrollToDate;
+  final int scrollToDateRequestId;
   final AppointmentRescheduleCallback onReschedule;
   final AppointmentTapCallback onEdit;
   final AppointmentSlotSelectionCallback onCreate;
@@ -972,6 +983,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
   bool _isSynchronizing = false;
   late final DateTime _initialScrollDate;
   bool _didAutoScrollToInitialDay = false;
+  DateTime? _requestedScrollDate;
 
   @override
   void initState() {
@@ -979,6 +991,31 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
     _horizontalHeaderController.addListener(_syncFromHeader);
     _horizontalBodyController.addListener(_syncFromBody);
     _initialScrollDate = DateUtils.dateOnly(DateTime.now());
+    _requestedScrollDate =
+        widget.scrollToDate != null
+            ? DateUtils.dateOnly(widget.scrollToDate!)
+            : null;
+  }
+
+  @override
+  void didUpdateWidget(covariant AppointmentCalendarView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final newScrollDate =
+        widget.scrollToDate != null
+            ? DateUtils.dateOnly(widget.scrollToDate!)
+            : null;
+    final oldScrollDate =
+        oldWidget.scrollToDate != null
+            ? DateUtils.dateOnly(oldWidget.scrollToDate!)
+            : null;
+    final requestChanged =
+        widget.scrollToDateRequestId != oldWidget.scrollToDateRequestId;
+    final dateChanged = !DateUtils.isSameDay(newScrollDate, oldScrollDate);
+    if (newScrollDate != null && (dateChanged || requestChanged)) {
+      _requestedScrollDate = newScrollDate;
+    } else if (newScrollDate == null && oldScrollDate != null) {
+      _requestedScrollDate = null;
+    }
   }
 
   @override
@@ -1081,6 +1118,9 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           onDeleteAbsence: widget.onDeleteAbsence,
         );
       case AppointmentCalendarScope.week:
+        final autoScrollTargetDate = _requestedScrollDate ?? _initialScrollDate;
+        final autoScrollPending =
+            _requestedScrollDate != null || !_didAutoScrollToInitialDay;
         return _WeekSchedule(
           anchorDate: widget.anchorDate,
           appointments: widget.appointments,
@@ -1118,8 +1158,9 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           onToggleChecklistItem: widget.onToggleChecklistItem,
           onRenameChecklistItem: widget.onRenameChecklistItem,
           onDeleteChecklistItem: widget.onDeleteChecklistItem,
-          autoScrollTargetDate: _initialScrollDate,
-          autoScrollPending: !_didAutoScrollToInitialDay,
+          autoScrollTargetDate: autoScrollTargetDate,
+          autoScrollPending: autoScrollPending,
+          autoScrollIsManual: _requestedScrollDate != null,
           layout: widget.weekLayout,
           onCreateShift: widget.onCreateShift,
           onEditShift: widget.onEditShift,
@@ -1128,10 +1169,12 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
           onEditAbsence: widget.onEditAbsence,
           onDeleteAbsence: widget.onDeleteAbsence,
           extraDetailedDay: widget.extraDetailedDay,
+          onJumpToNextWeek: widget.onJumpToNextWeek,
           onAutoScrollComplete: () {
-            if (!_didAutoScrollToInitialDay && mounted) {
+            if (mounted) {
               setState(() {
                 _didAutoScrollToInitialDay = true;
+                _requestedScrollDate = null;
               });
             }
           },
@@ -1341,12 +1384,6 @@ class _DaySchedule extends StatelessWidget {
     final checklistTotal = dayChecklist?.items.length ?? 0;
     final checklistCompleted =
         dayChecklist?.items.where((item) => item.isCompleted).length ?? 0;
-    final showChecklistLauncher =
-        hasChecklistItems ||
-        onAddChecklistItem != null ||
-        onToggleChecklistItem != null ||
-        onRenameChecklistItem != null ||
-        onDeleteChecklistItem != null;
 
     final theme = Theme.of(context);
     final headerColor = theme.colorScheme.surfaceContainerHighest.withValues(
@@ -1362,6 +1399,7 @@ class _DaySchedule extends StatelessWidget {
       alpha: 0.08,
     );
     final timeFormat = DateFormat('HH:mm');
+    final isCompact = MediaQuery.of(context).size.width < 720;
     final relevantSalonIds =
         staff.map((member) => member.salonId).whereType<String>().toSet();
     final closures = _closuresForDay(
@@ -1372,91 +1410,105 @@ class _DaySchedule extends StatelessWidget {
     );
     final showClosureSalonName =
         closures.map((closure) => closure.salonId).toSet().length > 1;
+    final showChecklistLauncher =
+        !isCompact &&
+        (hasChecklistItems ||
+            onAddChecklistItem != null ||
+            onToggleChecklistItem != null ||
+            onRenameChecklistItem != null ||
+            onDeleteChecklistItem != null);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                width: _timeScaleExtent,
-                child: Center(
-                  child: Text('Ora', style: theme.textTheme.labelMedium),
-                ),
-              ),
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    color: headerColor,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: theme.dividerColor.withValues(alpha: 0.4),
+        if (!isCompact)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
                     ),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              dateLabel,
-                              style: theme.textTheme.titleMedium,
+                    decoration: BoxDecoration(
+                      color: headerColor,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: theme.dividerColor.withValues(alpha: 0.4),
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                dateLabel,
+                                style: theme.textTheme.titleMedium,
+                              ),
                             ),
-                          ),
-                          if (showChecklistLauncher) ...[
-                            const SizedBox(width: 12),
-                            _ChecklistDialogLauncher(
-                              day: normalizedDay,
-                              dateLabel: dateLabel,
-                              checklist: dayChecklist,
-                              total: checklistTotal,
-                              completed: checklistCompleted,
-                              salonId: dayChecklist?.salonId,
-                              onAdd: onAddChecklistItem,
-                              onToggle: onToggleChecklistItem,
-                              onRename: onRenameChecklistItem,
-                              onDelete: onDeleteChecklistItem,
+                            if (showChecklistLauncher) ...[
+                              const SizedBox(width: 12),
+                              _ChecklistDialogLauncher(
+                                day: normalizedDay,
+                                dateLabel: dateLabel,
+                                checklist: dayChecklist,
+                                total: checklistTotal,
+                                completed: checklistCompleted,
+                                salonId: dayChecklist?.salonId,
+                                onAdd: onAddChecklistItem,
+                                onToggle: onToggleChecklistItem,
+                                onRename: onRenameChecklistItem,
+                                onDelete: onDeleteChecklistItem,
+                              ),
+                            ],
+                          ],
+                        ),
+                        if (closures.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          for (var i = 0; i < closures.length; i++) ...[
+                            if (i != 0) const SizedBox(height: 8),
+                            _ClosureBanner(
+                              info: closures[i],
+                              showSalonName: showClosureSalonName,
                             ),
                           ],
                         ],
-                      ),
-                      if (closures.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        for (var i = 0; i < closures.length; i++) ...[
-                          if (i != 0) const SizedBox(height: 8),
-                          _ClosureBanner(
-                            info: closures[i],
-                            showSalonName: showClosureSalonName,
-                          ),
-                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
+          )
+        else if (closures.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < closures.length; i++) ...[
+                  if (i != 0) const SizedBox(height: 6),
+                  _ClosureBanner(
+                    info: closures[i],
+                    showSalonName: showClosureSalonName,
+                    compact: true,
+                  ),
+                ],
+              ],
+            ),
           ),
-        ),
         Expanded(
           child: Column(
             children: [
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SizedBox(
-                    width: _timeScaleExtent,
-                    height: _kStaffHeaderHeight,
-                  ),
-                  const SizedBox(width: 12, height: _kStaffHeaderHeight),
                   Expanded(
                     child: ScrollConfiguration(
                       behavior: const _CompactMacScrollBehavior(),
@@ -1589,40 +1641,6 @@ class _DaySchedule extends StatelessWidget {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            width: _timeScaleExtent,
-                            margin: const EdgeInsets.only(right: 12),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 4,
-                              vertical: 12,
-                            ),
-                            decoration: BoxDecoration(
-                              color: timelineColor,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: theme.dividerColor.withValues(
-                                  alpha: 0.35,
-                                ),
-                              ),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: List.generate(slotCount, (index) {
-                                final slotTime = timeSlots[index];
-                                final label = timeFormat.format(slotTime);
-                                return SizedBox(
-                                  height: _slotExtent,
-                                  child: Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: Text(
-                                      label,
-                                      style: theme.textTheme.bodySmall,
-                                    ),
-                                  ),
-                                );
-                              }),
-                            ),
-                          ),
                           Expanded(
                             child: ScrollConfiguration(
                               behavior: const _CompactMacScrollBehavior(),
@@ -1726,6 +1744,7 @@ class _DaySchedule extends StatelessWidget {
                                                 anomalies: anomalies,
                                                 openStart: openingStart,
                                                 openEnd: closingEnd,
+                                                showSlotStartTimes: isCompact,
                                               ),
                                             ),
                                           ),
@@ -1867,9 +1886,11 @@ class _WeekSchedule extends StatelessWidget {
     this.onDeleteAbsence,
     this.autoScrollTargetDate,
     this.autoScrollPending = false,
+    this.autoScrollIsManual = false,
     required this.layout,
     this.onAutoScrollComplete,
     this.extraDetailedDay,
+    this.onJumpToNextWeek,
   });
 
   final DateTime anchorDate;
@@ -1923,9 +1944,11 @@ class _WeekSchedule extends StatelessWidget {
   final Future<void> Function(StaffAbsence absence)? onDeleteAbsence;
   final DateTime? autoScrollTargetDate;
   final bool autoScrollPending;
+  final bool autoScrollIsManual;
   final AppointmentWeekLayoutMode layout;
   final VoidCallback? onAutoScrollComplete;
   final DateTime? extraDetailedDay;
+  final VoidCallback? onJumpToNextWeek;
 
   static const _slotExtent = _AppointmentCalendarViewState._slotExtent;
   static const _timeScaleExtent =
@@ -1938,6 +1961,7 @@ class _WeekSchedule extends StatelessWidget {
     Color? background,
     Color? foreground,
     String? tooltip,
+    VoidCallback? onTap,
   }) {
     final tooltipParts = <String>[];
     if (label.trim().isNotEmpty) {
@@ -1948,7 +1972,7 @@ class _WeekSchedule extends StatelessWidget {
     }
     final tooltipMessage = tooltipParts.join('\n');
 
-    final chip = Container(
+    Widget chip = Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: background ?? theme.colorScheme.surfaceContainerHighest,
@@ -1960,6 +1984,16 @@ class _WeekSchedule extends StatelessWidget {
         color: foreground ?? theme.colorScheme.onSurfaceVariant,
       ),
     );
+    if (onTap != null) {
+      chip = MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: chip,
+        ),
+      );
+    }
     if (tooltipMessage.isNotEmpty) {
       return Tooltip(
         message: tooltipMessage,
@@ -2007,6 +2041,20 @@ class _WeekSchedule extends StatelessWidget {
         filteredDays.add(normalizedExtraDay);
         filteredDays.sort();
       }
+    }
+    final hasAutoScrollTarget =
+        autoScrollPending &&
+        autoScrollTargetDate != null &&
+        filteredDays.any(
+          (day) => DateUtils.isSameDay(day, autoScrollTargetDate),
+        );
+    if (autoScrollPending &&
+        autoScrollIsManual &&
+        autoScrollTargetDate != null &&
+        !hasAutoScrollTarget) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        onAutoScrollComplete?.call();
+      });
     }
 
     final dayData =
@@ -2189,6 +2237,7 @@ class _WeekSchedule extends StatelessWidget {
 
     final gridHeight = slotCount * detailedSlotExtent;
     final timeFormat = DateFormat('HH:mm');
+    final showSlotStartTimes = MediaQuery.of(context).size.width < 720;
 
     final dayHeaderColor = theme.colorScheme.surfaceContainerHighest.withValues(
       alpha: 0.55,
@@ -2242,7 +2291,7 @@ class _WeekSchedule extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.only(bottom: 0),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2258,7 +2307,7 @@ class _WeekSchedule extends StatelessWidget {
                     child: SingleChildScrollView(
                       controller: horizontalHeaderController,
                       scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      padding: const EdgeInsets.symmetric(vertical: 4),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -2418,6 +2467,11 @@ class _WeekSchedule extends StatelessWidget {
                                               theme
                                                   .colorScheme
                                                   .onSecondaryContainer,
+                                          tooltip:
+                                              onJumpToNextWeek != null
+                                                  ? 'Vai alla prossima settimana'
+                                                  : null,
+                                          onTap: onJumpToNextWeek,
                                         ),
                                       );
                                     }
@@ -2459,7 +2513,7 @@ class _WeekSchedule extends StatelessWidget {
                                                 : dayGap,
                                       ),
                                       padding: const EdgeInsets.symmetric(
-                                        vertical: 6,
+                                        vertical: 4,
                                       ),
                                       decoration: BoxDecoration(
                                         color: headerColor,
@@ -2477,48 +2531,6 @@ class _WeekSchedule extends StatelessWidget {
                                             child: Column(
                                               mainAxisSize: MainAxisSize.min,
                                               children: [
-                                                if (isToday) ...[
-                                                  Align(
-                                                    alignment: Alignment.center,
-                                                    child: Container(
-                                                      padding:
-                                                          const EdgeInsets.symmetric(
-                                                            horizontal: 10,
-                                                            vertical: 4,
-                                                          ),
-                                                      decoration: BoxDecoration(
-                                                        color: theme
-                                                            .colorScheme
-                                                            .primary
-                                                            .withValues(
-                                                              alpha: 0.15,
-                                                            ),
-                                                        borderRadius:
-                                                            BorderRadius.circular(
-                                                              999,
-                                                            ),
-                                                      ),
-                                                      child: Text(
-                                                        'Oggi',
-                                                        style: theme
-                                                            .textTheme
-                                                            .labelSmall
-                                                            ?.copyWith(
-                                                              color:
-                                                                  theme
-                                                                      .colorScheme
-                                                                      .primary,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .w700,
-                                                            ),
-                                                        textAlign:
-                                                            TextAlign.center,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 8),
-                                                ],
                                                 Row(
                                                   mainAxisSize:
                                                       MainAxisSize.min,
@@ -2680,7 +2692,7 @@ class _WeekSchedule extends StatelessWidget {
                               ],
                             ],
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 6),
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             crossAxisAlignment: CrossAxisAlignment.center,
@@ -2699,8 +2711,8 @@ class _WeekSchedule extends StatelessWidget {
                                             dayIndex == dayData.length - 1
                                                 ? 0
                                                 : dayGap,
-                                        top: 6,
-                                        bottom: 6,
+                                        top: 4,
+                                        bottom: 4,
                                       ),
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
@@ -2798,7 +2810,7 @@ class _WeekSchedule extends StatelessWidget {
                                                                 const EdgeInsets.symmetric(
                                                                   horizontal:
                                                                       12,
-                                                                  vertical: 10,
+                                                                  vertical: 8,
                                                                 ),
                                                             constraints:
                                                                 BoxConstraints(
@@ -2899,7 +2911,7 @@ class _WeekSchedule extends StatelessWidget {
             child: SingleChildScrollView(
               controller: verticalController,
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
+                padding: const EdgeInsets.only(top: 6, bottom: 12),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -3117,6 +3129,8 @@ class _WeekSchedule extends StatelessWidget {
                                                           currentDay.openStart,
                                                       openEnd:
                                                           currentDay.openEnd,
+                                                      showSlotStartTimes:
+                                                          showSlotStartTimes,
                                                     ),
                                                   ),
                                                 ),
@@ -3770,6 +3784,94 @@ class _ChecklistDialogLauncher extends StatelessWidget {
   }
 }
 
+Future<void> showAppointmentChecklistDialog({
+  required BuildContext context,
+  required DateTime day,
+  AppointmentDayChecklist? checklist,
+  String? salonId,
+  Future<void> Function(DateTime day, String label)? onAdd,
+  Future<void> Function(String checklistId, String itemId, bool isCompleted)?
+  onToggle,
+  Future<void> Function(String checklistId, String itemId, String label)?
+  onRename,
+  Future<void> Function(String checklistId, String itemId)? onDelete,
+  bool compact = false,
+}) {
+  final normalizedDay = DateUtils.dateOnly(day);
+  final dateLabel = _formatCalendarDayLabel(normalizedDay);
+  final initialTotal = checklist?.items.length ?? 0;
+  final initialCompleted =
+      checklist?.items.where((item) => item.isCompleted).length ?? 0;
+  final expectedSalonId = salonId ?? checklist?.salonId;
+
+  return showDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    builder: (dialogContext) {
+      final mediaQuery = MediaQuery.of(dialogContext);
+      final maxWidth = min(
+        mediaQuery.size.width * 0.9,
+        compact ? 440.0 : 520.0,
+      );
+      final maxHeight = min(mediaQuery.size.height * 0.85, 560.0);
+
+      return Consumer(
+        builder: (context, ref, _) {
+          final latestChecklist = ref.watch(
+            appDataProvider.select((state) {
+              return state.appointmentDayChecklists.firstWhereOrNull((entry) {
+                final sameDay = DateUtils.isSameDay(entry.date, normalizedDay);
+                if (!sameDay) {
+                  return false;
+                }
+                if (expectedSalonId != null &&
+                    expectedSalonId.isNotEmpty &&
+                    entry.salonId != expectedSalonId) {
+                  return false;
+                }
+                return true;
+              });
+            }),
+          );
+          final effectiveChecklist = latestChecklist ?? checklist;
+          final currentTotal = effectiveChecklist?.items.length ?? initialTotal;
+          final currentCompleted =
+              effectiveChecklist?.items
+                  .where((item) => item.isCompleted)
+                  .length ??
+              initialCompleted;
+          final currentPending = max(currentTotal - currentCompleted, 0);
+          final summaryText =
+              currentTotal == 0
+                  ? 'Nessuna attività ancora pianificata.'
+                  : currentPending == 0
+                  ? 'Tutte le $currentTotal attività sono completate.'
+                  : '$currentPending attività da completare su $currentTotal.';
+
+          return Dialog(
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 32,
+            ),
+            child: _ChecklistDialogContent(
+              day: normalizedDay,
+              dateLabel: dateLabel,
+              summaryText: summaryText,
+              checklist: effectiveChecklist,
+              onAdd: onAdd,
+              onToggle: onToggle,
+              onRename: onRename,
+              onDelete: onDelete,
+              maxWidth: maxWidth,
+              maxHeight: maxHeight,
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
 class _ChecklistDialogContent extends StatefulWidget {
   const _ChecklistDialogContent({
     required this.day,
@@ -4063,13 +4165,13 @@ class _WeekCompactView extends StatelessWidget {
   static const double _dayGap = 12;
   static const double _staffGap = 6;
   static const double _kDayHorizontalPadding = 8;
-  static const double _kDayHeaderVerticalPadding = 10;
-  static const double _kDayHeaderBottomPadding = 10;
+  static const double _kDayHeaderVerticalPadding = 8;
+  static const double _kDayHeaderBottomPadding = 8;
   static const double _kDayBodyTopPadding = 0;
-  static const double _kDayBodyBottomPadding = 10;
+  static const double _kDayBodyBottomPadding = 8;
   static const double _kStaffHeaderHeight = 40;
   static const double _kMinStaffColumnWidth = 44;
-  static const double _kScrollVerticalPadding = 20;
+  static const double _kScrollVerticalPadding = 12;
 
   @override
   Widget build(BuildContext context) {
@@ -4079,6 +4181,7 @@ class _WeekCompactView extends StatelessWidget {
     final theme = Theme.of(context);
     final now = DateTime.now();
     final timeFormat = DateFormat('HH:mm');
+    final showSlotStartTimes = MediaQuery.of(context).size.width < 720;
     final rolesById = {for (final role in roles) role.id: role};
     final relevantSalonIds =
         staff.map((member) => member.salonId).whereType<String>().toSet();
@@ -4131,7 +4234,7 @@ class _WeekCompactView extends StatelessWidget {
               relevantSalonIds,
             ),
             if (staffLayout != null) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               _buildOperatorHeaderRow(
                 context,
                 theme,
@@ -4170,7 +4273,7 @@ class _WeekCompactView extends StatelessWidget {
                               ? const ClampingScrollPhysics()
                               : const NeverScrollableScrollPhysics(),
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        padding: const EdgeInsets.only(top: 8, bottom: 12),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -4199,6 +4302,7 @@ class _WeekCompactView extends StatelessWidget {
                                 resolvedGridHeight,
                                 slotExtent,
                                 staffLayout,
+                                showSlotStartTimes,
                               ),
                             ),
                           ],
@@ -4238,7 +4342,7 @@ class _WeekCompactView extends StatelessWidget {
     Set<String> relevantSalonIds,
   ) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -4421,6 +4525,7 @@ class _WeekCompactView extends StatelessWidget {
     double gridHeight,
     double slotExtent,
     _CompactStaffLayout? staffLayout,
+    bool showSlotStartTimes,
   ) {
     if (dayData.isEmpty) {
       return const SizedBox.shrink();
@@ -4441,6 +4546,7 @@ class _WeekCompactView extends StatelessWidget {
               gridHeight,
               slotExtent,
               staffLayout,
+              showSlotStartTimes,
             ),
           ),
           if (dayIndex != dayData.length - 1) const SizedBox(width: _dayGap),
@@ -4524,6 +4630,7 @@ class _WeekCompactView extends StatelessWidget {
     double gridHeight,
     double slotExtent,
     _CompactStaffLayout? staffLayout,
+    bool showSlotStartTimes,
   ) {
     final isToday = DateUtils.isSameDay(data.date, now);
     final borderColor =
@@ -4561,6 +4668,7 @@ class _WeekCompactView extends StatelessWidget {
         layout: staffLayout,
         gridHeight: gridHeight,
         slotExtent: slotExtent,
+        showSlotStartTimes: showSlotStartTimes,
       ),
     );
   }
@@ -4573,6 +4681,7 @@ class _WeekCompactView extends StatelessWidget {
     required _CompactStaffLayout? layout,
     required double gridHeight,
     required double slotExtent,
+    required bool showSlotStartTimes,
   }) {
     final staffCount = staff.length;
     if (staffCount == 0) {
@@ -4657,6 +4766,7 @@ class _WeekCompactView extends StatelessWidget {
                 openStart: data.openStart,
                 openEnd: data.openEnd,
                 compact: true,
+                showSlotStartTimes: showSlotStartTimes,
               ),
             ),
           ),
@@ -4700,7 +4810,7 @@ class _WeekCompactView extends StatelessWidget {
     );
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -4844,8 +4954,9 @@ class _WeekCompactView extends StatelessWidget {
     final initialsValue = _staffInitials(staffMember.fullName).toUpperCase();
     final displayInitials = initialsValue.isEmpty ? '--' : initialsValue;
     final pillTextStyle = theme.textTheme.labelMedium?.copyWith(
-      fontWeight: FontWeight.w700,
-      letterSpacing: 0.5,
+      fontWeight: FontWeight.w800,
+      letterSpacing: 0.2,
+      color: theme.colorScheme.primary,
     );
     final borderColor = theme.colorScheme.outlineVariant.withValues(
       alpha: 0.35,
@@ -4853,8 +4964,6 @@ class _WeekCompactView extends StatelessWidget {
     final backgroundStart = theme.colorScheme.surfaceContainerHighest
         .withValues(alpha: theme.brightness == Brightness.dark ? 0.45 : 0.75);
     final backgroundEnd = theme.colorScheme.surface;
-    final capsuleColor = theme.colorScheme.primary.withValues(alpha: 0.08);
-    final capsuleBorder = theme.colorScheme.primary.withValues(alpha: 0.35);
 
     return ConstrainedBox(
       constraints:
@@ -4889,24 +4998,19 @@ class _WeekCompactView extends StatelessWidget {
               child: Tooltip(
                 message: staffMember.fullName,
                 waitDuration: const Duration(milliseconds: 250),
-                child: Container(
-                  height: _kStaffHeaderHeight - 14,
-                  constraints: const BoxConstraints(minWidth: 38),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: capsuleColor,
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: capsuleBorder, width: 1),
-                  ),
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minWidth: max(40, minWidthConstraint),
+                    ),
                     child: Text(
                       displayInitials,
                       style: pillTextStyle,
                       maxLines: 1,
+                      overflow: TextOverflow.clip,
+                      softWrap: false,
+                      textAlign: TextAlign.center,
                     ),
                   ),
                 ),
@@ -5715,121 +5819,230 @@ class _WeekDayData {
   final SalonDailySchedule? scheduleEntry;
 }
 
-class _StaffDayColumn extends StatefulWidget {
-  const _StaffDayColumn({
-    required this.staffMember,
-    required this.appointments,
-    required this.lastMinutePlaceholders,
-    required this.lastMinuteSlots,
-    required this.allAppointments,
-    required this.shifts,
-    required this.absences,
-    required this.timelineStart,
-    required this.timelineEnd,
-    required this.slotMinutes,
-    required this.interactionSlotMinutes,
-    required this.slotExtent,
-    required this.verticalController,
-    required this.clientsWithOutstandingPayments,
-    required this.clientsById,
-    required this.servicesById,
-    required this.categoriesById,
-    required this.categoriesByName,
-    required this.roomsById,
-    required this.salonsById,
-    required this.statusColor,
-    required this.lockedAppointmentReasons,
-    required this.onReschedule,
-    required this.onEdit,
-    required this.onCreate,
-    required this.onTapLastMinuteSlot,
-    required this.anomalies,
-    this.openStart,
-    this.openEnd,
-    this.compact = false,
-  });
-
-  final StaffMember staffMember;
-  final List<Appointment> appointments;
-  final List<Appointment> lastMinutePlaceholders;
-  final List<LastMinuteSlot> lastMinuteSlots;
-  final Future<void> Function(LastMinuteSlot slot)? onTapLastMinuteSlot;
-  final List<Appointment> allAppointments;
-  final List<Shift> shifts;
-  final List<StaffAbsence> absences;
-  final DateTime timelineStart;
-  final DateTime timelineEnd;
-  final int slotMinutes;
-  final int interactionSlotMinutes;
-  final double slotExtent;
-  final ScrollController verticalController;
-  final Set<String> clientsWithOutstandingPayments;
-  final Map<String, Client> clientsById;
-  final Map<String, Service> servicesById;
-  final Map<String, ServiceCategory> categoriesById;
-  final Map<String, ServiceCategory> categoriesByName;
-  final Map<String, String> roomsById;
-  final Map<String, Salon> salonsById;
-  final Color Function(AppointmentStatus status) statusColor;
-  final Map<String, String> lockedAppointmentReasons;
-  final AppointmentRescheduleCallback onReschedule;
-  final AppointmentTapCallback onEdit;
-  final AppointmentSlotSelectionCallback onCreate;
-  final Map<String, Set<AppointmentAnomalyType>> anomalies;
-  final DateTime? openStart;
-  final DateTime? openEnd;
-  final bool compact;
-
-  @override
-  State<_StaffDayColumn> createState() => _StaffDayColumnState();
+enum AppointmentInteractionPhase {
+  idle,
+  hover,
+  dragging,
+  conflict,
+  accepting,
+  cancelled,
 }
 
-class _StaffDayColumnState extends State<_StaffDayColumn> {
-  static final DateFormat _timeLabel = DateFormat('HH:mm', 'it_IT');
-  static const double _kAutoScrollEdgeExtent = 120.0;
-  static const double _kAutoScrollMinStep = 10.0;
-  static const double _kAutoScrollMaxStep = 34.0;
-  DateTime? _hoverStart;
-  DateTime? _dragPreviewStart;
-  Duration? _dragPreviewDuration;
-  bool _dragPreviewHasConflict = false;
-  bool _isDragging = false;
-  Appointment? _dragPreviewAppointment;
+class AppointmentInteractionState {
+  const AppointmentInteractionState({
+    this.phase = AppointmentInteractionPhase.idle,
+    this.hoverStart,
+    this.previewStart,
+    this.previewDuration,
+    this.dragAppointment,
+    this.hasConflict = false,
+    this.lastOffset,
+  });
 
-  double get _totalMinutes =>
-      widget.timelineEnd.difference(widget.timelineStart).inMinutes.toDouble();
+  static const Object _unset = Object();
 
-  bool _hasShiftDuring(DateTime start, DateTime end) {
-    for (final shift in widget.shifts) {
-      if (_overlapsRange(shift.start, shift.end, start, end)) {
-        return true;
-      }
-    }
-    return false;
+  final AppointmentInteractionPhase phase;
+  final DateTime? hoverStart;
+  final DateTime? previewStart;
+  final Duration? previewDuration;
+  final Appointment? dragAppointment;
+  final bool hasConflict;
+  final Offset? lastOffset;
+
+  bool get isDragging =>
+      phase == AppointmentInteractionPhase.dragging ||
+      phase == AppointmentInteractionPhase.conflict ||
+      phase == AppointmentInteractionPhase.accepting;
+
+  AppointmentInteractionState copyWith({
+    AppointmentInteractionPhase? phase,
+    Object? hoverStart = _unset,
+    Object? previewStart = _unset,
+    Object? previewDuration = _unset,
+    Object? dragAppointment = _unset,
+    bool? hasConflict,
+    Object? lastOffset = _unset,
+  }) {
+    return AppointmentInteractionState(
+      phase: phase ?? this.phase,
+      hoverStart:
+          identical(hoverStart, _unset)
+              ? this.hoverStart
+              : hoverStart as DateTime?,
+      previewStart:
+          identical(previewStart, _unset)
+              ? this.previewStart
+              : previewStart as DateTime?,
+      previewDuration:
+          identical(previewDuration, _unset)
+              ? this.previewDuration
+              : previewDuration as Duration?,
+      dragAppointment:
+          identical(dragAppointment, _unset)
+              ? this.dragAppointment
+              : dragAppointment as Appointment?,
+      hasConflict: hasConflict ?? this.hasConflict,
+      lastOffset:
+          identical(lastOffset, _unset)
+              ? this.lastOffset
+              : lastOffset as Offset?,
+    );
   }
 
-  void _setDragging(bool value) {
-    if (_isDragging != value) {
-      setState(() {
-        _isDragging = value;
-        if (!value) {
-          _dragPreviewStart = null;
-          _dragPreviewDuration = null;
-          _dragPreviewHasConflict = false;
-          _dragPreviewAppointment = null;
-        } else {
-          _hoverStart = null;
-        }
-      });
-    }
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is AppointmentInteractionState &&
+        other.phase == phase &&
+        other.hoverStart == hoverStart &&
+        other.previewStart == previewStart &&
+        other.previewDuration == previewDuration &&
+        other.dragAppointment == dragAppointment &&
+        other.hasConflict == hasConflict &&
+        other.lastOffset == lastOffset;
   }
 
-  void _maybeAutoScroll(Offset globalPosition) {
-    final controller = widget.verticalController;
-    if (!controller.hasClients) {
+  @override
+  int get hashCode => Object.hash(
+    phase,
+    hoverStart,
+    previewStart,
+    previewDuration,
+    dragAppointment,
+    hasConflict,
+    lastOffset,
+  );
+}
+
+class AppointmentInteractionController extends ChangeNotifier {
+  AppointmentInteractionController({this.debugLabel});
+
+  final String? debugLabel;
+  AppointmentInteractionState _state = const AppointmentInteractionState();
+
+  AppointmentInteractionState get state => _state;
+
+  void setHover(DateTime? start) {
+    if (_state.isDragging) {
       return;
     }
-    final position = controller.position;
+    final nextPhase =
+        start == null
+            ? AppointmentInteractionPhase.idle
+            : AppointmentInteractionPhase.hover;
+    _update(_state.copyWith(hoverStart: start, phase: nextPhase), 'hover');
+  }
+
+  void clearHover() => setHover(null);
+
+  void startDrag(Appointment appointment) {
+    _update(
+      _state.copyWith(
+        phase: AppointmentInteractionPhase.dragging,
+        dragAppointment: appointment,
+        previewDuration: appointment.duration,
+        hoverStart: null,
+      ),
+      'start-drag',
+    );
+  }
+
+  void updatePreview({
+    required DateTime previewStart,
+    required Duration duration,
+    required bool hasConflict,
+    Offset? localOffset,
+  }) {
+    if (_state.dragAppointment == null) {
+      return;
+    }
+    final nextPhase =
+        hasConflict
+            ? AppointmentInteractionPhase.conflict
+            : AppointmentInteractionPhase.dragging;
+    _update(
+      _state.copyWith(
+        previewStart: previewStart,
+        previewDuration: duration,
+        hasConflict: hasConflict,
+        lastOffset: localOffset,
+        phase: nextPhase,
+      ),
+      'drag-update',
+    );
+  }
+
+  void markAccepting() {
+    if (!_state.isDragging) {
+      return;
+    }
+    _update(
+      _state.copyWith(phase: AppointmentInteractionPhase.accepting),
+      'accepting',
+    );
+  }
+
+  void finishDrag() {
+    _resetToIdle(reason: 'finish');
+  }
+
+  void cancelDrag() {
+    if (!_state.isDragging &&
+        _state.phase != AppointmentInteractionPhase.accepting &&
+        _state.phase != AppointmentInteractionPhase.hover) {
+      return;
+    }
+    _update(
+      const AppointmentInteractionState(
+        phase: AppointmentInteractionPhase.cancelled,
+      ),
+      'cancel',
+    );
+    _resetToIdle(reason: 'cancel-reset');
+  }
+
+  void reset() {
+    _resetToIdle(reason: 'reset');
+  }
+
+  void _resetToIdle({required String reason}) {
+    if (_state == const AppointmentInteractionState()) {
+      return;
+    }
+    _update(const AppointmentInteractionState(), reason);
+  }
+
+  void _update(AppointmentInteractionState next, String reason) {
+    if (_state == next) {
+      return;
+    }
+    _logTransition(next, reason);
+    _state = next;
+    notifyListeners();
+  }
+
+  void _logTransition(AppointmentInteractionState next, String reason) {
+    assert(() {
+      final label = debugLabel != null ? '[$debugLabel] ' : '';
+      debugPrint(
+        '${label}interaction: ${_state.phase.name} -> ${next.phase.name} ($reason)',
+      );
+      return true;
+    }());
+  }
+}
+
+class _AppointmentAutoScrollDriver {
+  _AppointmentAutoScrollDriver({required this.verticalController});
+
+  final ScrollController verticalController;
+  bool _isAutoScrolling = false;
+
+  void handlePointer(Offset globalPosition) {
+    if (!verticalController.hasClients) {
+      return;
+    }
+    final position = verticalController.position;
     if (!position.hasPixels || !position.haveDimensions) {
       return;
     }
@@ -5871,15 +6084,174 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
 
     if (targetOffset != null &&
         (targetOffset - position.pixels).abs() >= 0.5 &&
+        !_isAutoScrolling &&
         !position.outOfRange) {
-      controller.jumpTo(targetOffset);
+      _isAutoScrolling = true;
+      verticalController
+          .animateTo(
+            targetOffset,
+            duration: const Duration(milliseconds: 70),
+            curve: Curves.linear,
+          )
+          .whenComplete(() => _isAutoScrolling = false);
+    }
+  }
+
+  void stop() {
+    _isAutoScrolling = false;
+  }
+
+  void dispose() {
+    stop();
+  }
+}
+
+class _StaffDayColumn extends StatefulWidget {
+  const _StaffDayColumn({
+    required this.staffMember,
+    required this.appointments,
+    required this.lastMinutePlaceholders,
+    required this.lastMinuteSlots,
+    required this.allAppointments,
+    required this.shifts,
+    required this.absences,
+    required this.timelineStart,
+    required this.timelineEnd,
+    required this.slotMinutes,
+    required this.interactionSlotMinutes,
+    required this.slotExtent,
+    required this.verticalController,
+    required this.clientsWithOutstandingPayments,
+    required this.clientsById,
+    required this.servicesById,
+    required this.categoriesById,
+    required this.categoriesByName,
+    required this.roomsById,
+    required this.salonsById,
+    required this.statusColor,
+    required this.lockedAppointmentReasons,
+    required this.onReschedule,
+    required this.onEdit,
+    required this.onCreate,
+    required this.onTapLastMinuteSlot,
+    required this.anomalies,
+    this.openStart,
+    this.openEnd,
+    this.compact = false,
+    this.showSlotStartTimes = false,
+  });
+
+  final StaffMember staffMember;
+  final List<Appointment> appointments;
+  final List<Appointment> lastMinutePlaceholders;
+  final List<LastMinuteSlot> lastMinuteSlots;
+  final Future<void> Function(LastMinuteSlot slot)? onTapLastMinuteSlot;
+  final List<Appointment> allAppointments;
+  final List<Shift> shifts;
+  final List<StaffAbsence> absences;
+  final DateTime timelineStart;
+  final DateTime timelineEnd;
+  final int slotMinutes;
+  final int interactionSlotMinutes;
+  final double slotExtent;
+  final ScrollController verticalController;
+  final Set<String> clientsWithOutstandingPayments;
+  final Map<String, Client> clientsById;
+  final Map<String, Service> servicesById;
+  final Map<String, ServiceCategory> categoriesById;
+  final Map<String, ServiceCategory> categoriesByName;
+  final Map<String, String> roomsById;
+  final Map<String, Salon> salonsById;
+  final Color Function(AppointmentStatus status) statusColor;
+  final Map<String, String> lockedAppointmentReasons;
+  final AppointmentRescheduleCallback onReschedule;
+  final AppointmentTapCallback onEdit;
+  final AppointmentSlotSelectionCallback onCreate;
+  final Map<String, Set<AppointmentAnomalyType>> anomalies;
+  final DateTime? openStart;
+  final DateTime? openEnd;
+  final bool compact;
+  final bool showSlotStartTimes;
+
+  @override
+  State<_StaffDayColumn> createState() => _StaffDayColumnState();
+}
+
+class _StaffDayColumnState extends State<_StaffDayColumn> {
+  static final DateFormat _timeLabel = DateFormat('HH:mm', 'it_IT');
+  late final AppointmentInteractionController _interactionController;
+  late _AppointmentAutoScrollDriver _autoScrollDriver;
+  DateTime? _lastDragUpdateAt;
+
+  @override
+  void initState() {
+    super.initState();
+    _interactionController = AppointmentInteractionController(
+      debugLabel: 'staff-${widget.staffMember.id}',
+    );
+    _interactionController.addListener(_onInteractionChange);
+    _autoScrollDriver = _AppointmentAutoScrollDriver(
+      verticalController: widget.verticalController,
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _StaffDayColumn oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.verticalController != widget.verticalController) {
+      _autoScrollDriver.dispose();
+      _autoScrollDriver = _AppointmentAutoScrollDriver(
+        verticalController: widget.verticalController,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _interactionController.removeListener(_onInteractionChange);
+    _interactionController.dispose();
+    _autoScrollDriver.dispose();
+    super.dispose();
+  }
+
+  double get _totalMinutes =>
+      widget.timelineEnd.difference(widget.timelineStart).inMinutes.toDouble();
+
+  bool _hasShiftDuring(DateTime start, DateTime end) {
+    for (final shift in widget.shifts) {
+      if (_overlapsRange(shift.start, shift.end, start, end)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _endDragAfterFrame({bool cancelled = false}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      if (cancelled) {
+        _interactionController.cancelDrag();
+      } else {
+        _interactionController.finishDrag();
+      }
+      _autoScrollDriver.stop();
+      _lastDragUpdateAt = null;
+    });
+  }
+
+  void _onInteractionChange() {
+    if (mounted) {
+      setState(() {});
     }
   }
 
   void _handleHover(PointerHoverEvent event, double gridHeight) {
-    if (_isDragging) {
-      if (_hoverStart != null) {
-        setState(() => _hoverStart = null);
+    final interaction = _interactionController.state;
+    if (interaction.isDragging) {
+      if (interaction.hoverStart != null) {
+        _interactionController.clearHover();
       }
       return;
     }
@@ -5899,24 +6271,28 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
     final hoverStart = widget.timelineStart.add(
       Duration(minutes: snappedMinutes.toInt()),
     );
-    if (_hoverStart != hoverStart) {
-      setState(() => _hoverStart = hoverStart);
+    if (interaction.hoverStart != hoverStart) {
+      _interactionController.setHover(hoverStart);
     }
   }
 
   void _clearHover(PointerExitEvent event) {
-    if (_hoverStart != null) {
-      setState(() => _hoverStart = null);
+    if (_interactionController.state.hoverStart != null) {
+      _interactionController.clearHover();
     }
   }
 
   void _handleTap(TapUpDetails details, double gridHeight) {
-    if (_isDragging) {
+    final interaction = _interactionController.state;
+    if (interaction.isDragging) {
       return;
     }
     final totalMinutes = _totalMinutes;
     if (totalMinutes <= 0) {
       return;
+    }
+    if (interaction.hoverStart != null) {
+      _interactionController.clearHover();
     }
     final localDy = details.localPosition.dy.clamp(0.0, gridHeight);
     var minuteOffset = (localDy / gridHeight) * totalMinutes;
@@ -5978,25 +6354,24 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
     Appointment movingAppointment,
     StaffMember targetStaff,
   ) {
-    final appointmentServices = movingAppointment.serviceIds
-        .map((id) => widget.servicesById[id])
-        .whereType<Service>()
-        .toList(growable: true);
-    if (appointmentServices.isEmpty) {
-      final fallback = widget.servicesById[movingAppointment.serviceId];
-      if (fallback != null) {
-        appointmentServices.add(fallback);
-      }
-    }
+    final serviceWindows =
+        EquipmentAvailabilityChecker.serviceWindowsForAppointment(
+          appointment: movingAppointment,
+          servicesById: widget.servicesById,
+          startOverride: start,
+          endOverride: end,
+        );
 
-    for (final service in appointmentServices) {
-      if (service.staffRoles.isEmpty) {
-        continue;
+    final incompatibleService = serviceWindows.firstWhereOrNull((window) {
+      final allowedRoles = window.service.staffRoles;
+      if (allowedRoles.isEmpty) {
+        return false;
       }
-      final allowed = _hasAllowedRole(targetStaff, service.staffRoles);
-      if (!allowed) {
-        return 'L\'operatore selezionato non può erogare "${service.name}". Scegli un altro operatore.';
-      }
+      return !_hasAllowedRole(targetStaff, allowedRoles);
+    });
+    if (incompatibleService != null) {
+      final service = incompatibleService.service;
+      return 'L\'operatore selezionato non può erogare "${service.name}". Scegli un altro operatore.';
     }
 
     final hasStaffOverlap = hasStaffBookingConflict(
@@ -6021,9 +6396,9 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
       return 'Impossibile riprogrammare: il cliente ha già un appuntamento in quel periodo';
     }
 
-    if (appointmentServices.isEmpty ||
-        appointmentServices.every(
-          (service) => service.requiredEquipmentIds.isEmpty,
+    if (serviceWindows.isEmpty ||
+        serviceWindows.every(
+          (window) => window.service.requiredEquipmentIds.isEmpty,
         )) {
       return null;
     }
@@ -6033,11 +6408,9 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
     }
 
     final blockingEquipment = <String>{};
-    var equipmentStart = start;
-    for (final service in appointmentServices) {
-      final equipmentEnd = equipmentStart.add(service.totalDuration);
+    for (final window in serviceWindows) {
+      final service = window.service;
       if (service.requiredEquipmentIds.isEmpty) {
-        equipmentStart = equipmentEnd;
         continue;
       }
       final result = EquipmentAvailabilityChecker.check(
@@ -6045,14 +6418,13 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
         service: service,
         allServices: widget.servicesById.values,
         appointments: widget.allAppointments,
-        start: equipmentStart,
-        end: equipmentEnd,
+        start: window.start,
+        end: window.end,
         excludeAppointmentId: movingAppointment.id,
       );
       if (result.hasConflicts) {
         blockingEquipment.addAll(result.blockingEquipment);
       }
-      equipmentStart = equipmentEnd;
     }
     if (blockingEquipment.isEmpty) {
       return null;
@@ -6072,6 +6444,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
     final gridHeight = totalSlots * widget.slotExtent;
     final theme = Theme.of(context);
     final double pixelsPerMinute = widget.slotExtent / widget.slotMinutes;
+    final interaction = _interactionController.state;
 
     Widget? openOverlay;
     if (widget.openStart != null && widget.openEnd != null) {
@@ -6093,19 +6466,22 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
           top: top,
           left: 0,
           right: 0,
-          child: Container(
-            height: height,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primary.withValues(alpha: 0.06),
+          child: IgnorePointer(
+            child: Container(
+              height: height,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(alpha: 0.06),
+              ),
             ),
           ),
         );
       }
     }
 
-    final dragStart = _dragPreviewStart;
-    final dragDuration = _dragPreviewDuration;
-    final dragAppointment = _dragPreviewAppointment;
+    final dragStart = interaction.previewStart;
+    final dragDuration =
+        interaction.previewDuration ?? interaction.dragAppointment?.duration;
+    final dragAppointment = interaction.dragAppointment;
     Widget? dragOverlay;
     if (dragStart != null && dragDuration != null && dragAppointment != null) {
       final dragEnd = dragStart.add(dragDuration);
@@ -6147,14 +6523,23 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
             services.isNotEmpty
                 ? services.map((service) => service.name).join(' + ')
                 : previewService?.name;
+        final clientNumber =
+            client?.clientNumber != null &&
+                    client!.clientNumber!.trim().isNotEmpty
+                ? client!.clientNumber!.trim()
+                : null;
         final clientPhone =
             client?.phone != null && client!.phone.trim().isNotEmpty
                 ? client!.phone.trim()
                 : null;
         final bool showClientPhone = clientPhone != null;
+        final bool showClientNumber = clientNumber != null;
         final noteText = previewed.notes?.trim();
-        final bool hasPreviewNote =
-            noteText != null && noteText.isNotEmpty;
+        final bool hasPreviewNote = noteText != null && noteText.isNotEmpty;
+        final attentionText = _attentionText(
+          isCancelled: previewed.status == AppointmentStatus.cancelled,
+          anomalies: anomalies,
+        );
         final previewHeight = _contentAwareHeight(
           baseHeight: _kBasePreviewHeight,
           expandToContent: true,
@@ -6163,10 +6548,13 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
           showServiceInfo: true,
           showClientInfo: true,
           showClientPhone: showClientPhone,
+          showClientNumber: showClientNumber,
           hasPreviewNote: hasPreviewNote,
+          attentionText: attentionText,
           hasOutstandingPayments: hasOutstandingPayments,
           serviceLabel: serviceLabel,
           clientName: client?.fullName,
+          clientNumber: clientNumber,
           clientPhone: showClientPhone ? clientPhone : null,
           noteText: noteText,
           roomName: roomName,
@@ -6175,28 +6563,30 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
           top: top,
           left: 0,
           right: 0,
-          child: SizedBox(
-            height: previewHeight,
-            child: Opacity(
-              opacity: _dragPreviewHasConflict ? 0.65 : 1,
-              child: _AppointmentCard(
-                appointment: previewed,
-                client: client,
-                service: previewService,
-                services: services,
-                staff: widget.staffMember,
-                roomName: roomName,
-                height: previewHeight,
-                visibleDurationMinutes: visibleMinutes,
-                anomalies: anomalies,
-                lockReason: null,
-                highlight: true,
-                categoriesById: widget.categoriesById,
-                categoriesByName: widget.categoriesByName,
-                hideContent: false,
-                hasOutstandingPayments: hasOutstandingPayments,
-                expandToContent: true,
-                showNotes: true,
+          child: IgnorePointer(
+            child: SizedBox(
+              height: previewHeight,
+              child: Opacity(
+                opacity: interaction.hasConflict ? 0.65 : 1,
+                child: _AppointmentCard(
+                  appointment: previewed,
+                  client: client,
+                  service: previewService,
+                  services: services,
+                  staff: widget.staffMember,
+                  roomName: roomName,
+                  height: previewHeight,
+                  visibleDurationMinutes: visibleMinutes,
+                  anomalies: anomalies,
+                  lockReason: null,
+                  highlight: true,
+                  categoriesById: widget.categoriesById,
+                  categoriesByName: widget.categoriesByName,
+                  hideContent: false,
+                  hasOutstandingPayments: hasOutstandingPayments,
+                  expandToContent: true,
+                  showNotes: true,
+                ),
               ),
             ),
           ),
@@ -6204,7 +6594,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
       }
     }
 
-    final hoverStart = _hoverStart;
+    final hoverStart = interaction.hoverStart;
     Widget? hoverOverlay;
     if (hoverStart != null) {
       final hoverEnd = hoverStart.add(
@@ -6258,44 +6648,46 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
           top: top,
           left: 0,
           right: 0,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Container(
-                height: hoverHeight,
-                decoration: BoxDecoration(
-                  color: fillColor,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: outlineColor, width: 1.5),
-                ),
-              ),
-              Positioned(
-                top: 6,
-                left: 6,
-                child: DecoratedBox(
+          child: IgnorePointer(
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  height: hoverHeight,
                   decoration: BoxDecoration(
-                    color: labelBackground,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: outlineColor.withValues(alpha: 0.6),
-                    ),
+                    color: fillColor,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: outlineColor, width: 1.5),
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
+                ),
+                Positioned(
+                  top: 6,
+                  left: 6,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: labelBackground,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: outlineColor.withValues(alpha: 0.6),
+                      ),
                     ),
-                    child: Text(
-                      slotLabel,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: labelTextColor,
-                        fontWeight: FontWeight.w600,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      child: Text(
+                        slotLabel,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: labelTextColor,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       }
@@ -6304,538 +6696,577 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
     return MouseRegion(
       onHover: (event) => _handleHover(event, gridHeight),
       onExit: _clearHover,
-      child: GestureDetector(
-        behavior: HitTestBehavior.deferToChild,
-        onTapUp: (details) => _handleTap(details, gridHeight),
-        child: DragTarget<_AppointmentDragData>(
-          onWillAcceptWithDetails: (_) => true,
-          onMove: (details) {
-            if (!_isDragging) {
-              _setDragging(true);
-            }
-            _maybeAutoScroll(details.offset);
-            final renderBox = context.findRenderObject() as RenderBox?;
-            if (renderBox == null) {
-              return;
-            }
-            final payload = details.data;
-            final localOffset = renderBox.globalToLocal(details.offset);
-            final clampedDy = localOffset.dy.clamp(0.0, renderBox.size.height);
-            final totalMinutes = _totalMinutes;
-            if (totalMinutes <= 0) {
-              return;
-            }
-            var minuteOffset =
-                (clampedDy / renderBox.size.height) * totalMinutes;
-            final durationMinutes = payload.duration.inMinutes.toDouble();
-            final maxStartMinutes = max(0.0, totalMinutes - durationMinutes);
-            if (totalMinutes > durationMinutes) {
-              minuteOffset = min(max(minuteOffset, 0.0), maxStartMinutes);
-            } else {
-              minuteOffset = 0.0;
-            }
-            final slotMinutes = widget.interactionSlotMinutes;
-            final snappedMinutes =
-                (minuteOffset / slotMinutes).round() * slotMinutes;
-            final maxStartMinutesInt = maxStartMinutes.floor();
-            final clampedMinutes = max(
-              0,
-              min(snappedMinutes, maxStartMinutesInt),
-            );
-            final previewStart = widget.timelineStart.add(
-              Duration(minutes: clampedMinutes),
-            );
-            final previewEnd = previewStart.add(payload.duration);
-            final hasConflict =
-                _slotConflictMessage(
-                  previewStart,
-                  previewEnd,
-                  payload.appointment,
-                  widget.staffMember,
-                ) !=
-                null;
-            if (_dragPreviewStart != previewStart ||
-                _dragPreviewDuration != payload.duration ||
-                _dragPreviewHasConflict != hasConflict ||
-                _dragPreviewAppointment != payload.appointment) {
-              setState(() {
-                _dragPreviewStart = previewStart;
-                _dragPreviewDuration = payload.duration;
-                _dragPreviewHasConflict = hasConflict;
-                _dragPreviewAppointment = payload.appointment;
-              });
-            }
-          },
-          onLeave: (_) {
-            _setDragging(false);
-          },
-          builder: (context, candidateData, rejectedData) {
-            final columnBackground = theme.colorScheme.surface.withValues(
-              alpha: 0.96,
-            );
-            return ClipRRect(
-              borderRadius: BorderRadius.circular(14),
-              child: Container(
-                height: gridHeight,
-                color: columnBackground,
-                child: Stack(
-                  children: [
-                    Column(
-                      children: List.generate(totalSlots, (index) {
-                        final DateTime slotStart = widget.timelineStart.add(
-                          Duration(minutes: index * widget.slotMinutes),
-                        );
-                        final bool isHourBoundary = slotStart.minute == 0;
-                        final DateTime slotEnd = slotStart.add(
-                          Duration(minutes: widget.slotMinutes),
-                        );
-                        final bool hasShift = _hasShiftDuring(
-                          slotStart,
-                          slotEnd,
-                        );
-                        BorderSide topBorder = BorderSide.none;
-                        BorderSide bottomBorder = BorderSide.none;
-                        if (hasShift) {
-                          final bool isDark =
-                              theme.brightness == Brightness.dark;
-                          final double hourTopAlpha = isDark ? 0.45 : 0.32;
-                          final double hourBottomAlpha = isDark ? 0.34 : 0.24;
-                          final double minorTopAlpha = isDark ? 0.28 : 0.18;
-                          final double minorBottomAlpha = isDark ? 0.21 : 0.12;
-                          final Color baseHourColor = theme
-                              .colorScheme
-                              .outlineVariant
-                              .withValues(alpha: hourTopAlpha);
-                          final Color baseMinorColor = theme.dividerColor
-                              .withValues(alpha: minorTopAlpha);
-                          final Color hourBottomColor = baseHourColor
-                              .withValues(alpha: hourBottomAlpha);
-                          final Color minorBottomColor = baseMinorColor
-                              .withValues(alpha: minorBottomAlpha);
-                          bottomBorder = BorderSide(
-                            color: isDark ? Colors.white24 : Colors.black26,
-                            width: 1,
-                          );
-                        }
-                        return Container(
-                          height: widget.slotExtent,
-                          decoration: BoxDecoration(
-                            border: Border(
-                              top: topBorder,
-                              bottom: bottomBorder,
-                            ),
-                          ),
-                        );
-                      }),
-                    ),
-                    if (openOverlay != null) openOverlay,
-                    if (dragOverlay != null) dragOverlay,
-                    if (hoverOverlay != null) hoverOverlay,
-                    // Visual overlay for last-minute holds (blocked slots)
-                    ...widget.lastMinuteSlots.expand((slot) {
-                      if (!slot.isAvailable) {
-                        return const Iterable<Widget>.empty();
-                      }
-                      if (slot.operatorId != widget.staffMember.id) {
-                        return const Iterable<Widget>.empty();
-                      }
-                      final segment = _segmentWithinTimeline(
-                        slot.start,
-                        slot.end,
-                        widget.timelineStart,
-                        widget.timelineEnd,
-                      );
-                      if (segment == null) {
-                        return const Iterable<Widget>.empty();
-                      }
-                      final top =
-                          segment.start
-                              .difference(widget.timelineStart)
-                              .inMinutes /
-                          widget.slotMinutes *
-                          widget.slotExtent;
-                      final height = max(
-                        widget.slotExtent,
-                        segment.end.difference(segment.start).inMinutes /
-                            widget.slotMinutes *
-                            widget.slotExtent,
-                      );
-                      return [
-                        Positioned(
-                          top: top,
-                          left: 0,
-                          right: 0,
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap:
-                                  widget.onTapLastMinuteSlot == null
-                                      ? null
-                                      : () => widget.onTapLastMinuteSlot!(slot),
-                              borderRadius: BorderRadius.circular(8),
-                              child: Container(
-                                height: height,
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.primaryContainer
-                                      .withValues(alpha: 0.30),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: theme.colorScheme.primary.withValues(
-                                      alpha: 0.50,
+      child: SizedBox(
+        height: gridHeight,
+        child: Stack(
+          children: [
+            Listener(
+              onPointerUp: (_) => _endDragAfterFrame(),
+              onPointerCancel: (_) => _endDragAfterFrame(cancelled: true),
+              child: DragTarget<_AppointmentDragData>(
+                onWillAcceptWithDetails: (_) => true,
+                onMove: (details) {
+                  final renderBox = context.findRenderObject() as RenderBox?;
+                  if (renderBox == null || !renderBox.hasSize) {
+                    return;
+                  }
+                  if (renderBox.size.height <= 0) {
+                    return;
+                  }
+                  final now = DateTime.now();
+                  if (_lastDragUpdateAt != null &&
+                      now.difference(_lastDragUpdateAt!) <
+                          _kMinDragUpdateInterval) {
+                    return;
+                  }
+                  final payload = details.data;
+                  final interaction = _interactionController.state;
+                  if (!interaction.isDragging ||
+                      interaction.dragAppointment?.id !=
+                          payload.appointment.id) {
+                    _interactionController.startDrag(payload.appointment);
+                  }
+                  _autoScrollDriver.handlePointer(details.offset);
+                  final localOffset = renderBox.globalToLocal(details.offset);
+                  final clampedDy = localOffset.dy.clamp(
+                    0.0,
+                    renderBox.size.height,
+                  );
+                  final totalMinutes = _totalMinutes;
+                  if (totalMinutes <= 0) {
+                    return;
+                  }
+                  var minuteOffset =
+                      (clampedDy / renderBox.size.height) * totalMinutes;
+                  final durationMinutes = payload.duration.inMinutes.toDouble();
+                  final maxStartMinutes = max(
+                    0.0,
+                    totalMinutes - durationMinutes,
+                  );
+                  if (totalMinutes > durationMinutes) {
+                    minuteOffset = min(max(minuteOffset, 0.0), maxStartMinutes);
+                  } else {
+                    minuteOffset = 0.0;
+                  }
+                  final slotMinutes = widget.interactionSlotMinutes;
+                  final snappedMinutes =
+                      (minuteOffset / slotMinutes).round() * slotMinutes;
+                  final maxStartMinutesInt = maxStartMinutes.floor();
+                  final clampedMinutes = max(
+                    0,
+                    min(snappedMinutes, maxStartMinutesInt),
+                  );
+                  final previewStart = widget.timelineStart.add(
+                    Duration(minutes: clampedMinutes),
+                  );
+                  final previewEnd = previewStart.add(payload.duration);
+                  final hasConflict =
+                      _slotConflictMessage(
+                        previewStart,
+                        previewEnd,
+                        payload.appointment,
+                        widget.staffMember,
+                      ) !=
+                      null;
+                  _interactionController.updatePreview(
+                    previewStart: previewStart,
+                    duration: payload.duration,
+                    hasConflict: hasConflict,
+                    localOffset: localOffset,
+                  );
+                  _lastDragUpdateAt = now;
+                },
+                onLeave: (_) {
+                  _endDragAfterFrame(cancelled: true);
+                },
+                builder: (context, candidateData, rejectedData) {
+                  final columnBackground = theme.colorScheme.surface.withValues(
+                    alpha: 0.96,
+                  );
+                  return ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      height: gridHeight,
+                      color: columnBackground,
+                      child: Stack(
+                        children: [
+                          GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTapUp:
+                                (details) => _handleTap(details, gridHeight),
+                            child: Column(
+                              children: List.generate(totalSlots, (index) {
+                                final DateTime slotStart = widget.timelineStart
+                                    .add(
+                                      Duration(
+                                        minutes: index * widget.slotMinutes,
+                                      ),
+                                    );
+                                final bool isHourBoundary =
+                                    slotStart.minute == 0;
+                                final DateTime slotEnd = slotStart.add(
+                                  Duration(minutes: widget.slotMinutes),
+                                );
+                                final bool hasShift = _hasShiftDuring(
+                                  slotStart,
+                                  slotEnd,
+                                );
+                                BorderSide topBorder = BorderSide.none;
+                                BorderSide bottomBorder = BorderSide.none;
+                                if (hasShift) {
+                                  final bool isDark =
+                                      theme.brightness == Brightness.dark;
+                                  final double hourTopAlpha =
+                                      isDark ? 0.45 : 0.32;
+                                  final double hourBottomAlpha =
+                                      isDark ? 0.34 : 0.24;
+                                  final double minorTopAlpha =
+                                      isDark ? 0.28 : 0.18;
+                                  final double minorBottomAlpha =
+                                      isDark ? 0.21 : 0.12;
+                                  final Color baseHourColor = theme
+                                      .colorScheme
+                                      .outlineVariant
+                                      .withValues(alpha: hourTopAlpha);
+                                  final Color baseMinorColor = theme
+                                      .dividerColor
+                                      .withValues(alpha: minorTopAlpha);
+                                  final Color hourBottomColor = baseHourColor
+                                      .withValues(alpha: hourBottomAlpha);
+                                  final Color minorBottomColor = baseMinorColor
+                                      .withValues(alpha: minorBottomAlpha);
+                                  bottomBorder = BorderSide(
+                                    color:
+                                        isDark
+                                            ? Colors.white24
+                                            : Colors.black26,
+                                    width: 1,
+                                  );
+                                }
+                                final showSlotLabel = widget.showSlotStartTimes;
+                                final String? slotLabel =
+                                    showSlotLabel
+                                        ? _timeLabel.format(slotStart)
+                                        : null;
+                                return Container(
+                                  height: widget.slotExtent,
+                                  decoration: BoxDecoration(
+                                    border: Border(
+                                      top: topBorder,
+                                      bottom: bottomBorder,
                                     ),
                                   ),
-                                ),
-                                padding:
-                                    widget.compact
-                                        ? const EdgeInsets.all(4)
-                                        : const EdgeInsets.all(6),
-                                alignment:
-                                    widget.compact
-                                        ? Alignment.center
-                                        : Alignment.topLeft,
-                                child:
-                                    widget.compact
-                                        ? Icon(
-                                          Icons.flash_on_rounded,
-                                          size: 16,
-                                          color: theme.colorScheme.primary,
-                                        )
-                                        : Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.flash_on_rounded,
-                                              size: 14,
-                                              color: theme.colorScheme.primary,
+                                  alignment:
+                                      slotLabel != null
+                                          ? Alignment.topLeft
+                                          : null,
+                                  padding:
+                                      slotLabel != null
+                                          ? const EdgeInsets.only(
+                                            left: 10,
+                                            top: 6,
+                                          )
+                                          : null,
+                                  child:
+                                      slotLabel != null
+                                          ? Text(
+                                            slotLabel,
+                                            style: theme.textTheme.labelSmall
+                                                ?.copyWith(
+                                                  color:
+                                                      theme
+                                                          .colorScheme
+                                                          .onSurfaceVariant,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                          )
+                                          : null,
+                                );
+                              }),
+                            ),
+                          ),
+                          if (openOverlay != null) openOverlay,
+                          if (dragOverlay != null) dragOverlay,
+                          if (hoverOverlay != null) hoverOverlay,
+                          // Visual overlay for last-minute holds (blocked slots)
+                          ...widget.lastMinuteSlots.expand((slot) {
+                            if (!slot.isAvailable) {
+                              return const Iterable<Widget>.empty();
+                            }
+                            if (slot.operatorId != widget.staffMember.id) {
+                              return const Iterable<Widget>.empty();
+                            }
+                            final segment = _segmentWithinTimeline(
+                              slot.start,
+                              slot.end,
+                              widget.timelineStart,
+                              widget.timelineEnd,
+                            );
+                            if (segment == null) {
+                              return const Iterable<Widget>.empty();
+                            }
+                            final top =
+                                segment.start
+                                    .difference(widget.timelineStart)
+                                    .inMinutes /
+                                widget.slotMinutes *
+                                widget.slotExtent;
+                            final height = max(
+                              widget.slotExtent,
+                              segment.end.difference(segment.start).inMinutes /
+                                  widget.slotMinutes *
+                                  widget.slotExtent,
+                            );
+                            return [
+                              Positioned(
+                                top: top,
+                                left: 0,
+                                right: 0,
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap:
+                                        widget.onTapLastMinuteSlot == null
+                                            ? null
+                                            : () => widget.onTapLastMinuteSlot!(
+                                              slot,
                                             ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              'last\nminute',
-                                              style: theme.textTheme.labelSmall
-                                                  ?.copyWith(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Container(
+                                      height: height,
+                                      decoration: BoxDecoration(
+                                        color: theme
+                                            .colorScheme
+                                            .primaryContainer
+                                            .withValues(alpha: 0.30),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                          color: theme.colorScheme.primary
+                                              .withValues(alpha: 0.50),
+                                        ),
+                                      ),
+                                      padding:
+                                          widget.compact
+                                              ? const EdgeInsets.all(4)
+                                              : const EdgeInsets.all(6),
+                                      alignment:
+                                          widget.compact
+                                              ? Alignment.center
+                                              : Alignment.topLeft,
+                                      child:
+                                          widget.compact
+                                              ? Icon(
+                                                Icons.flash_on_rounded,
+                                                size: 16,
+                                                color:
+                                                    theme.colorScheme.primary,
+                                              )
+                                              : Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    Icons.flash_on_rounded,
+                                                    size: 14,
                                                     color:
                                                         theme
                                                             .colorScheme
                                                             .primary,
-                                                    fontWeight: FontWeight.w600,
                                                   ),
-                                            ),
-                                          ],
-                                        ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ];
-                    }),
-                    ...widget.absences.expand((absence) {
-                      final segment = _segmentWithinTimeline(
-                        absence.start,
-                        absence.end,
-                        widget.timelineStart,
-                        widget.timelineEnd,
-                      );
-                      if (segment == null) {
-                        return const Iterable<Widget>.empty();
-                      }
-                      final top =
-                          segment.start
-                              .difference(widget.timelineStart)
-                              .inMinutes /
-                          widget.slotMinutes *
-                          widget.slotExtent;
-                      final height = max(
-                        widget.slotExtent,
-                        segment.end.difference(segment.start).inMinutes /
-                            widget.slotMinutes *
-                            widget.slotExtent,
-                      );
-                      final timeLabel =
-                          '${_timeLabel.format(segment.start)} - ${_timeLabel.format(segment.end)}';
-                      final description = StringBuffer(absence.type.label);
-                      if (!absence.isAllDay || !absence.isSingleDay) {
-                        description.write(' • $timeLabel');
-                      }
-                      if (absence.notes != null && absence.notes!.isNotEmpty) {
-                        description.write('\n${absence.notes}');
-                      }
-                      final descriptionText = description.toString();
-                      final absenceContent =
-                          widget.compact
-                              ? Center(
-                                child: Tooltip(
-                                  message: descriptionText,
-                                  child: Icon(
-                                    Icons.event_busy_rounded,
-                                    size: 18,
-                                    color: theme.colorScheme.error,
-                                  ),
-                                ),
-                              )
-                              : Text(
-                                descriptionText,
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: theme.colorScheme.error,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              );
-
-                      return [
-                        Positioned(
-                          top: top,
-                          left: 0,
-                          right: 0,
-                          child: Container(
-                            height: height,
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.errorContainer
-                                  .withValues(alpha: 0.5),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: theme.colorScheme.error.withValues(
-                                  alpha: 0.6,
-                                ),
-                              ),
-                            ),
-                            padding:
-                                widget.compact
-                                    ? const EdgeInsets.all(4)
-                                    : const EdgeInsets.all(6),
-                            alignment:
-                                widget.compact
-                                    ? Alignment.center
-                                    : Alignment.topLeft,
-                            child: absenceContent,
-                          ),
-                        ),
-                      ];
-                    }),
-                    ...widget.shifts.expand((shift) {
-                      final segment = _segmentWithinTimeline(
-                        shift.start,
-                        shift.end,
-                        widget.timelineStart,
-                        widget.timelineEnd,
-                      );
-                      if (segment == null) {
-                        return const Iterable<Widget>.empty();
-                      }
-
-                      final baseShiftColor =
-                          Color.lerp(
-                            Colors.white,
-                            theme.colorScheme.tertiaryContainer,
-                            theme.brightness == Brightness.dark ? 0.45 : 0.0,
-                          )!;
-                      final shiftFillColor = baseShiftColor.withValues(
-                        alpha: theme.brightness == Brightness.dark ? 0.42 : 0.3,
-                      );
-                      final shiftBorderColor = theme.colorScheme.tertiary
-                          .withValues(
-                            alpha:
-                                theme.brightness == Brightness.dark
-                                    ? 0.35
-                                    : 0.2,
-                          );
-
-                      final top =
-                          segment.start
-                              .difference(widget.timelineStart)
-                              .inMinutes /
-                          widget.slotMinutes *
-                          widget.slotExtent;
-                      final height = max(
-                        widget.slotExtent,
-                        segment.end.difference(segment.start).inMinutes /
-                            widget.slotMinutes *
-                            widget.slotExtent,
-                      );
-
-                      final widgets = <Widget>[
-                        Positioned(
-                          top: top,
-                          left: 0,
-                          right: 0,
-                          child: Container(
-                            height: height,
-                            decoration: BoxDecoration(
-                              color: shiftFillColor,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: shiftBorderColor),
-                            ),
-                          ),
-                        ),
-                      ];
-
-                      if (shift.breakStart != null && shift.breakEnd != null) {
-                        final breakSegment = _segmentWithinTimeline(
-                          shift.breakStart!,
-                          shift.breakEnd!,
-                          widget.timelineStart,
-                          widget.timelineEnd,
-                        );
-                        if (breakSegment != null) {
-                          final breakTop =
-                              breakSegment.start
-                                  .difference(widget.timelineStart)
-                                  .inMinutes /
-                              widget.slotMinutes *
-                              widget.slotExtent;
-                          final breakHeight = max(
-                            widget.slotExtent / 2,
-                            breakSegment.end
-                                    .difference(breakSegment.start)
-                                    .inMinutes /
-                                widget.slotMinutes *
-                                widget.slotExtent,
-                          );
-                          widgets.add(
-                            Positioned(
-                              top: breakTop,
-                              left: 0,
-                              right: 0,
-                              child: Container(
-                                height: breakHeight,
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.errorContainer
-                                      .withValues(alpha: 0.35),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: theme.colorScheme.error.withValues(
-                                      alpha: 0.4,
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    'last\nminute',
+                                                    style: theme
+                                                        .textTheme
+                                                        .labelSmall
+                                                        ?.copyWith(
+                                                          color:
+                                                              theme
+                                                                  .colorScheme
+                                                                  .primary,
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                  ),
+                                                ],
+                                              ),
                                     ),
                                   ),
                                 ),
                               ),
-                            ),
-                          );
-                        }
-                      }
+                            ];
+                          }),
+                          ...widget.absences.expand((absence) {
+                            final segment = _segmentWithinTimeline(
+                              absence.start,
+                              absence.end,
+                              widget.timelineStart,
+                              widget.timelineEnd,
+                            );
+                            if (segment == null) {
+                              return const Iterable<Widget>.empty();
+                            }
+                            final top =
+                                segment.start
+                                    .difference(widget.timelineStart)
+                                    .inMinutes /
+                                widget.slotMinutes *
+                                widget.slotExtent;
+                            final height = max(
+                              widget.slotExtent,
+                              segment.end.difference(segment.start).inMinutes /
+                                  widget.slotMinutes *
+                                  widget.slotExtent,
+                            );
+                            final timeLabel =
+                                '${_timeLabel.format(segment.start)} - ${_timeLabel.format(segment.end)}';
+                            final description = StringBuffer(
+                              absence.type.label,
+                            );
+                            if (!absence.isAllDay || !absence.isSingleDay) {
+                              description.write(' • $timeLabel');
+                            }
+                            if (absence.notes != null &&
+                                absence.notes!.isNotEmpty) {
+                              description.write('\n${absence.notes}');
+                            }
+                            final descriptionText = description.toString();
+                            final absenceContent =
+                                widget.compact
+                                    ? Center(
+                                      child: Tooltip(
+                                        message: descriptionText,
+                                        child: Icon(
+                                          Icons.event_busy_rounded,
+                                          size: 18,
+                                          color: theme.colorScheme.error,
+                                        ),
+                                      ),
+                                    )
+                                    : Text(
+                                      descriptionText,
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(
+                                            color: theme.colorScheme.error,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    );
 
-                      return widgets;
-                    }),
-                    ...widget.appointments.map((appointment) {
-                      final segment = _segmentWithinTimeline(
-                        appointment.start,
-                        appointment.end,
-                        widget.timelineStart,
-                        widget.timelineEnd,
-                      );
-                      if (segment == null) {
-                        return const SizedBox.shrink();
-                      }
-                      final top =
-                          segment.start
-                              .difference(widget.timelineStart)
-                              .inMinutes /
-                          widget.slotMinutes *
-                          widget.slotExtent;
-                      final height =
-                          segment.end.difference(segment.start).inMinutes /
-                          widget.slotMinutes *
-                          widget.slotExtent;
-                      final visibleMinutes = max(
-                        1,
-                        segment.end.difference(segment.start).inMinutes,
-                      );
-                      final client = widget.clientsById[appointment.clientId];
-                      final services =
-                          appointment.serviceIds
-                              .map((id) => widget.servicesById[id])
-                              .whereType<Service>()
-                              .toList();
-                      final service =
-                          services.isNotEmpty
-                              ? services.first
-                              : widget.servicesById[appointment.serviceId];
-                      final roomName =
-                          appointment.roomId != null
-                              ? widget.roomsById[appointment.roomId!]
-                              : null;
-                      final issues =
-                          widget.anomalies[appointment.id] ??
-                          const <AppointmentAnomalyType>{};
-                      final slotId = appointment.lastMinuteSlotId;
-                      final matchingSlot =
-                          slotId == null
-                              ? null
-                              : widget.lastMinuteSlots.firstWhereOrNull(
-                                (slot) => slot.id == slotId,
+                            return [
+                              Positioned(
+                                top: top,
+                                left: 0,
+                                right: 0,
+                                child: IgnorePointer(
+                                  child: Container(
+                                    height: height,
+                                    decoration: BoxDecoration(
+                                      color: theme.colorScheme.errorContainer
+                                          .withValues(alpha: 0.5),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: theme.colorScheme.error
+                                            .withValues(alpha: 0.6),
+                                      ),
+                                    ),
+                                    padding:
+                                        widget.compact
+                                            ? const EdgeInsets.all(4)
+                                            : const EdgeInsets.all(6),
+                                    alignment:
+                                        widget.compact
+                                            ? Alignment.center
+                                            : Alignment.topLeft,
+                                    child: absenceContent,
+                                  ),
+                                ),
+                              ),
+                            ];
+                          }),
+                          ...widget.shifts.expand((shift) {
+                            final segment = _segmentWithinTimeline(
+                              shift.start,
+                              shift.end,
+                              widget.timelineStart,
+                              widget.timelineEnd,
+                            );
+                            if (segment == null) {
+                              return const Iterable<Widget>.empty();
+                            }
+
+                            final baseShiftColor =
+                                Color.lerp(
+                                  Colors.white,
+                                  theme.colorScheme.tertiaryContainer,
+                                  theme.brightness == Brightness.dark
+                                      ? 0.45
+                                      : 0.0,
+                                )!;
+                            final shiftFillColor = baseShiftColor.withValues(
+                              alpha:
+                                  theme.brightness == Brightness.dark
+                                      ? 0.42
+                                      : 0.3,
+                            );
+                            final shiftBorderColor = theme.colorScheme.tertiary
+                                .withValues(
+                                  alpha:
+                                      theme.brightness == Brightness.dark
+                                          ? 0.35
+                                          : 0.2,
+                                );
+
+                            final top =
+                                segment.start
+                                    .difference(widget.timelineStart)
+                                    .inMinutes /
+                                widget.slotMinutes *
+                                widget.slotExtent;
+                            final height = max(
+                              widget.slotExtent,
+                              segment.end.difference(segment.start).inMinutes /
+                                  widget.slotMinutes *
+                                  widget.slotExtent,
+                            );
+
+                            final widgets = <Widget>[
+                              Positioned(
+                                top: top,
+                                left: 0,
+                                right: 0,
+                                child: IgnorePointer(
+                                  child: Container(
+                                    height: height,
+                                    decoration: BoxDecoration(
+                                      color: shiftFillColor,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: shiftBorderColor,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ];
+
+                            if (shift.breakStart != null &&
+                                shift.breakEnd != null) {
+                              final breakSegment = _segmentWithinTimeline(
+                                shift.breakStart!,
+                                shift.breakEnd!,
+                                widget.timelineStart,
+                                widget.timelineEnd,
                               );
-                      final lockReason =
-                          widget.lockedAppointmentReasons[appointment.id];
-                      final isLocked = lockReason != null;
-                      final hasOutstandingPayments = widget
-                          .clientsWithOutstandingPayments
-                          .contains(appointment.clientId);
-                      final card = _AppointmentCard(
-                        appointment: appointment,
-                        client: client,
-                        service: service,
-                        services: services,
-                        staff: widget.staffMember,
-                        roomName: roomName,
-                        onTap: () => widget.onEdit(appointment),
-                        height: height,
-                        visibleDurationMinutes: visibleMinutes,
-                        anomalies: issues,
-                        lockReason: lockReason,
-                        lastMinuteSlot: matchingSlot,
-                        categoriesById: widget.categoriesById,
-                        categoriesByName: widget.categoriesByName,
-                        hideContent: widget.compact,
-                        hasOutstandingPayments: hasOutstandingPayments,
-                      );
-                      if (isLocked) {
-                        return Positioned(
-                          top: top,
-                          left: 4,
-                          right: 4,
-                          child: card,
-                        );
-                      }
-                      return Positioned(
-                        top: top,
-                        left: 4,
-                        right: 4,
-                        child: LongPressDraggable<_AppointmentDragData>(
-                          data: _AppointmentDragData(appointment: appointment),
-                          dragAnchorStrategy: pointerDragAnchorStrategy,
-                          onDragStarted: () => _setDragging(true),
-                          onDragCompleted: () => _setDragging(false),
-                          onDragEnd: (_) => _setDragging(false),
-                          onDraggableCanceled: (_, __) => _setDragging(false),
-                          feedback: _DragFeedback(
-                            child: _DragPreviewCard(
+                              if (breakSegment != null) {
+                                final breakTop =
+                                    breakSegment.start
+                                        .difference(widget.timelineStart)
+                                        .inMinutes /
+                                    widget.slotMinutes *
+                                    widget.slotExtent;
+                                final breakHeight = max(
+                                  widget.slotExtent / 2,
+                                  breakSegment.end
+                                          .difference(breakSegment.start)
+                                          .inMinutes /
+                                      widget.slotMinutes *
+                                      widget.slotExtent,
+                                );
+                                widgets.add(
+                                  Positioned(
+                                    top: breakTop,
+                                    left: 0,
+                                    right: 0,
+                                    child: IgnorePointer(
+                                      child: Container(
+                                        height: breakHeight,
+                                        decoration: BoxDecoration(
+                                          color: theme
+                                              .colorScheme
+                                              .errorContainer
+                                              .withValues(alpha: 0.35),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          border: Border.all(
+                                            color: theme.colorScheme.error
+                                                .withValues(alpha: 0.4),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }
+                            }
+
+                            return widgets;
+                          }),
+                          ...widget.appointments.map((appointment) {
+                            final segment = _segmentWithinTimeline(
+                              appointment.start,
+                              appointment.end,
+                              widget.timelineStart,
+                              widget.timelineEnd,
+                            );
+                            if (segment == null) {
+                              return const SizedBox.shrink();
+                            }
+                            final top =
+                                segment.start
+                                    .difference(widget.timelineStart)
+                                    .inMinutes /
+                                widget.slotMinutes *
+                                widget.slotExtent;
+                            final height =
+                                segment.end
+                                    .difference(segment.start)
+                                    .inMinutes /
+                                widget.slotMinutes *
+                                widget.slotExtent;
+                            final visibleMinutes = max(
+                              1,
+                              segment.end.difference(segment.start).inMinutes,
+                            );
+                            final client =
+                                widget.clientsById[appointment.clientId];
+                            final services =
+                                appointment.serviceIds
+                                    .map((id) => widget.servicesById[id])
+                                    .whereType<Service>()
+                                    .toList();
+                            final service =
+                                services.isNotEmpty
+                                    ? services.first
+                                    : widget.servicesById[appointment
+                                        .serviceId];
+                            final roomName =
+                                appointment.roomId != null
+                                    ? widget.roomsById[appointment.roomId!]
+                                    : null;
+                            final issues =
+                                widget.anomalies[appointment.id] ??
+                                const <AppointmentAnomalyType>{};
+                            final slotId = appointment.lastMinuteSlotId;
+                            final matchingSlot =
+                                slotId == null
+                                    ? null
+                                    : widget.lastMinuteSlots.firstWhereOrNull(
+                                      (slot) => slot.id == slotId,
+                                    );
+                            final lockReason =
+                                widget.lockedAppointmentReasons[appointment.id];
+                            final isLocked = lockReason != null;
+                            final hasOutstandingPayments = widget
+                                .clientsWithOutstandingPayments
+                                .contains(appointment.clientId);
+                            final card = _AppointmentCard(
                               appointment: appointment,
                               client: client,
                               service: service,
                               services: services,
                               staff: widget.staffMember,
                               roomName: roomName,
-                              height: height,
-                              anomalies: issues,
-                              previewStart: _dragPreviewStart,
-                              previewDuration: _dragPreviewDuration,
-                              slotMinutes: widget.interactionSlotMinutes,
-                              lastMinuteSlot: matchingSlot,
-                              categoriesById: widget.categoriesById,
-                              categoriesByName: widget.categoriesByName,
-                              hasOutstandingPayments: hasOutstandingPayments,
-                              showDuration: true,
-                              expandToContent: true,
-                              showNotes: true,
-                            ),
-                          ),
-                          childWhenDragging: Opacity(
-                            opacity: 0.4,
-                            child: _AppointmentCard(
-                              appointment: appointment,
-                              client: client,
-                              service: service,
-                              services: services,
-                              staff: widget.staffMember,
-                              roomName: roomName,
+                              onTap: () => widget.onEdit(appointment),
                               height: height,
                               visibleDurationMinutes: visibleMinutes,
                               anomalies: issues,
@@ -6845,104 +7276,186 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                               categoriesByName: widget.categoriesByName,
                               hideContent: widget.compact,
                               hasOutstandingPayments: hasOutstandingPayments,
-                            ),
-                          ),
-                          child: card,
-                        ),
-                      );
-                    }),
-                    if (candidateData.isNotEmpty)
-                      Positioned.fill(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color:
-                                _dragPreviewHasConflict
-                                    ? theme.colorScheme.error.withValues(
-                                      alpha: 0.08,
-                                    )
-                                    : theme.colorScheme.primary.withValues(
-                                      alpha: 0.08,
+                            );
+                            if (isLocked) {
+                              return Positioned(
+                                top: top,
+                                left: 4,
+                                right: 4,
+                                child: card,
+                              );
+                            }
+                            return Positioned(
+                              top: top,
+                              left: 4,
+                              right: 4,
+                              child: LongPressDraggable<_AppointmentDragData>(
+                                data: _AppointmentDragData(
+                                  appointment: appointment,
+                                ),
+                                maxSimultaneousDrags: 1,
+                                dragAnchorStrategy: pointerDragAnchorStrategy,
+                                onDragStarted:
+                                    () => _interactionController.startDrag(
+                                      appointment,
                                     ),
-                            border: Border.all(
-                              color:
-                                  _dragPreviewHasConflict
-                                      ? theme.colorScheme.error.withValues(
-                                        alpha: 0.2,
-                                      )
-                                      : theme.colorScheme.primary.withValues(
-                                        alpha: 0.2,
-                                      ),
-                              width: 2,
+                                onDragCompleted: _endDragAfterFrame,
+                                onDragEnd: (_) => _endDragAfterFrame(),
+                                onDraggableCanceled:
+                                    (_, __) =>
+                                        _endDragAfterFrame(cancelled: true),
+                                feedback: _DragFeedback(
+                                  child: _DragPreviewCard(
+                                    appointment: appointment,
+                                    client: client,
+                                    service: service,
+                                    services: services,
+                                    staff: widget.staffMember,
+                                    roomName: roomName,
+                                    height: height,
+                                    anomalies: issues,
+                                    previewStart: interaction.previewStart,
+                                    previewDuration:
+                                        interaction.previewDuration ??
+                                        appointment.duration,
+                                    slotMinutes: widget.interactionSlotMinutes,
+                                    lastMinuteSlot: matchingSlot,
+                                    categoriesById: widget.categoriesById,
+                                    categoriesByName: widget.categoriesByName,
+                                    hasOutstandingPayments:
+                                        hasOutstandingPayments,
+                                    showDuration: true,
+                                    expandToContent: true,
+                                    showNotes: true,
+                                  ),
+                                ),
+                                childWhenDragging: Opacity(
+                                  opacity: 0.4,
+                                  child: _AppointmentCard(
+                                    appointment: appointment,
+                                    client: client,
+                                    service: service,
+                                    services: services,
+                                    staff: widget.staffMember,
+                                    roomName: roomName,
+                                    height: height,
+                                    visibleDurationMinutes: visibleMinutes,
+                                    anomalies: issues,
+                                    lockReason: lockReason,
+                                    lastMinuteSlot: matchingSlot,
+                                    categoriesById: widget.categoriesById,
+                                    categoriesByName: widget.categoriesByName,
+                                    hideContent: widget.compact,
+                                    hasOutstandingPayments:
+                                        hasOutstandingPayments,
+                                  ),
+                                ),
+                                child: card,
+                              ),
+                            );
+                          }),
+                          if (candidateData.isNotEmpty)
+                            Positioned.fill(
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color:
+                                      interaction.hasConflict
+                                          ? theme.colorScheme.error.withValues(
+                                            alpha: 0.08,
+                                          )
+                                          : theme.colorScheme.primary
+                                              .withValues(alpha: 0.08),
+                                  border: Border.all(
+                                    color:
+                                        interaction.hasConflict
+                                            ? theme.colorScheme.error
+                                                .withValues(alpha: 0.2)
+                                            : theme.colorScheme.primary
+                                                .withValues(alpha: 0.2),
+                                    width: 2,
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
                             ),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
+                        ],
                       ),
-                  ],
-                ),
-              ),
-            );
-          },
-          onAcceptWithDetails: (details) async {
-            final payload = details.data;
-            final renderBox = context.findRenderObject() as RenderBox?;
-            if (renderBox == null) {
-              return;
-            }
-            final localOffset = renderBox.globalToLocal(details.offset);
-            final clampedDy = localOffset.dy.clamp(0.0, renderBox.size.height);
-            final totalMinutes =
-                widget.timelineEnd
-                    .difference(widget.timelineStart)
-                    .inMinutes
-                    .toDouble();
-            final durationMinutes = payload.duration.inMinutes.toDouble();
-            var minuteOffset =
-                (clampedDy / renderBox.size.height) * totalMinutes;
-            final maxStartMinutes = max(0.0, totalMinutes - durationMinutes);
-            if (totalMinutes > durationMinutes) {
-              minuteOffset = min(max(minuteOffset, 0.0), maxStartMinutes);
-            } else {
-              minuteOffset = 0.0;
-            }
-            final slotMinutes = widget.interactionSlotMinutes;
-            final snappedMinutes =
-                (minuteOffset / slotMinutes).round() * slotMinutes;
-            final maxStartMinutesInt = maxStartMinutes.floor();
-            final clampedMinutes = max(
-              0,
-              min(snappedMinutes, maxStartMinutesInt),
-            );
-            final newStart = widget.timelineStart.add(
-              Duration(minutes: clampedMinutes),
-            );
-            final newEnd = newStart.add(payload.duration);
+                    ),
+                  );
+                },
+                onAcceptWithDetails: (details) async {
+                  final payload = details.data;
+                  final renderBox = context.findRenderObject() as RenderBox?;
+                  if (renderBox == null) {
+                    return;
+                  }
+                  if (!renderBox.hasSize || renderBox.size.height <= 0) {
+                    return;
+                  }
+                  final localOffset = renderBox.globalToLocal(details.offset);
+                  final clampedDy = localOffset.dy.clamp(
+                    0.0,
+                    renderBox.size.height,
+                  );
+                  final totalMinutes =
+                      widget.timelineEnd
+                          .difference(widget.timelineStart)
+                          .inMinutes
+                          .toDouble();
+                  final durationMinutes = payload.duration.inMinutes.toDouble();
+                  var minuteOffset =
+                      (clampedDy / renderBox.size.height) * totalMinutes;
+                  final maxStartMinutes = max(
+                    0.0,
+                    totalMinutes - durationMinutes,
+                  );
+                  if (totalMinutes > durationMinutes) {
+                    minuteOffset = min(max(minuteOffset, 0.0), maxStartMinutes);
+                  } else {
+                    minuteOffset = 0.0;
+                  }
+                  final slotMinutes = widget.interactionSlotMinutes;
+                  final snappedMinutes =
+                      (minuteOffset / slotMinutes).round() * slotMinutes;
+                  final maxStartMinutesInt = maxStartMinutes.floor();
+                  final clampedMinutes = max(
+                    0,
+                    min(snappedMinutes, maxStartMinutesInt),
+                  );
+                  final newStart = widget.timelineStart.add(
+                    Duration(minutes: clampedMinutes),
+                  );
+                  final newEnd = newStart.add(payload.duration);
 
-            final conflictMessage = _slotConflictMessage(
-              newStart,
-              newEnd,
-              payload.appointment,
-              widget.staffMember,
-            );
-            if (conflictMessage != null) {
-              _setDragging(false);
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(SnackBar(content: Text(conflictMessage)));
-              return;
-            }
+                  final conflictMessage = _slotConflictMessage(
+                    newStart,
+                    newEnd,
+                    payload.appointment,
+                    widget.staffMember,
+                  );
+                  if (conflictMessage != null) {
+                    _endDragAfterFrame();
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text(conflictMessage)));
+                    return;
+                  }
 
-            await widget.onReschedule(
-              AppointmentRescheduleRequest(
-                appointment: payload.appointment,
-                newStart: newStart,
-                newEnd: newEnd,
-                newStaffId: widget.staffMember.id,
-                newRoomId: payload.appointment.roomId,
+                  _interactionController.markAccepting();
+                  await widget.onReschedule(
+                    AppointmentRescheduleRequest(
+                      appointment: payload.appointment,
+                      newStart: newStart,
+                      newEnd: newEnd,
+                      newStaffId: widget.staffMember.id,
+                      newRoomId: payload.appointment.roomId,
+                    ),
+                  );
+                  _endDragAfterFrame();
+                },
               ),
-            );
-            _setDragging(false);
-          },
+            ),
+          ],
         ),
       ),
     );
@@ -7339,6 +7852,38 @@ class _AppointmentCard extends StatefulWidget {
   State<_AppointmentCard> createState() => _AppointmentCardState();
 }
 
+List<String> _attentionMessages({
+  required bool isCancelled,
+  required Set<AppointmentAnomalyType> anomalies,
+}) {
+  final messages = <String>[];
+  if (isCancelled) {
+    messages.add('Appuntamento annullato');
+  }
+  if (anomalies.isNotEmpty) {
+    messages.addAll(
+      (anomalies.toList()..sort((a, b) => a.index.compareTo(b.index))).map(
+        (issue) => issue.description,
+      ),
+    );
+  }
+  return messages;
+}
+
+String? _attentionText({
+  required bool isCancelled,
+  required Set<AppointmentAnomalyType> anomalies,
+}) {
+  final messages = _attentionMessages(
+    isCancelled: isCancelled,
+    anomalies: anomalies,
+  );
+  if (messages.isEmpty) {
+    return null;
+  }
+  return messages.join('\n');
+}
+
 double _contentAwareHeight({
   required double baseHeight,
   required bool expandToContent,
@@ -7347,15 +7892,19 @@ double _contentAwareHeight({
   required bool showServiceInfo,
   required bool showClientInfo,
   required bool showClientPhone,
+  required bool showClientNumber,
   required bool hasPreviewNote,
+  required String? attentionText,
   required bool hasOutstandingPayments,
   required String? serviceLabel,
   required String? clientName,
+  required String? clientNumber,
   required String? clientPhone,
   required String? noteText,
   required String? roomName,
 }) {
-  var height = expandToContent ? max(baseHeight, _kBasePreviewHeight) : baseHeight;
+  var height =
+      expandToContent ? max(baseHeight, _kBasePreviewHeight) : baseHeight;
   if (!expandToContent) {
     return height;
   }
@@ -7364,29 +7913,44 @@ double _contentAwareHeight({
       showServiceInfo ? (serviceLabel ?? '').trim().length : 0;
   final int clientNameLength =
       showClientInfo ? (clientName ?? '').trim().length : 0;
+  final int clientNumberLength =
+      showClientNumber ? (clientNumber ?? '').trim().length : 0;
   final int phoneLength =
       showClientPhone ? (clientPhone ?? '').trim().length : 0;
   final int noteLength = hasPreviewNote ? (noteText ?? '').length : 0;
+  final bool hasAttentionText =
+      attentionText != null && attentionText!.trim().isNotEmpty;
+  final int attentionLength = hasAttentionText ? attentionText!.length : 0;
   final int estimatedServiceLines =
       showServiceInfo ? max(1, (serviceLength / 26).ceil()) : 0;
   final int estimatedClientLines =
       showClientInfo ? max(1, (clientNameLength / 22).ceil()) : 0;
   final int estimatedPhoneLines =
       showClientPhone ? max(1, (phoneLength / 24).ceil()) : 0;
+  final int estimatedClientNumberLines =
+      showClientNumber ? max(1, (clientNumberLength / 22).ceil()) : 0;
   final int estimatedNoteLines =
       hasPreviewNote ? max(1, (noteLength / 28).ceil()) : 0;
+  final int estimatedAttentionLines =
+      hasAttentionText && expandToContent
+          ? max(1, (attentionLength / 28).ceil())
+          : 0;
   final int estimatedLines =
       1 +
       estimatedServiceLines +
       estimatedClientLines +
+      estimatedClientNumberLines +
       estimatedPhoneLines +
-      estimatedNoteLines;
+      estimatedNoteLines +
+      estimatedAttentionLines;
   final double lineHeight = highlight ? 21.0 : 18.0;
   final double gapUnit = highlight ? 7.0 : 6.0;
   final double gapHeight =
       estimatedLines > 1 ? (estimatedLines - 1) * gapUnit : 0;
   final bool bottomSectionLikely =
-      roomName != null || hasOutstandingPayments || (showDurationChip && highlight);
+      roomName != null ||
+      hasOutstandingPayments ||
+      (showDurationChip && highlight);
   final double baseHeadroom = highlight ? 64 : 56; // time + paddings
   final double bottomAllowance =
       bottomSectionLikely ? (highlight ? 64 : 52) : (highlight ? 24 : 0);
@@ -7513,6 +8077,14 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                 .map((service) => service.name)
                 .join(' + ')
             : null;
+    final attentionText = _attentionText(
+      isCancelled: widget.appointment.status == AppointmentStatus.cancelled,
+      anomalies: widget.anomalies,
+    );
+    final clientNumber =
+        client?.clientNumber != null && client!.clientNumber!.trim().isNotEmpty
+            ? client!.clientNumber!.trim()
+            : null;
     final clientPhone =
         client?.phone != null && client!.phone.trim().isNotEmpty
             ? client!.phone.trim()
@@ -7527,10 +8099,13 @@ class _AppointmentCardState extends State<_AppointmentCard> {
       showServiceInfo: true,
       showClientInfo: true,
       showClientPhone: clientPhone != null,
+      showClientNumber: clientNumber != null,
       hasPreviewNote: hasPreviewNote,
+      attentionText: attentionText,
       hasOutstandingPayments: widget.hasOutstandingPayments,
       serviceLabel: serviceLabel,
       clientName: client?.fullName,
+      clientNumber: clientNumber,
       clientPhone: clientPhone,
       noteText: noteText,
       roomName: widget.roomName,
@@ -7543,11 +8118,10 @@ class _AppointmentCardState extends State<_AppointmentCard> {
           max(0.0, overlayBox.size.width - hoverWidth),
         );
         final desiredTop = targetRect.top;
-        final maxTop =
-            max(
-              0.0,
-              overlayBox.size.height - hoverHeightEstimate - _kHoverPreviewGap,
-            );
+        final maxTop = max(
+          0.0,
+          overlayBox.size.height - hoverHeightEstimate - _kHoverPreviewGap,
+        );
         final clampedTop =
             hoverHeightEstimate.isFinite && hoverHeightEstimate > 0
                 ? desiredTop.clamp(0.0, maxTop)
@@ -7663,15 +8237,25 @@ class _AppointmentCardState extends State<_AppointmentCard> {
         expandToContent || contentDurationMinutes >= 30;
     final bool showClientInfo =
         expandToContent || highlight || contentDurationMinutes >= 45;
+    final String? clientNumber =
+        client?.clientNumber != null && client!.clientNumber!.trim().isNotEmpty
+            ? client!.clientNumber!.trim()
+            : null;
     final String? clientPhone =
         client?.phone != null && client!.phone.trim().isNotEmpty
             ? client!.phone.trim()
             : null;
     final bool showClientPhone =
         clientPhone != null && (highlight || expandToContent);
+    final bool showClientNumber = clientNumber != null && showClientInfo;
     final noteText = appointment.notes?.trim();
     final bool hasPreviewNote =
         showNotes && noteText != null && noteText.isNotEmpty;
+    final bool isCancelled = status == AppointmentStatus.cancelled;
+    final attentionText = _attentionText(
+      isCancelled: isCancelled,
+      anomalies: anomalies,
+    );
     final double baseHeight =
         expandToContent ? _kBasePreviewHeight : widget.height;
     height = _contentAwareHeight(
@@ -7682,10 +8266,13 @@ class _AppointmentCardState extends State<_AppointmentCard> {
       showServiceInfo: showServiceInfo,
       showClientInfo: showClientInfo,
       showClientPhone: showClientPhone,
+      showClientNumber: showClientNumber,
       hasPreviewNote: hasPreviewNote,
+      attentionText: attentionText,
       hasOutstandingPayments: hasOutstandingPayments,
       serviceLabel: serviceLabel,
       clientName: client?.fullName,
+      clientNumber: clientNumber,
       clientPhone: showClientPhone ? clientPhone : null,
       noteText: noteText,
       roomName: roomName,
@@ -7702,7 +8289,6 @@ class _AppointmentCardState extends State<_AppointmentCard> {
       categoryLabel,
       theme,
     );
-    final isCancelled = status == AppointmentStatus.cancelled;
     final baseColor =
         (isCancelled || hideNoShowColor)
             ? Colors.transparent
@@ -7940,12 +8526,6 @@ class _AppointmentCardState extends State<_AppointmentCard> {
               alpha: theme.brightness == Brightness.dark ? 0.28 : 0.18,
             )
             : elegantBorder;
-    final List<String> issueDescriptions =
-        hasAnomalies
-            ? (anomalies.toList()..sort((a, b) => a.index.compareTo(b.index)))
-                .map((issue) => issue.description)
-                .toList()
-            : const <String>[];
     final needsAttention = hasAnomalies || isCancelled;
     final highlightCompactAttention = hideContent && needsAttention;
     final borderColor =
@@ -7977,14 +8557,6 @@ class _AppointmentCardState extends State<_AppointmentCard> {
             ? 1.5
             : 1.2;
     final showBorder = true;
-    final attentionTooltipLines = <String>[
-      if (isCancelled) 'Appuntamento annullato',
-      ...issueDescriptions,
-    ];
-    final attentionTooltip =
-        attentionTooltipLines.isNotEmpty
-            ? attentionTooltipLines.join('\n')
-            : null;
     final double verticalPadding;
     if (expandToContent) {
       verticalPadding = 12;
@@ -8012,9 +8584,10 @@ class _AppointmentCardState extends State<_AppointmentCard> {
     final borderRadius = BorderRadius.circular(12);
     final bool isDark = theme.brightness == Brightness.dark;
     final Color primaryContentColor = isDark ? Colors.white : Colors.black;
-    final Color secondaryContentColor = isDark
-        ? Colors.white.withValues(alpha: 0.85)
-        : Colors.black.withValues(alpha: 0.82);
+    final Color secondaryContentColor =
+        isDark
+            ? Colors.white.withValues(alpha: 0.85)
+            : Colors.black.withValues(alpha: 0.82);
     final Color iconContentColor = primaryContentColor;
     final Color infoPillBackgroundColor =
         isDark
@@ -8304,11 +8877,20 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                           fontWeight: FontWeight.w700,
                         )
                         : detailStyle;
+                final TextStyle clientNumberStyle =
+                    highlight
+                        ? detailStyle.copyWith(
+                          fontSize: baseDetailSize + 6,
+                          fontWeight: FontWeight.w700,
+                        )
+                        : detailStyle.copyWith(fontWeight: FontWeight.w700);
                 final List<Widget> children = [];
                 final bool showInfoPillLabels = !hideContent;
                 final bool showDetails = !hideContent;
                 final note = noteText;
                 final bool showNoteLine = hasPreviewNote;
+                final bool showAttentionText =
+                    expandToContent && attentionText != null;
 
                 void addDetail(
                   String? value,
@@ -8347,6 +8929,9 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                     addDetail(serviceLabel, serviceStyle);
                   }
                   if (showClientInfo) {
+                    if (clientNumber != null) {
+                      addDetail('N° $clientNumber', clientNumberStyle);
+                    }
                     addDetail(client?.fullName, clientStyle);
                     if (showClientPhone) {
                       addDetail(clientPhone, phoneStyle);
@@ -8357,6 +8942,25 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                         detailStyle,
                         gap: expandToContent ? 8 : 4,
                         maxLines: expandToContent ? null : 2,
+                      );
+                    }
+                    if (showAttentionText) {
+                      final attentionLabel =
+                          attentionText!.contains('\n')
+                              ? 'Attenzione:\n$attentionText'
+                              : 'Attenzione: $attentionText';
+                      addDetail(
+                        attentionLabel,
+                        detailStyle.copyWith(
+                          color: theme.colorScheme.error,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        gap: expandToContent ? 10 : 6,
+                        maxLines: expandToContent ? null : 3,
+                        overflow:
+                            expandToContent
+                                ? TextOverflow.visible
+                                : TextOverflow.ellipsis,
                       );
                     }
                   }
@@ -8524,11 +9128,28 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                   return const SizedBox.shrink();
                 }
 
-                return Column(
+                Widget content = Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: children,
                 );
+
+                if (constraints.hasBoundedHeight && availableHeight.isFinite) {
+                  final bool enableScrolling = availableHeight < 140;
+                  content = ClipRect(
+                    child: SingleChildScrollView(
+                      padding: EdgeInsets.zero,
+                      primary: false,
+                      physics:
+                          enableScrolling
+                              ? const ClampingScrollPhysics()
+                              : const NeverScrollableScrollPhysics(),
+                      child: content,
+                    ),
+                  );
+                }
+
+                return content;
               },
             ),
           ),
@@ -8558,27 +9179,24 @@ class _AppointmentCardState extends State<_AppointmentCard> {
             hasAnomalies
                 ? theme.colorScheme.error.withValues(alpha: 0.45)
                 : theme.colorScheme.outlineVariant.withValues(alpha: 0.25);
-        attentionBadge = Tooltip(
-          message: attentionTooltip ?? 'Appuntamento da gestire',
-          waitDuration: const Duration(milliseconds: 250),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: overlayColor,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: shadowColor,
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(6),
-              child: Icon(iconData, color: iconColor, size: 24),
-            ),
+        final badgeContent = DecoratedBox(
+          decoration: BoxDecoration(
+            color: overlayColor,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: shadowColor,
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: Icon(iconData, color: iconColor, size: 24),
           ),
         );
+        attentionBadge = badgeContent;
       }
 
       Widget? lastMinuteBadge;

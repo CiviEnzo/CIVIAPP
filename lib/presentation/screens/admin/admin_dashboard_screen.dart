@@ -249,6 +249,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           final isLargeScreen = constraints.maxWidth >= 1080;
           final moduleBackground = theme.colorScheme.surfaceContainerLowest;
           final content = selectedModule.builder(context, ref, selectedSalonId);
+          final showSalonSelector = selectedModule.id == 'salons';
 
           return Scaffold(
             key: _scaffoldKey,
@@ -266,19 +267,57 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                           },
                         ),
                       ),
-                    ),
+            ),
             appBar: AppBar(
               automaticallyImplyLeading: !isLargeScreen,
-              title: Text(selectedModule.title),
+              title:
+                  isLargeScreen
+                      ? Row(
+                        children: [
+                          _ModuleBadge(module: selectedModule),
+                          if (showSalonSelector) ...[
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final maxWidth =
+                                      constraints.maxWidth.clamp(
+                                        160.0,
+                                        320.0,
+                                      ) as double;
+                                  return Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: ConstrainedBox(
+                                      constraints:
+                                          BoxConstraints(maxWidth: maxWidth),
+                                      child: _SalonSelector(
+                                        salons: salons,
+                                        selectedSalonId: selectedSalonId,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        ],
+                      )
+                      : showSalonSelector
+                      ? LayoutBuilder(
+                        builder: (context, constraints) {
+                          final maxWidth =
+                              constraints.maxWidth.clamp(160.0, 320.0) as double;
+                          return ConstrainedBox(
+                            constraints: BoxConstraints(maxWidth: maxWidth),
+                            child: _SalonSelector(
+                              salons: salons,
+                              selectedSalonId: selectedSalonId,
+                            ),
+                          );
+                        },
+                      )
+                      : _ModuleBadge(module: selectedModule),
               actions: [
-                if (salons.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: _SalonSelector(
-                      salons: salons,
-                      selectedSalonId: selectedSalonId,
-                    ),
-                  ),
                 const ThemeModeAction(),
                 IconButton(
                   tooltip: 'Esci',
@@ -468,6 +507,41 @@ class _DrawerNavigation extends StatelessWidget {
   }
 }
 
+class _ModuleBadge extends StatelessWidget {
+  const _ModuleBadge({required this.module});
+
+  final AdminModuleDefinition module;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withOpacity(0.7),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(module.icon, size: 20, color: scheme.primary),
+            const SizedBox(width: 8),
+            Text(
+              module.title,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: scheme.onSurface,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 Widget _adminNavigationIcon(
   BuildContext context, {
   required IconData icon,
@@ -551,6 +625,7 @@ class _SalonSelector extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return DropdownButtonHideUnderline(
       child: DropdownButton<String?>(
+        isExpanded: true,
         value: selectedSalonId,
         hint: const Text('Tutti i saloni'),
         items: [

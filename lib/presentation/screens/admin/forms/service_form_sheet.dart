@@ -189,6 +189,7 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String?>(
+              isExpanded: true,
               value: _categoryId,
               decoration: InputDecoration(
                 labelText: 'Categoria',

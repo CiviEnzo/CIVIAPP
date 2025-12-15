@@ -304,6 +304,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<SalonStatus>(
+              isExpanded: true,
               value: _status,
               decoration: const InputDecoration(labelText: 'Stato del salone'),
               items:
@@ -528,6 +529,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: DropdownButtonFormField<LoyaltyRoundingMode>(
+                            isExpanded: true,
                             value: _loyaltyRounding,
                             decoration: const InputDecoration(
                               labelText: 'Arrotondamento',
@@ -770,6 +772,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<ClientRegistrationAccessMode>(
+              isExpanded: true,
               value: _registrationAccessMode,
               decoration: const InputDecoration(
                 labelText: 'Modalità di accesso',
@@ -1572,6 +1575,7 @@ class _EquipmentCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<SalonEquipmentStatus>(
+              isExpanded: true,
               value: data.status,
               decoration: const InputDecoration(labelText: 'Stato operativo'),
               items:

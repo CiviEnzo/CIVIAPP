@@ -69,6 +69,7 @@ class _WhatsAppCampaignEditorPageState
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<MessageTemplate>(
+              isExpanded: true,
               value: _selectedTemplate,
               decoration: const InputDecoration(
                 labelText: 'Template approvato',

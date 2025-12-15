@@ -1,3 +1,4 @@
+import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/client_import.dart';
 import 'package:you_book/domain/entities/salon.dart';
@@ -95,7 +96,17 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     _performSearch(showErrorWhenEmpty: false);
   }
 
-  void _handleClientTap(String clientId) {
+  Future<void> _handleClientTap(String clientId) async {
+    final isCompact = isCompactClientLayout(context);
+    if (isCompact) {
+      await openClientDetailPage(
+        context,
+        clientId: clientId,
+        initialTabIndex: 0,
+        compactOnly: true,
+      );
+      return;
+    }
     setState(() {
       _selectedClientId = _selectedClientId == clientId ? null : clientId;
       _clientDetailInitialTabIndex = null;
@@ -714,15 +725,20 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
         ),
       );
     } else {
+      final now = DateTime.now();
       final clientsToRender =
           selectedClient != null ? [selectedClient] : filteredClients;
 
       for (var i = 0; i < clientsToRender.length; i++) {
         final client = clientsToRender[i];
         final appointments =
-            data.appointments
-                .where((appointment) => appointment.clientId == client.id)
-                .length;
+            data.appointments.where((appointment) {
+              final isForClient = appointment.clientId == client.id;
+              final isUpcoming =
+                  appointment.status == AppointmentStatus.scheduled &&
+                  !appointment.start.isBefore(now);
+              return isForClient && isUpcoming;
+            }).length;
         final purchases =
             data.sales.where((sale) => sale.clientId == client.id).length;
         final isSelected = client.id == _selectedClientId;
@@ -741,81 +757,29 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
             ),
             child: InkWell(
               borderRadius: BorderRadius.circular(16),
-              onTap: () => _handleClientTap(client.id),
+              onTap: () async {
+                await _handleClientTap(client.id);
+              },
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        CircleAvatar(
-                          radius: 26,
-                          child: Text(_clientInitial(client)),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Text(
-                                    _displayName(client),
-                                    style: theme.textTheme.titleMedium,
-                                  ),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    'N° ${client.clientNumber}',
-                                    style: theme.textTheme.titleMedium,
-                                  ),
-                                ],
-                              ),
-
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.phone),
-                                    SizedBox(width: 4),
-                                    Text(
-                                      client.phone,
-                                      style: theme.textTheme.bodyLarge,
-                                    ),
-                                  ],
-                                ),
-                              ),
-
-                              Padding(
-                                padding: const EdgeInsets.only(top: 12),
-                                child: Wrap(
-                                  spacing: 12,
-                                  runSpacing: 8,
-                                  children: [
-                                    _QuickStat(
-                                      icon: Icons.event_available_rounded,
-                                      label: 'Appuntamenti: $appointments',
-                                    ),
-                                    _QuickStat(
-                                      icon: Icons.shopping_bag_outlined,
-                                      label: 'Acquisti: $purchases',
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final isCompact = constraints.maxWidth < 640;
+                        final actionSection = Column(
+                          crossAxisAlignment: isCompact
+                              ? CrossAxisAlignment.start
+                              : CrossAxisAlignment.end,
                           children: [
                             Wrap(
                               spacing: 12,
                               runSpacing: 8,
                               crossAxisAlignment: WrapCrossAlignment.center,
-                              alignment: WrapAlignment.end,
+                              alignment: isCompact
+                                  ? WrapAlignment.start
+                                  : WrapAlignment.end,
                               children: [
                                 _buildStatusChip(context, client),
                                 FilledButton.tonalIcon(
@@ -854,8 +818,94 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                               ],
                             ),
                           ],
+                        );
+
+                        final infoSection = Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          children: [
+                            Text(
+                              _displayName(client),
+                              style: theme.textTheme.titleMedium,
+                            ),
+                            Text(
+                              'N° ${client.clientNumber}',
+                              style: theme.textTheme.titleMedium,
+                            ),
+                          ],
                         ),
-                      ],
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.phone),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      client.phone,
+                                      style: theme.textTheme.bodyLarge,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.only(top: 12),
+                                child: Wrap(
+                                  spacing: 12,
+                                  runSpacing: 8,
+                                  children: [
+                                    _QuickStat(
+                                      icon: Icons.event_available_rounded,
+                                      label: 'Appuntamenti: $appointments',
+                                    ),
+                                    _QuickStat(
+                                      icon: Icons.shopping_bag_outlined,
+                                      label: 'Acquisti: $purchases',
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+
+                        final avatar = CircleAvatar(
+                          radius: 26,
+                          child: Text(_clientInitial(client)),
+                        );
+
+                        if (isCompact) {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  avatar,
+                                  const SizedBox(width: 16),
+                                  infoSection,
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              actionSection,
+                            ],
+                          );
+                        }
+
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            avatar,
+                            const SizedBox(width: 16),
+                            infoSection,
+                            const SizedBox(width: 16),
+                            actionSection,
+                          ],
+                        );
+                      },
                     ),
                     if (isSelected) ...[
                       const SizedBox(height: 12),
@@ -970,25 +1020,25 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
             ),
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  CircleAvatar(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final isCompact = constraints.maxWidth < 520;
+                  final avatar = CircleAvatar(
                     radius: 22,
                     child: Text(_clientInitial(client)),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
+                  );
+                  final info = Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
                           children: [
                             Text(
                               _displayName(client),
                               style: theme.textTheme.titleMedium,
                             ),
-                            const SizedBox(width: 8),
                             if (client.clientNumber != null)
                               Text(
                                 'N° ${client.clientNumber}',
@@ -1000,20 +1050,53 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                         Text(subtitle, style: theme.textTheme.bodyMedium),
                       ],
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Builder(
+                  );
+                  final action = Builder(
                     builder: (tabCtx) => OutlinedButton.icon(
-                      onPressed: () {
+                      onPressed: () async {
                         final controller = DefaultTabController.of(tabCtx);
                         controller?.index = 0;
-                        _focusOnClient(client);
+                        final isCompact = isCompactClientLayout(context);
+                        if (isCompact) {
+                          await _handleClientTap(client.id);
+                        } else {
+                          _focusOnClient(client);
+                        }
                       },
                       icon: const Icon(Icons.open_in_new_rounded),
                       label: const Text('Apri'),
                     ),
-                  ),
-                ],
+                  );
+
+                  if (isCompact) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            avatar,
+                            const SizedBox(width: 12),
+                            info,
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        action,
+                      ],
+                    );
+                  }
+
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      avatar,
+                      const SizedBox(width: 12),
+                      info,
+                      const SizedBox(width: 8),
+                      action,
+                    ],
+                  );
+                },
               ),
             ),
           ),

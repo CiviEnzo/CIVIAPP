@@ -79,6 +79,7 @@ class _SalonClientRegistrationSheetState
           ),
           const SizedBox(height: 16),
           DropdownButtonFormField<ClientRegistrationAccessMode>(
+            isExpanded: true,
             value: _accessMode,
             decoration: const InputDecoration(labelText: 'Modalità di accesso'),
             items:

@@ -258,6 +258,7 @@ class _SalonOperationsSheetState extends State<SalonOperationsSheet> {
           ),
           const SizedBox(height: 20),
           DropdownButtonFormField<SalonStatus>(
+            isExpanded: true,
             value: _status,
             decoration: const InputDecoration(labelText: 'Stato del salone'),
             items:

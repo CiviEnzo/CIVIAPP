@@ -86,7 +86,7 @@ class ServicesModule extends ConsumerWidget {
                     selectedSalonId: salonId ?? session.salonId,
                   ),
               icon: const Icon(Icons.category_rounded),
-              label: const Text('Gestione categorie'),
+              label: const Text('Categorie'),
             )
             : null;
     final packages =
@@ -651,28 +651,53 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
+    final theme = Theme.of(context);
+    final primaryAction = FilledButton.icon(
+      onPressed: onActionPressed,
+      icon: const Icon(Icons.add_rounded),
+      label: Text(actionLabel),
+    );
+    final secondary = secondaryAction;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 640;
+
+        if (isCompact) {
+          return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: Theme.of(context).textTheme.titleLarge),
+              Text(title, style: theme.textTheme.titleLarge),
               const SizedBox(height: 4),
               Text(subtitle),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [if (secondary != null) secondary, primaryAction],
+              ),
             ],
-          ),
-        ),
-        if (secondaryAction != null) ...[
-          secondaryAction!,
-          const SizedBox(width: 12),
-        ],
-        FilledButton.icon(
-          onPressed: onActionPressed,
-          icon: const Icon(Icons.add_rounded),
-          label: Text(actionLabel),
-        ),
-      ],
+          );
+        }
+
+        return Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: theme.textTheme.titleLarge),
+                  const SizedBox(height: 4),
+                  Text(subtitle),
+                ],
+              ),
+            ),
+            if (secondary != null) ...[secondary, const SizedBox(width: 12)],
+            primaryAction,
+          ],
+        );
+      },
     );
   }
 }
@@ -824,7 +849,9 @@ class _ServicesListState extends State<_ServicesList> {
                 title: Text(group.title),
                 subtitle: Text(serviceCountLabel),
                 onExpansionChanged: (expanded) {
-                  final currentlyExpanded = _expandedGroupIds.contains(group.id);
+                  final currentlyExpanded = _expandedGroupIds.contains(
+                    group.id,
+                  );
                   if (expanded == currentlyExpanded) {
                     return;
                   }

@@ -208,7 +208,7 @@ class _SettingsHeader extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Stato integrazione', style: theme.textTheme.titleLarge),
+                Text('Integrazione', style: theme.textTheme.titleLarge),
                 Chip(
                   label: Text(isConfigured ? 'Collegato' : 'Da configurare'),
                   backgroundColor:

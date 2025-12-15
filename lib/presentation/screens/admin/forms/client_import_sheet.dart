@@ -579,6 +579,7 @@ class _ClientImportSheetState extends ConsumerState<ClientImportSheet> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 value: _selectedSalonId,
                 decoration: const InputDecoration(
                   labelText: 'Salone di destinazione',

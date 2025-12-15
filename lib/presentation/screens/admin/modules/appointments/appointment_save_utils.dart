@@ -96,11 +96,15 @@ Future<bool> validateAndSaveAppointment({
     );
     return false;
   }
-  final appointmentServices = appointment.serviceIds
-      .map((id) => allServices.firstWhereOrNull((service) => service.id == id))
-      .whereType<Service>()
-      .toList(growable: false);
-  if (appointmentServices.isEmpty) {
+  final servicesById = {for (final service in allServices) service.id: service};
+  final serviceWindows =
+      EquipmentAvailabilityChecker.serviceWindowsForAppointment(
+    appointment: appointment,
+    servicesById: servicesById,
+    startOverride: appointment.start,
+    endOverride: appointment.end,
+  );
+  if (serviceWindows.isEmpty) {
     messenger.showSnackBar(
       const SnackBar(content: Text('Servizio non valido.')),
     );
@@ -110,22 +114,23 @@ Future<bool> validateAndSaveAppointment({
     (item) => item.id == appointment.salonId,
   );
   final blockingEquipment = <String>{};
-  var equipmentStart = appointment.start;
-  for (final service in appointmentServices) {
-    final equipmentEnd = equipmentStart.add(service.totalDuration);
+  for (final window in serviceWindows) {
+    final service = window.service;
+    if (service.requiredEquipmentIds.isEmpty) {
+      continue;
+    }
     final equipmentCheck = EquipmentAvailabilityChecker.check(
       salon: salon,
       service: service,
       allServices: allServices,
       appointments: combinedAppointments,
-      start: equipmentStart,
-      end: equipmentEnd,
+      start: window.start,
+      end: window.end,
       excludeAppointmentId: appointment.id,
     );
     if (equipmentCheck.hasConflicts) {
       blockingEquipment.addAll(equipmentCheck.blockingEquipment);
     }
-    equipmentStart = equipmentEnd;
   }
   if (blockingEquipment.isNotEmpty) {
     final equipmentLabel = blockingEquipment.join(', ');

@@ -31,6 +31,58 @@ class EquipmentBookingResult {
 class EquipmentAvailabilityChecker {
   const EquipmentAvailabilityChecker._();
 
+  static List<AppointmentServiceWindow> serviceWindowsForAppointment({
+    required Appointment appointment,
+    required Map<String, Service> servicesById,
+    DateTime? startOverride,
+    DateTime? endOverride,
+  }) {
+    final orderedServices = <_ServiceDuration>[];
+    final allocations = appointment.serviceAllocations;
+    if (allocations.isNotEmpty) {
+      for (final allocation in allocations) {
+        if (allocation.serviceId.isEmpty) {
+          continue;
+        }
+        final service = servicesById[allocation.serviceId];
+        if (service == null) {
+          continue;
+        }
+        final adjustment =
+            Duration(minutes: allocation.durationAdjustmentMinutes);
+        final duration = service.totalDuration + adjustment;
+        if (duration <= Duration.zero) {
+          continue;
+        }
+        final repetitions = allocation.quantity <= 0 ? 1 : allocation.quantity;
+        for (var i = 0; i < repetitions; i++) {
+          orderedServices.add(
+            _ServiceDuration(service: service, duration: duration),
+          );
+        }
+      }
+    }
+    if (orderedServices.isEmpty) {
+      final fallbackService = servicesById[appointment.serviceId];
+      if (fallbackService != null) {
+        orderedServices.add(
+          _ServiceDuration(
+            service: fallbackService,
+            duration: fallbackService.totalDuration,
+          ),
+        );
+      }
+    }
+    if (orderedServices.isEmpty) {
+      return const <AppointmentServiceWindow>[];
+    }
+    return _buildServiceTimeline(
+      start: startOverride ?? appointment.start,
+      services: orderedServices,
+      limitEnd: endOverride ?? appointment.end,
+    );
+  }
+
   static EquipmentBookingResult check({
     required Salon? salon,
     required Service service,
@@ -87,7 +139,7 @@ class EquipmentAvailabilityChecker {
 
     final usageCount = <String, int>{};
     for (final appointment in overlappingAppointments) {
-      final serviceWindows = _appointmentServiceWindows(
+      final serviceWindows = serviceWindowsForAppointment(
         appointment: appointment,
         servicesById: servicesById,
       );
@@ -150,52 +202,25 @@ class EquipmentAvailabilityChecker {
     return equipment.quantity;
   }
 
-  static List<_ServiceWindow> _appointmentServiceWindows({
+  static List<AppointmentServiceWindow> _appointmentServiceWindows({
     required Appointment appointment,
     required Map<String, Service> servicesById,
   }) {
-    final orderedServices = <Service>[];
-    final allocations = appointment.serviceAllocations;
-    if (allocations.isNotEmpty) {
-      for (final allocation in allocations) {
-        if (allocation.serviceId.isEmpty) {
-          continue;
-        }
-        final service = servicesById[allocation.serviceId];
-        if (service == null) {
-          continue;
-        }
-        final repetitions = allocation.quantity <= 0 ? 1 : allocation.quantity;
-        for (var i = 0; i < repetitions; i++) {
-          orderedServices.add(service);
-        }
-      }
-    }
-    if (orderedServices.isEmpty) {
-      final fallbackService = servicesById[appointment.serviceId];
-      if (fallbackService != null) {
-        orderedServices.add(fallbackService);
-      }
-    }
-    if (orderedServices.isEmpty) {
-      return const <_ServiceWindow>[];
-    }
-    return _buildServiceTimeline(
-      start: appointment.start,
-      services: orderedServices,
-      limitEnd: appointment.end,
+    return serviceWindowsForAppointment(
+      appointment: appointment,
+      servicesById: servicesById,
     );
   }
 
-  static List<_ServiceWindow> _buildServiceTimeline({
+  static List<AppointmentServiceWindow> _buildServiceTimeline({
     required DateTime start,
-    required Iterable<Service> services,
+    required Iterable<_ServiceDuration> services,
     DateTime? limitEnd,
   }) {
-    final windows = <_ServiceWindow>[];
+    final windows = <AppointmentServiceWindow>[];
     var cursor = start;
-    for (final service in services) {
-      final duration = service.totalDuration;
+    for (final entry in services) {
+      final duration = entry.duration;
       if (duration <= Duration.zero) {
         continue;
       }
@@ -208,7 +233,9 @@ class EquipmentAvailabilityChecker {
         cursor = projectedEnd;
         continue;
       }
-      windows.add(_ServiceWindow(service: service, start: cursor, end: end));
+      windows.add(
+        AppointmentServiceWindow(service: entry.service, start: cursor, end: end),
+      );
       cursor = projectedEnd;
       if (limitEnd != null && !cursor.isBefore(limitEnd)) {
         break;
@@ -227,8 +254,8 @@ class EquipmentAvailabilityChecker {
   }
 }
 
-class _ServiceWindow {
-  const _ServiceWindow({
+class AppointmentServiceWindow {
+  const AppointmentServiceWindow({
     required this.service,
     required this.start,
     required this.end,
@@ -237,4 +264,14 @@ class _ServiceWindow {
   final Service service;
   final DateTime start;
   final DateTime end;
+}
+
+class _ServiceDuration {
+  const _ServiceDuration({
+    required this.service,
+    required this.duration,
+  });
+
+  final Service service;
+  final Duration duration;
 }

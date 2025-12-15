@@ -457,6 +457,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
               children: [
                 const SizedBox(height: 12),
                 DropdownButtonFormField<PromotionCtaType>(
+                  isExpanded: true,
                   value: _ctaType,
                   items: _buildCtaTypeItems(),
                   decoration: const InputDecoration(labelText: 'Tipo azione'),
@@ -1996,6 +1997,7 @@ class _SectionEditorCardState extends State<_SectionEditorCard>
                       Row(
                         children: [
                           DropdownButton<PromotionSectionLayout>(
+                            isExpanded: true,
                             value: widget.section.layout,
                             items:
                                 PromotionSectionLayout.values

@@ -66,6 +66,7 @@ class _PackageDepositFormSheetState extends State<PackageDepositFormSheet> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<PaymentMethod>(
+              isExpanded: true,
               value: _paymentMethod,
               decoration: const InputDecoration(
                 labelText: 'Metodo di pagamento',

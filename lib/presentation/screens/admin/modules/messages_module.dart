@@ -524,20 +524,13 @@ class _MessagesMarketingModuleState
             ),
           ];
 
+          final tabDefinitions = _messagesTabDefinitions;
           return Column(
             children: [
               const SizedBox(height: 16),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: TabBar(
-                  labelColor: theme.colorScheme.primary,
-                  tabs: const [
-                    Tab(text: 'Automazione'),
-                    Tab(text: 'Manuali'),
-                    Tab(text: 'Promozioni'),
-                    Tab(text: 'Last-minute'),
-                  ],
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: _buildTabBar(theme, tabDefinitions),
               ),
               const Divider(height: 1),
               Expanded(
@@ -1098,6 +1091,7 @@ class _LastMinuteDefaultsCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<LastMinuteNotificationAudience>(
+              isExpanded: true,
               value: settings.lastMinuteNotificationAudience,
               decoration: const InputDecoration(
                 labelText: 'Notifiche last-minute (predefinito)',
@@ -1115,7 +1109,7 @@ class _LastMinuteDefaultsCard extends StatelessWidget {
                         label = 'Invia a tutti i clienti';
                         break;
                       case LastMinuteNotificationAudience.ownerSelection:
-                        label = 'Scegli manualmente i destinatari';
+                        label = 'Seleziona destinatari';
                         break;
                     }
                     return DropdownMenuItem<LastMinuteNotificationAudience>(
@@ -1704,141 +1698,113 @@ class _ReminderSettingsCard extends StatelessWidget {
                         Wrap(spacing: 8, runSpacing: 8, children: chips),
                       ],
                       const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: InputDecorator(
-                              decoration: const InputDecoration(
-                                labelText: 'Giorni',
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          const double compactBreakpoint = 520;
+
+                          Widget buildDropdown({
+                            required String label,
+                            required List<int> values,
+                            required int value,
+                            required ValueChanged<int?>? onChanged,
+                          }) {
+                            return InputDecorator(
+                              decoration: InputDecoration(
+                                labelText: label,
                                 isDense: true,
-                                contentPadding: EdgeInsets.symmetric(
+                                contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 12,
                                 ),
                               ),
                               child: DropdownButtonHideUnderline(
                                 child: DropdownButton<int>(
-                                  value: parts.days,
+                                  isExpanded: true,
+                                  value: value,
                                   items:
-                                      daysValues
+                                      values
                                           .map(
-                                            (value) => DropdownMenuItem<int>(
-                                              value: value,
+                                            (option) => DropdownMenuItem<int>(
+                                              value: option,
                                               child: Text(
-                                                value == 1
-                                                    ? '1 giorno'
-                                                    : '$value giorni',
-                                              ),
-                                            ),
-                                          )
-                                          .toList(),
-                                  onChanged:
-                                      canEditOffsets
-                                          ? (value) {
-                                            if (value != null) {
-                                              unawaited(
-                                                changeOffset(
-                                                  index: originalIndex,
-                                                  config: config,
-                                                  days: value,
-                                                ),
-                                              );
-                                            }
-                                          }
-                                          : null,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: InputDecorator(
-                              decoration: const InputDecoration(
-                                labelText: 'Ore',
-                                isDense: true,
-                                contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                ),
-                              ),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<int>(
-                                  value: parts.hours,
-                                  items:
-                                      hoursValues
-                                          .map(
-                                            (value) => DropdownMenuItem<int>(
-                                              value: value,
-                                              child: Text(
-                                                value == 1
-                                                    ? '1 ora'
-                                                    : '$value ore',
-                                              ),
-                                            ),
-                                          )
-                                          .toList(),
-                                  onChanged:
-                                      canEditOffsets
-                                          ? (value) {
-                                            if (value != null) {
-                                              unawaited(
-                                                changeOffset(
-                                                  index: originalIndex,
-                                                  config: config,
-                                                  hours: value,
-                                                ),
-                                              );
-                                            }
-                                          }
-                                          : null,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: InputDecorator(
-                              decoration: const InputDecoration(
-                                labelText: 'Minuti',
-                                isDense: true,
-                                contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                ),
-                              ),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<int>(
-                                  value: parts.minutes,
-                                  items:
-                                      minutesValues
-                                          .map(
-                                            (value) => DropdownMenuItem<int>(
-                                              value: value,
-                                              child: Text(
-                                                value == 0
+                                                label == 'Minuti' && option == 0
                                                     ? '0 minuti'
-                                                    : '$value minuti',
+                                                    : option == 1 &&
+                                                        label == 'Giorni'
+                                                    ? '1 giorno'
+                                                    : option == 1 &&
+                                                        label == 'Ore'
+                                                    ? '1 ora'
+                                                    : '$option ${label.toLowerCase()}',
                                               ),
                                             ),
                                           )
                                           .toList(),
-                                  onChanged:
-                                      canEditOffsets
-                                          ? (value) {
-                                            if (value != null) {
-                                              unawaited(
-                                                changeOffset(
-                                                  index: originalIndex,
-                                                  config: config,
-                                                  minutes: value,
-                                                ),
-                                              );
-                                            }
-                                          }
-                                          : null,
+                                  onChanged: onChanged,
                                 ),
                               ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton(
+                            );
+                          }
+
+                          final daysDropdown = buildDropdown(
+                            label: 'Giorni',
+                            values: daysValues,
+                            value: parts.days,
+                            onChanged:
+                                canEditOffsets
+                                    ? (value) {
+                                      if (value != null) {
+                                        unawaited(
+                                          changeOffset(
+                                            index: originalIndex,
+                                            config: config,
+                                            days: value,
+                                          ),
+                                        );
+                                      }
+                                    }
+                                    : null,
+                          );
+                          final hoursDropdown = buildDropdown(
+                            label: 'Ore',
+                            values: hoursValues,
+                            value: parts.hours,
+                            onChanged:
+                                canEditOffsets
+                                    ? (value) {
+                                      if (value != null) {
+                                        unawaited(
+                                          changeOffset(
+                                            index: originalIndex,
+                                            config: config,
+                                            hours: value,
+                                          ),
+                                        );
+                                      }
+                                    }
+                                    : null,
+                          );
+                          final minutesDropdown = buildDropdown(
+                            label: 'Minuti',
+                            values: minutesValues,
+                            value: parts.minutes,
+                            onChanged:
+                                canEditOffsets
+                                    ? (value) {
+                                      if (value != null) {
+                                        unawaited(
+                                          changeOffset(
+                                            index: originalIndex,
+                                            config: config,
+                                            minutes: value,
+                                          ),
+                                        );
+                                      }
+                                    }
+                                    : null,
+                          );
+
+                          final editButton = IconButton(
+                            visualDensity: VisualDensity.compact,
                             tooltip: 'Modifica testo',
                             onPressed:
                                 canEditOffsets
@@ -1847,9 +1813,9 @@ class _ReminderSettingsCard extends StatelessWidget {
                                     )
                                     : null,
                             icon: const Icon(Icons.edit_note_outlined),
-                          ),
-                          const SizedBox(width: 4),
-                          IconButton(
+                          );
+                          final deleteButton = IconButton(
+                            visualDensity: VisualDensity.compact,
                             tooltip: 'Rimuovi promemoria',
                             onPressed:
                                 canEditOffsets
@@ -1857,8 +1823,47 @@ class _ReminderSettingsCard extends StatelessWidget {
                                         unawaited(removeOffset(originalIndex))
                                     : null,
                             icon: const Icon(Icons.delete_outline),
-                          ),
-                        ],
+                          );
+
+                          if (constraints.maxWidth >= compactBreakpoint) {
+                            return Row(
+                              children: [
+                                Expanded(child: daysDropdown),
+                                const SizedBox(width: 8),
+                                Expanded(child: hoursDropdown),
+                                const SizedBox(width: 8),
+                                Expanded(child: minutesDropdown),
+                                const SizedBox(width: 8),
+                                editButton,
+                                const SizedBox(width: 4),
+                                deleteButton,
+                              ],
+                            );
+                          }
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(child: daysDropdown),
+                                  const SizedBox(width: 8),
+                                  Expanded(child: hoursDropdown),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Expanded(child: minutesDropdown),
+                                  const SizedBox(width: 8),
+                                  editButton,
+                                  const SizedBox(width: 4),
+                                  deleteButton,
+                                ],
+                              ),
+                            ],
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -1988,6 +1993,46 @@ class _Badge extends StatelessWidget {
   Widget build(BuildContext context) {
     return Chip(avatar: Icon(icon, size: 18), label: Text(label));
   }
+}
+
+const _messagesTabDefinitions = [
+  _MessagesTabDefinition(label: 'Automazione', icon: Icons.autorenew_rounded),
+  _MessagesTabDefinition(label: 'Manuali', icon: Icons.message),
+  _MessagesTabDefinition(label: 'Promozioni', icon: Icons.local_offer),
+  _MessagesTabDefinition(label: 'Last-minute', icon: Icons.flash_on),
+];
+
+TabBar _buildTabBar(
+  ThemeData theme,
+  List<_MessagesTabDefinition> tabs,
+) {
+  return TabBar(
+    isScrollable: true,
+    indicatorSize: TabBarIndicatorSize.label,
+    indicatorColor: theme.colorScheme.primary,
+    labelColor: theme.colorScheme.primary,
+    unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
+    labelStyle: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+    unselectedLabelStyle: theme.textTheme.labelLarge,
+    tabs: tabs
+        .map(
+          (tab) => Tab(
+            icon: Icon(tab.icon, size: 20),
+            text: tab.label,
+          ),
+        )
+        .toList(),
+  );
+}
+
+class _MessagesTabDefinition {
+  const _MessagesTabDefinition({
+    required this.label,
+    required this.icon,
+  });
+
+  final String label;
+  final IconData icon;
 }
 
 Future<void> _openForm(

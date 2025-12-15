@@ -23,11 +23,26 @@ Future<T?> showAppModalSheet<T>({
       final shape = RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
       );
+      const compactPadding = EdgeInsets.fromLTRB(16, 16, 16, 16);
 
       if (isCompactWidth) {
         return Dialog.fullscreen(
-          backgroundColor: theme.colorScheme.surface,
-          child: SafeArea(child: wrappedContent),
+          backgroundColor: Colors.transparent,
+          child: SafeArea(
+            child: AnimatedPadding(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOutCubic,
+              padding: mediaQuery.viewInsets + compactPadding,
+              child: Material(
+                color: theme.colorScheme.surface,
+                elevation: 6,
+                shadowColor: Colors.black.withOpacity(0.25),
+                shape: shape,
+                clipBehavior: Clip.antiAlias,
+                child: wrappedContent,
+              ),
+            ),
+          ),
         );
       }
 
@@ -35,6 +50,7 @@ Future<T?> showAppModalSheet<T>({
         backgroundColor: theme.colorScheme.surface,
         insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
         shape: shape,
+        clipBehavior: Clip.antiAlias,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 720),
           child: wrappedContent,
@@ -53,7 +69,7 @@ class _ModalSheetCloseWrapper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
-    final topPadding = mediaQuery.viewPadding.top;
+    final topPadding = mediaQuery.padding.top + 16;
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -62,7 +78,7 @@ class _ModalSheetCloseWrapper extends StatelessWidget {
           top: topPadding + 12,
           right: 12,
           child: Transform.translate(
-            offset: const Offset(12, -20),
+            offset: const Offset(12, -12),
             child: _SheetCloseButton(
               onPressed:
                   onClose ??

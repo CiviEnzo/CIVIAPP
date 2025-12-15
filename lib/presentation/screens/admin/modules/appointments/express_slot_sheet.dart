@@ -107,8 +107,7 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
     _labelController = TextEditingController();
     _imageUrl = _editing?.imageUrl;
     _imageStoragePath = _editing?.imageStoragePath;
-    _paymentMode =
-        _editing?.paymentMode ?? LastMinutePaymentMode.online;
+    _paymentMode = _editing?.paymentMode ?? LastMinutePaymentMode.online;
 
     if (widget.initialSlot != null) {
       final slot = widget.initialSlot!;
@@ -216,6 +215,7 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String?>(
+                isExpanded: true,
                 value: _selectedServiceId,
                 decoration: const InputDecoration(labelText: 'Servizio'),
                 items: [
@@ -270,6 +270,7 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<LastMinutePaymentMode>(
+                isExpanded: true,
                 value: _paymentMode,
                 decoration: const InputDecoration(
                   labelText: 'Pagamento disponibile per il cliente',
@@ -309,6 +310,7 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
                   const SizedBox(width: 16),
                   Expanded(
                     child: DropdownButtonFormField<String>(
+                      isExpanded: true,
                       value: _selectedStaffId,
                       decoration: const InputDecoration(
                         labelText: 'Operatore *',
@@ -335,6 +337,7 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String?>(
+                isExpanded: true,
                 value: _selectedRoomId,
                 decoration: const InputDecoration(labelText: 'Cabina'),
                 items: [
@@ -510,6 +513,7 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
         ),
         if (_sendNotification) ...[
           DropdownButtonFormField<LastMinuteNotificationAudience>(
+            isExpanded: true,
             value: _notificationAudience,
             decoration: const InputDecoration(labelText: 'Destinatari'),
             items: const [
@@ -519,7 +523,7 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
               ),
               DropdownMenuItem<LastMinuteNotificationAudience>(
                 value: LastMinuteNotificationAudience.ownerSelection,
-                child: Text('Scegli manualmente i destinatari'),
+                child: Text('Seleziona destinatari'),
               ),
             ],
             onChanged: (value) {

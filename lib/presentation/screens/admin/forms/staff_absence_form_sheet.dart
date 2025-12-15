@@ -123,6 +123,7 @@ class _StaffAbsenceFormSheetState extends State<StaffAbsenceFormSheet> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
+              isExpanded: true,
               value: _staffId,
               items:
                   filteredStaff
@@ -140,6 +141,7 @@ class _StaffAbsenceFormSheetState extends State<StaffAbsenceFormSheet> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<StaffAbsenceType>(
+              isExpanded: true,
               value: _type,
               items:
                   StaffAbsenceType.values

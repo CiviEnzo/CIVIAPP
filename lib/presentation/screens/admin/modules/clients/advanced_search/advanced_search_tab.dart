@@ -1323,6 +1323,31 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
     setState(() => _bulkSelectedClientIds.clear());
   }
 
+  Future<void> _openClientDetail(
+    Client client, {
+    required bool toggleSelection,
+  }) async {
+    final isCompact = isCompactClientLayout(context);
+    if (!isCompact) {
+      setState(() {
+        _selectedClientId =
+            toggleSelection && _selectedClientId == client.id
+                ? null
+                : client.id;
+      });
+      return;
+    }
+    if (_selectedClientId != null) {
+      setState(() => _selectedClientId = null);
+    }
+    await openClientDetailPage(
+      context,
+      clientId: client.id,
+      initialTabIndex: 0,
+      compactOnly: true,
+    );
+  }
+
   void _scheduleScrollAfterResultsReady() {
     _scrollRetryCount = 0;
     if (mounted) {
@@ -1522,13 +1547,13 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
       final csv = converter.convert(rows);
       final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
       final dir = await getTemporaryDirectory();
-      final fileName = 'clienti_civiapp_$timestamp.csv';
+      final fileName = 'clienti_youbook_$timestamp.csv';
       final file = File('${dir.path}/$fileName');
       await file.writeAsString(csv, flush: true);
       await Share.shareXFiles(
         [XFile(file.path, mimeType: 'text/csv', name: fileName)],
         subject: 'Esportazione clienti',
-        text: 'File generato dalla Ricerca avanzata di Civiapp.',
+        text: 'File generato dalla Ricerca avanzata di youbook.',
       );
     } catch (error) {
       _showSnack('Impossibile esportare i clienti: $error');
@@ -1638,31 +1663,29 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
           spacing: 8,
           runSpacing: 8,
           children:
-              options
-                .map((option) {
-                  final isSelected = selection.contains(option.id);
-                  return FilterChip(
-                    selected: isSelected,
-                    selectedColor: secondary,
-                    checkmarkColor: onSecondary,
-                    label: Text(
-                      option.label,
-                      style: TextStyle(
-                        color: isSelected ? onSecondary : onSurface,
-                      ),
+              options.map((option) {
+                final isSelected = selection.contains(option.id);
+                return FilterChip(
+                  selected: isSelected,
+                  selectedColor: secondary,
+                  checkmarkColor: onSecondary,
+                  label: Text(
+                    option.label,
+                    style: TextStyle(
+                      color: isSelected ? onSecondary : onSurface,
                     ),
-                    onSelected: (selected) {
-                      final updated = Set<String>.from(selection);
-                      if (selected) {
-                        updated.add(option.id);
-                      } else {
-                        updated.remove(option.id);
-                      }
-                      onSelectionChanged(updated);
-                    },
-                  );
-                })
-                  .toList(),
+                  ),
+                  onSelected: (selected) {
+                    final updated = Set<String>.from(selection);
+                    if (selected) {
+                      updated.add(option.id);
+                    } else {
+                      updated.remove(option.id);
+                    }
+                    onSelectionChanged(updated);
+                  },
+                );
+              }).toList(),
         ),
       ],
     );
@@ -1681,9 +1704,7 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
       return ChoiceChip(
         label: Text(
           text,
-          style: TextStyle(
-            color: isSelected ? onSecondary : onSurface,
-          ),
+          style: TextStyle(color: isSelected ? onSecondary : onSurface),
         ),
         selected: isSelected,
         selectedColor: secondary,
@@ -1691,6 +1712,7 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
         onSelected: (_) => onTap(),
       );
     }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1724,9 +1746,7 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
       return ChoiceChip(
         label: Text(
           text,
-          style: TextStyle(
-            color: isSelected ? onSecondary : onSurface,
-          ),
+          style: TextStyle(color: isSelected ? onSecondary : onSurface),
         ),
         selected: isSelected,
         selectedColor: secondary,
@@ -1734,6 +1754,7 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
         onSelected: (_) => onTap(),
       );
     }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2653,6 +2674,7 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
           style: theme.textTheme.titleMedium,
         ),
         DropdownButton<_SortOption>(
+          isExpanded: true,
           value: _sortOption,
           onChanged: (value) {
             if (value == null) return;
@@ -2727,13 +2749,11 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
     return Material(
       color: backgroundColor,
       child: InkWell(
-        onTap: () {
+        onTap: () async {
           if (_isBulkSelecting) {
             _toggleBulkSelection(client.id);
           } else {
-            setState(() {
-              _selectedClientId = isDetailSelected ? null : client.id;
-            });
+            await _openClientDetail(client, toggleSelection: true);
           }
         },
         onLongPress: () => _toggleBulkSelection(client.id),
@@ -2804,7 +2824,8 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                 child: IconButton(
                   tooltip: 'Apri dettaglio',
                   onPressed:
-                      () => setState(() => _selectedClientId = client.id),
+                      () async =>
+                          _openClientDetail(client, toggleSelection: false),
                   icon: const Icon(Icons.open_in_new_rounded, size: 20),
                 ),
               ),

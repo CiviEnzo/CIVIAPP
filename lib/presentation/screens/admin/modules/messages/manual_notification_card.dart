@@ -39,7 +39,7 @@ class _ManualNotificationCardState
   final ScrollController _clientScrollController = ScrollController();
   final Set<String> _selectedClientIds = <String>{};
   String? _selectedTemplateId;
-  static const String _defaultTitle = 'Messaggio di prova Civiapp';
+  static const String _defaultTitle = 'Messaggio da YouBook';
   static const String _defaultBody =
       'Ciao {{nome}}, questo è un messaggio di prova inviato dal salone per verificare le notifiche.';
   static const String _previewEventName = 'manual_notification_preview';
@@ -324,6 +324,7 @@ class _ManualNotificationCardState
               const _ClientSearchPlaceholder(),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
+              isExpanded: true,
               value: dropdownValue,
               decoration: const InputDecoration(
                 labelText: 'Template messaggio',

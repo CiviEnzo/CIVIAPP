@@ -95,6 +95,7 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
             Text('Registra pacchetto', style: theme.textTheme.titleLarge),
             const SizedBox(height: 16),
             DropdownButtonFormField<ServicePackage>(
+              isExpanded: true,
               value: _selectedPackage,
               decoration: const InputDecoration(labelText: 'Pacchetto'),
               items:
@@ -158,6 +159,7 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<PaymentMethod>(
+              isExpanded: true,
               value: _paymentMethod,
               decoration: const InputDecoration(
                 labelText: 'Metodo di pagamento',
@@ -178,6 +180,7 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<PackagePaymentStatus>(
+              isExpanded: true,
               value: _packagePaymentStatus,
               decoration: const InputDecoration(labelText: 'Stato pagamento'),
               items:
@@ -247,6 +250,7 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
               const SizedBox(height: 12),
             ],
             DropdownButtonFormField<PackagePurchaseStatus>(
+              isExpanded: true,
               value: _packageStatus,
               decoration: const InputDecoration(labelText: 'Stato pacchetto'),
               items:

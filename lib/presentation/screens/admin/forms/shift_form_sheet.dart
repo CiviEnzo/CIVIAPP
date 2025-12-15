@@ -200,6 +200,7 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
             ],
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
+              isExpanded: true,
               value:
                   filteredStaff.any((member) => member.id == _staffId)
                       ? _staffId
@@ -224,6 +225,7 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
             const SizedBox(height: 12),
             if (hasRooms) ...[
               DropdownButtonFormField<String?>(
+                isExpanded: true,
                 value: rooms.any((room) => room.id == _roomId) ? _roomId : null,
                 items: [
                   const DropdownMenuItem<String?>(
@@ -346,6 +348,7 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<ShiftRecurrenceFrequency?>(
+                isExpanded: true,
                 value: _recurrenceFrequency,
                 items: recurrenceItems,
                 decoration: const InputDecoration(labelText: 'Frequenza'),
@@ -378,6 +381,7 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<int>(
+                        isExpanded: true,
                         value: _weeklyActiveWeeks,
                         decoration: const InputDecoration(
                           labelText: 'Settimane attive',
@@ -406,6 +410,7 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: DropdownButtonFormField<int>(
+                        isExpanded: true,
                         value: _weeklyBreakWeeks,
                         decoration: const InputDecoration(
                           labelText: 'Settimane di pausa',
@@ -498,6 +503,7 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
               if (_recurrenceFrequency != null) ...[
                 const SizedBox(height: 12),
                 DropdownButtonFormField<int>(
+                  isExpanded: true,
                   value: _recurrenceMonths,
                   decoration: const InputDecoration(
                     labelText: 'Durata ripetizione (mesi)',

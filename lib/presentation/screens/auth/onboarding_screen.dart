@@ -338,10 +338,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         return 'La tua richiesta di accesso è stata inviata. Il salone ti abiliterà non appena la valuterà.';
       }
       if (roleLocked && role == UserRole.client) {
-        return 'Seleziona il salone con cui vuoi utilizzare CiviApp e invia i tuoi dati. Sarà l\'amministratore del salone ad abilitare l\'accesso.';
+        return 'Seleziona il salone con cui vuoi utilizzare YouBook e invia i tuoi dati. Sarà l\'amministratore del salone ad abilitare l\'accesso.';
       }
       if (role != null) {
-        return 'Completa il profilo per continuare con CiviApp.';
+        return 'Completa il profilo per continuare con YouBook.';
       }
       return 'Nessun ruolo abilitato per questa email. Contatta un amministratore.';
     }();
@@ -748,6 +748,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         const SizedBox(height: 12),
         if (hasRoles)
           DropdownButtonFormField<String>(
+            isExpanded: true,
             value: _staffRoleId,
             decoration: const InputDecoration(
               labelText: 'Ruolo operativo',

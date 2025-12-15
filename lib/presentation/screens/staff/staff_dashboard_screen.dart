@@ -415,29 +415,33 @@ class _StaffDashboardScreenState extends ConsumerState<StaffDashboardScreen> {
             if (staffMembers.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(right: 12),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: selectedStaff?.id,
-                    items:
-                        staffMembers
-                            .map(
-                              (member) => DropdownMenuItem(
-                                value: member.id,
-                                child: Text(member.fullName),
-                              ),
-                            )
-                            .toList(),
-                    onChanged: (value) {
-                      final member = staffMembers.firstWhereOrNull(
-                        (m) => m.id == value,
-                      );
-                      ref
-                          .read(sessionControllerProvider.notifier)
-                          .setUser(member?.id);
-                      ref
-                          .read(sessionControllerProvider.notifier)
-                          .setSalon(member?.salonId);
-                    },
+                child: SizedBox(
+                  width: 220,
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      isExpanded: true,
+                      value: selectedStaff?.id,
+                      items:
+                          staffMembers
+                              .map(
+                                (member) => DropdownMenuItem(
+                                  value: member.id,
+                                  child: Text(member.fullName),
+                                ),
+                              )
+                              .toList(),
+                      onChanged: (value) {
+                        final member = staffMembers.firstWhereOrNull(
+                          (m) => m.id == value,
+                        );
+                        ref
+                            .read(sessionControllerProvider.notifier)
+                            .setUser(member?.id);
+                        ref
+                            .read(sessionControllerProvider.notifier)
+                            .setSalon(member?.salonId);
+                      },
+                    ),
                   ),
                 ),
               ),
