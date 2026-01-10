@@ -528,11 +528,15 @@ class _ModuleBadge extends StatelessWidget {
           children: [
             Icon(module.icon, size: 20, color: scheme.primary),
             const SizedBox(width: 8),
-            Text(
-              module.title,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: scheme.onSurface,
+            Flexible(
+              child: Text(
+                module.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: scheme.onSurface,
+                ),
               ),
             ),
           ],

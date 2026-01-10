@@ -17,6 +17,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _passwordFocusNode = FocusNode();
   bool _isObscured = true;
   bool _isLoading = false;
   bool _noticeScheduled = false;
@@ -26,6 +27,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _passwordFocusNode.dispose();
     _closeSessionSubscription();
     super.dispose();
   }
@@ -74,98 +76,111 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
             margin: const EdgeInsets.all(24),
             child: Padding(
               padding: const EdgeInsets.all(32),
-              child: Form(
-                key: _formKey,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        'Accedi a YouBook',
-                        style: theme.textTheme.headlineSmall,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Inserisci le tue credenziali. Il ruolo (Admin / Operatore / Cliente) viene assegnato dal tuo profilo Firebase.',
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Per i clienti: dopo l\'accesso potrai scegliere il salone di riferimento e inviare la richiesta di registrazione, che verrà approvata dall\'amministratore.',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                      const SizedBox(height: 24),
-                      TextFormField(
-                        controller: _emailController,
-                        decoration: const InputDecoration(
-                          labelText: 'Email',
-                          prefixIcon: Icon(Icons.email_outlined),
+              child: AutofillGroup(
+                child: Form(
+                  key: _formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          'Accedi a YouBook',
+                          style: theme.textTheme.headlineSmall,
                         ),
-                        keyboardType: TextInputType.emailAddress,
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Inserisci l\'email';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _passwordController,
-                        obscureText: _isObscured,
-                        decoration: InputDecoration(
-                          labelText: 'Password',
-                          prefixIcon: const Icon(Icons.lock_outline),
-                          suffixIcon: IconButton(
-                            onPressed:
-                                () =>
-                                    setState(() => _isObscured = !_isObscured),
-                            icon: Icon(
-                              _isObscured
-                                  ? Icons.visibility_off
-                                  : Icons.visibility,
+                        const SizedBox(height: 8),
+                        Text(
+                          'Inserisci le tue credenziali. Il ruolo (Admin / Operatore / Cliente) viene assegnato dal tuo profilo Firebase.',
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Per i clienti: dopo l\'accesso potrai scegliere il salone di riferimento e inviare la richiesta di registrazione, che verrà approvata dall\'amministratore.',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 24),
+                        TextFormField(
+                          controller: _emailController,
+                          autofocus: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Email',
+                            prefixIcon: Icon(Icons.email_outlined),
+                          ),
+                          keyboardType: TextInputType.emailAddress,
+                          textInputAction: TextInputAction.next,
+                          autofillHints: const [AutofillHints.email],
+                          onEditingComplete:
+                              () => _passwordFocusNode.requestFocus(),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Inserisci l\'email';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _passwordController,
+                          obscureText: _isObscured,
+                          focusNode: _passwordFocusNode,
+                          decoration: InputDecoration(
+                            labelText: 'Password',
+                            prefixIcon: const Icon(Icons.lock_outline),
+                            suffixIcon: IconButton(
+                              onPressed:
+                                  () =>
+                                      setState(() => _isObscured = !_isObscured),
+                              icon: Icon(
+                                _isObscured
+                                    ? Icons.visibility_off
+                                    : Icons.visibility,
+                              ),
                             ),
                           ),
+                          textInputAction: TextInputAction.done,
+                          autofillHints: const [AutofillHints.password],
+                          onFieldSubmitted: (_) => _submitFromKeyboard(),
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Inserisci la password';
+                            }
+                            return null;
+                          },
                         ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Inserisci la password';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 24),
-                      FilledButton(
-                        onPressed: _isLoading ? null : _signIn,
-                        child:
-                            _isLoading
-                                ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                                : const Text('Accedi'),
-                      ),
-                      TextButton(
-                        onPressed: _isLoading ? null : _resetPassword,
-                        child: const Text('Password dimenticata?'),
-                      ),
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        onPressed:
-                            _isLoading ? null : () => context.go('/register'),
-                        icon: const Icon(Icons.person_add_alt_1_rounded),
-                        label: const Text('Registrati come cliente'),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Per accedere come Admin o Operatore assicurati che un amministratore abbia creato l\'utente in Firebase Authentication e configurato il documento in /users/<uid> con il relativo ruolo.',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    ],
+                        const SizedBox(height: 24),
+                        FilledButton(
+                          onPressed: _isLoading ? null : _signIn,
+                          child:
+                              _isLoading
+                                  ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                  : const Text('Accedi'),
+                        ),
+                        TextButton(
+                          onPressed: _isLoading ? null : _resetPassword,
+                          child: const Text('Password dimenticata?'),
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          onPressed:
+                              _isLoading ? null : () => context.go('/register'),
+                          icon: const Icon(Icons.person_add_alt_1_rounded),
+                          label: const Text('Registrati come cliente'),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Per accedere come Admin o Operatore assicurati che un amministratore abbia creato l\'utente in Firebase Authentication e configurato il documento in /users/<uid> con il relativo ruolo.',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -174,6 +189,13 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
         ),
       ),
     );
+  }
+
+  void _submitFromKeyboard() {
+    if (_isLoading) {
+      return;
+    }
+    _signIn();
   }
 
   Future<void> _signIn() async {

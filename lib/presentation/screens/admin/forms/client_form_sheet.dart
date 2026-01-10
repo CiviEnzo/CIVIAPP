@@ -42,6 +42,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
   late TextEditingController _address;
   late TextEditingController _city;
   late TextEditingController _profession;
+  late TextEditingController _notes;
   String? _referralSource;
   late TextEditingController _dateOfBirthDisplay;
   DateTime? _dateOfBirth;
@@ -103,6 +104,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     _address = TextEditingController(text: initialAddress);
     _city = TextEditingController(text: initialCity);
     _profession = TextEditingController(text: initial?.profession ?? '');
+    _notes = TextEditingController(text: initial?.notes ?? '');
     _referralSource = initial?.referralSource;
     _gender = initial?.gender;
     _dateOfBirth = initial?.dateOfBirth;
@@ -133,6 +135,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     _address.dispose();
     _city.dispose();
     _profession.dispose();
+    _notes.dispose();
     _dateOfBirthDisplay.dispose();
     super.dispose();
   }
@@ -408,6 +411,20 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
           ],
         );
 
+        final notesSection = _FormSection(
+          icon: Icons.sticky_note_2_rounded,
+          title: 'Note',
+          subtitle: 'Annotazioni interne sul cliente',
+          children: [
+            TextFormField(
+              controller: _notes,
+              decoration: const InputDecoration(labelText: 'Note cliente'),
+              keyboardType: TextInputType.multiline,
+              maxLines: 4,
+            ),
+          ],
+        );
+
         final preferenzeSection = _FormSection(
           icon: Icons.forum_rounded,
           title: 'Preferenze di contatto',
@@ -495,6 +512,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
         final sections = <Widget>[
           anagraficaSection,
           contattiSection,
+          notesSection,
           if (_isEditing) preferenzeSection,
           if (_isEditing) loyaltySection,
         ];
@@ -521,6 +539,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
                     children: _withSectionDividers([
                       anagraficaSection,
                       contattiSection,
+                      notesSection,
                       if (_isEditing) loyaltySection,
                     ]),
                   ),
@@ -614,6 +633,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     final trimmedAddress = _address.text.trim();
     final trimmedCity = _city.text.trim();
     final trimmedProfession = _profession.text.trim();
+    final trimmedNotes = _notes.text.trim();
     final referral = _referralSource?.trim();
 
     _updateDateOfBirthFromText();
@@ -642,6 +662,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
           address: trimmedAddress,
           city: trimmedCity,
           profession: trimmedProfession,
+          notes: trimmedNotes,
           referralSource: referral,
           dateOfBirth: _dateOfBirth,
           gender: _gender,
@@ -717,7 +738,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
       profession: trimmedProfession.isEmpty ? null : trimmedProfession,
       referralSource: referral == null || referral.isEmpty ? null : referral,
       email: trimmedEmail,
-      notes: existing?.notes,
+      notes: trimmedNotes.isEmpty ? null : trimmedNotes,
       loyaltyInitialPoints: initialPoints,
       loyaltyPoints: loyaltyPoints,
       loyaltyUpdatedAt: loyaltyUpdatedAt,
@@ -829,12 +850,14 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     required String address,
     required String city,
     required String profession,
+    required String notes,
     required String? referralSource,
     required DateTime? dateOfBirth,
     required String? gender,
   }) {
     final sanitizedAddress = address.trim();
     final sanitizedCity = city.trim();
+    final sanitizedNotes = notes.trim();
 
     return existing.copyWith(
       firstName: firstName.isNotEmpty ? firstName : existing.firstName,
@@ -861,6 +884,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
                 return existing.city;
               }(),
       profession: profession.isNotEmpty ? profession : existing.profession,
+      notes: sanitizedNotes.isNotEmpty ? sanitizedNotes : existing.notes,
       referralSource:
           referralSource != null && referralSource.isNotEmpty
               ? referralSource

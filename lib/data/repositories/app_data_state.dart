@@ -22,6 +22,7 @@ import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/service_category.dart';
 import 'package:you_book/domain/entities/shift.dart';
 import 'package:you_book/domain/entities/staff_absence.dart';
+import 'package:you_book/domain/entities/staff_absence_request.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/domain/entities/staff_role.dart';
 import 'package:you_book/domain/entities/reminder_settings.dart';
@@ -50,6 +51,7 @@ class AppDataState {
     required this.clientNotifications,
     required this.shifts,
     required this.staffAbsences,
+    required this.staffAbsenceRequests,
     required this.publicStaffAbsences,
     required this.users,
     required this.clientPhotos,
@@ -86,6 +88,7 @@ class AppDataState {
       clientNotifications: [],
       shifts: [],
       staffAbsences: [],
+      staffAbsenceRequests: [],
       publicStaffAbsences: [],
       users: [],
       clientPhotos: [],
@@ -121,6 +124,7 @@ class AppDataState {
   final List<AppNotification> clientNotifications;
   final List<Shift> shifts;
   final List<StaffAbsence> staffAbsences;
+  final List<StaffAbsenceRequest> staffAbsenceRequests;
   final List<StaffAbsence> publicStaffAbsences;
   final List<AppUser> users;
   final List<ClientPhoto> clientPhotos;
@@ -155,6 +159,7 @@ class AppDataState {
     List<AppNotification>? clientNotifications,
     List<Shift>? shifts,
     List<StaffAbsence>? staffAbsences,
+    List<StaffAbsenceRequest>? staffAbsenceRequests,
     List<StaffAbsence>? publicStaffAbsences,
     List<AppUser>? users,
     List<ClientPhoto>? clientPhotos,
@@ -189,6 +194,7 @@ class AppDataState {
       clientNotifications: clientNotifications ?? this.clientNotifications,
       shifts: shifts ?? this.shifts,
       staffAbsences: staffAbsences ?? this.staffAbsences,
+      staffAbsenceRequests: staffAbsenceRequests ?? this.staffAbsenceRequests,
       publicStaffAbsences: publicStaffAbsences ?? this.publicStaffAbsences,
       users: users ?? this.users,
       clientPhotos: clientPhotos ?? this.clientPhotos,

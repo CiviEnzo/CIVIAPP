@@ -61,8 +61,6 @@ class ClientOverviewSection extends StatelessWidget {
         label: 'Punti fedeltà',
         value: client.loyaltyPoints.toString(),
       ),
-      if (salon != null)
-        _InfoFieldData(label: 'Salone associato', value: salon!.name),
     ];
 
     final contactFields = <_InfoFieldData>[

@@ -250,51 +250,53 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
             child: Row(
               children: [
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Totale da pagare',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.primary,
-                        ),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Totale da pagare',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.primary,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        currency.format(total),
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: colorScheme.onSurface,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      currency.format(total),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: colorScheme.onSurface,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: 12,
+                    runSpacing: 8,
+                    children: [
+                      if (widget.onSkipTicket != null)
+                        OutlinedButton(
+                          onPressed: widget.onSkipTicket,
+                          child: const Text('Non gestire ora il ticket'),
                         ),
+                      if (_isPaymentStep)
+                        OutlinedButton(
+                          onPressed: _exitPaymentStep,
+                          child: const Text('Indietro'),
+                        ),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: colorScheme.primary,
+                          foregroundColor: colorScheme.onPrimary,
+                        ),
+                        onPressed: onPressed,
+                        child: Text(buttonLabel),
                       ),
                     ],
                   ),
-                ),
-                if (widget.onSkipTicket != null)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 12),
-                    child: OutlinedButton(
-                      onPressed: widget.onSkipTicket,
-                      child: const Text('Non gestire ora il ticket'),
-                    ),
-                  ),
-                if (_isPaymentStep)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 12),
-                    child: OutlinedButton(
-                      onPressed: _exitPaymentStep,
-                      child: const Text('Indietro'),
-                    ),
-                  ),
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: colorScheme.primary,
-                    foregroundColor: colorScheme.onPrimary,
-                  ),
-                  onPressed: onPressed,
-                  child: Text(buttonLabel),
                 ),
               ],
             ),

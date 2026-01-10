@@ -80,6 +80,11 @@ service cloud.firestore {
       return data != null && data.clientId is string ? data.clientId : null;
     }
 
+    function currentStaffId() {
+      let data = currentUserData();
+      return data != null && data.staffId is string ? data.staffId : null;
+    }
+
     function isOwnClient(clientId) {
       return isClient() && currentClientId() != null && currentClientId() == clientId;
     }
@@ -721,6 +726,58 @@ service cloud.firestore {
               request.resource.data.salonId is string
               ? request.resource.data.salonId
               : resourceSalonId());
+    }
+
+    match /staff_absence_requests/{requestId} {
+      allow read: if isSignedIn() && (
+        (isAdmin() && canManageSalonDocument(resourceSalonId())) ||
+        (
+          isStaff() &&
+          resource != null &&
+          resource.data != null &&
+          (
+            (resource.data.staffId is string &&
+                resource.data.staffId == currentStaffId()) ||
+            (resource.data.userId is string &&
+                resource.data.userId == request.auth.uid)
+          )
+        )
+      );
+
+      allow create: if isSignedIn() &&
+        isStaff() &&
+        request.resource != null &&
+        request.resource.data != null &&
+        request.resource.data.staffId is string &&
+        request.resource.data.staffId == currentStaffId() &&
+        (request.resource.data.userId == null ||
+            (request.resource.data.userId is string &&
+                request.resource.data.userId == request.auth.uid)) &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.type is string &&
+        request.resource.data.start is timestamp &&
+        request.resource.data.end is timestamp &&
+        requestSalonId() != null &&
+        canManageSalonDocument(requestSalonId());
+
+      allow update: if isSignedIn() && (
+        (isAdmin() && canManageSalonDocument(resourceSalonId())) ||
+        (
+          isStaff() &&
+          resource != null &&
+          resource.data != null &&
+          (
+            (resource.data.staffId is string &&
+                resource.data.staffId == currentStaffId()) ||
+            (resource.data.userId is string &&
+                resource.data.userId == request.auth.uid)
+          ) &&
+          request.writeFields.hasOnly(['status', 'updatedAt']) &&
+          request.resource.data.status == 'cancelled'
+        )
+      );
+
+      allow delete: if isSignedIn() && isAdmin() && canManageSalonDocument(resourceSalonId());
     }
 
     match /public_appointments/{appointmentId} {

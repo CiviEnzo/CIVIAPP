@@ -11,6 +11,8 @@ class ClientTheme {
   static const Color _lightBackground = Color(0xFFFFFAE8);
   static const Color _lightCard = Colors.white;
   static const Color _lightOnSurface = Color(0xFF2C2A28);
+  static const Color _lightPrimaryContainer = Color(0xFFBFD9FF);
+  static const Color _lightOnPrimaryContainer = Color(0xFF0E2C45);
   static const Color _lightSecondaryContainer = Color(0xFFFFE6EA);
   static const Color _lightOnSecondaryContainer = Color(0xFF5E131C);
   static const Color _lightTertiaryContainer = Color(0xFFFFF2E9);
@@ -18,6 +20,8 @@ class ClientTheme {
   static const Color _darkBackground = Color(0xFF0F1012);
   static const Color _darkCard = Color(0xFF1B1D21);
   static const Color _darkOnSurface = Color(0xFFE6E6EA);
+  static const Color _darkPrimaryContainer = Color(0xFF1F3B5E);
+  static const Color _darkOnPrimaryContainer = Color(0xFFC5DDFF);
   static const Color _darkSecondaryContainer = Color(0xFF351419);
   static const Color _darkOnSecondaryContainer = Color(0xFFFFD7DE);
   static const Color _darkTertiaryContainer = Color(0xFF3A2318);
@@ -43,6 +47,9 @@ class ClientTheme {
       onSecondary: _brandOnPrimary,
       tertiary: _brandTertiary,
       onTertiary: _brandOnPrimary,
+      primaryContainer: isDark ? _darkPrimaryContainer : _lightPrimaryContainer,
+      onPrimaryContainer:
+          isDark ? _darkOnPrimaryContainer : _lightOnPrimaryContainer,
       secondaryContainer:
           isDark ? _darkSecondaryContainer : _lightSecondaryContainer,
       onSecondaryContainer:

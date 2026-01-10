@@ -6518,46 +6518,12 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                 : widget.servicesById[previewed.serviceId];
         final hasOutstandingPayments = widget.clientsWithOutstandingPayments
             .contains(previewed.clientId);
-        final visibleMinutes = max(1, dragDuration.inMinutes);
-        final serviceLabel =
-            services.isNotEmpty
-                ? services.map((service) => service.name).join(' + ')
-                : previewService?.name;
-        final clientNumber =
-            client?.clientNumber != null &&
-                    client!.clientNumber!.trim().isNotEmpty
-                ? client!.clientNumber!.trim()
-                : null;
-        final clientPhone =
-            client?.phone != null && client!.phone.trim().isNotEmpty
-                ? client!.phone.trim()
-                : null;
-        final bool showClientPhone = clientPhone != null;
-        final bool showClientNumber = clientNumber != null;
-        final noteText = previewed.notes?.trim();
-        final bool hasPreviewNote = noteText != null && noteText.isNotEmpty;
-        final attentionText = _attentionText(
-          isCancelled: previewed.status == AppointmentStatus.cancelled,
-          anomalies: anomalies,
-        );
-        final previewHeight = _contentAwareHeight(
-          baseHeight: _kBasePreviewHeight,
-          expandToContent: true,
-          highlight: true,
-          showDurationChip: true,
-          showServiceInfo: true,
-          showClientInfo: true,
-          showClientPhone: showClientPhone,
-          showClientNumber: showClientNumber,
-          hasPreviewNote: hasPreviewNote,
-          attentionText: attentionText,
-          hasOutstandingPayments: hasOutstandingPayments,
-          serviceLabel: serviceLabel,
-          clientName: client?.fullName,
-          clientNumber: clientNumber,
-          clientPhone: showClientPhone ? clientPhone : null,
-          noteText: noteText,
-          roomName: roomName,
+        final segmentMinutes =
+            segment.end.difference(segment.start).inMinutes;
+        final visibleMinutes = max(1, segmentMinutes);
+        final previewHeight = max(
+          widget.slotExtent,
+          segmentMinutes * pixelsPerMinute,
         );
         dragOverlay = Positioned(
           top: top,
@@ -6584,7 +6550,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                   categoriesByName: widget.categoriesByName,
                   hideContent: false,
                   hasOutstandingPayments: hasOutstandingPayments,
-                  expandToContent: true,
+                  expandToContent: false,
                   showNotes: true,
                 ),
               ),

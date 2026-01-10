@@ -2,11 +2,12 @@ import 'package:you_book/app/providers.dart';
 import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/staff_absence.dart';
+import 'package:you_book/domain/entities/staff_absence_request.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
-import 'package:you_book/domain/entities/sale.dart';
 import 'package:you_book/domain/entities/shift.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/common/theme_mode_action.dart';
+import 'package:you_book/presentation/screens/staff/forms/staff_absence_request_form_sheet.dart';
 import 'package:you_book/presentation/shared/client_package_purchase.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
@@ -68,6 +69,16 @@ class _AppointmentDetailSheet extends ConsumerWidget {
             )
             .toList()
           ..sort((a, b) => b.start.compareTo(a.start));
+    final upcomingAppointments =
+        data.appointments
+            .where(
+              (appt) =>
+                  appt.clientId == appointment.clientId &&
+                  appt.id != appointment.id &&
+                  appt.start.isAfter(now),
+            )
+            .toList()
+          ..sort((a, b) => a.start.compareTo(b.start));
 
     final purchases =
         resolveClientPackagePurchases(
@@ -154,7 +165,7 @@ class _AppointmentDetailSheet extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 16),
-              Text('Dettaglio cliente', style: theme.textTheme.titleLarge),
+              Text('Scheda cliente', style: theme.textTheme.titleLarge),
               const SizedBox(height: 12),
               if (client == null)
                 const Card(
@@ -195,13 +206,6 @@ class _AppointmentDetailSheet extends ConsumerWidget {
                             label: 'Email',
                             value: client.email!,
                           ),
-                        if (client.address != null &&
-                            client.address!.isNotEmpty)
-                          _InfoRow(
-                            icon: Icons.home_outlined,
-                            label: 'Indirizzo',
-                            value: client.address!,
-                          ),
                         if (client.notes != null &&
                             client.notes!.trim().isNotEmpty)
                           _InfoRow(
@@ -214,43 +218,7 @@ class _AppointmentDetailSheet extends ConsumerWidget {
                   ),
                 ),
               const SizedBox(height: 16),
-              Text(
-                'Storico appuntamenti (ultimi 24 mesi)',
-                style: theme.textTheme.titleLarge,
-              ),
-              const SizedBox(height: 12),
-              if (historyAppointments.isEmpty)
-                const Card(
-                  child: ListTile(
-                    leading: Icon(Icons.history_toggle_off_outlined),
-                    title: Text('Nessun appuntamento nel periodo selezionato'),
-                  ),
-                )
-              else
-                ...historyAppointments.map((appt) {
-                  final historyService = data.services.firstWhereOrNull(
-                    (service) => service.id == appt.serviceId,
-                  );
-                  final historyStaff = data.staff.firstWhereOrNull(
-                    (member) => member.id == appt.staffId,
-                  );
-                  final historyDate = dateFormatter.format(appt.start);
-                  final historyDuration = _formatDuration(appt.duration);
-                  final subtitleParts = [historyDate, historyDuration];
-                  if (historyStaff != null) {
-                    subtitleParts.add(historyStaff.fullName);
-                  }
-                  return Card(
-                    child: ListTile(
-                      leading: const Icon(Icons.history_rounded),
-                      title: Text(historyService?.name ?? 'Servizio'),
-                      subtitle: Text(subtitleParts.join(' • ')),
-                      trailing: _appointmentStatusChip(appt.status, context),
-                    ),
-                  );
-                }),
-              const SizedBox(height: 16),
-              Text('Pacchetti in corso', style: theme.textTheme.titleLarge),
+              Text('Pacchetti attivi', style: theme.textTheme.titleLarge),
               const SizedBox(height: 12),
               if (purchases.isEmpty)
                 const Card(
@@ -276,67 +244,80 @@ class _AppointmentDetailSheet extends ConsumerWidget {
                       expiration != null
                           ? DateFormat('dd/MM/yyyy').format(expiration)
                           : 'Nessuna scadenza';
-                  final outstanding = purchase.outstandingAmount;
                   return Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            purchase.displayName,
-                            style: theme.textTheme.titleMedium,
-                          ),
-                          if (purchase.serviceNames.isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Text(
-                                purchase.serviceNames.join(', '),
-                                style: theme.textTheme.bodySmall,
-                              ),
-                            ),
-                          const SizedBox(height: 12),
-                          _InfoRow(
-                            icon: Icons.event_available_outlined,
-                            label: 'Sessioni',
-                            value: sessionsLabel,
-                          ),
-                          _InfoRow(
-                            icon: Icons.hourglass_bottom_outlined,
-                            label: 'Scadenza',
-                            value: expirationLabel,
-                          ),
-                          _InfoRow(
-                            icon: Icons.payments_outlined,
-                            label: 'Pagamento',
-                            value: purchase.paymentStatus.label,
-                          ),
-                          _InfoRow(
-                            icon: Icons.euro_outlined,
-                            label: 'Importo',
-                            value: currencyFormatter.format(
-                              purchase.totalAmount,
-                            ),
-                          ),
-                          if (purchase.depositAmount > 0)
-                            _InfoRow(
-                              icon: Icons.savings_outlined,
-                              label: 'Acconti versati',
-                              value: currencyFormatter.format(
-                                purchase.depositAmount,
-                              ),
-                            ),
-                          if (outstanding > 0)
-                            _InfoRow(
-                              icon: Icons.account_balance_wallet_outlined,
-                              label: 'Residuo da saldare',
-                              value: currencyFormatter.format(outstanding),
-                            ),
-                        ],
+                    child: ListTile(
+                      leading: const Icon(Icons.inventory_2_outlined),
+                      title: Text(purchase.displayName),
+                      subtitle: Text('$sessionsLabel • $expirationLabel'),
+                      trailing: Text(
+                        currencyFormatter.format(purchase.totalAmount),
+                        style: theme.textTheme.labelMedium,
                       ),
                     ),
                   );
                 }),
+              const SizedBox(height: 16),
+              Text('Prossimi appuntamenti', style: theme.textTheme.titleLarge),
+              const SizedBox(height: 12),
+              if (upcomingAppointments.isEmpty)
+                const Card(
+                  child: ListTile(
+                    leading: Icon(Icons.event_available_outlined),
+                    title: Text('Nessun appuntamento in programma'),
+                  ),
+                )
+              else
+                ...upcomingAppointments.take(5).map((appt) {
+                  final upcomingService = data.services.firstWhereOrNull(
+                    (service) => service.id == appt.serviceId,
+                  );
+                  final upcomingDate = dateFormatter.format(appt.start);
+                  return _AppointmentSummaryCard(
+                    icon: Icons.calendar_month_outlined,
+                    title: upcomingService?.name ?? 'Servizio',
+                    subtitle: upcomingDate,
+                    status: appt.status,
+                  );
+                }),
+              const SizedBox(height: 16),
+              if (historyAppointments.isEmpty)
+                const Card(
+                  child: ListTile(
+                    leading: Icon(Icons.history_toggle_off_outlined),
+                    title: Text('Nessun appuntamento nello storico'),
+                  ),
+                )
+              else
+                Card(
+                  child: ExpansionTile(
+                    title: const Text('Storico appuntamenti (ultimi 24 mesi)'),
+                    childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    children:
+                        historyAppointments.map((appt) {
+                          final historyService = data.services.firstWhereOrNull(
+                            (service) => service.id == appt.serviceId,
+                          );
+                          final historyStaff = data.staff.firstWhereOrNull(
+                            (member) => member.id == appt.staffId,
+                          );
+                          final historyDate = dateFormatter.format(appt.start);
+                          final historyDuration = _formatDuration(
+                            appt.duration,
+                          );
+                          final subtitleParts = [historyDate, historyDuration];
+                          if (historyStaff != null) {
+                            subtitleParts.add(historyStaff.fullName);
+                          }
+                          return _AppointmentSummaryCard(
+                            margin: const EdgeInsets.only(top: 8),
+                            icon: Icons.history_rounded,
+                            title: historyService?.name ?? 'Servizio',
+                            subtitle: subtitleParts.join(' • '),
+                            status: appt.status,
+                          );
+                        }).toList(),
+                  ),
+                ),
             ],
           ),
         ),
@@ -351,20 +332,25 @@ class _StaffDashboardScreenState extends ConsumerState<StaffDashboardScreen> {
     final data = ref.watch(appDataProvider);
     final session = ref.watch(sessionControllerProvider);
     final staffMembers = data.staff;
-    StaffMember? selectedStaff = staffMembers.firstWhereOrNull(
-      (member) => member.id == session.userId,
+    final staffId = session.user?.staffId ?? session.userId;
+    final selectedStaff = staffMembers.firstWhereOrNull(
+      (member) => member.id == staffId,
     );
 
-    if (selectedStaff == null && staffMembers.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ref
-            .read(sessionControllerProvider.notifier)
-            .setUser(staffMembers.first.id);
-        ref
-            .read(sessionControllerProvider.notifier)
-            .setSalon(staffMembers.first.salonId);
-      });
-      selectedStaff = staffMembers.first;
+    if (staffMembers.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Staff')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (selectedStaff == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Staff')),
+        body: const Center(
+          child: Text('Nessun profilo staff collegato a questo account.'),
+        ),
+      );
     }
 
     final relatedAppointments =
@@ -392,6 +378,12 @@ class _StaffDashboardScreenState extends ConsumerState<StaffDashboardScreen> {
             .where((absence) => absence.staffId == selectedStaff?.id)
             .toList()
           ..sort((a, b) => b.start.compareTo(a.start));
+    final staffAbsenceRequests =
+        data.staffAbsenceRequests.toList()..sort((a, b) {
+          final left = a.createdAt ?? a.start;
+          final right = b.createdAt ?? b.start;
+          return right.compareTo(left);
+        });
     final staffShifts =
         data.shifts
             .where((shift) => shift.staffId == selectedStaff?.id)
@@ -412,39 +404,6 @@ class _StaffDashboardScreenState extends ConsumerState<StaffDashboardScreen> {
             ],
           ),
           actions: [
-            if (staffMembers.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: SizedBox(
-                  width: 220,
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      isExpanded: true,
-                      value: selectedStaff?.id,
-                      items:
-                          staffMembers
-                              .map(
-                                (member) => DropdownMenuItem(
-                                  value: member.id,
-                                  child: Text(member.fullName),
-                                ),
-                              )
-                              .toList(),
-                      onChanged: (value) {
-                        final member = staffMembers.firstWhereOrNull(
-                          (m) => m.id == value,
-                        );
-                        ref
-                            .read(sessionControllerProvider.notifier)
-                            .setUser(member?.id);
-                        ref
-                            .read(sessionControllerProvider.notifier)
-                            .setSalon(member?.salonId);
-                      },
-                    ),
-                  ),
-                ),
-              ),
             const ThemeModeAction(),
             IconButton(
               tooltip: 'Esci',
@@ -457,14 +416,12 @@ class _StaffDashboardScreenState extends ConsumerState<StaffDashboardScreen> {
         ),
         body: TabBarView(
           children: [
-            _TodayView(
-              appointments: todayAppointments,
-              allAppointments: relatedAppointments,
-            ),
+            _TodayView(appointments: todayAppointments),
             _AgendaView(appointments: upcoming),
             _AbsenceView(
               staff: selectedStaff,
               absences: staffAbsences,
+              requests: staffAbsenceRequests,
               shifts: staffShifts,
             ),
           ],
@@ -475,20 +432,63 @@ class _StaffDashboardScreenState extends ConsumerState<StaffDashboardScreen> {
 }
 
 class _TodayView extends ConsumerWidget {
-  const _TodayView({required this.appointments, required this.allAppointments});
+  const _TodayView({required this.appointments});
 
   final List<Appointment> appointments;
-  final List<Appointment> allAppointments;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final data = ref.watch(appDataProvider);
+    final theme = Theme.of(context);
+    final sortedAppointments = List<Appointment>.from(appointments)
+      ..sort((a, b) => a.start.compareTo(b.start));
+    final now = DateTime.now();
+    final nextAppointment = sortedAppointments.firstWhereOrNull(
+      (appointment) => appointment.end.isAfter(now),
+    );
+    final nextClient =
+        nextAppointment == null
+            ? null
+            : data.clients.firstWhereOrNull(
+              (client) => client.id == nextAppointment.clientId,
+            );
+    final nextServices =
+        nextAppointment == null
+            ? const <Service>[]
+            : nextAppointment.serviceIds
+                .map(
+                  (id) => data.services.firstWhereOrNull(
+                    (service) => service.id == id,
+                  ),
+                )
+                .whereType<Service>()
+                .toList();
+    final nextServiceLabel =
+        nextServices.isNotEmpty
+            ? nextServices.map((service) => service.name).join(' + ')
+            : 'Servizio';
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (nextAppointment != null) ...[
+            Text('Prossimo appuntamento', style: theme.textTheme.titleLarge),
+            const SizedBox(height: 12),
+            _NextAppointmentCard(
+              clientName: nextClient?.fullName ?? 'Cliente',
+              clientInitial:
+                  nextClient?.firstName.characters.firstOrNull?.toUpperCase() ??
+                  '?',
+              serviceLabel: nextServiceLabel,
+              durationLabel: _formatDuration(nextAppointment.duration),
+              timeLabel:
+                  '${DateFormat('HH:mm').format(nextAppointment.start)} - ${DateFormat('HH:mm').format(nextAppointment.end)}',
+              onTap: () => _showAppointmentDetails(context, nextAppointment),
+            ),
+            const SizedBox(height: 16),
+          ],
           Wrap(
             spacing: 16,
             runSpacing: 16,
@@ -496,36 +496,26 @@ class _TodayView extends ConsumerWidget {
               _TodayCard(
                 icon: Icons.event_available_rounded,
                 title: 'Appuntamenti di oggi',
-                value: '${appointments.length}',
-              ),
-              _TodayCard(
-                icon: Icons.access_time_rounded,
-                title: 'Totale ore lavoro',
-                value: _formatDuration(
-                  appointments.fold<Duration>(
-                    Duration.zero,
-                    (total, appointment) =>
-                        total + appointment.end.difference(appointment.start),
-                  ),
-                ),
-              ),
-              _TodayCard(
-                icon: Icons.calendar_month_rounded,
-                title: 'Agenda totale',
-                value: '${allAppointments.length}',
+                value: '${sortedAppointments.length}',
               ),
             ],
           ),
           const SizedBox(height: 24),
-          Text(
-            'Dettaglio appuntamenti',
-            style: Theme.of(context).textTheme.titleLarge,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Agenda di oggi', style: theme.textTheme.titleLarge),
+              Text(
+                '${sortedAppointments.length} appuntamenti',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
           ),
           const SizedBox(height: 12),
-          if (appointments.isEmpty)
+          if (sortedAppointments.isEmpty)
             const Card(child: ListTile(title: Text('Nessun appuntamento oggi')))
           else
-            ...appointments.map((appointment) {
+            ...sortedAppointments.map((appointment) {
               final client = data.clients.firstWhereOrNull(
                 (client) => client.id == appointment.clientId,
               );
@@ -624,24 +614,33 @@ class _AgendaView extends ConsumerWidget {
   }
 }
 
-class _AbsenceView extends StatelessWidget {
+class _AbsenceView extends ConsumerWidget {
   const _AbsenceView({
     required this.staff,
     required this.absences,
+    required this.requests,
     required this.shifts,
   });
 
   final StaffMember? staff;
   final List<StaffAbsence> absences;
+  final List<StaffAbsenceRequest> requests;
   final List<Shift> shifts;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (staff == null) {
       return const Center(child: Text('Seleziona un membro dello staff'));
     }
 
     final theme = Theme.of(context);
+    final pendingRequests =
+        requests.where((request) => request.status.isPending).toList();
+    final historyRequests =
+        requests.where((request) => !request.status.isPending).toList();
+    const historyPreviewLimit = 3;
+    final historyPreview = historyRequests.take(historyPreviewLimit).toList();
+    final showHistoryButton = historyRequests.isNotEmpty;
     final shiftsByDay = _groupShiftsByDay(shifts);
     final holidaysCache = <int, Set<DateTime>>{};
     Set<DateTime> holidaysForYear(int year) {
@@ -677,26 +676,89 @@ class _AbsenceView extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            spacing: 16,
-            runSpacing: 16,
+          Text('Richieste ferie & permessi', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.icon(
+              onPressed: () => _openAbsenceRequestForm(context, staff: staff!),
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Nuova richiesta'),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
             children: [
-              _AbsenceSummaryCard(
-                icon: Icons.beach_access_rounded,
-                title: 'Ferie residue',
-                value: _formatDays(summary.vacationRemaining),
-                subtitle:
-                    'Usate ${_formatDays(summary.vacationUsed)} su ${staff!.vacationAllowance} giorni',
+              Expanded(
+                child: _AbsenceSummaryCard(
+                  icon: Icons.beach_access_rounded,
+                  title: 'Ferie',
+                  value: _formatDays(summary.vacationRemaining),
+                  subtitle:
+                      'Usate ${_formatDays(summary.vacationUsed)} su ${staff!.vacationAllowance} giorni',
+                ),
               ),
-              _AbsenceSummaryCard(
-                icon: Icons.event_busy_rounded,
-                title: 'Permessi residui',
-                value: _formatDays(summary.permissionRemaining),
-                subtitle:
-                    'Usati ${_formatDays(summary.permissionUsed)} su ${staff!.permissionAllowance} giorni',
+              const SizedBox(width: 12),
+              Expanded(
+                child: _AbsenceSummaryCard(
+                  icon: Icons.event_busy_rounded,
+                  title: 'Permessi',
+                  value: _formatDays(summary.permissionRemaining),
+                  subtitle:
+                      'Usati ${_formatDays(summary.permissionUsed)} su ${staff!.permissionAllowance} giorni',
+                ),
               ),
             ],
           ),
+          const SizedBox(height: 20),
+          if (pendingRequests.isEmpty && historyPreview.isEmpty)
+            const Card(
+              child: ListTile(
+                leading: Icon(Icons.event_available_outlined),
+                title: Text('Nessuna richiesta inviata'),
+              ),
+            )
+          else ...[
+            if (pendingRequests.isNotEmpty) ...[
+              Text(
+                'In attesa (${pendingRequests.length})',
+                style: theme.textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              ...pendingRequests.map(
+                (request) => _AbsenceRequestCard(
+                  request: request,
+                  onCancel: () => _confirmCancelRequest(context, ref, request),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+            if (historyPreview.isNotEmpty) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Storico recente', style: theme.textTheme.titleMedium),
+                  if (showHistoryButton)
+                    TextButton(
+                      onPressed:
+                          () =>
+                              _openAbsenceHistory(context, requests: requests),
+                      child: const Text('Vedi storico'),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              ...historyPreview.map(
+                (request) => _AbsenceRequestCard(
+                  request: request,
+                  onCancel:
+                      request.status.isPending
+                          ? () => _confirmCancelRequest(context, ref, request)
+                          : null,
+                ),
+              ),
+            ],
+          ],
           const SizedBox(height: 24),
           _AbsenceSection(
             title: 'Ferie & Permessi',
@@ -717,6 +779,129 @@ class _AbsenceView extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _AbsenceRequestCard extends StatelessWidget {
+  const _AbsenceRequestCard({required this.request, this.onCancel});
+
+  final StaffAbsenceRequest request;
+  final VoidCallback? onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final notes = request.notes?.trim();
+    final adminNote = request.adminNote?.trim();
+    final showNotes = notes != null && notes.isNotEmpty;
+    final showAdminNote =
+        adminNote != null && adminNote.isNotEmpty && !request.status.isPending;
+    final rangeLabel = _formatRequestRange(request.start, request.end);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(_absenceIcon(request.type)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(request.type.label, style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 4),
+                  Text(rangeLabel, style: theme.textTheme.bodySmall),
+                  if (showNotes) ...[
+                    const SizedBox(height: 4),
+                    Text(notes, style: theme.textTheme.bodySmall),
+                  ],
+                  if (showAdminNote) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Risposta admin: $adminNote',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                _requestStatusChip(request.status, context),
+                if (onCancel != null)
+                  TextButton(onPressed: onCancel, child: const Text('Annulla')),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> _openAbsenceRequestForm(
+  BuildContext context, {
+  required StaffMember staff,
+}) {
+  return showAppModalSheet<void>(
+    context: context,
+    builder:
+        (_) =>
+            StaffAbsenceRequestFormSheet(staff: staff, salonId: staff.salonId),
+  );
+}
+
+Future<void> _openAbsenceHistory(
+  BuildContext context, {
+  required List<StaffAbsenceRequest> requests,
+}) {
+  return showAppModalSheet<void>(
+    context: context,
+    builder: (_) => _AbsenceHistorySheet(requests: requests),
+  );
+}
+
+Future<void> _confirmCancelRequest(
+  BuildContext context,
+  WidgetRef ref,
+  StaffAbsenceRequest request,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder:
+        (dialogContext) => AlertDialog(
+          title: const Text('Annulla richiesta'),
+          content: const Text(
+            'Vuoi annullare questa richiesta di ferie/permesso?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('No'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Si, annulla'),
+            ),
+          ],
+        ),
+  );
+  if (confirmed != true) {
+    return;
+  }
+
+  await ref
+      .read(appDataProvider.notifier)
+      .cancelStaffAbsenceRequest(request: request);
+  if (context.mounted) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Richiesta annullata.')));
   }
 }
 
@@ -786,6 +971,55 @@ class _AbsenceSection extends StatelessWidget {
   }
 }
 
+class _AbsenceHistorySheet extends ConsumerWidget {
+  const _AbsenceHistorySheet({required this.requests});
+
+  final List<StaffAbsenceRequest> requests;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final body =
+        requests.isEmpty
+            ? const Card(
+              child: ListTile(
+                leading: Icon(Icons.event_available_outlined),
+                title: Text('Nessuna richiesta disponibile'),
+              ),
+            )
+            : Column(
+              children:
+                  requests
+                      .map(
+                        (request) => _AbsenceRequestCard(
+                          request: request,
+                          onCancel:
+                              request.status.isPending
+                                  ? () => _confirmCancelRequest(
+                                    context,
+                                    ref,
+                                    request,
+                                  )
+                                  : null,
+                        ),
+                      )
+                      .toList(),
+            );
+
+    return DialogActionLayout(
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Storico richieste', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 12),
+          body,
+        ],
+      ),
+      actions: const [],
+    );
+  }
+}
+
 class _AbsenceSummaryCard extends StatelessWidget {
   const _AbsenceSummaryCard({
     required this.icon,
@@ -802,28 +1036,25 @@ class _AbsenceSummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return SizedBox(
-      width: 260,
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, size: 28),
-              const SizedBox(height: 12),
-              Text(title, style: theme.textTheme.titleMedium),
-              const SizedBox(height: 4),
-              Text(
-                value,
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 28),
+            const SizedBox(height: 12),
+            Text(title, style: theme.textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
               ),
-              const SizedBox(height: 8),
-              Text(subtitle, style: theme.textTheme.bodySmall),
-            ],
-          ),
+            ),
+            const SizedBox(height: 8),
+            Text(subtitle, style: theme.textTheme.bodySmall),
+          ],
         ),
       ),
     );
@@ -926,6 +1157,35 @@ String _formatAbsenceRange(StaffAbsence absence) {
   final startTime = timeFormatter.format(absence.start);
   final endTime = timeFormatter.format(absence.end);
   return '$startDay → $endDay • $startTime-$endTime';
+}
+
+String _formatRequestRange(DateTime start, DateTime end) {
+  final dayFormatter = DateFormat('dd/MM/yyyy');
+  final timeFormatter = DateFormat('HH:mm');
+  final startDay = dayFormatter.format(start);
+  final endDay = dayFormatter.format(end);
+  final isSingleDay =
+      start.year == end.year &&
+      start.month == end.month &&
+      start.day == end.day;
+  final isAllDay =
+      start.hour == 0 &&
+      start.minute == 0 &&
+      end.hour == 23 &&
+      end.minute == 59;
+
+  if (isSingleDay) {
+    if (isAllDay) {
+      return startDay;
+    }
+    return '$startDay • ${timeFormatter.format(start)}-${timeFormatter.format(end)}';
+  }
+
+  if (isAllDay) {
+    return '$startDay → $endDay';
+  }
+
+  return '$startDay → $endDay • ${timeFormatter.format(start)}-${timeFormatter.format(end)}';
 }
 
 double _absenceWorkingDays(
@@ -1142,6 +1402,162 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
+class _AppointmentSummaryCard extends StatelessWidget {
+  const _AppointmentSummaryCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.status,
+    this.margin,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final AppointmentStatus status;
+  final EdgeInsetsGeometry? margin;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final details = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: theme.textTheme.titleMedium,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          subtitle,
+          style: theme.textTheme.bodySmall,
+        ),
+      ],
+    );
+    final statusChip = _appointmentStatusChip(status, context);
+
+    return Card(
+      margin: margin,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isNarrow = constraints.maxWidth < 360;
+            if (isNarrow) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(icon, size: 20),
+                      const SizedBox(width: 12),
+                      Expanded(child: details),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  statusChip,
+                ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(icon, size: 20),
+                const SizedBox(width: 12),
+                Expanded(child: details),
+                const SizedBox(width: 12),
+                statusChip,
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _NextAppointmentCard extends StatelessWidget {
+  const _NextAppointmentCard({
+    required this.clientName,
+    required this.clientInitial,
+    required this.serviceLabel,
+    required this.durationLabel,
+    required this.timeLabel,
+    this.onTap,
+  });
+
+  final String clientName;
+  final String clientInitial;
+  final String serviceLabel;
+  final String durationLabel;
+  final String timeLabel;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final titleStyle = theme.textTheme.titleMedium?.copyWith(
+      fontWeight: FontWeight.w700,
+      color: scheme.onPrimaryContainer,
+    );
+    final bodyStyle = theme.textTheme.bodyMedium?.copyWith(
+      color: scheme.onPrimaryContainer,
+    );
+    final secondaryStyle = theme.textTheme.bodySmall?.copyWith(
+      color: scheme.onPrimaryContainer.withOpacity(0.8),
+    );
+
+    return Card(
+      color: scheme.primaryContainer,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: scheme.onPrimaryContainer.withOpacity(0.12),
+                foregroundColor: scheme.onPrimaryContainer,
+                child: Text(clientInitial),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(clientName, style: titleStyle),
+                    const SizedBox(height: 4),
+                    Text('$serviceLabel · $durationLabel', style: bodyStyle),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.schedule_rounded,
+                          size: 16,
+                          color: scheme.onPrimaryContainer.withOpacity(0.8),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(timeLabel, style: secondaryStyle),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.navigate_next_rounded,
+                color: scheme.onPrimaryContainer,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _TodayCard extends StatelessWidget {
   const _TodayCard({
     required this.icon,
@@ -1203,6 +1619,35 @@ Widget _appointmentStatusChip(AppointmentStatus status, BuildContext context) {
       return Chip(
         label: const Text('No show'),
         backgroundColor: scheme.error.withOpacity(0.1),
+      );
+  }
+}
+
+Widget _requestStatusChip(
+  StaffAbsenceRequestStatus status,
+  BuildContext context,
+) {
+  final scheme = Theme.of(context).colorScheme;
+  switch (status) {
+    case StaffAbsenceRequestStatus.pending:
+      return Chip(
+        label: const Text('In attesa'),
+        backgroundColor: scheme.secondaryContainer,
+      );
+    case StaffAbsenceRequestStatus.approved:
+      return Chip(
+        label: const Text('Approvata'),
+        backgroundColor: scheme.tertiaryContainer,
+      );
+    case StaffAbsenceRequestStatus.rejected:
+      return Chip(
+        label: const Text('Rifiutata'),
+        backgroundColor: scheme.errorContainer,
+      );
+    case StaffAbsenceRequestStatus.cancelled:
+      return Chip(
+        label: const Text('Annullata'),
+        backgroundColor: scheme.surfaceVariant,
       );
   }
 }

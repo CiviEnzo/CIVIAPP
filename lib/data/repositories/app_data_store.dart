@@ -33,6 +33,7 @@ import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/service_category.dart';
 import 'package:you_book/domain/entities/shift.dart';
 import 'package:you_book/domain/entities/staff_absence.dart';
+import 'package:you_book/domain/entities/staff_absence_request.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/domain/entities/staff_role.dart';
 import 'package:you_book/domain/entities/reminder_settings.dart';
@@ -89,6 +90,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
                clientNotifications: const [],
                shifts: List.unmodifiable(MockData.shifts),
                staffAbsences: List.unmodifiable(MockData.staffAbsences),
+               staffAbsenceRequests: List.unmodifiable(
+                 MockData.staffAbsenceRequests,
+               ),
                publicStaffAbsences: List.unmodifiable(
                  MockData.publicStaffAbsences,
                ),
@@ -145,6 +149,8 @@ class AppDataStore extends StateNotifier<AppDataState> {
   static const String _defaultStaffRoleId = 'estetista';
   static const String _unknownStaffRoleId = 'staff-role-unknown';
   static const String _salonAccessRequestsCollection = 'salon_access_requests';
+  static const String _staffAbsenceRequestsCollection =
+      'staff_absence_requests';
   static const String _salonSetupProgressCollection = 'salon_setup_progress';
   static const String _appointmentDayChecklistsCollection =
       'appointment_day_checklists';
@@ -603,6 +609,57 @@ class AppDataStore extends StateNotifier<AppDataState> {
         ),
       );
 
+      if (role == UserRole.staff) {
+        final staffId = currentUser.staffId?.trim() ?? '';
+        final userId = currentUser.uid.trim();
+        addAll(
+          _listenStaffAbsenceRequestsForStaff(
+            firestore: firestore,
+            staffId: staffId,
+            userId: userId,
+            onData: (items) {
+              final sorted =
+                  items.toList()..sort((a, b) {
+                    final left =
+                        a.createdAt ??
+                        DateTime.fromMillisecondsSinceEpoch(0);
+                    final right =
+                        b.createdAt ??
+                        DateTime.fromMillisecondsSinceEpoch(0);
+                    return right.compareTo(left);
+                  });
+              state = state.copyWith(
+                staffAbsenceRequests: List.unmodifiable(sorted),
+              );
+            },
+          ),
+        );
+      } else {
+        addAll(
+          _listenCollectionBySalonIds<StaffAbsenceRequest>(
+            firestore: firestore,
+            collectionPath: _staffAbsenceRequestsCollection,
+            salonIds: salonIds,
+            fromDoc: staffAbsenceRequestFromDoc,
+            onData: (items) {
+              final sorted =
+                  items.toList()..sort((a, b) {
+                    final left =
+                        a.createdAt ??
+                        DateTime.fromMillisecondsSinceEpoch(0);
+                    final right =
+                        b.createdAt ??
+                        DateTime.fromMillisecondsSinceEpoch(0);
+                    return right.compareTo(left);
+                  });
+              state = state.copyWith(
+                staffAbsenceRequests: List.unmodifiable(sorted),
+              );
+            },
+          ),
+        );
+      }
+
       if (salonIds.isNotEmpty) {
         addAll(
           _listenChunkedQueries<AppUser>(
@@ -624,7 +681,10 @@ class AppDataStore extends StateNotifier<AppDataState> {
     } else if (role == UserRole.client) {
       bool hasSalonSubscriptions = false;
 
-      state = state.copyWith(reminderSettings: const []);
+      state = state.copyWith(
+        reminderSettings: const [],
+        staffAbsenceRequests: const [],
+      );
 
       final clientId = currentUser.clientId;
       final userId = currentUser.uid;
@@ -1004,6 +1064,109 @@ class AppDataStore extends StateNotifier<AppDataState> {
       fromDoc: fromDoc,
       onData: onData,
     );
+  }
+
+  List<StreamSubscription> _listenStaffAbsenceRequestsForStaff({
+    required FirebaseFirestore firestore,
+    required String staffId,
+    String? userId,
+    required void Function(List<StaffAbsenceRequest>) onData,
+  }) {
+    final trimmedStaffId = staffId.trim();
+    final trimmedUserId = userId?.trim() ?? '';
+    if (trimmedStaffId.isEmpty && trimmedUserId.isEmpty) {
+      onData(const <StaffAbsenceRequest>[]);
+      return <StreamSubscription>[];
+    }
+
+    debugPrint(
+      '[StaffAbsenceRequests] listen staffId=$trimmedStaffId userId=$trimmedUserId',
+    );
+
+    final subscriptions = <StreamSubscription>[];
+    List<StaffAbsenceRequest> staffItems = const [];
+    List<StaffAbsenceRequest> userItems = const [];
+
+    void emit() {
+      final merged = <String, StaffAbsenceRequest>{};
+      for (final item in staffItems) {
+        merged[item.id] = item;
+      }
+      for (final item in userItems) {
+        merged[item.id] = item;
+      }
+      onData(merged.values.toList(growable: false));
+    }
+
+    if (trimmedStaffId.isNotEmpty) {
+      final staffQuery = firestore
+          .collection(_staffAbsenceRequestsCollection)
+          .where('staffId', isEqualTo: trimmedStaffId);
+      subscriptions.add(
+        staffQuery.snapshots().listen(
+          (snapshot) {
+            debugPrint(
+              '[StaffAbsenceRequests] staff query docs=${snapshot.docs.length}',
+            );
+            staffItems =
+                snapshot.docs
+                    .map(staffAbsenceRequestFromDoc)
+                    .toList(growable: false);
+            emit();
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            _handleQueryError(
+              staffQuery,
+              error,
+              stackTrace,
+              onPermissionDenied: () {
+                debugPrint(
+                  '[StaffAbsenceRequests] staff query permission denied',
+                );
+                staffItems = const [];
+                emit();
+              },
+            );
+          },
+        ),
+      );
+    }
+
+    if (trimmedUserId.isNotEmpty) {
+      final userQuery = firestore
+          .collection(_staffAbsenceRequestsCollection)
+          .where('userId', isEqualTo: trimmedUserId);
+      subscriptions.add(
+        userQuery.snapshots().listen(
+          (snapshot) {
+            debugPrint(
+              '[StaffAbsenceRequests] user query docs=${snapshot.docs.length}',
+            );
+            userItems =
+                snapshot.docs
+                    .map(staffAbsenceRequestFromDoc)
+                    .toList(growable: false);
+            emit();
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            _handleQueryError(
+              userQuery,
+              error,
+              stackTrace,
+              onPermissionDenied: () {
+                debugPrint(
+                  '[StaffAbsenceRequests] user query permission denied',
+                );
+                userItems = const [];
+                emit();
+              },
+            );
+          },
+        ),
+      );
+    }
+
+    return subscriptions;
   }
 
   List<StreamSubscription> _listenClientShifts({
@@ -1977,6 +2140,12 @@ class AppDataStore extends StateNotifier<AppDataState> {
       batch: batch,
     );
     await _deleteCollectionWhere(
+      _staffAbsenceRequestsCollection,
+      'salonId',
+      salonId,
+      batch: batch,
+    );
+    await _deleteCollectionWhere(
       _appointmentDayChecklistsCollection,
       'salonId',
       salonId,
@@ -2214,6 +2383,14 @@ class AppDataStore extends StateNotifier<AppDataState> {
               .where('staffId', isEqualTo: staffId)
               .get();
       for (final doc in absences.docs) {
+        await doc.reference.delete();
+      }
+      final absenceRequests =
+          await firestore
+              .collection(_staffAbsenceRequestsCollection)
+              .where('staffId', isEqualTo: staffId)
+              .get();
+      for (final doc in absenceRequests.docs) {
         await doc.reference.delete();
       }
       final cashFlows =
@@ -5442,6 +5619,200 @@ class AppDataStore extends StateNotifier<AppDataState> {
     await batch.commit();
   }
 
+  Future<void> submitStaffAbsenceRequest({
+    required String salonId,
+    required String staffId,
+    required StaffAbsenceType type,
+    required DateTime start,
+    required DateTime end,
+    String? notes,
+    String? attachmentUrl,
+  }) async {
+    final firestore = _firestore;
+    final sanitizedNotes = _stringOrNull(notes);
+    final sanitizedAttachment = _stringOrNull(attachmentUrl);
+    final userId = _stringOrNull(_currentUser?.uid);
+    final now = DateTime.now();
+
+    if (firestore == null) {
+      final request = StaffAbsenceRequest(
+        id: const Uuid().v4(),
+        salonId: salonId,
+        staffId: staffId,
+        userId: userId,
+        type: type,
+        start: start,
+        end: end,
+        notes: sanitizedNotes,
+        attachmentUrl: sanitizedAttachment,
+        status: StaffAbsenceRequestStatus.pending,
+        createdAt: now,
+        updatedAt: now,
+      );
+      final updated = List<StaffAbsenceRequest>.from(
+        state.staffAbsenceRequests,
+      )
+        ..removeWhere((item) => item.id == request.id)
+        ..add(request)
+        ..sort((a, b) {
+          final left =
+              a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final right =
+              b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          return right.compareTo(left);
+        });
+      state = state.copyWith(
+        staffAbsenceRequests: List.unmodifiable(updated),
+      );
+      return;
+    }
+
+    final doc = firestore.collection(_staffAbsenceRequestsCollection).doc();
+    final data = <String, dynamic>{
+      'salonId': salonId,
+      'staffId': staffId,
+      'type': type.name,
+      'start': Timestamp.fromDate(start),
+      'end': Timestamp.fromDate(end),
+      'status': StaffAbsenceRequestStatus.pending.name,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (userId != null) {
+      data['userId'] = userId;
+    }
+    if (sanitizedNotes != null) {
+      data['notes'] = sanitizedNotes;
+    }
+    if (sanitizedAttachment != null) {
+      data['attachmentUrl'] = sanitizedAttachment;
+    }
+    await doc.set(data);
+  }
+
+  Future<void> approveStaffAbsenceRequest({
+    required StaffAbsenceRequest request,
+    String? adminNote,
+  }) async {
+    final firestore = _firestore;
+    final sanitizedNote = _stringOrNull(adminNote);
+    final absenceId = request.absenceId ?? const Uuid().v4();
+    final absence = StaffAbsence(
+      id: absenceId,
+      salonId: request.salonId,
+      staffId: request.staffId,
+      type: request.type,
+      start: request.start,
+      end: request.end,
+      notes: request.notes,
+    );
+
+    await upsertStaffAbsence(absence);
+
+    if (firestore == null) {
+      final updatedRequests = state.staffAbsenceRequests
+          .map((item) {
+            if (item.id != request.id) {
+              return item;
+            }
+            return item.copyWith(
+              status: StaffAbsenceRequestStatus.approved,
+              adminNote: sanitizedNote ?? item.adminNote,
+              absenceId: absenceId,
+              updatedAt: DateTime.now(),
+            );
+          })
+          .toList(growable: false);
+      state = state.copyWith(
+        staffAbsenceRequests: List.unmodifiable(updatedRequests),
+      );
+      return;
+    }
+
+    final updates = <String, dynamic>{
+      'status': StaffAbsenceRequestStatus.approved.name,
+      'absenceId': absenceId,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (sanitizedNote != null) {
+      updates['adminNote'] = sanitizedNote;
+    }
+    await firestore
+        .collection(_staffAbsenceRequestsCollection)
+        .doc(request.id)
+        .update(updates);
+  }
+
+  Future<void> rejectStaffAbsenceRequest({
+    required StaffAbsenceRequest request,
+    String? adminNote,
+  }) async {
+    final firestore = _firestore;
+    final sanitizedNote = _stringOrNull(adminNote);
+
+    if (firestore == null) {
+      final updatedRequests = state.staffAbsenceRequests
+          .map((item) {
+            if (item.id != request.id) {
+              return item;
+            }
+            return item.copyWith(
+              status: StaffAbsenceRequestStatus.rejected,
+              adminNote: sanitizedNote ?? item.adminNote,
+              updatedAt: DateTime.now(),
+            );
+          })
+          .toList(growable: false);
+      state = state.copyWith(
+        staffAbsenceRequests: List.unmodifiable(updatedRequests),
+      );
+      return;
+    }
+
+    final updates = <String, dynamic>{
+      'status': StaffAbsenceRequestStatus.rejected.name,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (sanitizedNote != null) {
+      updates['adminNote'] = sanitizedNote;
+    }
+    await firestore
+        .collection(_staffAbsenceRequestsCollection)
+        .doc(request.id)
+        .update(updates);
+  }
+
+  Future<void> cancelStaffAbsenceRequest({
+    required StaffAbsenceRequest request,
+  }) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      final updatedRequests = state.staffAbsenceRequests
+          .map((item) {
+            if (item.id != request.id) {
+              return item;
+            }
+            return item.copyWith(
+              status: StaffAbsenceRequestStatus.cancelled,
+              updatedAt: DateTime.now(),
+            );
+          })
+          .toList(growable: false);
+      state = state.copyWith(
+        staffAbsenceRequests: List.unmodifiable(updatedRequests),
+      );
+      return;
+    }
+
+    await firestore
+        .collection(_staffAbsenceRequestsCollection)
+        .doc(request.id)
+        .update(<String, dynamic>{
+          'status': StaffAbsenceRequestStatus.cancelled.name,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+  }
+
   Future<void> upsertStaffAbsence(StaffAbsence absence) async {
     final firestore = _firestore;
     if (firestore == null) {
@@ -5552,6 +5923,12 @@ class AppDataStore extends StateNotifier<AppDataState> {
     for (final absence in MockData.staffAbsences) {
       await upsertStaffAbsence(absence);
     }
+    for (final request in MockData.staffAbsenceRequests) {
+      await firestore
+          .collection(_staffAbsenceRequestsCollection)
+          .doc(request.id)
+          .set(staffAbsenceRequestToMap(request));
+    }
     for (final questionnaire in MockData.clientQuestionnaires) {
       await upsertClientQuestionnaire(questionnaire);
     }
@@ -5607,6 +5984,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     List<AppNotification>? clientNotifications,
     List<Shift>? shifts,
     List<StaffAbsence>? staffAbsences,
+    List<StaffAbsenceRequest>? staffAbsenceRequests,
     List<StaffAbsence>? publicStaffAbsences,
     List<ClientPhoto>? clientPhotos,
     List<ClientPhotoCollage>? clientPhotoCollages,
@@ -5719,6 +6097,14 @@ class AppDataStore extends StateNotifier<AppDataState> {
           staffAbsences != null
               ? _merge(state.staffAbsences, staffAbsences, (e) => e.id)
               : state.staffAbsences,
+      staffAbsenceRequests:
+          staffAbsenceRequests != null
+              ? _merge(
+                state.staffAbsenceRequests,
+                staffAbsenceRequests,
+                (e) => e.id,
+              )
+              : state.staffAbsenceRequests,
       publicStaffAbsences:
           publicStaffAbsences != null
               ? _merge(
@@ -5984,6 +6370,11 @@ class AppDataStore extends StateNotifier<AppDataState> {
       staffAbsences: List.unmodifiable(
         state.staffAbsences.where((element) => element.salonId != salonId),
       ),
+      staffAbsenceRequests: List.unmodifiable(
+        state.staffAbsenceRequests.where(
+          (element) => element.salonId != salonId,
+        ),
+      ),
       appointmentDayChecklists: List.unmodifiable(
         state.appointmentDayChecklists.where(
           (element) => element.salonId != salonId,
@@ -6010,6 +6401,11 @@ class AppDataStore extends StateNotifier<AppDataState> {
       ),
       staffAbsences: List.unmodifiable(
         state.staffAbsences.where((element) => element.staffId != staffId),
+      ),
+      staffAbsenceRequests: List.unmodifiable(
+        state.staffAbsenceRequests.where(
+          (element) => element.staffId != staffId,
+        ),
       ),
       cashFlowEntries: List.unmodifiable(
         state.cashFlowEntries.map((entry) {

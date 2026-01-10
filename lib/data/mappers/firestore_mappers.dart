@@ -25,6 +25,7 @@ import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/service_category.dart';
 import 'package:you_book/domain/entities/shift.dart';
 import 'package:you_book/domain/entities/staff_absence.dart';
+import 'package:you_book/domain/entities/staff_absence_request.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/domain/entities/staff_role.dart';
 import 'package:you_book/domain/entities/reminder_settings.dart';
@@ -2796,11 +2797,69 @@ Map<String, dynamic> staffAbsenceToMap(StaffAbsence absence) {
   };
 }
 
+StaffAbsenceRequest staffAbsenceRequestFromDoc(
+  DocumentSnapshot<Map<String, dynamic>> doc,
+) {
+  final data = doc.data() ?? <String, dynamic>{};
+  return StaffAbsenceRequest(
+    id: doc.id,
+    salonId: data['salonId'] as String? ?? '',
+    staffId: data['staffId'] as String? ?? '',
+    userId: data['userId'] as String?,
+    type: _stringToStaffAbsenceType(data['type'] as String?),
+    start: _timestampToDate(data['start']) ?? DateTime.now(),
+    end: _timestampToDate(data['end']) ?? DateTime.now(),
+    notes: data['notes'] as String?,
+    attachmentUrl: data['attachmentUrl'] as String?,
+    status: _stringToStaffAbsenceRequestStatus(data['status'] as String?),
+    adminNote: data['adminNote'] as String?,
+    absenceId: data['absenceId'] as String?,
+    createdAt: _timestampToDate(data['createdAt']),
+    updatedAt: _timestampToDate(data['updatedAt']),
+  );
+}
+
+Map<String, dynamic> staffAbsenceRequestToMap(StaffAbsenceRequest request) {
+  final map = <String, dynamic>{
+    'salonId': request.salonId,
+    'staffId': request.staffId,
+    'type': request.type.name,
+    'start': Timestamp.fromDate(request.start),
+    'end': Timestamp.fromDate(request.end),
+    'status': _staffAbsenceRequestStatusToString(request.status),
+    if (request.userId != null) 'userId': request.userId,
+    if (request.notes != null) 'notes': request.notes,
+    if (request.attachmentUrl != null) 'attachmentUrl': request.attachmentUrl,
+    if (request.adminNote != null) 'adminNote': request.adminNote,
+    if (request.absenceId != null) 'absenceId': request.absenceId,
+  };
+  if (request.createdAt != null) {
+    map['createdAt'] = Timestamp.fromDate(request.createdAt!);
+  }
+  if (request.updatedAt != null) {
+    map['updatedAt'] = Timestamp.fromDate(request.updatedAt!);
+  }
+  return map;
+}
+
 StaffAbsenceType _stringToStaffAbsenceType(String? value) {
   return StaffAbsenceType.values.firstWhere(
     (type) => type.name == value,
     orElse: () => StaffAbsenceType.vacation,
   );
+}
+
+StaffAbsenceRequestStatus _stringToStaffAbsenceRequestStatus(String? value) {
+  return StaffAbsenceRequestStatus.values.firstWhere(
+    (status) => status.name == value,
+    orElse: () => StaffAbsenceRequestStatus.pending,
+  );
+}
+
+String _staffAbsenceRequestStatusToString(
+  StaffAbsenceRequestStatus status,
+) {
+  return status.name;
 }
 
 ConsentType _stringToConsentType(String? value) {

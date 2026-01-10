@@ -20,6 +20,7 @@ import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/service_category.dart';
 import 'package:you_book/domain/entities/shift.dart';
 import 'package:you_book/domain/entities/staff_absence.dart';
+import 'package:you_book/domain/entities/staff_absence_request.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/domain/entities/staff_role.dart';
 import 'package:you_book/domain/entities/reminder_settings.dart';
@@ -1632,6 +1633,34 @@ class MockData {
       start: DateTime(_now.year, _now.month, _now.day + 3, 10, 0),
       end: DateTime(_now.year, _now.month, _now.day + 3, 14, 0),
       notes: 'Influenza stagionale',
+    ),
+  ];
+
+  static final staffAbsenceRequests = <StaffAbsenceRequest>[
+    StaffAbsenceRequest(
+      id: 'absence-request-001',
+      salonId: 'salon-001',
+      staffId: 'staff-002',
+      type: StaffAbsenceType.permission,
+      start: DateTime(_now.year, _now.month, _now.day + 4),
+      end: DateTime(_now.year, _now.month, _now.day + 4, 23, 59),
+      notes: 'Visita medica',
+      status: StaffAbsenceRequestStatus.pending,
+      createdAt: _now.subtract(const Duration(days: 1)),
+      updatedAt: _now.subtract(const Duration(days: 1)),
+    ),
+    StaffAbsenceRequest(
+      id: 'absence-request-002',
+      salonId: 'salon-002',
+      staffId: 'staff-003',
+      type: StaffAbsenceType.sickLeave,
+      start: DateTime(_now.year, _now.month, _now.day + 2),
+      end: DateTime(_now.year, _now.month, _now.day + 2, 23, 59),
+      notes: 'Certificato in arrivo',
+      status: StaffAbsenceRequestStatus.rejected,
+      adminNote: 'Copertura turni insufficiente',
+      createdAt: _now.subtract(const Duration(days: 2)),
+      updatedAt: _now.subtract(const Duration(days: 1)),
     ),
   ];
 
