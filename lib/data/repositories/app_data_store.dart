@@ -14,6 +14,7 @@ import 'package:you_book/domain/entities/app_notification.dart';
 import 'package:you_book/domain/entities/cash_flow_entry.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/client_app_movement.dart';
+import 'package:you_book/domain/entities/client_note.dart';
 import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
 import 'package:you_book/domain/entities/client_photo_collage.dart';
@@ -101,6 +102,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
                clientPhotoCollages: List.unmodifiable(
                  MockData.clientPhotoCollages,
                ),
+               clientNotes: List.unmodifiable(MockData.clientNotes),
                clientQuestionnaireTemplates: List.unmodifiable(
                  MockData.clientQuestionnaireTemplates,
                ),
@@ -222,6 +224,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
         ),
       );
     } else if (role == UserRole.client) {
+      state = state.copyWith(clientNotes: const <ClientNote>[]);
       subscriptions.add(
         _listenCollection<PublicSalon>(
           firestore.collection('public_salons'),
@@ -253,6 +256,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
         serviceCategories: const <ServiceCategory>[],
         quotes: const <Quote>[],
         clientAppMovements: const <ClientAppMovement>[],
+        clientNotes: const <ClientNote>[],
         promotions: const <Promotion>[],
         lastMinuteSlots: const <LastMinuteSlot>[],
         setupProgress: const <AdminSetupProgress>[],
@@ -539,6 +543,16 @@ class AppDataStore extends StateNotifier<AppDataState> {
       );
 
       addAll(
+        _listenCollectionBySalonIds<ClientNote>(
+          firestore: firestore,
+          collectionPath: 'client_notes',
+          salonIds: salonIds,
+          fromDoc: clientNoteFromDoc,
+          onData: (items) => state = state.copyWith(clientNotes: items),
+        ),
+      );
+
+      addAll(
         _listenCollectionBySalonIds<PaymentTicket>(
           firestore: firestore,
           collectionPath: 'payment_tickets',
@@ -621,11 +635,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
               final sorted =
                   items.toList()..sort((a, b) {
                     final left =
-                        a.createdAt ??
-                        DateTime.fromMillisecondsSinceEpoch(0);
+                        a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
                     final right =
-                        b.createdAt ??
-                        DateTime.fromMillisecondsSinceEpoch(0);
+                        b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
                     return right.compareTo(left);
                   });
               state = state.copyWith(
@@ -645,11 +657,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
               final sorted =
                   items.toList()..sort((a, b) {
                     final left =
-                        a.createdAt ??
-                        DateTime.fromMillisecondsSinceEpoch(0);
+                        a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
                     final right =
-                        b.createdAt ??
-                        DateTime.fromMillisecondsSinceEpoch(0);
+                        b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
                     return right.compareTo(left);
                   });
               state = state.copyWith(
@@ -825,6 +835,18 @@ class AppDataStore extends StateNotifier<AppDataState> {
         );
 
         addAll(
+          _listenCollectionBySalonIds<ClientQuestionnaireTemplate>(
+            firestore: firestore,
+            collectionPath: 'client_questionnaire_templates',
+            salonIds: normalizedSalonIds,
+            fromDoc: clientQuestionnaireTemplateFromDoc,
+            onData:
+                (items) =>
+                    state = state.copyWith(clientQuestionnaireTemplates: items),
+          ),
+        );
+
+        addAll(
           _listenCollectionBySalonIds<Promotion>(
             firestore: firestore,
             collectionPath: 'promotions',
@@ -961,6 +983,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
           sales: const <Sale>[],
           clientPhotos: const <ClientPhoto>[],
           clientPhotoCollages: const <ClientPhotoCollage>[],
+          clientQuestionnaireTemplates: const <ClientQuestionnaireTemplate>[],
           clientQuestionnaires: const <ClientQuestionnaire>[],
         );
       }
@@ -1108,10 +1131,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
             debugPrint(
               '[StaffAbsenceRequests] staff query docs=${snapshot.docs.length}',
             );
-            staffItems =
-                snapshot.docs
-                    .map(staffAbsenceRequestFromDoc)
-                    .toList(growable: false);
+            staffItems = snapshot.docs
+                .map(staffAbsenceRequestFromDoc)
+                .toList(growable: false);
             emit();
           },
           onError: (Object error, StackTrace stackTrace) {
@@ -1142,10 +1164,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
             debugPrint(
               '[StaffAbsenceRequests] user query docs=${snapshot.docs.length}',
             );
-            userItems =
-                snapshot.docs
-                    .map(staffAbsenceRequestFromDoc)
-                    .toList(growable: false);
+            userItems = snapshot.docs
+                .map(staffAbsenceRequestFromDoc)
+                .toList(growable: false);
             emit();
           },
           onError: (Object error, StackTrace stackTrace) {
@@ -2103,6 +2124,12 @@ class AppDataStore extends StateNotifier<AppDataState> {
     batch.delete(firestore.collection('salons').doc(salonId));
     await _deleteCollectionWhere('staff', 'salonId', salonId, batch: batch);
     await _deleteCollectionWhere('clients', 'salonId', salonId, batch: batch);
+    await _deleteCollectionWhere(
+      'client_notes',
+      'salonId',
+      salonId,
+      batch: batch,
+    );
     await _deleteCollectionWhere('services', 'salonId', salonId, batch: batch);
     await _deleteCollectionWhere('packages', 'salonId', salonId, batch: batch);
     await _deleteCollectionWhere(
@@ -2278,6 +2305,17 @@ class AppDataStore extends StateNotifier<AppDataState> {
         .doc(normalizedStaff.id)
         .set(staffToMap(normalizedStaff));
     await _ensureStaffUser(normalizedStaff, previous: existingStaff);
+  }
+
+  Future<void> createStaffAccess(StaffMember staff) async {
+    if (staff.isEquipment) {
+      return;
+    }
+    final email = staff.email?.trim();
+    if (email == null || email.isEmpty) {
+      return;
+    }
+    await _ensureStaffUser(staff, previous: null);
   }
 
   Future<void> reorderStaff({
@@ -2463,6 +2501,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
           ]),
           'salonId': staff.salonId,
           'salonIds': FieldValue.arrayUnion(<String>[staff.salonId]),
+          'emailVerifiedOverride': staff.emailVerifiedOverride,
         }, SetOptions(merge: true));
         return;
       }
@@ -2516,6 +2555,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
         'salonId': staff.salonId,
         'displayName': staff.fullName,
         'email': email,
+        'emailVerifiedOverride': staff.emailVerifiedOverride,
       });
 
       try {
@@ -3069,6 +3109,18 @@ class AppDataStore extends StateNotifier<AppDataState> {
         .set(clientPhotoCollageToMap(collage));
   }
 
+  Future<void> upsertClientNote(ClientNote note) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      _upsertLocal(clientNotes: <ClientNote>[note]);
+      return;
+    }
+    await firestore
+        .collection('client_notes')
+        .doc(note.id)
+        .set(clientNoteToMap(note));
+  }
+
   Future<void> activateClientPhotoVersion({
     required String clientId,
     required ClientPhotoSetType setType,
@@ -3121,6 +3173,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     await _deleteCollectionWhere('payment_tickets', 'clientId', clientId);
     await _deleteCollectionWhere('client_photos', 'clientId', clientId);
     await _deleteCollectionWhere('client_photo_collages', 'clientId', clientId);
+    await _deleteCollectionWhere('client_notes', 'clientId', clientId);
     await _deleteCollectionWhere('quotes', 'clientId', clientId);
   }
 
@@ -3142,6 +3195,16 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
     await firestore.collection('client_photo_collages').doc(collageId).delete();
     _deleteClientPhotoCollageLocal(collageId);
+  }
+
+  Future<void> deleteClientNote(String noteId) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      _deleteClientNoteLocal(noteId);
+      return;
+    }
+    await firestore.collection('client_notes').doc(noteId).delete();
+    _deleteClientNoteLocal(noteId);
   }
 
   void _removeClientAssociationLocal(String? clientId) {
@@ -5649,21 +5712,18 @@ class AppDataStore extends StateNotifier<AppDataState> {
         createdAt: now,
         updatedAt: now,
       );
-      final updated = List<StaffAbsenceRequest>.from(
-        state.staffAbsenceRequests,
-      )
-        ..removeWhere((item) => item.id == request.id)
-        ..add(request)
-        ..sort((a, b) {
-          final left =
-              a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-          final right =
-              b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-          return right.compareTo(left);
-        });
-      state = state.copyWith(
-        staffAbsenceRequests: List.unmodifiable(updated),
-      );
+      final updated =
+          List<StaffAbsenceRequest>.from(state.staffAbsenceRequests)
+            ..removeWhere((item) => item.id == request.id)
+            ..add(request)
+            ..sort((a, b) {
+              final left =
+                  a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+              final right =
+                  b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+              return right.compareTo(left);
+            });
+      state = state.copyWith(staffAbsenceRequests: List.unmodifiable(updated));
       return;
     }
 
@@ -5881,6 +5941,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
     for (final collage in MockData.clientPhotoCollages) {
       await upsertClientPhotoCollage(collage);
     }
+    for (final note in MockData.clientNotes) {
+      await upsertClientNote(note);
+    }
     for (final category in MockData.serviceCategories) {
       await upsertServiceCategory(category);
     }
@@ -5988,6 +6051,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     List<StaffAbsence>? publicStaffAbsences,
     List<ClientPhoto>? clientPhotos,
     List<ClientPhotoCollage>? clientPhotoCollages,
+    List<ClientNote>? clientNotes,
     List<ClientQuestionnaireTemplate>? clientQuestionnaireTemplates,
     List<ClientQuestionnaire>? clientQuestionnaires,
     List<ClientAppMovement>? clientAppMovements,
@@ -6125,6 +6189,10 @@ class AppDataStore extends StateNotifier<AppDataState> {
                 (e) => e.id,
               )
               : state.clientPhotoCollages,
+      clientNotes:
+          clientNotes != null
+              ? _merge(state.clientNotes, clientNotes, (e) => e.id)
+              : state.clientNotes,
       clientQuestionnaireTemplates:
           clientQuestionnaireTemplates != null
               ? _merge(
@@ -6337,6 +6405,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
       clients: List.unmodifiable(
         state.clients.where((element) => element.salonId != salonId),
       ),
+      clientNotes: List.unmodifiable(
+        state.clientNotes.where((element) => element.salonId != salonId),
+      ),
       serviceCategories: List.unmodifiable(
         state.serviceCategories.where((element) => element.salonId != salonId),
       ),
@@ -6410,18 +6481,18 @@ class AppDataStore extends StateNotifier<AppDataState> {
       cashFlowEntries: List.unmodifiable(
         state.cashFlowEntries.map((entry) {
           if (entry.staffId == staffId) {
-          return CashFlowEntry(
-            id: entry.id,
-            salonId: entry.salonId,
-            type: entry.type,
-            amount: entry.amount,
-            date: entry.date,
-            createdAt: entry.createdAt,
-            description: entry.description,
-            category: entry.category,
-            staffId: null,
-            clientId: entry.clientId,
-          );
+            return CashFlowEntry(
+              id: entry.id,
+              salonId: entry.salonId,
+              type: entry.type,
+              amount: entry.amount,
+              date: entry.date,
+              createdAt: entry.createdAt,
+              description: entry.description,
+              category: entry.category,
+              staffId: null,
+              clientId: entry.clientId,
+            );
           }
           return entry;
         }).toList(),
@@ -6454,6 +6525,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
           (element) => element.clientId != clientId,
         ),
       ),
+      clientNotes: List.unmodifiable(
+        state.clientNotes.where((element) => element.clientId != clientId),
+      ),
     );
   }
 
@@ -6469,6 +6543,14 @@ class AppDataStore extends StateNotifier<AppDataState> {
     state = state.copyWith(
       clientPhotoCollages: List.unmodifiable(
         state.clientPhotoCollages.where((element) => element.id != collageId),
+      ),
+    );
+  }
+
+  void _deleteClientNoteLocal(String noteId) {
+    state = state.copyWith(
+      clientNotes: List.unmodifiable(
+        state.clientNotes.where((element) => element.id != noteId),
       ),
     );
   }

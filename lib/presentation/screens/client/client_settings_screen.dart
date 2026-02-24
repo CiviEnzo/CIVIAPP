@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/data/models/app_user.dart';
 import 'package:you_book/domain/entities/client.dart';
@@ -23,6 +24,10 @@ class ClientSettingsScreen extends ConsumerStatefulWidget {
 class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
   static const String _notificationPrefsKeyPrefix =
       'client_settings_notifications';
+  static const String _clientDeleteAccountUrl = String.fromEnvironment(
+    'CLIENT_DELETE_ACCOUNT_URL',
+    defaultValue: 'https://civiapp.it/richiesta-eliminazione-youbook',
+  );
 
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _firstNameController;
@@ -345,15 +350,7 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
                           subtitle:
                               session.salonId == null
                                   ? 'Nessun salone attivo'
-                                  : 'Salone attuale: ${
-                                      salons
-                                              .firstWhereOrNull(
-                                                (salon) =>
-                                                    salon.id == session.salonId,
-                                              )
-                                              ?.name ??
-                                          session.salonId
-                                    }',
+                                  : 'Salone attuale: ${salons.firstWhereOrNull((salon) => salon.id == session.salonId)?.name ?? session.salonId}',
                           trailing:
                               _preparingSalonSwitch
                                   ? const SizedBox.square(
@@ -367,9 +364,9 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
                               _preparingSalonSwitch
                                   ? null
                                   : () => _handleSalonSwitch(
-                                        themedContext,
-                                        session,
-                                      ),
+                                    themedContext,
+                                    session,
+                                  ),
                         ),
                         const SizedBox(height: 16),
                         Card(
@@ -627,6 +624,15 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
                                     ),
                           ),
                         ),
+                        const SizedBox(height: 16),
+                        _SettingsActionTile(
+                          icon: Icons.delete_forever_rounded,
+                          color: theme.colorScheme.error,
+                          title: 'Eliminazione account',
+                          subtitle:
+                              'Apri la pagina web per richiedere la cancellazione (invio a civi.devops@gmail.com)',
+                          onTap: () => _openDeleteAccountPage(themedContext),
+                        ),
                       ],
                     ),
           );
@@ -715,6 +721,72 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
         });
       }
     }
+  }
+
+  Future<void> _openDeleteAccountPage(BuildContext context) async {
+    final configuredUrl = _clientDeleteAccountUrl.trim();
+    if (configuredUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'URL non configurato. Imposta CLIENT_DELETE_ACCOUNT_URL con il link Framer.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final uri = _parseExternalUri(configuredUrl);
+    if (uri == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'URL pagina eliminazione non valido. Verifica CLIENT_DELETE_ACCOUNT_URL.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    try {
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Impossibile aprire la pagina eliminazione account.'),
+          ),
+        );
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Errore durante l\'apertura della pagina: ${error.toString()}',
+          ),
+        ),
+      );
+    }
+  }
+
+  Uri? _parseExternalUri(String rawUrl) {
+    final trimmed = rawUrl.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+    var uri = Uri.tryParse(trimmed);
+    if (uri == null) {
+      return null;
+    }
+    if (!uri.hasScheme) {
+      uri = Uri.tryParse('https://$trimmed');
+    }
+    return uri;
   }
 
   Future<void> _handleSalonSwitch(
@@ -814,9 +886,7 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
       closeLoader();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Operazione non riuscita: $error'),
-          ),
+          SnackBar(content: Text('Operazione non riuscita: $error')),
         );
       }
     } finally {
@@ -1090,10 +1160,7 @@ class _SettingsActionTile extends StatelessWidget {
             fontWeight: FontWeight.w600,
           ),
         ),
-        subtitle: Text(
-          subtitle,
-          style: theme.textTheme.bodySmall,
-        ),
+        subtitle: Text(subtitle, style: theme.textTheme.bodySmall),
         trailing: trailing ?? const Icon(Icons.chevron_right_rounded),
       ),
     );

@@ -5,7 +5,8 @@ import 'package:you_book/app/providers.dart';
 import 'package:you_book/domain/entities/promotion.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:you_book/presentation/common/hybrid_image_picker.dart';
+import 'package:file_selector/file_selector.dart' show XFile;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -927,17 +928,12 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
   }
 
   Future<void> _pickPromotionImage() async {
-    final result = await FilePicker.platform.pickFiles(
-      allowMultiple: false,
-      type: FileType.image,
-      withData: true,
-      withReadStream: true,
-    );
-    if (!mounted || result == null || result.files.isEmpty) {
+    final file = await pickSingleImageFile(confirmButtonText: 'Seleziona');
+    if (!mounted || file == null) {
       return;
     }
-    final file = result.files.first;
-    if (file.size > _maxImageBytes) {
+    final fileSize = await _resolveXFileLength(file);
+    if (fileSize > _maxImageBytes) {
       final maxMb = (_maxImageBytes / (1024 * 1024)).toStringAsFixed(1);
       setState(() {
         _coverUploadError = 'L\'immagine supera il limite di $maxMb MB.';
@@ -945,7 +941,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
       });
       return;
     }
-    final bytes = await _resolveBytes(file);
+    final bytes = await _resolveXFileBytes(file);
     if (bytes == null || bytes.isEmpty) {
       setState(() {
         _coverUploadError = 'Impossibile leggere il file selezionato.';
@@ -994,17 +990,12 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
   }
 
   Future<void> _pickSectionImage(_EditablePromotionSection section) async {
-    final result = await FilePicker.platform.pickFiles(
-      allowMultiple: false,
-      type: FileType.image,
-      withData: true,
-      withReadStream: true,
-    );
-    if (!mounted || result == null || result.files.isEmpty) {
+    final file = await pickSingleImageFile(confirmButtonText: 'Seleziona');
+    if (!mounted || file == null) {
       return;
     }
-    final file = result.files.first;
-    if (file.size > _maxImageBytes) {
+    final fileSize = await _resolveXFileLength(file);
+    if (fileSize > _maxImageBytes) {
       final maxMb = (_maxImageBytes / (1024 * 1024)).toStringAsFixed(1);
       setState(() {
         _sectionUploadErrors[section.id] =
@@ -1012,7 +1003,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
       });
       return;
     }
-    final bytes = await _resolveBytes(file);
+    final bytes = await _resolveXFileBytes(file);
     if (bytes == null || bytes.isEmpty) {
       setState(() {
         _sectionUploadErrors[section.id] =
@@ -1060,23 +1051,20 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog> {
     }
   }
 
-  Future<Uint8List?> _resolveBytes(PlatformFile file) async {
-    if (file.bytes != null && file.bytes!.isNotEmpty) {
-      return file.bytes;
-    }
-    final stream = file.readStream;
-    if (stream == null) {
-      return null;
-    }
-    final builder = BytesBuilder();
+  Future<int> _resolveXFileLength(XFile file) async {
     try {
-      await for (final chunk in stream) {
-        builder.add(chunk);
-        if (builder.length > _maxImageBytes) {
-          return null;
-        }
+      return await file.length();
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<Uint8List?> _resolveXFileBytes(XFile file) async {
+    try {
+      final data = await file.readAsBytes();
+      if (data.length > _maxImageBytes) {
+        return null;
       }
-      final data = builder.takeBytes();
       return data.isEmpty ? null : data;
     } catch (_) {
       return null;
@@ -1996,30 +1984,32 @@ class _SectionEditorCardState extends State<_SectionEditorCard>
                     children: [
                       Row(
                         children: [
-                          DropdownButton<PromotionSectionLayout>(
-                            isExpanded: true,
-                            value: widget.section.layout,
-                            items:
-                                PromotionSectionLayout.values
-                                    .map(
-                                      (layout) => DropdownMenuItem(
-                                        value: layout,
-                                        child: Text(
-                                          _layoutDisplayLabel(
-                                            layout,
-                                            widget.section.type,
+                          Expanded(
+                            child: DropdownButton<PromotionSectionLayout>(
+                              isExpanded: true,
+                              value: widget.section.layout,
+                              items:
+                                  PromotionSectionLayout.values
+                                      .map(
+                                        (layout) => DropdownMenuItem(
+                                          value: layout,
+                                          child: Text(
+                                            _layoutDisplayLabel(
+                                              layout,
+                                              widget.section.type,
+                                            ),
                                           ),
                                         ),
-                                      ),
-                                    )
-                                    .toList(),
-                            onChanged: (value) {
-                              if (value == null) return;
-                              setState(() {
-                                widget.section.layout = value;
-                              });
-                              widget.onChanged();
-                            },
+                                      )
+                                      .toList(),
+                              onChanged: (value) {
+                                if (value == null) return;
+                                setState(() {
+                                  widget.section.layout = value;
+                                });
+                                widget.onChanged();
+                              },
+                            ),
                           ),
                           const SizedBox(width: 12),
                           FilterChip(

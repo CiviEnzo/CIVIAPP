@@ -672,6 +672,7 @@ class _SalonOperationsOverviewCard extends ConsumerWidget {
     Future<void> manageQuestionnairesAsync() async {
       await showAppModalSheet<void>(
         context: context,
+        desktopMaxWidth: 980,
         builder: (ctx) {
           final mediaQuery = MediaQuery.of(ctx);
           final maxHeight = mediaQuery.size.height * 0.9;

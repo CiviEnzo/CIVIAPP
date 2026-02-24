@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
-
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/data/models/app_user.dart';
 import 'package:you_book/domain/cart/cart_models.dart';
@@ -40,6 +38,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
 import 'client_booking_sheet.dart';
+import 'client_assigned_questionnaires_screen.dart';
 import 'client_settings_screen.dart';
 import 'client_theme.dart';
 
@@ -55,6 +54,11 @@ const _tiktokLogoAsset = 'assets/social_logo/tiktok.PNG';
 const _facebookLogoAsset = 'assets/social_logo/facebook.PNG';
 const _whatsappLogoAsset = 'assets/social_logo/whatsapp.PNG';
 const _mapsLogoAsset = 'assets/social_logo/maps.PNG';
+const _firebaseWebVapidKey = String.fromEnvironment('FIREBASE_VAPID_KEY');
+const _clientPurchasesFeatureEnabled = bool.fromEnvironment(
+  'CLIENT_PURCHASES_ENABLED',
+  defaultValue: false,
+);
 
 class ClientDashboardScreen extends ConsumerStatefulWidget {
   const ClientDashboardScreen({super.key});
@@ -1113,12 +1117,32 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     unawaited(ref.read(appDataProvider.notifier).trackPromotionCta(promotion));
   }
 
+  bool _isClientPurchaseEnabled({StripePaymentsService? paymentsService}) {
+    final StripePaymentsService service =
+        paymentsService ?? ref.read(stripePaymentsServiceProvider);
+    return _clientPurchasesFeatureEnabled && service.isConfigured;
+  }
+
+  void _showPurchasesDisabledSnackBar(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Acquisti online temporaneamente disattivati nell\'app clienti.',
+        ),
+      ),
+    );
+  }
+
   void _addServiceToCart({
     required BuildContext context,
     required Client client,
     required Salon? salon,
     required Service service,
   }) {
+    if (!_isClientPurchaseEnabled()) {
+      _showPurchasesDisabledSnackBar(context);
+      return;
+    }
     final cartNotifier = ref.read(cartControllerProvider.notifier);
     cartNotifier.addItem(
       CartItem(
@@ -1148,6 +1172,10 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     required Salon? salon,
     required ServicePackage package,
   }) {
+    if (!_isClientPurchaseEnabled()) {
+      _showPurchasesDisabledSnackBar(context);
+      return;
+    }
     final cartNotifier = ref.read(cartControllerProvider.notifier);
     cartNotifier.addItem(
       CartItem(
@@ -1209,6 +1237,10 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     BuildContext? overrideContext,
   }) async {
     final targetContext = overrideContext ?? context;
+    if (slot.requiresImmediatePayment && !_isClientPurchaseEnabled()) {
+      _showPurchasesDisabledSnackBar(targetContext);
+      return;
+    }
     final service = services.firstWhereOrNull(
       (service) => service.id == slot.serviceId,
     );
@@ -1727,6 +1759,10 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     }
 
     final messenger = ScaffoldMessenger.of(context);
+    if (!_isClientPurchaseEnabled()) {
+      _showPurchasesDisabledSnackBar(context);
+      return;
+    }
     if (quote.status != QuoteStatus.sent) {
       messenger.showSnackBar(
         const SnackBar(
@@ -2032,6 +2068,10 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     final data = ref.watch(appDataProvider);
     final session = ref.watch(sessionControllerProvider);
     final cartState = ref.watch(cartControllerProvider);
+    final stripePaymentsService = ref.watch(stripePaymentsServiceProvider);
+    final clientPurchasesEnabled = _isClientPurchaseEnabled(
+      paymentsService: stripePaymentsService,
+    );
     final clients = data.clients;
     final selectedClient = clients.firstWhereOrNull(
       (client) => client.id == session.userId,
@@ -2295,6 +2335,16 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     final shouldShowPhotosBadge = photosBadgeDelta > 0;
     final shouldShowAgendaBadge = agendaBadgeDelta > 0;
     final shouldShowNotificationsBadge = notificationsBadgeDelta > 0;
+    final assignedClientQuestionnaires = data.clientQuestionnaires
+        .where(
+          (item) =>
+              item.clientId == currentClient.id && item.assignedToClientApp,
+        )
+        .toList(growable: false);
+    final pendingAssignedQuestionnairesCount =
+        assignedClientQuestionnaires.where((item) => item.isPending).length;
+    final completedAssignedQuestionnairesCount =
+        assignedClientQuestionnaires.where((item) => item.isCompleted).length;
     final hasDrawerBadge =
         shouldShowLoyaltyBadge ||
         shouldShowPackagesBadge ||
@@ -2325,6 +2375,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
               activePackages: activePackages,
               pastPackages: pastPackages,
               sales: clientSales,
+              clientPurchasesEnabled: clientPurchasesEnabled,
             ),
             _buildAppointmentsTab(
               context: context,
@@ -2343,6 +2394,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
               client: currentClient,
               salon: salon,
               cartState: cartState,
+              clientPurchasesEnabled: clientPurchasesEnabled,
             ),
             _buildSalonInfoTab(
               context: context,
@@ -2509,6 +2561,28 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
                                       outstandingSales: outstandingSales,
                                       activePackages: activePackages,
                                       pastPackages: pastPackages,
+                                    );
+                                  },
+                                ),
+                                _DrawerNavigationCard(
+                                  icon: Icons.assignment_rounded,
+                                  label: 'Questionari',
+                                  subtitle:
+                                      pendingAssignedQuestionnairesCount > 0
+                                          ? '$pendingAssignedQuestionnairesCount da compilare'
+                                          : assignedClientQuestionnaires.isEmpty
+                                          ? 'Nessun questionario assegnato'
+                                          : '$completedAssignedQuestionnairesCount completati',
+                                  onTap: () {
+                                    Navigator.of(context).pop();
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder:
+                                            (_) =>
+                                                ClientAssignedQuestionnairesScreen(
+                                                  client: currentClient,
+                                                ),
+                                      ),
                                     );
                                   },
                                 ),
@@ -2682,6 +2756,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     required List<ClientPackagePurchase> activePackages,
     required List<ClientPackagePurchase> pastPackages,
     required List<Sale> sales,
+    required bool clientPurchasesEnabled,
   }) {
     final theme = Theme.of(context);
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
@@ -2888,12 +2963,14 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
           _PackagesCarousel(
             packages: packagesCatalog,
             onAddToCart:
-                (pkg) => _addPackageToCart(
-                  context: context,
-                  client: client,
-                  salon: salon,
-                  package: pkg,
-                ),
+                clientPurchasesEnabled
+                    ? (pkg) => _addPackageToCart(
+                      context: context,
+                      client: client,
+                      salon: salon,
+                      package: pkg,
+                    )
+                    : null,
           ),
           const SizedBox(height: 16),
         ],
@@ -3010,17 +3087,23 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     required Client client,
     required Salon? salon,
     required CartState cartState,
+    required bool clientPurchasesEnabled,
   }) {
     final theme = Theme.of(context);
     final cartNotifier = ref.read(cartControllerProvider.notifier);
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
     final items = cartState.items;
     final canCheckout =
+        clientPurchasesEnabled &&
         items.isNotEmpty &&
         !cartState.isProcessing &&
         salon?.stripeAccountId != null;
 
     Future<void> handleCheckout() async {
+      if (!clientPurchasesEnabled) {
+        _showPurchasesDisabledSnackBar(context);
+        return;
+      }
       if (salon == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -3177,20 +3260,30 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              Align(
-                child: FilledButton.icon(
-                  onPressed: canCheckout ? handleCheckout : null,
-                  icon: const Icon(Icons.lock_outline_rounded),
-                  label: Text(
-                    cartState.isProcessing
-                        ? 'Elaborazione...'
-                        : 'Procedi al pagamento',
+              if (clientPurchasesEnabled) ...[
+                const SizedBox(height: 12),
+                Align(
+                  child: FilledButton.icon(
+                    onPressed: canCheckout ? handleCheckout : null,
+                    icon: const Icon(Icons.lock_outline_rounded),
+                    label: Text(
+                      cartState.isProcessing
+                          ? 'Elaborazione...'
+                          : 'Procedi al pagamento',
+                    ),
                   ),
                 ),
-              ),
+              ],
             ],
-            if (salon?.stripeAccountId == null) ...[
+            if (!clientPurchasesEnabled) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Acquisti online temporaneamente disattivati nell\'app clienti.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ] else if (salon?.stripeAccountId == null) ...[
               const SizedBox(height: 12),
               Text(
                 'Il pagamento online non è abilitato per questo salone.',
@@ -3666,6 +3759,10 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     required Client client,
     required Salon salon,
   }) async {
+    if (!_isClientPurchaseEnabled()) {
+      _showPurchasesDisabledSnackBar(context);
+      return;
+    }
     final messenger = ScaffoldMessenger.of(context);
     final cartState = ref.read(cartControllerProvider);
     if (cartState.items.isEmpty) {
@@ -4308,6 +4405,12 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
                 builder: (consumerContext, sheetRef, _) {
                   final theme = Theme.of(consumerContext);
                   final data = sheetRef.watch(appDataProvider);
+                  final paymentsService = sheetRef.watch(
+                    stripePaymentsServiceProvider,
+                  );
+                  final clientPurchasesEnabled = _isClientPurchaseEnabled(
+                    paymentsService: paymentsService,
+                  );
                   final salonsById = <String, Salon>{
                     for (final salon in data.salons) salon.id: salon,
                   };
@@ -4356,6 +4459,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
                         quote.id,
                       );
                       final canAcceptOnline =
+                          clientPurchasesEnabled &&
                           salonForQuote != null &&
                           salonForQuote.canAcceptOnlinePayments &&
                           quote.status == QuoteStatus.sent &&
@@ -5532,125 +5636,213 @@ class _ClientPhotosSheetBody extends ConsumerWidget {
     final sortedCollages =
         collages.toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-    final completedSets =
-        grouped.values
-            .where(
-              (setPhotos) => setPhotos.any((photo) => photo.isSetActiveVersion),
-            )
-            .length;
-
     final hasAnySetsContent = grouped.values.any((list) => list.isNotEmpty);
     final hasAnyPhotos = photos.isNotEmpty || hasAnySetsContent;
     final hasAnyCollages = sortedCollages.isNotEmpty;
-    final hasOtherPhotos = otherPhotos.isNotEmpty;
-    final hasAnyArchive = hasAnyPhotos || hasAnyCollages || hasOtherPhotos;
+    final initialTabIndex = hasAnyCollages ? 0 : (hasAnyPhotos ? 1 : 0);
 
-    final children = <Widget>[
+    return DefaultTabController(
+      length: 2,
+      initialIndex: initialTabIndex,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: scheme.surfaceVariant.withOpacity(0.5),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: TabBar(
+              tabs: [
+                Tab(
+                  text:
+                      hasAnyCollages
+                          ? 'Collage (${sortedCollages.length})'
+                          : 'Collage',
+                ),
+                Tab(
+                  text:
+                      hasAnyPhotos
+                          ? 'Archivio foto (${photos.length})'
+                          : 'Archivio foto',
+                ),
+              ],
+              labelStyle: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+              unselectedLabelStyle: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: TabBarView(
+              children: [
+                _ClientCollagesTabContent(
+                  collages: sortedCollages,
+                  onPreview:
+                      (collage, heroTag) => _showClientCollagePreview(
+                        context,
+                        collage,
+                        heroTag: heroTag,
+                      ),
+                ),
+                _ClientPhotoArchiveTabContent(
+                  grouped: grouped,
+                  otherPhotos: otherPhotos,
+                  onPreview:
+                      (photo) => _showClientPhotoPreview(
+                        context,
+                        photo,
+                        heroTag: 'client-photo-${photo.id}',
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClientCollagesTabContent extends StatelessWidget {
+  const _ClientCollagesTabContent({
+    required this.collages,
+    required this.onPreview,
+  });
+
+  final List<ClientPhotoCollage> collages;
+  final void Function(ClientPhotoCollage collage, String heroTag) onPreview;
+
+  @override
+  Widget build(BuildContext context) {
+    if (collages.isEmpty) {
+      return ListView(
+        physics: const BouncingScrollPhysics(),
+        padding: EdgeInsets.zero,
+        children: const [
+          _ClientEmptyStateCard(
+            icon: Icons.collections_bookmark_outlined,
+            title: 'Nessun collage condiviso',
+            message:
+                'Quando il salone creerà un collage per i tuoi trattamenti, lo troverai qui.',
+          ),
+        ],
+      );
+    }
+
+    return ListView.separated(
+      physics: const BouncingScrollPhysics(),
+      padding: EdgeInsets.zero,
+      itemCount: collages.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        final collage = collages[index];
+        final heroTag = 'client-collage-${collage.id}';
+        return _ClientCollageCard(
+          collage: collage,
+          heroTag: heroTag,
+          onPreview: () => onPreview(collage, heroTag),
+        );
+      },
+    );
+  }
+}
+
+class _ClientPhotoArchiveTabContent extends StatefulWidget {
+  const _ClientPhotoArchiveTabContent({
+    required this.grouped,
+    required this.otherPhotos,
+    required this.onPreview,
+  });
+
+  final Map<ClientPhotoSetType, List<ClientPhoto>> grouped;
+  final List<ClientPhoto> otherPhotos;
+  final void Function(ClientPhoto photo) onPreview;
+
+  @override
+  State<_ClientPhotoArchiveTabContent> createState() =>
+      _ClientPhotoArchiveTabContentState();
+}
+
+class _ClientPhotoArchiveTabContentState
+    extends State<_ClientPhotoArchiveTabContent> {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final grouped = widget.grouped;
+    final otherPhotos = widget.otherPhotos;
+    final onPreview = widget.onPreview;
+    final hasAnySetsContent = grouped.values.any((list) => list.isNotEmpty);
+    final hasAnyPhotos = hasAnySetsContent || otherPhotos.isNotEmpty;
+
+    if (!hasAnyPhotos) {
+      return ListView(
+        physics: const BouncingScrollPhysics(),
+        padding: EdgeInsets.zero,
+        children: const [
+          _ClientEmptyStateCard(
+            icon: Icons.photo_library_outlined,
+            title: 'Nessuna foto in archivio',
+            message:
+                'Lo staff potrà condividere qui i set fotografici e le singole foto delle tue sessioni.',
+          ),
+        ],
+      );
+    }
+
+    final children = <Widget>[];
+
+    children.add(
       Text(
-        'Accedi ai set fotografici e ai collage creati su misura per i tuoi trattamenti.',
-        style: theme.textTheme.bodyMedium?.copyWith(
-          color: scheme.onSurfaceVariant,
+        'Set fotografici',
+        style: theme.textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w600,
         ),
       ),
-      const SizedBox(height: 16),
-    ];
+    );
+    children.add(const SizedBox(height: 12));
 
-    if (!hasAnyArchive) {
+    final visibleSetTypes = _ClientPhotosSheetBody._orderedSets;
+
+    for (var i = 0; i < visibleSetTypes.length; i++) {
+      final type = visibleSetTypes[i];
+      final setPhotos = grouped[type] ?? const <ClientPhoto>[];
       children.add(
-        const _ClientEmptyStateCard(
-          icon: Icons.photo_library_outlined,
-          title: 'Ancora nessuna foto disponibile',
-          message:
-              'Lo staff potrà condividere qui i set fotografici e i collage delle tue sessioni.',
+        _ClientPhotoSetArchiveSection(
+          type: type,
+          photos: setPhotos,
+          onPreview: onPreview,
         ),
       );
-    } else {
-      children.add(
-        _ClientPhotoSummaryBanner(
-          completedSets: completedSets,
-          totalSets: _orderedSets.length,
-          totalPhotos: photos.length,
-          collageCount: sortedCollages.length,
-        ),
-      );
-      children.add(const SizedBox(height: 20));
+      if (i != visibleSetTypes.length - 1) {
+        children.add(const SizedBox(height: 12));
+      }
+    }
+
+    if (otherPhotos.isNotEmpty) {
+      children.add(const SizedBox(height: 24));
       children.add(
         Text(
-          'Set fotografici',
+          'Altre foto',
           style: theme.textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.w600,
           ),
         ),
       );
       children.add(const SizedBox(height: 12));
-      children.add(
-        _ClientPhotoSetGrid(
-          grouped: grouped,
-          onPreview: (photo) => _showClientPhotoPreview(context, photo),
-          onShowHistory:
-              (type) => _showClientPhotoSetHistory(
-                context: context,
-                type: type,
-                photos: grouped[type] ?? const <ClientPhoto>[],
-              ),
-        ),
-      );
-
-      if (hasAnyCollages) {
-        children.add(const SizedBox(height: 24));
+      for (var i = 0; i < otherPhotos.length; i++) {
         children.add(
-          Text(
-            'Collage condivisi',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+          _ClientPhotoArchivePreviewTile(
+            photo: otherPhotos[i],
+            onTap: () => onPreview(otherPhotos[i]),
           ),
         );
-        children.add(const SizedBox(height: 12));
-        for (var i = 0; i < sortedCollages.length; i++) {
-          final collage = sortedCollages[i];
-          final heroTag = 'client-collage-${collage.id}';
-          children.add(
-            _ClientCollageCard(
-              collage: collage,
-              heroTag: heroTag,
-              onPreview:
-                  () => _showClientCollagePreview(
-                    context,
-                    collage,
-                    heroTag: heroTag,
-                  ),
-            ),
-          );
-          if (i != sortedCollages.length - 1) {
-            children.add(const SizedBox(height: 12));
-          }
+        if (i != otherPhotos.length - 1) {
+          children.add(const SizedBox(height: 10));
         }
-      }
-
-      if (hasOtherPhotos) {
-        children.add(const SizedBox(height: 24));
-        children.add(
-          Text(
-            'Archivio completo',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        );
-        children.add(const SizedBox(height: 12));
-        children.add(
-          ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: otherPhotos.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemBuilder: (context, index) {
-              final photo = otherPhotos[index];
-              return _ClientPhotoCard(photo: photo);
-            },
-          ),
-        );
       }
     }
 
@@ -5658,6 +5850,362 @@ class _ClientPhotosSheetBody extends ConsumerWidget {
       physics: const BouncingScrollPhysics(),
       padding: EdgeInsets.zero,
       children: children,
+    );
+  }
+}
+
+class _ClientPhotoSetArchiveSection extends StatefulWidget {
+  const _ClientPhotoSetArchiveSection({
+    super.key,
+    required this.type,
+    required this.photos,
+    required this.onPreview,
+    this.initiallyExpanded = false,
+  });
+
+  final ClientPhotoSetType type;
+  final List<ClientPhoto> photos;
+  final void Function(ClientPhoto photo) onPreview;
+  final bool initiallyExpanded;
+
+  @override
+  State<_ClientPhotoSetArchiveSection> createState() =>
+      _ClientPhotoSetArchiveSectionState();
+}
+
+class _ClientPhotoSetArchiveSectionState
+    extends State<_ClientPhotoSetArchiveSection> {
+  static const int _collapsedVersionsLimit = 3;
+  late bool _isExpanded;
+  bool _showAllVersions = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _isExpanded = widget.initiallyExpanded;
+  }
+
+  @override
+  void didUpdateWidget(covariant _ClientPhotoSetArchiveSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initiallyExpanded && !oldWidget.initiallyExpanded && mounted) {
+      _isExpanded = true;
+    }
+    if (widget.photos.length <= _collapsedVersionsLimit && _showAllVersions) {
+      _showAllVersions = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final photos = widget.photos;
+    final hasPhotos = photos.isNotEmpty;
+    final visiblePhotos =
+        _showAllVersions || photos.length <= _collapsedVersionsLimit
+            ? photos
+            : photos.take(_collapsedVersionsLimit).toList(growable: false);
+    final hiddenCount = photos.length - visiblePhotos.length;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: Theme(
+        data: theme.copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          initiallyExpanded: widget.initiallyExpanded,
+          onExpansionChanged:
+              (expanded) => setState(() => _isExpanded = expanded),
+          tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+          leading: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color:
+                  hasPhotos
+                      ? scheme.primary.withOpacity(0.12)
+                      : scheme.surfaceVariant.withOpacity(0.7),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              hasPhotos ? Icons.photo_library_outlined : Icons.photo_outlined,
+              size: 18,
+              color: hasPhotos ? scheme.primary : scheme.onSurfaceVariant,
+            ),
+          ),
+          title: Text(
+            _clientPhotoSetLabel(widget.type),
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          subtitle: Text(
+            !hasPhotos
+                ? 'Nessuna foto disponibile'
+                : photos.length == 1
+                ? '1 versione disponibile'
+                : '${photos.length} versioni disponibili',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (hasPhotos)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    photos.length == 1 ? '1' : '${photos.length}',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: scheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              if (hasPhotos) const SizedBox(width: 8),
+              AnimatedRotation(
+                turns: _isExpanded ? 0.5 : 0,
+                duration: const Duration(milliseconds: 180),
+                child: Icon(
+                  Icons.expand_more_rounded,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+          children: [
+            if (!hasPhotos)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceVariant.withOpacity(0.45),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  'Nessuna foto disponibile per questo set.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              )
+            else
+              Column(
+                children: [
+                  for (var i = 0; i < visiblePhotos.length; i++) ...[
+                    _ClientPhotoArchivePreviewTile(
+                      photo: visiblePhotos[i],
+                      versionLabel:
+                          visiblePhotos[i].setVersionIndex == null
+                              ? 'Versione'
+                              : 'Versione ${visiblePhotos[i].setVersionIndex}',
+                      showActiveBadge: visiblePhotos[i].isSetActiveVersion,
+                      onTap: () => widget.onPreview(visiblePhotos[i]),
+                    ),
+                    if (i != visiblePhotos.length - 1)
+                      const SizedBox(height: 10),
+                  ],
+                  if (hiddenCount > 0) ...[
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed:
+                            () => setState(() => _showAllVersions = true),
+                        icon: const Icon(Icons.expand_more_rounded, size: 18),
+                        label: Text(
+                          hiddenCount == 1
+                              ? 'Mostra 1 versione precedente'
+                              : 'Mostra altre $hiddenCount versioni',
+                        ),
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: const Size(0, 36),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ),
+                    ),
+                  ] else if (_showAllVersions &&
+                      photos.length > _collapsedVersionsLimit) ...[
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed:
+                            () => setState(() => _showAllVersions = false),
+                        icon: const Icon(Icons.expand_less_rounded, size: 18),
+                        label: const Text('Mostra meno'),
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: const Size(0, 36),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ClientPhotoArchivePreviewTile extends StatelessWidget {
+  const _ClientPhotoArchivePreviewTile({
+    required this.photo,
+    required this.onTap,
+    this.versionLabel,
+    this.showActiveBadge = false,
+  });
+
+  final ClientPhoto photo;
+  final VoidCallback onTap;
+  final String? versionLabel;
+  final bool showActiveBadge;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final dateFormat = DateFormat('dd MMM yyyy · HH:mm', 'it_IT');
+    final notes = photo.notes?.trim();
+    final heroTag = 'client-photo-${photo.id}';
+
+    return Material(
+      color: scheme.surfaceVariant.withOpacity(0.24),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            children: [
+              Hero(
+                tag: heroTag,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(
+                    photo.downloadUrl,
+                    width: 76,
+                    height: 76,
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.medium,
+                    errorBuilder:
+                        (context, error, stackTrace) => Container(
+                          width: 76,
+                          height: 76,
+                          color: scheme.surfaceVariant,
+                          alignment: Alignment.center,
+                          child: Icon(
+                            Icons.broken_image_outlined,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        if (versionLabel != null && versionLabel!.isNotEmpty)
+                          Expanded(
+                            child: Text(
+                              versionLabel!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          )
+                        else
+                          Expanded(
+                            child: Text(
+                              'Foto condivisa',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        if (showActiveBadge) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: scheme.primary.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              'Attiva',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: scheme.primary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      dateFormat.format(photo.uploadedAt.toLocal()),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                    if (notes != null && notes.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        notes,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ],
+                    const SizedBox(height: 4),
+                    Text(
+                      'Tocca per aprire',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(Icons.open_in_full_rounded, color: scheme.onSurfaceVariant),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -5817,6 +6365,8 @@ class _ClientPhotoSetGrid extends StatelessWidget {
             .map((type) {
               final setPhotos = grouped[type] ?? const <ClientPhoto>[];
               final activePhoto = _resolveActiveClientSetPhoto(setPhotos);
+              final heroTag =
+                  activePhoto == null ? null : 'client-photo-${activePhoto.id}';
               final updatedAt = activePhoto?.uploadedAt;
               final statusLabel =
                   updatedAt == null
@@ -5830,6 +6380,7 @@ class _ClientPhotoSetGrid extends StatelessWidget {
                   activePhoto: activePhoto,
                   statusLabel: statusLabel,
                   versionsCount: versionsCount,
+                  heroTag: heroTag,
                   onPreview:
                       activePhoto == null ? null : () => onPreview(activePhoto),
                   onShowHistory:
@@ -5850,6 +6401,7 @@ class _ClientPhotoSetTile extends StatelessWidget {
     required this.label,
     required this.statusLabel,
     required this.versionsCount,
+    this.heroTag,
     this.activePhoto,
     this.onPreview,
     this.onShowHistory,
@@ -5858,6 +6410,7 @@ class _ClientPhotoSetTile extends StatelessWidget {
   final String label;
   final String statusLabel;
   final int versionsCount;
+  final String? heroTag;
   final ClientPhoto? activePhoto;
   final VoidCallback? onPreview;
   final VoidCallback? onShowHistory;
@@ -5908,18 +6461,44 @@ class _ClientPhotoSetTile extends StatelessWidget {
                               )
                               : ClipRRect(
                                 borderRadius: BorderRadius.circular(18),
-                                child: Image.network(
-                                  activePhoto!.downloadUrl,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return Center(
-                                      child: Icon(
-                                        Icons.broken_image_outlined,
-                                        color: scheme.onSurfaceVariant,
-                                      ),
-                                    );
-                                  },
-                                ),
+                                child:
+                                    heroTag == null
+                                        ? Image.network(
+                                          activePhoto!.downloadUrl,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (
+                                            context,
+                                            error,
+                                            stackTrace,
+                                          ) {
+                                            return Center(
+                                              child: Icon(
+                                                Icons.broken_image_outlined,
+                                                color: scheme.onSurfaceVariant,
+                                              ),
+                                            );
+                                          },
+                                        )
+                                        : Hero(
+                                          tag: heroTag!,
+                                          child: Image.network(
+                                            activePhoto!.downloadUrl,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (
+                                              context,
+                                              error,
+                                              stackTrace,
+                                            ) {
+                                              return Center(
+                                                child: Icon(
+                                                  Icons.broken_image_outlined,
+                                                  color:
+                                                      scheme.onSurfaceVariant,
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                        ),
                               ),
                     ),
                     if (versionsCount > 0)
@@ -6027,6 +6606,10 @@ class _ClientCollageCard extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final previewUrl = collage.thumbnailUrl ?? collage.downloadUrl;
+    final isVertical =
+        collage.orientation == ClientPhotoCollageOrientation.vertical;
+    final thumbnailWidth = isVertical ? 76.0 : 112.0;
+    final thumbnailHeight = isVertical ? 104.0 : 84.0;
     final createdAtLabel = DateFormat(
       'dd MMM yyyy · HH:mm',
       'it_IT',
@@ -6038,8 +6621,8 @@ class _ClientCollageCard extends StatelessWidget {
       child:
           previewUrl == null || previewUrl.isEmpty
               ? Container(
-                width: 84,
-                height: 84,
+                width: thumbnailWidth,
+                height: thumbnailHeight,
                 color: scheme.surfaceVariant,
                 child: Icon(
                   Icons.photo_outlined,
@@ -6048,14 +6631,14 @@ class _ClientCollageCard extends StatelessWidget {
               )
               : Image.network(
                 previewUrl,
-                width: 84,
-                height: 84,
+                width: thumbnailWidth,
+                height: thumbnailHeight,
                 fit: BoxFit.cover,
                 filterQuality: FilterQuality.high,
                 errorBuilder:
                     (context, error, stackTrace) => Container(
-                      width: 84,
-                      height: 84,
+                      width: thumbnailWidth,
+                      height: thumbnailHeight,
                       color: scheme.surfaceVariant,
                       child: Icon(
                         Icons.broken_image_outlined,
@@ -6097,6 +6680,14 @@ class _ClientCollageCard extends StatelessWidget {
                       'Creato il $createdAtLabel',
                       style: theme.textTheme.titleSmall,
                     ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Tocca per aprire',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     if (note != null && note.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text(
@@ -6129,110 +6720,145 @@ class _ClientPhotoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final dateFormat = DateFormat('dd MMM yyyy HH:mm', 'it_IT');
     final fileLabel =
         (photo.fileName != null && photo.fileName!.trim().isNotEmpty)
             ? photo.fileName!.trim()
             : 'Foto condivisa';
+    final notes = photo.notes?.trim();
+    final sizeLabel = _formatClientPhotoSize(photo.sizeBytes);
+    final heroTag = 'client-photo-${photo.id}';
+
     return Card(
-      child: ListTile(
-        onTap: () => _showClientPhotoPreview(context, photo),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        title: Text(
-          fileLabel,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.w600,
+      margin: EdgeInsets.zero,
+      child: InkWell(
+        onTap: () => _showClientPhotoPreview(context, photo, heroTag: heroTag),
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Hero(
+                tag: heroTag,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Image.network(
+                    photo.downloadUrl,
+                    width: 84,
+                    height: 84,
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.medium,
+                    loadingBuilder: (context, child, progress) {
+                      if (progress == null) {
+                        return child;
+                      }
+                      final expected = progress.expectedTotalBytes;
+                      final value =
+                          expected == null || expected == 0
+                              ? null
+                              : progress.cumulativeBytesLoaded / expected;
+                      return Container(
+                        width: 84,
+                        height: 84,
+                        color: scheme.surfaceVariant,
+                        alignment: Alignment.center,
+                        child: SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            value: value,
+                          ),
+                        ),
+                      );
+                    },
+                    errorBuilder:
+                        (context, error, stackTrace) => Container(
+                          width: 84,
+                          height: 84,
+                          color: scheme.surfaceVariant,
+                          alignment: Alignment.center,
+                          child: Icon(
+                            Icons.broken_image_outlined,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      fileLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      dateFormat.format(photo.uploadedAt.toLocal()),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                    if (notes != null && notes.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        notes,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        if (sizeLabel != null)
+                          _ClientInlineMetaChip(
+                            icon: Icons.data_object_rounded,
+                            label: sizeLabel,
+                          ),
+                        _ClientInlineMetaChip(
+                          icon: Icons.open_in_full_rounded,
+                          label: 'Tocca per aprire',
+                          emphasized: true,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(Icons.chevron_right_rounded, color: scheme.onSurfaceVariant),
+            ],
           ),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              dateFormat.format(photo.uploadedAt.toLocal()),
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              'Tocca per visualizzare',
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
         ),
       ),
     );
   }
 }
 
-Future<void> _showClientPhotoPreview(BuildContext context, ClientPhoto photo) {
-  return showDialog<void>(
-    context: context,
-    builder: (dialogContext) {
-      final theme = Theme.of(dialogContext);
-      final dateFormat = DateFormat('EEEE d MMMM yyyy • HH:mm', 'it_IT');
-      return Dialog(
-        insetPadding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(12),
-              ),
-              child: AspectRatio(
-                aspectRatio: 1,
-                child: Image.network(
-                  photo.downloadUrl,
-                  fit: BoxFit.contain,
-                  errorBuilder:
-                      (context, error, stackTrace) => const Center(
-                        child: Icon(Icons.broken_image_outlined, size: 48),
-                      ),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    dateFormat.format(photo.uploadedAt.toLocal()),
-                    style: theme.textTheme.titleMedium,
-                  ),
-                  if (photo.notes != null && photo.notes!.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        photo.notes!,
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(0, 0, 16, 16),
-                child: TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Chiudi'),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    },
+Future<void> _showClientPhotoPreview(
+  BuildContext context,
+  ClientPhoto photo, {
+  String? heroTag,
+}) {
+  return Navigator.of(context).push<void>(
+    MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder:
+          (_) => _ClientPhotoFullScreenView(photo: photo, heroTag: heroTag),
+    ),
   );
 }
 
@@ -6259,8 +6885,6 @@ class _ClientCollageFullScreenView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final imageUrl = collage.downloadUrl ?? collage.thumbnailUrl;
     final orientationLabel = _collageOrientationLabel(collage.orientation);
     final aspectRatio =
         collage.orientation == ClientPhotoCollageOrientation.vertical
@@ -6269,21 +6893,169 @@ class _ClientCollageFullScreenView extends StatelessWidget {
     final dateFormat = DateFormat('EEEE d MMMM yyyy • HH:mm', 'it_IT');
     final createdLabel = dateFormat.format(collage.createdAt.toLocal());
     final notes = collage.notes?.trim();
+    return _ClientMediaFullScreenView(
+      imageUrl: collage.downloadUrl ?? collage.thumbnailUrl,
+      heroTag: heroTag,
+      aspectRatio: aspectRatio,
+      eyebrow: orientationLabel,
+      title: createdLabel,
+      notes: notes,
+      emptyIcon: Icons.photo_outlined,
+      semanticsLabel: 'Collage clienti',
+    );
+  }
+}
+
+class _ClientPhotoFullScreenView extends StatelessWidget {
+  const _ClientPhotoFullScreenView({required this.photo, this.heroTag});
+
+  final ClientPhoto photo;
+  final String? heroTag;
+
+  @override
+  Widget build(BuildContext context) {
+    final dateFormat = DateFormat('EEEE d MMMM yyyy • HH:mm', 'it_IT');
+    final fileLabel =
+        (photo.fileName != null && photo.fileName!.trim().isNotEmpty)
+            ? photo.fileName!.trim()
+            : 'Foto condivisa';
+    final notes = photo.notes?.trim();
+
+    final subtitleParts = <String>[];
+    if (photo.setType != null) {
+      subtitleParts.add('Set ${_clientPhotoSetLabel(photo.setType!)}');
+    }
+    if (photo.setVersionIndex != null) {
+      subtitleParts.add('Versione ${photo.setVersionIndex}');
+    }
+    final sizeLabel = _formatClientPhotoSize(photo.sizeBytes);
+    if (sizeLabel != null) {
+      subtitleParts.add(sizeLabel);
+    }
+
+    return _ClientMediaFullScreenView(
+      imageUrl: photo.downloadUrl,
+      heroTag: heroTag,
+      eyebrow: fileLabel,
+      title: dateFormat.format(photo.uploadedAt.toLocal()),
+      subtitle: subtitleParts.isEmpty ? null : subtitleParts.join(' · '),
+      notes: notes,
+      emptyIcon: Icons.photo_outlined,
+      semanticsLabel: 'Foto cliente',
+    );
+  }
+}
+
+class _ClientMediaFullScreenView extends StatefulWidget {
+  const _ClientMediaFullScreenView({
+    required this.imageUrl,
+    required this.eyebrow,
+    required this.title,
+    this.subtitle,
+    this.notes,
+    this.heroTag,
+    this.aspectRatio,
+    this.emptyIcon = Icons.photo_outlined,
+    this.semanticsLabel,
+  });
+
+  final String? imageUrl;
+  final String eyebrow;
+  final String title;
+  final String? subtitle;
+  final String? notes;
+  final String? heroTag;
+  final double? aspectRatio;
+  final IconData emptyIcon;
+  final String? semanticsLabel;
+
+  @override
+  State<_ClientMediaFullScreenView> createState() =>
+      _ClientMediaFullScreenViewState();
+}
+
+class _ClientMediaFullScreenViewState
+    extends State<_ClientMediaFullScreenView> {
+  static const double _zoomThreshold = 1.02;
+  static const double _doubleTapZoomScale = 2.4;
+
+  final TransformationController _transformationController =
+      TransformationController();
+  TapDownDetails? _doubleTapDetails;
+  bool _showChrome = true;
+  bool _isZoomed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _transformationController.addListener(_handleTransformChanged);
+  }
+
+  void _handleTransformChanged() {
+    final zoomed =
+        _transformationController.value.getMaxScaleOnAxis() > _zoomThreshold;
+    if (zoomed == _isZoomed || !mounted) {
+      return;
+    }
+    setState(() => _isZoomed = zoomed);
+  }
+
+  void _handleTap() {
+    setState(() => _showChrome = !_showChrome);
+  }
+
+  void _handleDoubleTapDown(TapDownDetails details) {
+    _doubleTapDetails = details;
+  }
+
+  void _handleDoubleTap() {
+    final details = _doubleTapDetails;
+    if (details == null) {
+      return;
+    }
+    if (_isZoomed) {
+      _resetZoom();
+      return;
+    }
+    final position = details.localPosition;
+    _transformationController.value =
+        Matrix4.identity()
+          ..translate(
+            -position.dx * (_doubleTapZoomScale - 1),
+            -position.dy * (_doubleTapZoomScale - 1),
+          )
+          ..scale(_doubleTapZoomScale);
+  }
+
+  void _resetZoom() {
+    _transformationController.value = Matrix4.identity();
+  }
+
+  @override
+  void dispose() {
+    _transformationController.removeListener(_handleTransformChanged);
+    _transformationController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final mediaPadding = MediaQuery.of(context).padding;
+    final subtitle = widget.subtitle?.trim();
+    final notes = widget.notes?.trim();
 
     Widget image =
-        imageUrl == null || imageUrl.isEmpty
-            ? Container(
-              color: Colors.black,
-              alignment: Alignment.center,
+        widget.imageUrl == null || widget.imageUrl!.isEmpty
+            ? Center(
               child: Icon(
-                Icons.photo_outlined,
+                widget.emptyIcon,
                 size: 72,
                 color: Colors.white.withOpacity(0.7),
               ),
             )
             : Image.network(
-              imageUrl,
+              widget.imageUrl!,
               fit: BoxFit.contain,
               filterQuality: FilterQuality.high,
               gaplessPlayback: true,
@@ -6304,7 +7076,7 @@ class _ClientCollageFullScreenView extends StatelessWidget {
                 );
               },
               errorBuilder:
-                  (context, error, stackTrace) => Center(
+                  (context, error, stackTrace) => const Center(
                     child: Icon(
                       Icons.broken_image_outlined,
                       size: 60,
@@ -6313,9 +7085,19 @@ class _ClientCollageFullScreenView extends StatelessWidget {
                   ),
             );
 
-    if (heroTag != null) {
-      image = Hero(tag: heroTag!, child: image);
+    if (widget.heroTag != null) {
+      image = Hero(tag: widget.heroTag!, child: image);
     }
+
+    final mediaContent =
+        widget.aspectRatio == null
+            ? Center(child: image)
+            : Center(
+              child: AspectRatio(
+                aspectRatio: widget.aspectRatio!,
+                child: image,
+              ),
+            );
 
     final infoCard = Container(
       padding: const EdgeInsets.all(18),
@@ -6329,7 +7111,7 @@ class _ClientCollageFullScreenView extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            orientationLabel,
+            widget.eyebrow,
             style: theme.textTheme.labelSmall?.copyWith(
               color: Colors.white70,
               fontWeight: FontWeight.w600,
@@ -6337,12 +7119,19 @@ class _ClientCollageFullScreenView extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            createdLabel,
+            widget.title,
             style: theme.textTheme.titleMedium?.copyWith(
               color: Colors.white,
               fontWeight: FontWeight.w700,
             ),
           ),
+          if (subtitle != null && subtitle.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              subtitle,
+              style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+            ),
+          ],
           if (notes != null && notes.isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(
@@ -6363,62 +7152,92 @@ class _ClientCollageFullScreenView extends StatelessWidget {
         body: Stack(
           children: [
             Positioned.fill(
-              child: InteractiveViewer(
-                minScale: 0.8,
-                maxScale: 6,
-                boundaryMargin: const EdgeInsets.all(120),
-                child: Center(
-                  child: AspectRatio(aspectRatio: aspectRatio, child: image),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _handleTap,
+                onDoubleTapDown: _handleDoubleTapDown,
+                onDoubleTap: _handleDoubleTap,
+                child: Semantics(
+                  label: widget.semanticsLabel,
+                  image: true,
+                  child: InteractiveViewer(
+                    transformationController: _transformationController,
+                    minScale: 0.85,
+                    maxScale: 6,
+                    boundaryMargin: const EdgeInsets.all(120),
+                    child: mediaContent,
+                  ),
                 ),
               ),
             ),
-            SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    _FullScreenActionButton(
-                      icon: Icons.close_rounded,
-                      tooltip: 'Chiudi',
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Align(
-                        alignment: Alignment.centerRight,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: IgnorePointer(
+                ignoring: !_showChrome,
+                child: AnimatedOpacity(
+                  opacity: _showChrome ? 1 : 0,
+                  duration: const Duration(milliseconds: 180),
+                  child: SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          _FullScreenActionButton(
+                            icon: Icons.close_rounded,
+                            tooltip: 'Chiudi',
+                            onPressed: () => Navigator.of(context).pop(),
                           ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.45),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Wrap(
-                            alignment: WrapAlignment.center,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            spacing: 6,
-                            runSpacing: 4,
-                            children: [
-                              const Icon(
-                                Icons.gesture_rounded,
-                                size: 16,
-                                color: Colors.white70,
-                              ),
-                              Text(
-                                'Pizzica per zoomare, trascina per spostare',
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: Colors.white70,
-                                  fontWeight: FontWeight.w600,
+                          if (_isZoomed) ...[
+                            const SizedBox(width: 10),
+                            _FullScreenActionButton(
+                              icon: Icons.center_focus_strong_rounded,
+                              tooltip: 'Ripristina zoom',
+                              onPressed: _resetZoom,
+                            ),
+                          ],
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Align(
+                              alignment: Alignment.centerRight,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.45),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Wrap(
+                                  alignment: WrapAlignment.center,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  spacing: 6,
+                                  runSpacing: 4,
+                                  children: [
+                                    const Icon(
+                                      Icons.gesture_rounded,
+                                      size: 16,
+                                      color: Colors.white70,
+                                    ),
+                                    Text(
+                                      'Doppio tocco/zoom • tocca per mostrare o nascondere info',
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(
+                                            color: Colors.white70,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ],
+                            ),
                           ),
-                        ),
+                        ],
                       ),
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -6426,10 +7245,61 @@ class _ClientCollageFullScreenView extends StatelessWidget {
               left: 16,
               right: 16,
               bottom: 24 + mediaPadding.bottom,
-              child: infoCard,
+              child: IgnorePointer(
+                ignoring: !_showChrome,
+                child: AnimatedOpacity(
+                  opacity: _showChrome ? 1 : 0,
+                  duration: const Duration(milliseconds: 180),
+                  child: infoCard,
+                ),
+              ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ClientInlineMetaChip extends StatelessWidget {
+  const _ClientInlineMetaChip({
+    required this.icon,
+    required this.label,
+    this.emphasized = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final foreground = emphasized ? scheme.primary : scheme.onSurfaceVariant;
+    final background =
+        emphasized
+            ? scheme.primary.withOpacity(0.12)
+            : scheme.onSurfaceVariant.withOpacity(0.08);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: foreground),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: foreground,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -6501,6 +7371,7 @@ Future<void> _showClientPhotoSetHistory({
                     separatorBuilder: (_, __) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
                       final photo = sorted[index];
+                      final heroTag = 'client-photo-${photo.id}';
                       final versionIndex = photo.setVersionIndex;
                       final versionLabel =
                           versionIndex == null
@@ -6512,26 +7383,34 @@ Future<void> _showClientPhotoSetHistory({
                         child: ListTile(
                           onTap: () {
                             Navigator.of(modalContext).pop();
-                            _showClientPhotoPreview(context, photo);
+                            _showClientPhotoPreview(
+                              context,
+                              photo,
+                              heroTag: heroTag,
+                            );
                           },
                           contentPadding: const EdgeInsets.all(12),
                           leading: ClipRRect(
                             borderRadius: BorderRadius.circular(12),
-                            child: Image.network(
-                              photo.downloadUrl,
-                              width: 54,
-                              height: 54,
-                              fit: BoxFit.cover,
-                              errorBuilder:
-                                  (context, error, stackTrace) => Container(
-                                    width: 54,
-                                    height: 54,
-                                    color: theme.colorScheme.surfaceVariant,
-                                    child: Icon(
-                                      Icons.broken_image_outlined,
-                                      color: theme.colorScheme.onSurfaceVariant,
+                            child: Hero(
+                              tag: heroTag,
+                              child: Image.network(
+                                photo.downloadUrl,
+                                width: 54,
+                                height: 54,
+                                fit: BoxFit.cover,
+                                errorBuilder:
+                                    (context, error, stackTrace) => Container(
+                                      width: 54,
+                                      height: 54,
+                                      color: theme.colorScheme.surfaceVariant,
+                                      child: Icon(
+                                        Icons.broken_image_outlined,
+                                        color:
+                                            theme.colorScheme.onSurfaceVariant,
+                                      ),
                                     ),
-                                  ),
+                              ),
                             ),
                           ),
                           title: Row(
@@ -6632,6 +7511,23 @@ String _collageOrientationLabel(ClientPhotoCollageOrientation orientation) {
   }
 }
 
+String? _formatClientPhotoSize(int? sizeBytes) {
+  if (sizeBytes == null || sizeBytes <= 0) {
+    return null;
+  }
+  const kb = 1024;
+  const mb = kb * 1024;
+  if (sizeBytes >= mb) {
+    final value = sizeBytes / mb;
+    return '${value.toStringAsFixed(value >= 10 ? 0 : 1)} MB';
+  }
+  if (sizeBytes >= kb) {
+    final value = sizeBytes / kb;
+    return '${value.toStringAsFixed(value >= 10 ? 0 : 1)} KB';
+  }
+  return '$sizeBytes B';
+}
+
 class _PushTokenRegistrar extends ConsumerStatefulWidget {
   const _PushTokenRegistrar({required this.clientId});
 
@@ -6663,7 +7559,9 @@ class _PushTokenRegistrarState extends ConsumerState<_PushTokenRegistrar> {
     }
     final messaging = ref.read(firebaseMessagingProvider);
     try {
-      await messaging.setAutoInitEnabled(true);
+      if (!kIsWeb) {
+        await messaging.setAutoInitEnabled(true);
+      }
       final settings = await messaging.requestPermission(
         alert: true,
         badge: true,
@@ -6673,7 +7571,7 @@ class _PushTokenRegistrarState extends ConsumerState<_PushTokenRegistrar> {
         return;
       }
 
-      if (Platform.isIOS) {
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
         await messaging.setForegroundNotificationPresentationOptions(
           alert: true,
           badge: true,
@@ -6681,7 +7579,12 @@ class _PushTokenRegistrarState extends ConsumerState<_PushTokenRegistrar> {
         );
       }
 
-      final token = await messaging.getToken();
+      final token = await messaging.getToken(
+        vapidKey:
+            kIsWeb && _firebaseWebVapidKey.isNotEmpty
+                ? _firebaseWebVapidKey
+                : null,
+      );
       if (token != null) {
         if (kDebugMode) {
           debugPrint('FCM token (initial): $token');
@@ -8648,10 +9551,10 @@ class _ServicesCarousel extends StatelessWidget {
 }
 
 class _PackagesCarousel extends StatelessWidget {
-  const _PackagesCarousel({required this.packages, required this.onAddToCart});
+  const _PackagesCarousel({required this.packages, this.onAddToCart});
 
   final List<ServicePackage> packages;
-  final ValueChanged<ServicePackage> onAddToCart;
+  final ValueChanged<ServicePackage>? onAddToCart;
 
   @override
   Widget build(BuildContext context) {
@@ -8720,15 +9623,17 @@ class _PackagesCarousel extends StatelessWidget {
                             decoration: TextDecoration.lineThrough,
                           ),
                         ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: () => onAddToCart(pkg),
-                          icon: const Icon(Icons.add_shopping_cart_rounded),
-                          label: const Text('Acquista'),
+                      if (onAddToCart != null) ...[
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: () => onAddToCart!(pkg),
+                            icon: const Icon(Icons.add_shopping_cart_rounded),
+                            label: const Text('Acquista'),
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),

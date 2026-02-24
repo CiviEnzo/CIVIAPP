@@ -308,6 +308,8 @@ class AppointmentCalendarView extends StatefulWidget {
     this.onJumpToNextWeek,
     this.scrollToDate,
     this.scrollToDateRequestId = 0,
+    this.readOnly = false,
+    this.showStaffHeader = true,
   });
   final DateTime anchorDate;
   final AppointmentCalendarScope scope;
@@ -334,6 +336,8 @@ class AppointmentCalendarView extends StatefulWidget {
   final VoidCallback? onJumpToNextWeek;
   final DateTime? scrollToDate;
   final int scrollToDateRequestId;
+  final bool readOnly;
+  final bool showStaffHeader;
   final AppointmentRescheduleCallback onReschedule;
   final AppointmentTapCallback onEdit;
   final AppointmentSlotSelectionCallback onCreate;
@@ -1075,109 +1079,121 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
     }
     switch (widget.scope) {
       case AppointmentCalendarScope.day:
-        return _DaySchedule(
-          anchorDate: widget.anchorDate,
-          appointments: widget.appointments,
-          allAppointments: widget.allAppointments,
-          lastMinutePlaceholders: widget.lastMinutePlaceholders,
-          lastMinuteSlots: widget.lastMinuteSlots,
-          shifts: widget.shifts,
-          absences: widget.absences,
-          schedule: widget.schedule,
-          staff: widget.staff,
-          clientsWithOutstandingPayments: widget.clientsWithOutstandingPayments,
-          clientsById: clientsById,
-          servicesById: servicesById,
-          categoriesById: categoriesById,
-          categoriesByName: categoriesByName,
-          roomsById: widget.roomsById,
-          statusColor: widget.statusColor,
-          salonsById: widget.salonsById,
-          selectedSalonId: widget.selectedSalonId,
-          lockedAppointmentReasons: widget.lockedAppointmentReasons,
-          dayChecklists: widget.dayChecklists,
-          onReschedule: widget.onReschedule,
-          onEdit: widget.onEdit,
-          onCreate: widget.onCreate,
-          onTapLastMinuteSlot: widget.onTapLastMinuteSlot,
-          anomalies: widget.anomalies,
-          horizontalHeaderController: _horizontalHeaderController,
-          horizontalBodyController: _horizontalBodyController,
-          verticalController: _verticalController,
-          slotMinutes: widget.slotMinutes,
-          interactionSlotMinutes: widget.interactionSlotMinutes,
-          onAddChecklistItem: widget.onAddChecklistItem,
-          onToggleChecklistItem: widget.onToggleChecklistItem,
-          onRenameChecklistItem: widget.onRenameChecklistItem,
-          onDeleteChecklistItem: widget.onDeleteChecklistItem,
-          onCreateShift: widget.onCreateShift,
-          onEditShift: widget.onEditShift,
-          onDeleteShift: widget.onDeleteShift,
-          onCreateAbsence: widget.onCreateAbsence,
-          onEditAbsence: widget.onEditAbsence,
-          onDeleteAbsence: widget.onDeleteAbsence,
+        return ScrollConfiguration(
+          behavior: const _CompactMacScrollBehavior(),
+          child: _DaySchedule(
+            anchorDate: widget.anchorDate,
+            appointments: widget.appointments,
+            allAppointments: widget.allAppointments,
+            lastMinutePlaceholders: widget.lastMinutePlaceholders,
+            lastMinuteSlots: widget.lastMinuteSlots,
+            shifts: widget.shifts,
+            absences: widget.absences,
+            schedule: widget.schedule,
+            staff: widget.staff,
+            clientsWithOutstandingPayments:
+                widget.clientsWithOutstandingPayments,
+            clientsById: clientsById,
+            servicesById: servicesById,
+            categoriesById: categoriesById,
+            categoriesByName: categoriesByName,
+            roomsById: widget.roomsById,
+            statusColor: widget.statusColor,
+            salonsById: widget.salonsById,
+            selectedSalonId: widget.selectedSalonId,
+            lockedAppointmentReasons: widget.lockedAppointmentReasons,
+            dayChecklists: widget.dayChecklists,
+            onReschedule: widget.onReschedule,
+            onEdit: widget.onEdit,
+            onCreate: widget.onCreate,
+            onTapLastMinuteSlot: widget.onTapLastMinuteSlot,
+            anomalies: widget.anomalies,
+            horizontalHeaderController: _horizontalHeaderController,
+            horizontalBodyController: _horizontalBodyController,
+            verticalController: _verticalController,
+            slotMinutes: widget.slotMinutes,
+            interactionSlotMinutes: widget.interactionSlotMinutes,
+            onAddChecklistItem: widget.onAddChecklistItem,
+            onToggleChecklistItem: widget.onToggleChecklistItem,
+            onRenameChecklistItem: widget.onRenameChecklistItem,
+            onDeleteChecklistItem: widget.onDeleteChecklistItem,
+            onCreateShift: widget.onCreateShift,
+            onEditShift: widget.onEditShift,
+            onDeleteShift: widget.onDeleteShift,
+            onCreateAbsence: widget.onCreateAbsence,
+            onEditAbsence: widget.onEditAbsence,
+            onDeleteAbsence: widget.onDeleteAbsence,
+            readOnly: widget.readOnly,
+            showStaffHeader: widget.showStaffHeader,
+          ),
         );
       case AppointmentCalendarScope.week:
         final autoScrollTargetDate = _requestedScrollDate ?? _initialScrollDate;
         final autoScrollPending =
             _requestedScrollDate != null || !_didAutoScrollToInitialDay;
-        return _WeekSchedule(
-          anchorDate: widget.anchorDate,
-          appointments: widget.appointments,
-          allAppointments: widget.allAppointments,
-          lastMinutePlaceholders: widget.lastMinutePlaceholders,
-          lastMinuteSlots: widget.lastMinuteSlots,
-          shifts: widget.shifts,
-          absences: widget.absences,
-          schedule: widget.schedule,
-          visibleWeekdays: widget.visibleWeekdays,
-          staff: widget.staff,
-          roles: widget.roles,
-          clientsWithOutstandingPayments: widget.clientsWithOutstandingPayments,
-          clientsById: clientsById,
-          servicesById: servicesById,
-          categoriesById: categoriesById,
-          categoriesByName: categoriesByName,
-          roomsById: widget.roomsById,
-          statusColor: widget.statusColor,
-          salonsById: widget.salonsById,
-          selectedSalonId: widget.selectedSalonId,
-          lockedAppointmentReasons: widget.lockedAppointmentReasons,
-          dayChecklists: widget.dayChecklists,
-          onReschedule: widget.onReschedule,
-          onEdit: widget.onEdit,
-          onCreate: widget.onCreate,
-          onTapLastMinuteSlot: widget.onTapLastMinuteSlot,
-          anomalies: widget.anomalies,
-          horizontalHeaderController: _horizontalHeaderController,
-          horizontalBodyController: _horizontalBodyController,
-          verticalController: _verticalController,
-          slotMinutes: widget.slotMinutes,
-          interactionSlotMinutes: widget.interactionSlotMinutes,
-          onAddChecklistItem: widget.onAddChecklistItem,
-          onToggleChecklistItem: widget.onToggleChecklistItem,
-          onRenameChecklistItem: widget.onRenameChecklistItem,
-          onDeleteChecklistItem: widget.onDeleteChecklistItem,
-          autoScrollTargetDate: autoScrollTargetDate,
-          autoScrollPending: autoScrollPending,
-          autoScrollIsManual: _requestedScrollDate != null,
-          layout: widget.weekLayout,
-          onCreateShift: widget.onCreateShift,
-          onEditShift: widget.onEditShift,
-          onDeleteShift: widget.onDeleteShift,
-          onCreateAbsence: widget.onCreateAbsence,
-          onEditAbsence: widget.onEditAbsence,
-          onDeleteAbsence: widget.onDeleteAbsence,
-          extraDetailedDay: widget.extraDetailedDay,
-          onJumpToNextWeek: widget.onJumpToNextWeek,
-          onAutoScrollComplete: () {
-            if (mounted) {
-              setState(() {
-                _didAutoScrollToInitialDay = true;
-                _requestedScrollDate = null;
-              });
-            }
-          },
+        return ScrollConfiguration(
+          behavior: const _CompactMacScrollBehavior(),
+          child: _WeekSchedule(
+            anchorDate: widget.anchorDate,
+            appointments: widget.appointments,
+            allAppointments: widget.allAppointments,
+            lastMinutePlaceholders: widget.lastMinutePlaceholders,
+            lastMinuteSlots: widget.lastMinuteSlots,
+            shifts: widget.shifts,
+            absences: widget.absences,
+            schedule: widget.schedule,
+            visibleWeekdays: widget.visibleWeekdays,
+            staff: widget.staff,
+            roles: widget.roles,
+            clientsWithOutstandingPayments:
+                widget.clientsWithOutstandingPayments,
+            clientsById: clientsById,
+            servicesById: servicesById,
+            categoriesById: categoriesById,
+            categoriesByName: categoriesByName,
+            roomsById: widget.roomsById,
+            statusColor: widget.statusColor,
+            salonsById: widget.salonsById,
+            selectedSalonId: widget.selectedSalonId,
+            lockedAppointmentReasons: widget.lockedAppointmentReasons,
+            dayChecklists: widget.dayChecklists,
+            onReschedule: widget.onReschedule,
+            onEdit: widget.onEdit,
+            onCreate: widget.onCreate,
+            onTapLastMinuteSlot: widget.onTapLastMinuteSlot,
+            anomalies: widget.anomalies,
+            horizontalHeaderController: _horizontalHeaderController,
+            horizontalBodyController: _horizontalBodyController,
+            verticalController: _verticalController,
+            slotMinutes: widget.slotMinutes,
+            interactionSlotMinutes: widget.interactionSlotMinutes,
+            onAddChecklistItem: widget.onAddChecklistItem,
+            onToggleChecklistItem: widget.onToggleChecklistItem,
+            onRenameChecklistItem: widget.onRenameChecklistItem,
+            onDeleteChecklistItem: widget.onDeleteChecklistItem,
+            autoScrollTargetDate: autoScrollTargetDate,
+            autoScrollPending: autoScrollPending,
+            autoScrollIsManual: _requestedScrollDate != null,
+            layout: widget.weekLayout,
+            onCreateShift: widget.onCreateShift,
+            onEditShift: widget.onEditShift,
+            onDeleteShift: widget.onDeleteShift,
+            onCreateAbsence: widget.onCreateAbsence,
+            onEditAbsence: widget.onEditAbsence,
+            onDeleteAbsence: widget.onDeleteAbsence,
+            extraDetailedDay: widget.extraDetailedDay,
+            onJumpToNextWeek: widget.onJumpToNextWeek,
+            readOnly: widget.readOnly,
+            showStaffHeader: widget.showStaffHeader,
+            onAutoScrollComplete: () {
+              if (mounted) {
+                setState(() {
+                  _didAutoScrollToInitialDay = true;
+                  _requestedScrollDate = null;
+                });
+              }
+            },
+          ),
         );
     }
   }
@@ -1197,6 +1213,15 @@ class _CompactMacScrollBehavior extends ScrollBehavior {
     PointerDeviceKind.trackpad,
     PointerDeviceKind.stylus,
   };
+
+  @override
+  Widget buildScrollbar(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) {
+    return child;
+  }
 }
 
 class _DaySchedule extends StatelessWidget {
@@ -1241,6 +1266,8 @@ class _DaySchedule extends StatelessWidget {
     this.onCreateAbsence,
     this.onEditAbsence,
     this.onDeleteAbsence,
+    required this.readOnly,
+    required this.showStaffHeader,
   });
 
   final DateTime anchorDate;
@@ -1290,6 +1317,8 @@ class _DaySchedule extends StatelessWidget {
   final Future<void> Function(StaffMember staff, DateTime day)? onCreateAbsence;
   final Future<void> Function(StaffAbsence absence)? onEditAbsence;
   final Future<void> Function(StaffAbsence absence)? onDeleteAbsence;
+  final bool readOnly;
+  final bool showStaffHeader;
 
   static const _slotExtent = _AppointmentCalendarViewState._slotExtent;
   static const _timeScaleExtent =
@@ -1392,6 +1421,24 @@ class _DaySchedule extends StatelessWidget {
     final timelineColor = theme.colorScheme.surfaceContainerLowest.withValues(
       alpha: 0.45,
     );
+    final viewportWidth = MediaQuery.sizeOf(context).width;
+    const double staffColumnGap = 16.0;
+    final staffColumnWidth =
+        showStaffHeader
+            ? _kStaffColumnWidth
+            : min(_kStaffColumnWidth, max(0.0, viewportWidth - 32));
+    final staffCount = staff.length;
+    final totalStaffWidth =
+        staffCount == 0
+            ? 0.0
+            : (staffColumnWidth * staffCount) +
+                staffColumnGap * max(0, staffCount - 1);
+    final centerStaffColumns =
+        !showStaffHeader &&
+        staffCount > 0 &&
+        totalStaffWidth > 0 &&
+        totalStaffWidth < viewportWidth;
+    final staffRowWidth = centerStaffColumns ? viewportWidth : totalStaffWidth;
     final staffColumnBorderColor = theme.colorScheme.outlineVariant.withValues(
       alpha: 0.55,
     );
@@ -1506,15 +1553,13 @@ class _DaySchedule extends StatelessWidget {
         Expanded(
           child: Column(
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: ScrollConfiguration(
-                      behavior: const _CompactMacScrollBehavior(),
-                      child: Scrollbar(
-                        controller: horizontalHeaderController,
-                        thumbVisibility: true,
+              if (showStaffHeader) ...[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: ScrollConfiguration(
+                        behavior: const _CompactMacScrollBehavior(),
                         child: SingleChildScrollView(
                           controller: horizontalHeaderController,
                           scrollDirection: Axis.horizontal,
@@ -1626,138 +1671,134 @@ class _DaySchedule extends StatelessWidget {
                         ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
               Expanded(
-                child: Scrollbar(
+                child: SingleChildScrollView(
                   controller: verticalController,
-                  thumbVisibility: true,
-                  child: SingleChildScrollView(
-                    controller: verticalController,
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 0, bottom: 12),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: ScrollConfiguration(
-                              behavior: const _CompactMacScrollBehavior(),
-                              child: Scrollbar(
-                                controller: horizontalBodyController,
-                                thumbVisibility: true,
-                                child: SingleChildScrollView(
-                                  controller: horizontalBodyController,
-                                  scrollDirection: Axis.horizontal,
-                                  child: Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      for (
-                                        var staffIndex = 0;
-                                        staffIndex < staff.length;
-                                        staffIndex++
-                                      ) ...[
-                                        Padding(
-                                          padding: EdgeInsets.only(
-                                            right:
-                                                staffIndex == staff.length - 1
-                                                    ? 0
-                                                    : 16,
-                                          ),
-                                          child: DecoratedBox(
-                                            decoration: BoxDecoration(
-                                              gradient: LinearGradient(
-                                                colors: [
-                                                  theme.colorScheme.surface,
-                                                  theme
-                                                      .colorScheme
-                                                      .surfaceVariant
-                                                      .withValues(alpha: 0.42),
-                                                ],
-                                                begin: Alignment.topCenter,
-                                                end: Alignment.bottomCenter,
-                                              ),
-                                              borderRadius:
-                                                  BorderRadius.circular(16),
-                                              border: Border.all(
-                                                color: staffColumnBorderColor,
-                                                width: 1.05,
-                                              ),
-                                              boxShadow: [
-                                                BoxShadow(
-                                                  color: staffColumnShadowColor,
-                                                  blurRadius: 24,
-                                                  offset: const Offset(0, 12),
-                                                ),
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 0, bottom: 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: ScrollConfiguration(
+                            behavior: const _CompactMacScrollBehavior(),
+                            child: SingleChildScrollView(
+                              controller: horizontalBodyController,
+                              scrollDirection: Axis.horizontal,
+                              child: SizedBox(
+                                width: staffRowWidth,
+                                child: Row(
+                                  mainAxisAlignment:
+                                      centerStaffColumns
+                                          ? MainAxisAlignment.center
+                                          : MainAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    for (
+                                      var staffIndex = 0;
+                                      staffIndex < staff.length;
+                                      staffIndex++
+                                    ) ...[
+                                      Padding(
+                                        padding: EdgeInsets.only(
+                                          right:
+                                              staffIndex == staff.length - 1
+                                                  ? 0
+                                                  : staffColumnGap,
+                                        ),
+                                        child: DecoratedBox(
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              colors: [
+                                                theme.colorScheme.surface,
+                                                theme.colorScheme.surfaceVariant
+                                                    .withValues(alpha: 0.42),
                                               ],
+                                              begin: Alignment.topCenter,
+                                              end: Alignment.bottomCenter,
                                             ),
-                                            child: SizedBox(
-                                              width: _kStaffColumnWidth,
-                                              height: gridHeight,
-                                              child: _StaffDayColumn(
-                                                staffMember: staff[staffIndex],
-                                                appointments:
-                                                    appointmentsByStaff[staff[staffIndex]
-                                                        .id] ??
-                                                    const [],
-                                                lastMinutePlaceholders:
-                                                    lastMinutePlaceholders,
-                                                lastMinuteSlots:
-                                                    lastMinuteSlots,
-                                                onTapLastMinuteSlot:
-                                                    onTapLastMinuteSlot,
-                                                shifts:
-                                                    shiftsByStaff[staff[staffIndex]
-                                                        .id] ??
-                                                    const [],
-                                                absences:
-                                                    absencesByStaff[staff[staffIndex]
-                                                        .id] ??
-                                                    const [],
-                                                timelineStart: bounds.start,
-                                                timelineEnd: bounds.end,
-                                                slotMinutes: slotMinutes,
-                                                interactionSlotMinutes:
-                                                    interactionSlotMinutes,
-                                                slotExtent: _slotExtent,
-                                                verticalController:
-                                                    verticalController,
-                                                clientsWithOutstandingPayments:
-                                                    clientsWithOutstandingPayments,
-                                                clientsById: clientsById,
-                                                servicesById: servicesById,
-                                                categoriesById: categoriesById,
-                                                categoriesByName:
-                                                    categoriesByName,
-                                                roomsById: roomsById,
-                                                salonsById: salonsById,
-                                                allAppointments:
-                                                    allAppointments,
-                                                statusColor: statusColor,
-                                                lockedAppointmentReasons:
-                                                    lockedAppointmentReasons,
-                                                onReschedule: onReschedule,
-                                                onEdit: onEdit,
-                                                onCreate: onCreate,
-                                                anomalies: anomalies,
-                                                openStart: openingStart,
-                                                openEnd: closingEnd,
-                                                showSlotStartTimes: isCompact,
+                                            borderRadius: BorderRadius.circular(
+                                              16,
+                                            ),
+                                            border: Border.all(
+                                              color: staffColumnBorderColor,
+                                              width: 1.05,
+                                            ),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: staffColumnShadowColor,
+                                                blurRadius: 24,
+                                                offset: const Offset(0, 12),
                                               ),
+                                            ],
+                                          ),
+                                          child: SizedBox(
+                                            width: staffColumnWidth,
+                                            height: gridHeight,
+                                            child: _StaffDayColumn(
+                                              staffMember: staff[staffIndex],
+                                              appointments:
+                                                  appointmentsByStaff[staff[staffIndex]
+                                                      .id] ??
+                                                  const [],
+                                              lastMinutePlaceholders:
+                                                  lastMinutePlaceholders,
+                                              lastMinuteSlots: lastMinuteSlots,
+                                              onTapLastMinuteSlot:
+                                                  onTapLastMinuteSlot,
+                                              shifts:
+                                                  shiftsByStaff[staff[staffIndex]
+                                                      .id] ??
+                                                  const [],
+                                              absences:
+                                                  absencesByStaff[staff[staffIndex]
+                                                      .id] ??
+                                                  const [],
+                                              timelineStart: bounds.start,
+                                              timelineEnd: bounds.end,
+                                              slotMinutes: slotMinutes,
+                                              interactionSlotMinutes:
+                                                  interactionSlotMinutes,
+                                              slotExtent: _slotExtent,
+                                              verticalController:
+                                                  verticalController,
+                                              clientsWithOutstandingPayments:
+                                                  clientsWithOutstandingPayments,
+                                              clientsById: clientsById,
+                                              servicesById: servicesById,
+                                              categoriesById: categoriesById,
+                                              categoriesByName:
+                                                  categoriesByName,
+                                              roomsById: roomsById,
+                                              salonsById: salonsById,
+                                              allAppointments: allAppointments,
+                                              statusColor: statusColor,
+                                              lockedAppointmentReasons:
+                                                  lockedAppointmentReasons,
+                                              onReschedule: onReschedule,
+                                              onEdit: onEdit,
+                                              onCreate: onCreate,
+                                              anomalies: anomalies,
+                                              openStart: openingStart,
+                                              openEnd: closingEnd,
+                                              showSlotStartTimes: isCompact,
+                                              readOnly: readOnly,
                                             ),
                                           ),
                                         ),
-                                      ],
+                                      ),
                                     ],
-                                  ),
+                                  ],
                                 ),
                               ),
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -1891,6 +1932,8 @@ class _WeekSchedule extends StatelessWidget {
     this.onAutoScrollComplete,
     this.extraDetailedDay,
     this.onJumpToNextWeek,
+    required this.readOnly,
+    required this.showStaffHeader,
   });
 
   final DateTime anchorDate;
@@ -1949,6 +1992,8 @@ class _WeekSchedule extends StatelessWidget {
   final VoidCallback? onAutoScrollComplete;
   final DateTime? extraDetailedDay;
   final VoidCallback? onJumpToNextWeek;
+  final bool readOnly;
+  final bool showStaffHeader;
 
   static const _slotExtent = _AppointmentCalendarViewState._slotExtent;
   static const _timeScaleExtent =
@@ -2189,6 +2234,7 @@ class _WeekSchedule extends StatelessWidget {
         onCreate: onCreate,
         minMinute: minMinute!,
         verticalController: verticalController,
+        readOnly: readOnly,
       );
     }
 
@@ -2222,6 +2268,7 @@ class _WeekSchedule extends StatelessWidget {
         maxMinute: maxMinute!,
         verticalController: verticalController,
         interactionSlotMinutes: interactionSlotMinutes,
+        readOnly: readOnly,
         onAddChecklistItem: onAddChecklistItem,
         onToggleChecklistItem: onToggleChecklistItem,
         onRenameChecklistItem: onRenameChecklistItem,
@@ -2232,6 +2279,7 @@ class _WeekSchedule extends StatelessWidget {
         onCreateAbsence: onCreateAbsence,
         onEditAbsence: onEditAbsence,
         onDeleteAbsence: onDeleteAbsence,
+        showStaffHeader: showStaffHeader,
       );
     }
 
@@ -2298,400 +2346,384 @@ class _WeekSchedule extends StatelessWidget {
               Expanded(
                 child: ScrollConfiguration(
                   behavior: const _CompactMacScrollBehavior(),
-                  child: Scrollbar(
+                  child: SingleChildScrollView(
                     controller: horizontalHeaderController,
-                    thumbVisibility: true,
-                    interactive: true,
-                    thickness: 8,
-                    radius: const Radius.circular(8),
-                    child: SingleChildScrollView(
-                      controller: horizontalHeaderController,
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              for (
-                                var dayIndex = 0;
-                                dayIndex < dayData.length;
-                                dayIndex++
-                              ) ...[
-                                Builder(
-                                  builder: (context) {
-                                    final data = dayData[dayIndex];
-                                    final dateLabel = _formatCalendarDayLabel(
-                                      data.date,
-                                    );
-                                    final normalizedDate = DateUtils.dateOnly(
-                                      data.date,
-                                    );
-                                    final isToday = DateUtils.isSameDay(
-                                      normalizedDate,
-                                      now,
-                                    );
-                                    final isNextWeekDay =
-                                        normalizedExtraDay != null &&
-                                        DateUtils.isSameDay(
-                                          normalizedExtraDay,
-                                          normalizedDate,
-                                        );
-                                    final shouldAutoScroll =
-                                        autoScrollPending &&
-                                        autoScrollTargetDate != null &&
-                                        DateUtils.isSameDay(
-                                          normalizedDate,
-                                          autoScrollTargetDate!,
-                                        );
-                                    if (shouldAutoScroll) {
-                                      WidgetsBinding.instance.addPostFrameCallback((
-                                        _,
-                                      ) {
-                                        onAutoScrollComplete?.call();
-                                        Scrollable.ensureVisible(
-                                          context,
-                                          alignment: 0.25,
-                                          duration: const Duration(
-                                            milliseconds: 360,
-                                          ),
-                                          curve: Curves.easeOutCubic,
-                                        ).catchError((_) {
-                                          // Ignored: the scrollable may be gone.
-                                        });
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            for (
+                              var dayIndex = 0;
+                              dayIndex < dayData.length;
+                              dayIndex++
+                            ) ...[
+                              Builder(
+                                builder: (context) {
+                                  final data = dayData[dayIndex];
+                                  final dateLabel = _formatCalendarDayLabel(
+                                    data.date,
+                                  );
+                                  final normalizedDate = DateUtils.dateOnly(
+                                    data.date,
+                                  );
+                                  final isToday = DateUtils.isSameDay(
+                                    normalizedDate,
+                                    now,
+                                  );
+                                  final isNextWeekDay =
+                                      normalizedExtraDay != null &&
+                                      DateUtils.isSameDay(
+                                        normalizedExtraDay,
+                                        normalizedDate,
+                                      );
+                                  final shouldAutoScroll =
+                                      autoScrollPending &&
+                                      autoScrollTargetDate != null &&
+                                      DateUtils.isSameDay(
+                                        normalizedDate,
+                                        autoScrollTargetDate!,
+                                      );
+                                  if (shouldAutoScroll) {
+                                    WidgetsBinding.instance.addPostFrameCallback((
+                                      _,
+                                    ) {
+                                      onAutoScrollComplete?.call();
+                                      Scrollable.ensureVisible(
+                                        context,
+                                        alignment: 0.25,
+                                        duration: const Duration(
+                                          milliseconds: 360,
+                                        ),
+                                        curve: Curves.easeOutCubic,
+                                      ).catchError((_) {
+                                        // Ignored: the scrollable may be gone.
                                       });
-                                    }
-                                    var headerColor = dayHeaderColor;
-                                    var borderColor = theme.dividerColor
-                                        .withValues(alpha: 0.4);
-                                    List<BoxShadow>? boxShadow;
-                                    if (isToday) {
-                                      headerColor = Color.alphaBlend(
-                                        theme.colorScheme.primary.withValues(
-                                          alpha: 0.08,
-                                        ),
-                                        dayHeaderColor,
+                                    });
+                                  }
+                                  var headerColor = dayHeaderColor;
+                                  var borderColor = theme.dividerColor
+                                      .withValues(alpha: 0.4);
+                                  List<BoxShadow>? boxShadow;
+                                  if (isToday) {
+                                    headerColor = Color.alphaBlend(
+                                      theme.colorScheme.primary.withValues(
+                                        alpha: 0.08,
+                                      ),
+                                      dayHeaderColor,
+                                    );
+                                    borderColor = theme.colorScheme.primary
+                                        .withValues(alpha: 0.55);
+                                    boxShadow = [
+                                      BoxShadow(
+                                        color: theme.colorScheme.primary
+                                            .withValues(alpha: 0.18),
+                                        blurRadius: 18,
+                                        offset: const Offset(0, 6),
+                                      ),
+                                    ];
+                                  } else if (isNextWeekDay) {
+                                    headerColor = Color.alphaBlend(
+                                      theme.colorScheme.secondary.withValues(
+                                        alpha: 0.12,
+                                      ),
+                                      dayHeaderColor,
+                                    );
+                                    borderColor = theme.colorScheme.secondary
+                                        .withValues(alpha: 0.55);
+                                    boxShadow = [
+                                      BoxShadow(
+                                        color: theme.colorScheme.secondary
+                                            .withValues(alpha: 0.16),
+                                        blurRadius: 16,
+                                        offset: const Offset(0, 6),
+                                      ),
+                                    ];
+                                  }
+                                  final totalAppointments = data
+                                      .appointmentsByStaff
+                                      .values
+                                      .fold<int>(
+                                        0,
+                                        (running, list) =>
+                                            running + list.length,
                                       );
-                                      borderColor = theme.colorScheme.primary
-                                          .withValues(alpha: 0.55);
-                                      boxShadow = [
-                                        BoxShadow(
-                                          color: theme.colorScheme.primary
-                                              .withValues(alpha: 0.18),
-                                          blurRadius: 18,
-                                          offset: const Offset(0, 6),
-                                        ),
-                                      ];
-                                    } else if (isNextWeekDay) {
-                                      headerColor = Color.alphaBlend(
-                                        theme.colorScheme.secondary.withValues(
-                                          alpha: 0.12,
-                                        ),
-                                        dayHeaderColor,
-                                      );
-                                      borderColor = theme.colorScheme.secondary
-                                          .withValues(alpha: 0.55);
-                                      boxShadow = [
-                                        BoxShadow(
-                                          color: theme.colorScheme.secondary
-                                              .withValues(alpha: 0.16),
-                                          blurRadius: 16,
-                                          offset: const Offset(0, 6),
-                                        ),
-                                      ];
-                                    }
-                                    final totalAppointments = data
-                                        .appointmentsByStaff
-                                        .values
-                                        .fold<int>(
-                                          0,
-                                          (running, list) =>
-                                              running + list.length,
-                                        );
-                                    final dayChecklist =
-                                        dayChecklists[data.date];
-                                    final hasChecklistItems =
-                                        dayChecklist != null &&
-                                        dayChecklist.items.isNotEmpty;
-                                    final checklistTotal =
-                                        dayChecklist?.items.length ?? 0;
-                                    final checklistCompleted =
-                                        dayChecklist?.items
-                                            .where((item) => item.isCompleted)
-                                            .length ??
-                                        0;
-                                    final showChecklistLauncher =
-                                        hasChecklistItems ||
-                                        onAddChecklistItem != null ||
-                                        onToggleChecklistItem != null ||
-                                        onRenameChecklistItem != null ||
-                                        onDeleteChecklistItem != null;
-                                    final scheduledStaffIds = data
-                                        .shiftsByStaff
-                                        .entries
-                                        .where(
-                                          (entry) => entry.value.isNotEmpty,
-                                        )
-                                        .map((entry) => entry.key)
-                                        .toList(growable: false);
-                                    final absenceStaffIds = data
-                                        .absencesByStaff
-                                        .entries
-                                        .where(
-                                          (entry) => entry.value.isNotEmpty,
-                                        )
-                                        .map((entry) => entry.key)
-                                        .toList(growable: false);
-                                    final scheduledNames = scheduledStaffIds
-                                        .map((id) => staffById[id]?.fullName)
-                                        .whereType<String>()
-                                        .toList(growable: false);
-                                    final absenceNames = absenceStaffIds
-                                        .map((id) => staffById[id]?.fullName)
-                                        .whereType<String>()
-                                        .toList(growable: false);
+                                  final dayChecklist = dayChecklists[data.date];
+                                  final hasChecklistItems =
+                                      dayChecklist != null &&
+                                      dayChecklist.items.isNotEmpty;
+                                  final checklistTotal =
+                                      dayChecklist?.items.length ?? 0;
+                                  final checklistCompleted =
+                                      dayChecklist?.items
+                                          .where((item) => item.isCompleted)
+                                          .length ??
+                                      0;
+                                  final showChecklistLauncher =
+                                      hasChecklistItems ||
+                                      onAddChecklistItem != null ||
+                                      onToggleChecklistItem != null ||
+                                      onRenameChecklistItem != null ||
+                                      onDeleteChecklistItem != null;
+                                  final scheduledStaffIds = data
+                                      .shiftsByStaff
+                                      .entries
+                                      .where((entry) => entry.value.isNotEmpty)
+                                      .map((entry) => entry.key)
+                                      .toList(growable: false);
+                                  final absenceStaffIds = data
+                                      .absencesByStaff
+                                      .entries
+                                      .where((entry) => entry.value.isNotEmpty)
+                                      .map((entry) => entry.key)
+                                      .toList(growable: false);
+                                  final scheduledNames = scheduledStaffIds
+                                      .map((id) => staffById[id]?.fullName)
+                                      .whereType<String>()
+                                      .toList(growable: false);
+                                  final absenceNames = absenceStaffIds
+                                      .map((id) => staffById[id]?.fullName)
+                                      .whereType<String>()
+                                      .toList(growable: false);
 
-                                    final summaryChips = <Widget>[];
-                                    if (isNextWeekDay) {
-                                      summaryChips.add(
-                                        _summaryChip(
-                                          theme: theme,
-                                          icon: Icons.north_east_rounded,
-                                          label: 'Settimana prossima',
-                                          background: theme
-                                              .colorScheme
-                                              .secondaryContainer
-                                              .withValues(alpha: 0.7),
-                                          foreground:
-                                              theme
-                                                  .colorScheme
-                                                  .onSecondaryContainer,
-                                          tooltip:
-                                              onJumpToNextWeek != null
-                                                  ? 'Vai alla prossima settimana'
-                                                  : null,
-                                          onTap: onJumpToNextWeek,
-                                        ),
-                                      );
-                                    }
+                                  final summaryChips = <Widget>[];
+                                  if (isNextWeekDay) {
                                     summaryChips.add(
                                       _summaryChip(
                                         theme: theme,
-                                        icon: Icons.event_available_rounded,
-                                        label:
-                                            '$totalAppointments appuntamenti',
+                                        icon: Icons.north_east_rounded,
+                                        label: 'Settimana prossima',
                                         background: theme
                                             .colorScheme
-                                            .tertiaryContainer
-                                            .withValues(alpha: 0.6),
+                                            .secondaryContainer
+                                            .withValues(alpha: 0.7),
                                         foreground:
                                             theme
                                                 .colorScheme
-                                                .onTertiaryContainer,
+                                                .onSecondaryContainer,
+                                        tooltip:
+                                            onJumpToNextWeek != null
+                                                ? 'Vai alla prossima settimana'
+                                                : null,
+                                        onTap: onJumpToNextWeek,
                                       ),
                                     );
-                                    final closures = _closuresForDay(
-                                      day: data.date,
-                                      salonsById: salonsById,
-                                      focusSalonId: selectedSalonId,
-                                      relatedSalonIds: relevantSalonIds,
-                                    );
-                                    final showClosureSalonName =
-                                        closures
-                                            .map((closure) => closure.salonId)
-                                            .toSet()
-                                            .length >
-                                        1;
+                                  }
+                                  summaryChips.add(
+                                    _summaryChip(
+                                      theme: theme,
+                                      icon: Icons.event_available_rounded,
+                                      label: '$totalAppointments appuntamenti',
+                                      background: theme
+                                          .colorScheme
+                                          .tertiaryContainer
+                                          .withValues(alpha: 0.6),
+                                      foreground:
+                                          theme.colorScheme.onTertiaryContainer,
+                                    ),
+                                  );
+                                  final closures = _closuresForDay(
+                                    day: data.date,
+                                    salonsById: salonsById,
+                                    focusSalonId: selectedSalonId,
+                                    relatedSalonIds: relevantSalonIds,
+                                  );
+                                  final showClosureSalonName =
+                                      closures
+                                          .map((closure) => closure.salonId)
+                                          .toSet()
+                                          .length >
+                                      1;
 
-                                    return Container(
-                                      width: dayWidth,
-                                      margin: EdgeInsets.only(
-                                        right:
-                                            dayIndex == dayData.length - 1
-                                                ? 0
-                                                : dayGap,
-                                      ),
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: headerColor,
-                                        borderRadius: BorderRadius.circular(16),
-                                        border: Border.all(color: borderColor),
-                                        boxShadow: boxShadow,
-                                      ),
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: dayHorizontalPadding,
-                                            ),
-                                            child: Column(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Row(
-                                                  mainAxisSize:
-                                                      MainAxisSize.min,
-                                                  crossAxisAlignment:
-                                                      CrossAxisAlignment.center,
-                                                  children: [
-                                                    if (summaryChips
-                                                        .isNotEmpty) ...[
-                                                      Flexible(
-                                                        flex: 2,
-                                                        child: ScrollConfiguration(
-                                                          behavior:
-                                                              const _CompactMacScrollBehavior(),
-                                                          child: SingleChildScrollView(
-                                                            scrollDirection:
-                                                                Axis.horizontal,
-                                                            child: Row(
-                                                              mainAxisSize:
-                                                                  MainAxisSize
-                                                                      .min,
-                                                              children: [
-                                                                for (
-                                                                  var i = 0;
-                                                                  i <
-                                                                      summaryChips
-                                                                          .length;
-                                                                  i++
-                                                                ) ...[
-                                                                  if (i != 0)
-                                                                    const SizedBox(
-                                                                      width: 8,
-                                                                    ),
-                                                                  summaryChips[i],
-                                                                ],
+                                  return Container(
+                                    width: dayWidth,
+                                    margin: EdgeInsets.only(
+                                      right:
+                                          dayIndex == dayData.length - 1
+                                              ? 0
+                                              : dayGap,
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: headerColor,
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(color: borderColor),
+                                      boxShadow: boxShadow,
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: dayHorizontalPadding,
+                                          ),
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.center,
+                                                children: [
+                                                  if (summaryChips
+                                                      .isNotEmpty) ...[
+                                                    Flexible(
+                                                      flex: 2,
+                                                      child: ScrollConfiguration(
+                                                        behavior:
+                                                            const _CompactMacScrollBehavior(),
+                                                        child: SingleChildScrollView(
+                                                          scrollDirection:
+                                                              Axis.horizontal,
+                                                          child: Row(
+                                                            mainAxisSize:
+                                                                MainAxisSize
+                                                                    .min,
+                                                            children: [
+                                                              for (
+                                                                var i = 0;
+                                                                i <
+                                                                    summaryChips
+                                                                        .length;
+                                                                i++
+                                                              ) ...[
+                                                                if (i != 0)
+                                                                  const SizedBox(
+                                                                    width: 8,
+                                                                  ),
+                                                                summaryChips[i],
                                                               ],
-                                                            ),
+                                                            ],
                                                           ),
                                                         ),
                                                       ),
-                                                      const SizedBox(width: 12),
-                                                    ],
-                                                    Flexible(
-                                                      flex: 3,
-                                                      fit: FlexFit.loose,
-                                                      child: Column(
-                                                        crossAxisAlignment:
-                                                            CrossAxisAlignment
-                                                                .start,
-                                                        mainAxisSize:
-                                                            MainAxisSize.min,
-                                                        children: [
-                                                          Text(
-                                                            dateLabel,
-                                                            style:
-                                                                theme
-                                                                    .textTheme
-                                                                    .titleMedium,
-                                                          ),
-                                                          if (isNextWeekDay)
-                                                            Padding(
-                                                              padding:
-                                                                  const EdgeInsets.only(
-                                                                    top: 2,
-                                                                  ),
-                                                              child: Text(
-                                                                'Settimana prossima',
-                                                                style: theme
-                                                                    .textTheme
-                                                                    .labelSmall
-                                                                    ?.copyWith(
-                                                                      color:
-                                                                          theme
-                                                                              .colorScheme
-                                                                              .secondary,
-                                                                      fontWeight:
-                                                                          FontWeight
-                                                                              .w600,
-                                                                    ),
-                                                              ),
-                                                            ),
-                                                        ],
-                                                      ),
                                                     ),
-                                                    if (showChecklistLauncher) ...[
-                                                      const SizedBox(width: 8),
-                                                      _ChecklistDialogLauncher(
-                                                        day: data.date,
-                                                        dateLabel: dateLabel,
-                                                        checklist: dayChecklist,
-                                                        total: checklistTotal,
-                                                        completed:
-                                                            checklistCompleted,
-                                                        salonId:
-                                                            dayChecklist
-                                                                ?.salonId,
-                                                        onAdd:
-                                                            onAddChecklistItem,
-                                                        onToggle:
-                                                            onToggleChecklistItem,
-                                                        onRename:
-                                                            onRenameChecklistItem,
-                                                        onDelete:
-                                                            onDeleteChecklistItem,
-                                                        compact: true,
-                                                      ),
-                                                    ],
+                                                    const SizedBox(width: 12),
                                                   ],
-                                                ),
-                                                if (closures.isNotEmpty) ...[
-                                                  const SizedBox(height: 10),
-                                                  for (
-                                                    var i = 0;
-                                                    i < closures.length;
-                                                    i++
-                                                  ) ...[
-                                                    if (i != 0)
-                                                      const SizedBox(height: 6),
-                                                    _ClosureBanner(
-                                                      info: closures[i],
-                                                      showSalonName:
-                                                          showClosureSalonName,
+                                                  Flexible(
+                                                    flex: 3,
+                                                    fit: FlexFit.loose,
+                                                    child: Column(
+                                                      crossAxisAlignment:
+                                                          CrossAxisAlignment
+                                                              .start,
+                                                      mainAxisSize:
+                                                          MainAxisSize.min,
+                                                      children: [
+                                                        Text(
+                                                          dateLabel,
+                                                          style:
+                                                              theme
+                                                                  .textTheme
+                                                                  .titleMedium,
+                                                        ),
+                                                        if (isNextWeekDay)
+                                                          Padding(
+                                                            padding:
+                                                                const EdgeInsets.only(
+                                                                  top: 2,
+                                                                ),
+                                                            child: Text(
+                                                              'Settimana prossima',
+                                                              style: theme
+                                                                  .textTheme
+                                                                  .labelSmall
+                                                                  ?.copyWith(
+                                                                    color:
+                                                                        theme
+                                                                            .colorScheme
+                                                                            .secondary,
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .w600,
+                                                                  ),
+                                                            ),
+                                                          ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                  if (showChecklistLauncher) ...[
+                                                    const SizedBox(width: 8),
+                                                    _ChecklistDialogLauncher(
+                                                      day: data.date,
+                                                      dateLabel: dateLabel,
+                                                      checklist: dayChecklist,
+                                                      total: checklistTotal,
+                                                      completed:
+                                                          checklistCompleted,
+                                                      salonId:
+                                                          dayChecklist?.salonId,
+                                                      onAdd: onAddChecklistItem,
+                                                      onToggle:
+                                                          onToggleChecklistItem,
+                                                      onRename:
+                                                          onRenameChecklistItem,
+                                                      onDelete:
+                                                          onDeleteChecklistItem,
                                                       compact: true,
                                                     ),
                                                   ],
                                                 ],
-                                                const SizedBox(height: 4),
-                                              ],
-                                            ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: dayHorizontalPadding,
-                                            ),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
+                                              ),
+                                              if (closures.isNotEmpty) ...[
+                                                const SizedBox(height: 10),
                                                 for (
-                                                  var columnIndex = 0;
-                                                  columnIndex < staff.length;
-                                                  columnIndex++
+                                                  var i = 0;
+                                                  i < closures.length;
+                                                  i++
                                                 ) ...[
-                                                  SizedBox(
-                                                    width: staffColumnWidth,
-                                                    height: 0,
+                                                  if (i != 0)
+                                                    const SizedBox(height: 6),
+                                                  _ClosureBanner(
+                                                    info: closures[i],
+                                                    showSalonName:
+                                                        showClosureSalonName,
+                                                    compact: true,
                                                   ),
-                                                  if (columnIndex !=
-                                                      staff.length - 1)
-                                                    SizedBox(width: staffGap),
                                                 ],
                                               ],
-                                            ),
+                                              const SizedBox(height: 4),
+                                            ],
                                           ),
-                                        ],
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: dayHorizontalPadding,
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              for (
+                                                var columnIndex = 0;
+                                                columnIndex < staff.length;
+                                                columnIndex++
+                                              ) ...[
+                                                SizedBox(
+                                                  width: staffColumnWidth,
+                                                  height: 0,
+                                                ),
+                                                if (columnIndex !=
+                                                    staff.length - 1)
+                                                  SizedBox(width: staffGap),
+                                              ],
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
                             ],
-                          ),
+                          ],
+                        ),
+                        if (showStaffHeader) ...[
                           const SizedBox(height: 6),
                           Row(
                             mainAxisSize: MainAxisSize.min,
@@ -2896,7 +2928,7 @@ class _WeekSchedule extends StatelessWidget {
                             ],
                           ),
                         ],
-                      ),
+                      ],
                     ),
                   ),
                 ),
@@ -2905,251 +2937,222 @@ class _WeekSchedule extends StatelessWidget {
           ),
         ),
         Expanded(
-          child: Scrollbar(
+          child: SingleChildScrollView(
             controller: verticalController,
-            thumbVisibility: true,
-            child: SingleChildScrollView(
-              controller: verticalController,
-              child: Padding(
-                padding: const EdgeInsets.only(top: 6, bottom: 12),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: ScrollConfiguration(
-                        behavior: const _CompactMacScrollBehavior(),
-                        child: Scrollbar(
-                          controller: horizontalBodyController,
-                          thumbVisibility: true,
-                          child: SingleChildScrollView(
-                            controller: horizontalBodyController,
-                            scrollDirection: Axis.horizontal,
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                for (
-                                  var dayIndex = 0;
-                                  dayIndex < dayData.length;
-                                  dayIndex++
-                                ) ...[
-                                  Builder(
-                                    builder: (context) {
-                                      final currentDay = dayData[dayIndex];
-                                      final normalizedDay = DateUtils.dateOnly(
-                                        currentDay.date,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 6, bottom: 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: ScrollConfiguration(
+                      behavior: const _CompactMacScrollBehavior(),
+                      child: SingleChildScrollView(
+                        controller: horizontalBodyController,
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            for (
+                              var dayIndex = 0;
+                              dayIndex < dayData.length;
+                              dayIndex++
+                            ) ...[
+                              Builder(
+                                builder: (context) {
+                                  final currentDay = dayData[dayIndex];
+                                  final normalizedDay = DateUtils.dateOnly(
+                                    currentDay.date,
+                                  );
+                                  final isNextWeekDay =
+                                      normalizedExtraDay != null &&
+                                      DateUtils.isSameDay(
+                                        normalizedExtraDay,
+                                        normalizedDay,
                                       );
-                                      final isNextWeekDay =
-                                          normalizedExtraDay != null &&
-                                          DateUtils.isSameDay(
-                                            normalizedExtraDay,
-                                            normalizedDay,
+                                  final bodyBorderColor =
+                                      isNextWeekDay
+                                          ? theme.colorScheme.secondary
+                                              .withValues(alpha: 0.45)
+                                          : theme.dividerColor.withValues(
+                                            alpha: 0.25,
                                           );
-                                      final bodyBorderColor =
-                                          isNextWeekDay
-                                              ? theme.colorScheme.secondary
-                                                  .withValues(alpha: 0.45)
-                                              : theme.dividerColor.withValues(
-                                                alpha: 0.25,
-                                              );
-                                      final bodyColor =
-                                          isNextWeekDay
-                                              ? Color.alphaBlend(
-                                                theme.colorScheme.secondary
-                                                    .withValues(alpha: 0.06),
-                                                dayBodyColor,
-                                              )
-                                              : dayBodyColor;
-                                      final List<BoxShadow>? bodyShadow =
-                                          isNextWeekDay
-                                              ? [
-                                                BoxShadow(
-                                                  color: theme
-                                                      .colorScheme
-                                                      .secondary
-                                                      .withValues(alpha: 0.08),
-                                                  blurRadius: 14,
-                                                  offset: const Offset(0, 4),
-                                                ),
-                                              ]
-                                              : null;
-                                      return Container(
-                                        width: dayWidth,
-                                        margin: EdgeInsets.only(
-                                          right:
-                                              dayIndex == dayData.length - 1
-                                                  ? 0
-                                                  : dayGap,
-                                        ),
-                                        padding: const EdgeInsets.symmetric(
-                                          vertical: 12,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: bodyColor,
-                                          borderRadius: BorderRadius.circular(
-                                            16,
-                                          ),
-                                          border: Border.all(
-                                            color: bodyBorderColor,
-                                            width: dayBorderWidth,
-                                          ),
-                                          boxShadow: bodyShadow,
-                                        ),
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: dayHorizontalPadding,
-                                          ),
-                                          child: Row(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              for (
-                                                var staffIndex = 0;
-                                                staffIndex < staff.length;
-                                                staffIndex++
-                                              ) ...[
-                                                Container(
-                                                  width: staffColumnWidth,
-                                                  margin: EdgeInsets.only(
-                                                    right:
-                                                        staffIndex ==
-                                                                staff.length - 1
-                                                            ? 0
-                                                            : staffGap,
-                                                  ),
-                                                  decoration: BoxDecoration(
-                                                    gradient: LinearGradient(
-                                                      colors: [
-                                                        theme
-                                                            .colorScheme
-                                                            .surface,
-                                                        theme
-                                                            .colorScheme
-                                                            .surfaceContainerHighest
-                                                            .withValues(
-                                                              alpha: 0.42,
-                                                            ),
-                                                      ],
-                                                      begin:
-                                                          Alignment.topCenter,
-                                                      end:
-                                                          Alignment
-                                                              .bottomCenter,
-                                                    ),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          16,
+                                  final bodyColor =
+                                      isNextWeekDay
+                                          ? Color.alphaBlend(
+                                            theme.colorScheme.secondary
+                                                .withValues(alpha: 0.06),
+                                            dayBodyColor,
+                                          )
+                                          : dayBodyColor;
+                                  final List<BoxShadow>? bodyShadow =
+                                      isNextWeekDay
+                                          ? [
+                                            BoxShadow(
+                                              color: theme.colorScheme.secondary
+                                                  .withValues(alpha: 0.08),
+                                              blurRadius: 14,
+                                              offset: const Offset(0, 4),
+                                            ),
+                                          ]
+                                          : null;
+                                  return Container(
+                                    width: dayWidth,
+                                    margin: EdgeInsets.only(
+                                      right:
+                                          dayIndex == dayData.length - 1
+                                              ? 0
+                                              : dayGap,
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: bodyColor,
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: bodyBorderColor,
+                                        width: dayBorderWidth,
+                                      ),
+                                      boxShadow: bodyShadow,
+                                    ),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: dayHorizontalPadding,
+                                      ),
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          for (
+                                            var staffIndex = 0;
+                                            staffIndex < staff.length;
+                                            staffIndex++
+                                          ) ...[
+                                            Container(
+                                              width: staffColumnWidth,
+                                              margin: EdgeInsets.only(
+                                                right:
+                                                    staffIndex ==
+                                                            staff.length - 1
+                                                        ? 0
+                                                        : staffGap,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                gradient: LinearGradient(
+                                                  colors: [
+                                                    theme.colorScheme.surface,
+                                                    theme
+                                                        .colorScheme
+                                                        .surfaceContainerHighest
+                                                        .withValues(
+                                                          alpha: 0.42,
                                                         ),
-                                                    border: Border.all(
-                                                      color:
-                                                          staffColumnBorderColor,
-                                                      width: 1.05,
-                                                    ),
-                                                    boxShadow: [
-                                                      BoxShadow(
-                                                        color:
-                                                            staffColumnShadowColor,
-                                                        blurRadius: 24,
-                                                        offset: const Offset(
-                                                          0,
-                                                          12,
+                                                  ],
+                                                  begin: Alignment.topCenter,
+                                                  end: Alignment.bottomCenter,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(16),
+                                                border: Border.all(
+                                                  color: staffColumnBorderColor,
+                                                  width: 1.05,
+                                                ),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color:
+                                                        staffColumnShadowColor,
+                                                    blurRadius: 24,
+                                                    offset: const Offset(0, 12),
+                                                  ),
+                                                ],
+                                              ),
+                                              child: SizedBox(
+                                                height: gridHeight,
+                                                child: _StaffDayColumn(
+                                                  staffMember:
+                                                      staff[staffIndex],
+                                                  appointments:
+                                                      currentDay
+                                                          .appointmentsByStaff[staff[staffIndex]
+                                                          .id] ??
+                                                      const [],
+                                                  lastMinutePlaceholders:
+                                                      lastMinutePlaceholders,
+                                                  lastMinuteSlots:
+                                                      lastMinuteSlots,
+                                                  allAppointments:
+                                                      allAppointments,
+                                                  shifts:
+                                                      currentDay
+                                                          .shiftsByStaff[staff[staffIndex]
+                                                          .id] ??
+                                                      const [],
+                                                  absences:
+                                                      currentDay
+                                                          .absencesByStaff[staff[staffIndex]
+                                                          .id] ??
+                                                      const [],
+                                                  timelineStart: currentDay.date
+                                                      .add(
+                                                        Duration(
+                                                          minutes: minMinute!,
                                                         ),
                                                       ),
-                                                    ],
-                                                  ),
-                                                  child: SizedBox(
-                                                    height: gridHeight,
-                                                    child: _StaffDayColumn(
-                                                      staffMember:
-                                                          staff[staffIndex],
-                                                      appointments:
-                                                          currentDay
-                                                              .appointmentsByStaff[staff[staffIndex]
-                                                              .id] ??
-                                                          const [],
-                                                      lastMinutePlaceholders:
-                                                          lastMinutePlaceholders,
-                                                      lastMinuteSlots:
-                                                          lastMinuteSlots,
-                                                      allAppointments:
-                                                          allAppointments,
-                                                      shifts:
-                                                          currentDay
-                                                              .shiftsByStaff[staff[staffIndex]
-                                                              .id] ??
-                                                          const [],
-                                                      absences:
-                                                          currentDay
-                                                              .absencesByStaff[staff[staffIndex]
-                                                              .id] ??
-                                                          const [],
-                                                      timelineStart: currentDay
-                                                          .date
-                                                          .add(
-                                                            Duration(
-                                                              minutes:
-                                                                  minMinute!,
-                                                            ),
-                                                          ),
-                                                      timelineEnd: currentDay
-                                                          .date
-                                                          .add(
-                                                            Duration(
-                                                              minutes:
-                                                                  maxMinute!,
-                                                            ),
-                                                          ),
-                                                      slotMinutes: slotMinutes,
-                                                      interactionSlotMinutes:
-                                                          interactionSlotMinutes,
-                                                      slotExtent: _slotExtent,
-                                                      verticalController:
-                                                          verticalController,
-                                                      clientsWithOutstandingPayments:
-                                                          clientsWithOutstandingPayments,
-                                                      clientsById: clientsById,
-                                                      servicesById:
-                                                          servicesById,
-                                                      categoriesById:
-                                                          categoriesById,
-                                                      categoriesByName:
-                                                          categoriesByName,
-                                                      roomsById: roomsById,
-                                                      salonsById: salonsById,
-                                                      statusColor: statusColor,
-                                                      lockedAppointmentReasons:
-                                                          lockedAppointmentReasons,
-                                                      onReschedule:
-                                                          onReschedule,
-                                                      onEdit: onEdit,
-                                                      onCreate: onCreate,
-                                                      onTapLastMinuteSlot:
-                                                          onTapLastMinuteSlot,
-                                                      anomalies: anomalies,
-                                                      openStart:
-                                                          currentDay.openStart,
-                                                      openEnd:
-                                                          currentDay.openEnd,
-                                                      showSlotStartTimes:
-                                                          showSlotStartTimes,
-                                                    ),
-                                                  ),
+                                                  timelineEnd: currentDay.date
+                                                      .add(
+                                                        Duration(
+                                                          minutes: maxMinute!,
+                                                        ),
+                                                      ),
+                                                  slotMinutes: slotMinutes,
+                                                  interactionSlotMinutes:
+                                                      interactionSlotMinutes,
+                                                  slotExtent: _slotExtent,
+                                                  verticalController:
+                                                      verticalController,
+                                                  clientsWithOutstandingPayments:
+                                                      clientsWithOutstandingPayments,
+                                                  clientsById: clientsById,
+                                                  servicesById: servicesById,
+                                                  categoriesById:
+                                                      categoriesById,
+                                                  categoriesByName:
+                                                      categoriesByName,
+                                                  roomsById: roomsById,
+                                                  salonsById: salonsById,
+                                                  statusColor: statusColor,
+                                                  lockedAppointmentReasons:
+                                                      lockedAppointmentReasons,
+                                                  onReschedule: onReschedule,
+                                                  onEdit: onEdit,
+                                                  onCreate: onCreate,
+                                                  onTapLastMinuteSlot:
+                                                      onTapLastMinuteSlot,
+                                                  anomalies: anomalies,
+                                                  openStart:
+                                                      currentDay.openStart,
+                                                  openEnd: currentDay.openEnd,
+                                                  showSlotStartTimes:
+                                                      showSlotStartTimes,
+                                                  readOnly: readOnly,
                                                 ),
-                                              ],
-                                            ],
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -3974,22 +3977,18 @@ class _ChecklistDialogContentState extends State<_ChecklistDialogContent> {
               ),
               const SizedBox(height: 16),
               Expanded(
-                child: Scrollbar(
+                child: SingleChildScrollView(
                   controller: _scrollController,
-                  thumbVisibility: true,
-                  child: SingleChildScrollView(
-                    controller: _scrollController,
-                    primary: false,
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: _ChecklistSection(
-                        day: widget.day,
-                        checklist: widget.checklist,
-                        onAdd: widget.onAdd,
-                        onToggle: widget.onToggle,
-                        onRename: widget.onRename,
-                        onDelete: widget.onDelete,
-                      ),
+                  primary: false,
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: _ChecklistSection(
+                      day: widget.day,
+                      checklist: widget.checklist,
+                      onAdd: widget.onAdd,
+                      onToggle: widget.onToggle,
+                      onRename: widget.onRename,
+                      onDelete: widget.onDelete,
                     ),
                   ),
                 ),
@@ -4104,6 +4103,8 @@ class _WeekCompactView extends StatelessWidget {
     required this.maxMinute,
     required this.verticalController,
     required this.interactionSlotMinutes,
+    required this.readOnly,
+    required this.showStaffHeader,
     this.onAddChecklistItem,
     this.onToggleChecklistItem,
     this.onRenameChecklistItem,
@@ -4144,6 +4145,8 @@ class _WeekCompactView extends StatelessWidget {
   final int maxMinute;
   final ScrollController verticalController;
   final int interactionSlotMinutes;
+  final bool readOnly;
+  final bool showStaffHeader;
   final Future<void> Function(DateTime day, String label)? onAddChecklistItem;
   final Future<void> Function(
     String checklistId,
@@ -4233,7 +4236,7 @@ class _WeekCompactView extends StatelessWidget {
               dayWidth,
               relevantSalonIds,
             ),
-            if (staffLayout != null) ...[
+            if (staffLayout != null && showStaffHeader) ...[
               const SizedBox(height: 4),
               _buildOperatorHeaderRow(
                 context,
@@ -4262,51 +4265,46 @@ class _WeekCompactView extends StatelessWidget {
                       !hasBoundedHeight ||
                       resolvedGridHeight > availableGridHeight + 0.5;
 
-                  return Scrollbar(
+                  return SingleChildScrollView(
                     controller: verticalController,
-                    thumbVisibility: enableScroll,
-                    interactive: enableScroll,
-                    child: SingleChildScrollView(
-                      controller: verticalController,
-                      physics:
-                          enableScroll
-                              ? const ClampingScrollPhysics()
-                              : const NeverScrollableScrollPhysics(),
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 8, bottom: 12),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.only(
-                                bottom: _kDayBodyBottomPadding,
-                              ),
-                              child: _buildTimeScale(
-                                theme,
-                                timeSlots,
-                                timeFormat,
-                                resolvedGridHeight,
-                                slotExtent,
-                              ),
+                    physics:
+                        enableScroll
+                            ? const ClampingScrollPhysics()
+                            : const NeverScrollableScrollPhysics(),
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 8, bottom: 12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(
+                              bottom: _kDayBodyBottomPadding,
                             ),
-                            const SizedBox(width: 12),
-                            SizedBox(
-                              width: contentWidth,
-                              child: _buildDayColumns(
-                                context,
-                                theme,
-                                now,
-                                dayBodyColor,
-                                dayWidth,
-                                dayInnerWidth,
-                                resolvedGridHeight,
-                                slotExtent,
-                                staffLayout,
-                                showSlotStartTimes,
-                              ),
+                            child: _buildTimeScale(
+                              theme,
+                              timeSlots,
+                              timeFormat,
+                              resolvedGridHeight,
+                              slotExtent,
                             ),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(width: 12),
+                          SizedBox(
+                            width: contentWidth,
+                            child: _buildDayColumns(
+                              context,
+                              theme,
+                              now,
+                              dayBodyColor,
+                              dayWidth,
+                              dayInnerWidth,
+                              resolvedGridHeight,
+                              slotExtent,
+                              staffLayout,
+                              showSlotStartTimes,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   );
@@ -4767,6 +4765,7 @@ class _WeekCompactView extends StatelessWidget {
                 openEnd: data.openEnd,
                 compact: true,
                 showSlotStartTimes: showSlotStartTimes,
+                readOnly: readOnly,
               ),
             ),
           ),
@@ -5081,6 +5080,7 @@ class _WeekOperatorBoardView extends StatelessWidget {
     required this.onCreate,
     required this.minMinute,
     required this.verticalController,
+    required this.readOnly,
   });
 
   final List<_WeekDayData> dayData;
@@ -5098,6 +5098,7 @@ class _WeekOperatorBoardView extends StatelessWidget {
   final AppointmentSlotSelectionCallback onCreate;
   final int minMinute;
   final ScrollController verticalController;
+  final bool readOnly;
 
   static const double _kOperatorColumnMinWidth = 240;
   static const double _kDayColumnMinWidth = 200;
@@ -5128,71 +5129,67 @@ class _WeekOperatorBoardView extends StatelessWidget {
 
     return ScrollConfiguration(
       behavior: const _CompactMacScrollBehavior(),
-      child: Scrollbar(
+      child: SingleChildScrollView(
         controller: verticalController,
-        thumbVisibility: true,
-        child: SingleChildScrollView(
-          controller: verticalController,
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final dayCount = dayData.length;
-              final availableWidth =
-                  constraints.maxWidth.isFinite
-                      ? constraints.maxWidth
-                      : MediaQuery.sizeOf(context).width;
-              final operatorWidth = _kOperatorColumnMinWidth;
-              final gapsWidth = max(0, dayCount - 1) * _kDayGap;
-              final minRequiredWidth =
-                  operatorWidth + (dayCount * _kDayColumnMinWidth) + gapsWidth;
-              final needsHorizontalScroll = minRequiredWidth > availableWidth;
-              final remainingWidth = max(
-                0.0,
-                availableWidth - operatorWidth - gapsWidth,
-              );
-              final dayWidth =
-                  needsHorizontalScroll || dayCount == 0
-                      ? _kDayColumnMinWidth
-                      : max(
-                        _kDayColumnMinWidth,
-                        remainingWidth / max(1, dayCount),
-                      );
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final dayCount = dayData.length;
+            final availableWidth =
+                constraints.maxWidth.isFinite
+                    ? constraints.maxWidth
+                    : MediaQuery.sizeOf(context).width;
+            final operatorWidth = _kOperatorColumnMinWidth;
+            final gapsWidth = max(0, dayCount - 1) * _kDayGap;
+            final minRequiredWidth =
+                operatorWidth + (dayCount * _kDayColumnMinWidth) + gapsWidth;
+            final needsHorizontalScroll = minRequiredWidth > availableWidth;
+            final remainingWidth = max(
+              0.0,
+              availableWidth - operatorWidth - gapsWidth,
+            );
+            final dayWidth =
+                needsHorizontalScroll || dayCount == 0
+                    ? _kDayColumnMinWidth
+                    : max(
+                      _kDayColumnMinWidth,
+                      remainingWidth / max(1, dayCount),
+                    );
 
-              final content = Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildHeaderRow(theme, operatorWidth, dayWidth),
-                  const SizedBox(height: 12),
-                  ...staff.map(
-                    (member) => Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: _buildStaffRow(
-                        context,
-                        theme,
-                        member,
-                        rolesById,
-                        placeholderIds,
-                        operatorWidth,
-                        dayWidth,
-                      ),
+            final content = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildHeaderRow(theme, operatorWidth, dayWidth),
+                const SizedBox(height: 12),
+                ...staff.map(
+                  (member) => Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: _buildStaffRow(
+                      context,
+                      theme,
+                      member,
+                      rolesById,
+                      placeholderIds,
+                      operatorWidth,
+                      dayWidth,
                     ),
                   ),
-                ],
-              );
+                ),
+              ],
+            );
 
-              if (!needsHorizontalScroll) {
-                return content;
-              }
+            if (!needsHorizontalScroll) {
+              return content;
+            }
 
-              final totalWidth =
-                  operatorWidth + (dayCount * dayWidth) + gapsWidth;
-              return SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.only(bottom: 8),
-                child: SizedBox(width: totalWidth, child: content),
-              );
-            },
-          ),
+            final totalWidth =
+                operatorWidth + (dayCount * dayWidth) + gapsWidth;
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.only(bottom: 8),
+              child: SizedBox(width: totalWidth, child: content),
+            );
+          },
         ),
       ),
     );
@@ -5368,6 +5365,7 @@ class _WeekOperatorBoardView extends StatelessWidget {
               onCreate: onCreate,
               minMinute: minMinute,
               placeholderIds: placeholderIds,
+              readOnly: readOnly,
             ),
           ),
         ),
@@ -5403,6 +5401,7 @@ class _OperatorDayCell extends StatelessWidget {
     required this.onCreate,
     required this.minMinute,
     required this.placeholderIds,
+    required this.readOnly,
   });
 
   final StaffMember staffMember;
@@ -5422,6 +5421,7 @@ class _OperatorDayCell extends StatelessWidget {
   final AppointmentSlotSelectionCallback onCreate;
   final int minMinute;
   final Set<String> placeholderIds;
+  final bool readOnly;
 
   static final DateFormat _timeLabelFormat =
       _WeekOperatorBoardView._timeLabelFormat;
@@ -5569,18 +5569,19 @@ class _OperatorDayCell extends StatelessWidget {
                   ],
                 ),
               ),
-              IconButton(
-                tooltip: 'Nuovo appuntamento',
-                onPressed:
-                    () => onCreate(
-                      AppointmentSlotSelection(
-                        start: selectionStart,
-                        end: selectionEnd,
-                        staffId: staffMember.id,
+              if (!readOnly)
+                IconButton(
+                  tooltip: 'Nuovo appuntamento',
+                  onPressed:
+                      () => onCreate(
+                        AppointmentSlotSelection(
+                          start: selectionStart,
+                          end: selectionEnd,
+                          staffId: staffMember.id,
+                        ),
                       ),
-                    ),
-                icon: const Icon(Icons.add_circle_outline_rounded),
-              ),
+                  icon: const Icon(Icons.add_circle_outline_rounded),
+                ),
             ],
           ),
           if (infoChips.isNotEmpty) ...[
@@ -5915,9 +5916,7 @@ class AppointmentInteractionState {
 }
 
 class AppointmentInteractionController extends ChangeNotifier {
-  AppointmentInteractionController({this.debugLabel});
-
-  final String? debugLabel;
+  AppointmentInteractionController();
   AppointmentInteractionState _state = const AppointmentInteractionState();
 
   AppointmentInteractionState get state => _state;
@@ -6012,23 +6011,12 @@ class AppointmentInteractionController extends ChangeNotifier {
     _update(const AppointmentInteractionState(), reason);
   }
 
-  void _update(AppointmentInteractionState next, String reason) {
+  void _update(AppointmentInteractionState next, String _reason) {
     if (_state == next) {
       return;
     }
-    _logTransition(next, reason);
     _state = next;
     notifyListeners();
-  }
-
-  void _logTransition(AppointmentInteractionState next, String reason) {
-    assert(() {
-      final label = debugLabel != null ? '[$debugLabel] ' : '';
-      debugPrint(
-        '${label}interaction: ${_state.phase.name} -> ${next.phase.name} ($reason)',
-      );
-      return true;
-    }());
   }
 }
 
@@ -6139,6 +6127,7 @@ class _StaffDayColumn extends StatefulWidget {
     this.openEnd,
     this.compact = false,
     this.showSlotStartTimes = false,
+    required this.readOnly,
   });
 
   final StaffMember staffMember;
@@ -6172,6 +6161,7 @@ class _StaffDayColumn extends StatefulWidget {
   final DateTime? openEnd;
   final bool compact;
   final bool showSlotStartTimes;
+  final bool readOnly;
 
   @override
   State<_StaffDayColumn> createState() => _StaffDayColumnState();
@@ -6186,9 +6176,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
   @override
   void initState() {
     super.initState();
-    _interactionController = AppointmentInteractionController(
-      debugLabel: 'staff-${widget.staffMember.id}',
-    );
+    _interactionController = AppointmentInteractionController();
     _interactionController.addListener(_onInteractionChange);
     _autoScrollDriver = _AppointmentAutoScrollDriver(
       verticalController: widget.verticalController,
@@ -6248,6 +6236,9 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
   }
 
   void _handleHover(PointerHoverEvent event, double gridHeight) {
+    if (widget.readOnly) {
+      return;
+    }
     final interaction = _interactionController.state;
     if (interaction.isDragging) {
       if (interaction.hoverStart != null) {
@@ -6283,6 +6274,9 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
   }
 
   void _handleTap(TapUpDetails details, double gridHeight) {
+    if (widget.readOnly) {
+      return;
+    }
     final interaction = _interactionController.state;
     if (interaction.isDragging) {
       return;
@@ -6346,6 +6340,61 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
         staffId: widget.staffMember.id,
       ),
     );
+  }
+
+  Appointment? _appointmentAtTapOffset(
+    Offset localPosition,
+    double gridHeight,
+  ) {
+    final totalMinutes = _totalMinutes;
+    if (totalMinutes <= 0) {
+      return null;
+    }
+    final clampedDy = localPosition.dy.clamp(0.0, gridHeight);
+    final minuteOffset = (clampedDy / gridHeight) * totalMinutes;
+
+    Appointment? candidate;
+    for (final appointment in widget.appointments) {
+      final segment = _segmentWithinTimeline(
+        appointment.start,
+        appointment.end,
+        widget.timelineStart,
+        widget.timelineEnd,
+      );
+      if (segment == null) {
+        continue;
+      }
+      final segmentStartMinutes =
+          segment.start.difference(widget.timelineStart).inMinutes.toDouble();
+      final segmentEndMinutes =
+          segment.end.difference(widget.timelineStart).inMinutes.toDouble();
+      final isWithinSegment =
+          minuteOffset >= segmentStartMinutes &&
+          minuteOffset < segmentEndMinutes;
+      if (!isWithinSegment) {
+        continue;
+      }
+      // If two cards overlap visually, prefer the one that starts later (topmost).
+      if (candidate == null || appointment.start.isAfter(candidate.start)) {
+        candidate = appointment;
+      }
+    }
+    return candidate;
+  }
+
+  void _handleCalendarTap(TapUpDetails details, double gridHeight) {
+    if (widget.readOnly) {
+      return;
+    }
+    final tappedAppointment = _appointmentAtTapOffset(
+      details.localPosition,
+      gridHeight,
+    );
+    if (tappedAppointment != null) {
+      widget.onEdit(tappedAppointment);
+      return;
+    }
+    _handleTap(details, gridHeight);
   }
 
   String? _slotConflictMessage(
@@ -6518,8 +6567,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                 : widget.servicesById[previewed.serviceId];
         final hasOutstandingPayments = widget.clientsWithOutstandingPayments
             .contains(previewed.clientId);
-        final segmentMinutes =
-            segment.end.difference(segment.start).inMinutes;
+        final segmentMinutes = segment.end.difference(segment.start).inMinutes;
         final visibleMinutes = max(1, segmentMinutes);
         final previewHeight = max(
           widget.slotExtent,
@@ -6660,8 +6708,9 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
     }
 
     return MouseRegion(
-      onHover: (event) => _handleHover(event, gridHeight),
-      onExit: _clearHover,
+      onHover:
+          widget.readOnly ? null : (event) => _handleHover(event, gridHeight),
+      onExit: widget.readOnly ? null : _clearHover,
       child: SizedBox(
         height: gridHeight,
         child: Stack(
@@ -6670,8 +6719,12 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
               onPointerUp: (_) => _endDragAfterFrame(),
               onPointerCancel: (_) => _endDragAfterFrame(cancelled: true),
               child: DragTarget<_AppointmentDragData>(
-                onWillAcceptWithDetails: (_) => true,
+                onWillAcceptWithDetails:
+                    widget.readOnly ? (_) => false : (_) => true,
                 onMove: (details) {
+                  if (widget.readOnly) {
+                    return;
+                  }
                   final renderBox = context.findRenderObject() as RenderBox?;
                   if (renderBox == null || !renderBox.hasSize) {
                     return;
@@ -6759,96 +6812,123 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                           GestureDetector(
                             behavior: HitTestBehavior.opaque,
                             onTapUp:
-                                (details) => _handleTap(details, gridHeight),
-                            child: Column(
-                              children: List.generate(totalSlots, (index) {
-                                final DateTime slotStart = widget.timelineStart
-                                    .add(
-                                      Duration(
-                                        minutes: index * widget.slotMinutes,
-                                      ),
+                                widget.readOnly
+                                    ? null
+                                    : (details) =>
+                                        _handleCalendarTap(details, gridHeight),
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                final double timeLabelWidth = min(
+                                  constraints.maxWidth,
+                                  _AppointmentCalendarViewState
+                                      ._timeScaleExtent,
+                                );
+                                return Column(
+                                  children: List.generate(totalSlots, (index) {
+                                    final DateTime slotStart = widget
+                                        .timelineStart
+                                        .add(
+                                          Duration(
+                                            minutes: index * widget.slotMinutes,
+                                          ),
+                                        );
+                                    final bool isHourBoundary =
+                                        slotStart.minute == 0;
+                                    final DateTime slotEnd = slotStart.add(
+                                      Duration(minutes: widget.slotMinutes),
                                     );
-                                final bool isHourBoundary =
-                                    slotStart.minute == 0;
-                                final DateTime slotEnd = slotStart.add(
-                                  Duration(minutes: widget.slotMinutes),
-                                );
-                                final bool hasShift = _hasShiftDuring(
-                                  slotStart,
-                                  slotEnd,
-                                );
-                                BorderSide topBorder = BorderSide.none;
-                                BorderSide bottomBorder = BorderSide.none;
-                                if (hasShift) {
-                                  final bool isDark =
-                                      theme.brightness == Brightness.dark;
-                                  final double hourTopAlpha =
-                                      isDark ? 0.45 : 0.32;
-                                  final double hourBottomAlpha =
-                                      isDark ? 0.34 : 0.24;
-                                  final double minorTopAlpha =
-                                      isDark ? 0.28 : 0.18;
-                                  final double minorBottomAlpha =
-                                      isDark ? 0.21 : 0.12;
-                                  final Color baseHourColor = theme
-                                      .colorScheme
-                                      .outlineVariant
-                                      .withValues(alpha: hourTopAlpha);
-                                  final Color baseMinorColor = theme
-                                      .dividerColor
-                                      .withValues(alpha: minorTopAlpha);
-                                  final Color hourBottomColor = baseHourColor
-                                      .withValues(alpha: hourBottomAlpha);
-                                  final Color minorBottomColor = baseMinorColor
-                                      .withValues(alpha: minorBottomAlpha);
-                                  bottomBorder = BorderSide(
-                                    color:
-                                        isDark
-                                            ? Colors.white24
-                                            : Colors.black26,
-                                    width: 1,
-                                  );
-                                }
-                                final showSlotLabel = widget.showSlotStartTimes;
-                                final String? slotLabel =
-                                    showSlotLabel
-                                        ? _timeLabel.format(slotStart)
-                                        : null;
-                                return Container(
-                                  height: widget.slotExtent,
-                                  decoration: BoxDecoration(
-                                    border: Border(
-                                      top: topBorder,
-                                      bottom: bottomBorder,
-                                    ),
-                                  ),
-                                  alignment:
-                                      slotLabel != null
-                                          ? Alignment.topLeft
-                                          : null,
-                                  padding:
-                                      slotLabel != null
-                                          ? const EdgeInsets.only(
-                                            left: 10,
-                                            top: 6,
-                                          )
-                                          : null,
-                                  child:
-                                      slotLabel != null
-                                          ? Text(
-                                            slotLabel,
-                                            style: theme.textTheme.labelSmall
-                                                ?.copyWith(
-                                                  color:
-                                                      theme
-                                                          .colorScheme
-                                                          .onSurfaceVariant,
-                                                  fontWeight: FontWeight.w700,
+                                    final bool hasShift = _hasShiftDuring(
+                                      slotStart,
+                                      slotEnd,
+                                    );
+                                    BorderSide topBorder = BorderSide.none;
+                                    BorderSide bottomBorder = BorderSide.none;
+                                    if (hasShift) {
+                                      final bool isDark =
+                                          theme.brightness == Brightness.dark;
+                                      final double hourTopAlpha =
+                                          isDark ? 0.45 : 0.32;
+                                      final double hourBottomAlpha =
+                                          isDark ? 0.34 : 0.24;
+                                      final double minorTopAlpha =
+                                          isDark ? 0.28 : 0.18;
+                                      final double minorBottomAlpha =
+                                          isDark ? 0.21 : 0.12;
+                                      final Color baseHourColor = theme
+                                          .colorScheme
+                                          .outlineVariant
+                                          .withValues(alpha: hourTopAlpha);
+                                      final Color baseMinorColor = theme
+                                          .dividerColor
+                                          .withValues(alpha: minorTopAlpha);
+                                      final Color hourBottomColor =
+                                          baseHourColor.withValues(
+                                            alpha: hourBottomAlpha,
+                                          );
+                                      final Color minorBottomColor =
+                                          baseMinorColor.withValues(
+                                            alpha: minorBottomAlpha,
+                                          );
+                                      bottomBorder = BorderSide(
+                                        color:
+                                            isDark
+                                                ? Colors.white24
+                                                : Colors.black26,
+                                        width: 1,
+                                      );
+                                    }
+                                    final showSlotLabel =
+                                        widget.showSlotStartTimes;
+                                    final String? slotLabel =
+                                        showSlotLabel
+                                            ? _timeLabel.format(slotStart)
+                                            : null;
+                                    final Widget? slotLabelWidget =
+                                        slotLabel == null
+                                            ? null
+                                            : Align(
+                                              alignment: Alignment.topCenter,
+                                              child: SizedBox(
+                                                width: timeLabelWidth,
+                                                child: Padding(
+                                                  padding:
+                                                      const EdgeInsets.fromLTRB(
+                                                        4,
+                                                        6,
+                                                        4,
+                                                        0,
+                                                      ),
+                                                  child: Text(
+                                                    slotLabel,
+                                                    textAlign: TextAlign.center,
+                                                    style: theme
+                                                        .textTheme
+                                                        .labelSmall
+                                                        ?.copyWith(
+                                                          color:
+                                                              theme
+                                                                  .colorScheme
+                                                                  .onSurfaceVariant,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                        ),
+                                                  ),
                                                 ),
-                                          )
-                                          : null,
+                                              ),
+                                            );
+                                    return Container(
+                                      height: widget.slotExtent,
+                                      decoration: BoxDecoration(
+                                        border: Border(
+                                          top: topBorder,
+                                          bottom: bottomBorder,
+                                        ),
+                                      ),
+                                      child: slotLabelWidget,
+                                    );
+                                  }),
                                 );
-                              }),
+                              },
                             ),
                           ),
                           if (openOverlay != null) openOverlay,
@@ -6892,7 +6972,9 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                                   color: Colors.transparent,
                                   child: InkWell(
                                     onTap:
-                                        widget.onTapLastMinuteSlot == null
+                                        widget.readOnly ||
+                                                widget.onTapLastMinuteSlot ==
+                                                    null
                                             ? null
                                             : () => widget.onTapLastMinuteSlot!(
                                               slot,
@@ -7243,7 +7325,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                               hideContent: widget.compact,
                               hasOutstandingPayments: hasOutstandingPayments,
                             );
-                            if (isLocked) {
+                            if (isLocked || widget.readOnly) {
                               return Positioned(
                                 top: top,
                                 left: 4,
@@ -7322,25 +7404,26 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                           }),
                           if (candidateData.isNotEmpty)
                             Positioned.fill(
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  color:
-                                      interaction.hasConflict
-                                          ? theme.colorScheme.error.withValues(
-                                            alpha: 0.08,
-                                          )
-                                          : theme.colorScheme.primary
-                                              .withValues(alpha: 0.08),
-                                  border: Border.all(
+                              child: IgnorePointer(
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
                                     color:
                                         interaction.hasConflict
                                             ? theme.colorScheme.error
-                                                .withValues(alpha: 0.2)
+                                                .withValues(alpha: 0.08)
                                             : theme.colorScheme.primary
-                                                .withValues(alpha: 0.2),
-                                    width: 2,
+                                                .withValues(alpha: 0.08),
+                                    border: Border.all(
+                                      color:
+                                          interaction.hasConflict
+                                              ? theme.colorScheme.error
+                                                  .withValues(alpha: 0.2)
+                                              : theme.colorScheme.primary
+                                                  .withValues(alpha: 0.2),
+                                      width: 2,
+                                    ),
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
-                                  borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
                             ),
@@ -7350,6 +7433,10 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                   );
                 },
                 onAcceptWithDetails: (details) async {
+                  if (widget.readOnly) {
+                    _endDragAfterFrame(cancelled: true);
+                    return;
+                  }
                   final payload = details.data;
                   final renderBox = context.findRenderObject() as RenderBox?;
                   if (renderBox == null) {
@@ -7958,21 +8045,38 @@ class _AppointmentCardState extends State<_AppointmentCard> {
   }
 
   void _removeHoverOverlay() {
-    if (_hoverEntry != null) {
-      _hoverEntry!.remove();
-      if (_activeHoverOwner == this) {
-        _activeHoverEntry = null;
-        _activeHoverOwner = null;
-      }
-      _hoverEntry = null;
+    final entry = _hoverEntry;
+    if (entry == null) {
+      return;
     }
+    _hoverEntry = null;
+    if (identical(_activeHoverEntry, entry)) {
+      _activeHoverEntry = null;
+      _activeHoverOwner = null;
+    }
+    _removeOverlayEntrySafely(entry);
   }
 
   void _removeActiveHoverOverlay() {
-    if (_activeHoverEntry != null) {
-      _activeHoverEntry!.remove();
-      _activeHoverEntry = null;
-      _activeHoverOwner = null;
+    final entry = _activeHoverEntry;
+    if (entry == null) {
+      return;
+    }
+    final owner = _activeHoverOwner;
+    _activeHoverEntry = null;
+    _activeHoverOwner = null;
+    if (owner != null && identical(owner._hoverEntry, entry)) {
+      owner._hoverEntry = null;
+    }
+    _removeOverlayEntrySafely(entry);
+  }
+
+  static void _removeOverlayEntrySafely(OverlayEntry entry) {
+    try {
+      entry.remove();
+    } catch (error, stackTrace) {
+      debugPrint('[Appointments] Hover overlay remove failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
     }
   }
 

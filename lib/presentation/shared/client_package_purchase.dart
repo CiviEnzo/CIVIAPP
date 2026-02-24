@@ -53,7 +53,7 @@ class ClientPackagePurchase {
     }
 
     final serviceIds = <String>{
-      ...package?.serviceSessionCounts?.keys ?? const <String>{},
+      ...package?.serviceSessionCounts.keys ?? const <String>{},
       ...item.packageServiceSessions.keys,
       ...item.remainingPackageServiceSessions.keys,
       ...usedSessionsByService.keys,
@@ -176,12 +176,15 @@ class ClientPackagePurchase {
 
   PackagePurchaseStatus get status {
     final stored = item.packageStatus;
-    if (stored != null) {
-      return stored;
+    if (stored == PackagePurchaseStatus.cancelled) {
+      return PackagePurchaseStatus.cancelled;
     }
     final remaining = remainingSessions;
     if (remaining != null && remaining <= 0) {
       return PackagePurchaseStatus.completed;
+    }
+    if (stored != null) {
+      return stored;
     }
     return PackagePurchaseStatus.active;
   }

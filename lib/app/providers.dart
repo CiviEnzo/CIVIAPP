@@ -8,6 +8,7 @@ import 'package:you_book/data/repositories/auth_repository.dart';
 import 'package:you_book/data/storage/firebase_storage_service.dart';
 import 'package:you_book/domain/cart/cart_controller.dart';
 import 'package:you_book/domain/cart/cart_models.dart';
+import 'package:you_book/domain/entities/client_note.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
 import 'package:you_book/domain/entities/client_photo_collage.dart';
 import 'package:you_book/domain/entities/client_registration_draft.dart';
@@ -73,17 +74,26 @@ final appUserProvider = StreamProvider<AppUser?>((ref) {
 final sessionControllerProvider =
     StateNotifierProvider<SessionController, SessionState>((ref) {
       final controller = SessionController();
-      ref.listen<AsyncValue<AppUser?>>(
-        appUserProvider,
-        (previous, next) {
-          next.when(
-            data: controller.updateUser,
-            loading: () {},
-            error: (_, __) => controller.updateUser(null),
-          );
-        },
-        fireImmediately: true,
-      );
+      ref.listen<AsyncValue<AppUser?>>(appUserProvider, (previous, next) {
+        next.when(
+          data: (user) {
+            final registeringCenter = ref.read(
+              centerRegistrationInProgressProvider,
+            );
+            if (user != null &&
+                user.role == UserRole.admin &&
+                !user.isEnabled &&
+                !registeringCenter) {
+              unawaited(ref.read(authRepositoryProvider).signOut());
+              controller.updateUser(null);
+              return;
+            }
+            controller.updateUser(user);
+          },
+          loading: () {},
+          error: (_, __) => controller.updateUser(null),
+        );
+      }, fireImmediately: true);
       return controller;
     });
 
@@ -181,6 +191,12 @@ class ClientsModuleIntent {
   final int? detailTabIndex;
 }
 
+class AppointmentsModuleIntent {
+  const AppointmentsModuleIntent({required this.focusDateTime});
+
+  final DateTime focusDateTime;
+}
+
 final clientDashboardIntentProvider = StateProvider<ClientDashboardIntent?>(
   (ref) => null,
 );
@@ -192,6 +208,9 @@ final adminDashboardIntentProvider = StateProvider<AdminDashboardIntent?>(
 final clientsModuleIntentProvider = StateProvider<ClientsModuleIntent?>(
   (ref) => null,
 );
+
+final appointmentsModuleIntentProvider =
+    StateProvider<AppointmentsModuleIntent?>((ref) => null);
 
 final clientPhotosProvider = Provider.family<List<ClientPhoto>, String?>((
   ref,
@@ -220,6 +239,19 @@ final clientPhotoCollagesProvider =
           .where((collage) => collage.clientId == clientId)
           .toList(growable: false);
     });
+
+final clientNotesProvider = Provider.family<List<ClientNote>, String?>((
+  ref,
+  clientId,
+) {
+  final notes = ref.watch(appDataProvider.select((state) => state.clientNotes));
+  if (clientId == null || clientId.isEmpty) {
+    return const <ClientNote>[];
+  }
+  return notes
+      .where((note) => note.clientId == clientId)
+      .toList(growable: false);
+});
 
 final salonSetupProgressProvider = Provider.family<AdminSetupProgress?, String>(
   (ref, salonId) {
@@ -255,6 +287,10 @@ final clientRegistrationDraftProvider = StateNotifierProvider<
 >((ref) => ClientRegistrationDraftController());
 
 final clientRegistrationInProgressProvider = StateProvider<bool>(
+  (ref) => false,
+);
+
+final centerRegistrationInProgressProvider = StateProvider<bool>(
   (ref) => false,
 );
 
@@ -328,6 +364,10 @@ class SessionController extends StateNotifier<SessionState> {
 
   void updateUser(AppUser? user) {
     if (user == null) {
+      state = const SessionState();
+      return;
+    }
+    if (user.role == UserRole.admin && !user.isEnabled) {
       state = const SessionState();
       return;
     }

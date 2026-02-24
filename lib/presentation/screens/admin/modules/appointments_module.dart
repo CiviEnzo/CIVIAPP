@@ -30,7 +30,8 @@ import 'package:you_book/presentation/screens/admin/modules/appointments/appoint
         AppointmentRescheduleRequest,
         AppointmentSlotSelection;
 import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_calendar_view.dart'
-    as appointment_calendar show showAppointmentChecklistDialog;
+    as appointment_calendar
+    show showAppointmentChecklistDialog;
 import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_anomaly.dart';
 import 'package:you_book/presentation/screens/admin/modules/client_detail_page.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments/express_slot_sheet.dart';
@@ -150,6 +151,8 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   int _calendarScrollRequestId = 0;
   bool _isAgendaPreferencesReady = false;
   SharedPreferences? _agendaPreferences;
+  ProviderSubscription<AppointmentsModuleIntent?>? _intentSubscription;
+  DateTime? _pendingFocusAfterPreferences;
 
   String? get _effectiveSalonId {
     final explicit = widget.salonId?.trim();
@@ -275,9 +278,77 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   @override
   void initState() {
     super.initState();
+    _intentSubscription = ref.listenManual<AppointmentsModuleIntent?>(
+      appointmentsModuleIntentProvider,
+      (previous, next) {
+        final intent = next;
+        if (intent == null) {
+          return;
+        }
+        _applyIntent(intent);
+        ref.read(appointmentsModuleIntentProvider.notifier).state = null;
+      },
+    );
     final now = DateTime.now();
     _anchorDate = DateTime(now.year, now.month, now.day);
+    final initialIntent = ref.read(appointmentsModuleIntentProvider);
+    if (initialIntent != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _applyIntent(initialIntent);
+        ref.read(appointmentsModuleIntentProvider.notifier).state = null;
+      });
+    }
     unawaited(_restoreAgendaPreferences());
+  }
+
+  @override
+  void dispose() {
+    _intentSubscription?.close();
+    super.dispose();
+  }
+
+  void _applyIntent(AppointmentsModuleIntent intent) {
+    final target = intent.focusDateTime;
+    if (!_isAgendaPreferencesReady) {
+      _pendingFocusAfterPreferences = target;
+    }
+    final targetDay = DateTime(target.year, target.month, target.day);
+    setState(() {
+      _mode = _AppointmentDisplayMode.calendar;
+      _scope = AppointmentCalendarScope.day;
+      _calendarSlotMinutes = _resolveSlotMinutes(
+        scope: _scope,
+        weekLayout: _weekLayoutMode,
+        preferred: _preferredSlotMinutes,
+      );
+      _anchorDate =
+          _isWeekdayVisible(targetDay.weekday)
+              ? targetDay
+              : _findNextVisibleDay(targetDay, 1);
+      _calendarScrollTarget = target;
+      _calendarScrollRequestId++;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _calendarScrollTarget = null);
+    });
+  }
+
+  void _schedulePendingFocusAfterPreferencesIfNeeded() {
+    final pending = _pendingFocusAfterPreferences;
+    if (pending == null || !_isAgendaPreferencesReady) {
+      return;
+    }
+    _pendingFocusAfterPreferences = null;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _applyIntent(AppointmentsModuleIntent(focusDateTime: pending));
+    });
   }
 
   Future<SharedPreferences> _ensureAgendaPreferences() async {
@@ -428,13 +499,16 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
           }
           _isAgendaPreferencesReady = true;
         });
+        _schedulePendingFocusAfterPreferencesIfNeeded();
       } else if (!_isAgendaPreferencesReady) {
         setState(() => _isAgendaPreferencesReady = true);
+        _schedulePendingFocusAfterPreferencesIfNeeded();
       }
     } catch (_) {
       // Preferenze agenda opzionali: ignora errori di ripristino.
       if (mounted) {
         setState(() => _isAgendaPreferencesReady = true);
+        _schedulePendingFocusAfterPreferencesIfNeeded();
       } else {
         _isAgendaPreferencesReady = true;
       }
@@ -734,8 +808,8 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                           : _weekLayoutSegments;
                   final selectedWeekLayout =
                       weekLayoutSegments.any(
-                        (segment) => segment.value == _weekLayoutMode,
-                      )
+                            (segment) => segment.value == _weekLayoutMode,
+                          )
                           ? _weekLayoutMode
                           : _WeekLayoutMode.detailed;
 
@@ -1764,10 +1838,8 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
             showVisionButton
                 ? FilledButton.tonalIcon(
                   style: tonalButtonStyle,
-                  onPressed: () => _openAgendaVisionDialog(
-                    context,
-                    staff: staff,
-                  ),
+                  onPressed:
+                      () => _openAgendaVisionDialog(context, staff: staff),
                   icon: const Icon(Icons.tune_rounded),
                   label: const Text('Visione agenda'),
                 )
@@ -3101,15 +3173,17 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       return;
     }
     final allServices = data.services;
-    final servicesById = {for (final service in allServices) service.id: service};
+    final servicesById = {
+      for (final service in allServices) service.id: service,
+    };
     final allSalons = data.salons;
     final serviceWindows =
         EquipmentAvailabilityChecker.serviceWindowsForAppointment(
-      appointment: updated,
-      servicesById: servicesById,
-      startOverride: updated.start,
-      endOverride: updated.end,
-    );
+          appointment: updated,
+          servicesById: servicesById,
+          startOverride: updated.start,
+          endOverride: updated.end,
+        );
     if (serviceWindows.isEmpty) {
       if (mounted) {
         setState(() => _isRescheduling = false);
@@ -3225,32 +3299,34 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
             'Cliente',
             client != null
                 ? TextButton.icon(
-                    style: TextButton.styleFrom(
-                      alignment: Alignment.centerLeft,
-                      padding: EdgeInsets.zero,
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      foregroundColor: theme.colorScheme.primary,
-                      textStyle: theme.textTheme.bodyMedium,
-                    ),
-                    icon: Icon(
-                      Icons.open_in_new_rounded,
-                      size: 16,
-                      color: theme.colorScheme.primary,
-                    ),
-                    label: Text(client.fullName),
-                    onPressed: () async {
-                      Navigator.of(dialogContext).pop();
-                      await _openClientDetails(client);
-                    },
-                  )
+                  style: TextButton.styleFrom(
+                    alignment: Alignment.centerLeft,
+                    padding: EdgeInsets.zero,
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    foregroundColor: theme.colorScheme.primary,
+                    textStyle: theme.textTheme.bodyMedium,
+                  ),
+                  icon: Icon(
+                    Icons.open_in_new_rounded,
+                    size: 16,
+                    color: theme.colorScheme.primary,
+                  ),
+                  label: Text(client.fullName),
+                  onPressed: () async {
+                    Navigator.of(dialogContext).pop();
+                    await _openClientDetails(client);
+                  },
+                )
                 : const Text('Cliente'),
           ),
           _buildAppointmentDetailRow(
             'Servizi',
             Text(
               appointmentServices.isNotEmpty
-                  ? appointmentServices.map((service) => service.name).join(' + ')
+                  ? appointmentServices
+                      .map((service) => service.name)
+                      .join(' + ')
                   : 'Servizio',
             ),
           ),
@@ -3262,7 +3338,10 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
             _buildAppointmentDetailRow('Salone', Text(salon.name)),
           _buildAppointmentDetailRow('Inizio', Text(dateLabel)),
           _buildAppointmentDetailRow('Fine', Text(endLabel)),
-          _buildAppointmentDetailRow('Stato', Text(_statusLabel(appointment.status))),
+          _buildAppointmentDetailRow(
+            'Stato',
+            Text(_statusLabel(appointment.status)),
+          ),
           if (appointment.notes != null && appointment.notes!.isNotEmpty)
             _buildAppointmentDetailRow('Note', Text(appointment.notes!)),
         ];
@@ -3308,8 +3387,9 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       payload['clientNumber'] = clientNumber;
     }
     if (!isCompact) {
-      ref.read(adminDashboardIntentProvider.notifier).state =
-          AdminDashboardIntent(moduleId: 'clients', payload: payload);
+      ref
+          .read(adminDashboardIntentProvider.notifier)
+          .state = AdminDashboardIntent(moduleId: 'clients', payload: payload);
     }
     await openClientDetailPage(
       context,
@@ -3358,18 +3438,37 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     String? initialStaffId,
     String? initialSalonId,
   }) {
-    _openForm(
-      context,
-      ref,
-      salons: salons,
-      clients: clients,
-      staff: staff,
-      services: services,
-      defaultSalonId: initialSalonId ?? widget.salonId,
-      existing: existing,
-      initialStart: initialStart,
-      initialEnd: initialEnd,
-      initialStaffId: initialStaffId,
+    final messenger = ScaffoldMessenger.of(context);
+    unawaited(
+      _openForm(
+        context,
+        ref,
+        salons: salons,
+        clients: clients,
+        staff: staff,
+        services: services,
+        defaultSalonId: initialSalonId ?? widget.salonId,
+        existing: existing,
+        initialStart: initialStart,
+        initialEnd: initialEnd,
+        initialStaffId: initialStaffId,
+      ).catchError((Object error, StackTrace stackTrace) {
+        debugPrint(
+          '[Appointments] Failed to open appointment form for '
+          'appointmentId=${existing?.id ?? 'new'}: $error',
+        );
+        debugPrintStack(stackTrace: stackTrace);
+        if (!mounted) {
+          return;
+        }
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Impossibile aprire il dettaglio appuntamento. Riprova.',
+            ),
+          ),
+        );
+      }),
     );
   }
 

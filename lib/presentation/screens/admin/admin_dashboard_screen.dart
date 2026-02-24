@@ -1,6 +1,14 @@
+import 'dart:async';
+
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/app/theme_constants.dart';
+import 'package:you_book/data/repositories/app_data_state.dart';
+import 'package:you_book/domain/entities/client_app_movement.dart';
+import 'package:you_book/domain/entities/inventory_item.dart';
+import 'package:you_book/domain/entities/payment_ticket.dart';
 import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/salon_access_request.dart';
+import 'package:you_book/domain/entities/staff_absence_request.dart';
 import 'package:you_book/presentation/common/theme_mode_action.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/clients_module.dart';
@@ -16,6 +24,7 @@ import 'package:you_book/presentation/screens/admin/modules/staff_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/whatsapp_module.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AdminDashboardScreen extends ConsumerStatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -43,9 +52,15 @@ class AdminModuleDefinition {
 }
 
 class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
+  static const String _movementPrefsKeyPrefix = 'admin_movements_last_seen';
+
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   int _selectedIndex = 0;
   ProviderSubscription<AdminDashboardIntent?>? _intentSubscription;
+  SharedPreferences? _preferences;
+  final Map<String, DateTime?> _movementLastSeen = <String, DateTime?>{};
+  final Set<String> _movementLoadingKeys = <String>{};
+  String? _currentSalonId;
 
   static final _modules = <AdminModuleDefinition>[
     AdminModuleDefinition(
@@ -156,13 +171,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       return;
     }
 
-    if (_selectedIndex != targetIndex) {
-      if (mounted) {
-        setState(() => _selectedIndex = targetIndex);
-      } else {
-        _selectedIndex = targetIndex;
-      }
-    }
+    _selectModule(targetIndex, allowPop: false);
 
     if (intent.moduleId == 'clients') {
       final payload = intent.payload;
@@ -172,13 +181,264 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       ref
           .read(clientsModuleIntentProvider.notifier)
           .state = ClientsModuleIntent(
-            generalQuery: payload['generalQuery'] as String?,
-            clientNumber: payload['clientNumber'] as String?,
-            clientId: payload['clientId'] as String?,
-            detailTabIndex: detailTabIndex,
-          );
+        generalQuery: payload['generalQuery'] as String?,
+        clientNumber: payload['clientNumber'] as String?,
+        clientId: payload['clientId'] as String?,
+        detailTabIndex: detailTabIndex,
+      );
+      return;
+    }
+
+    if (intent.moduleId == 'appointments') {
+      final payload = intent.payload;
+      final rawFocusDateTime = payload['focusDateTime'];
+      DateTime? focusDateTime;
+      if (rawFocusDateTime is DateTime) {
+        focusDateTime = rawFocusDateTime;
+      } else if (rawFocusDateTime is String) {
+        focusDateTime = DateTime.tryParse(rawFocusDateTime);
+      }
+      if (focusDateTime != null) {
+        ref
+            .read(appointmentsModuleIntentProvider.notifier)
+            .state = AppointmentsModuleIntent(focusDateTime: focusDateTime);
+      }
     }
   }
+
+  void _selectModule(int index, {required bool allowPop}) {
+    if (_selectedIndex != index) {
+      if (mounted) {
+        setState(() => _selectedIndex = index);
+      } else {
+        _selectedIndex = index;
+      }
+    }
+    _handleModuleSelectionSideEffects(_modules[index].id);
+    if (allowPop) {
+      Navigator.of(context).maybePop();
+    }
+  }
+
+  void _handleModuleSelectionSideEffects(String moduleId) {
+    if (moduleId == 'app_movements') {
+      _markMovementsRead(ref.read(appDataProvider), _currentSalonId);
+    }
+  }
+
+  String _movementSalonKey(String? salonId) => salonId ?? 'all';
+
+  String _movementPrefsKey(String salonKey) =>
+      '$_movementPrefsKeyPrefix::$salonKey';
+
+  Future<SharedPreferences> _ensurePreferences() async {
+    final cached = _preferences;
+    if (cached != null) {
+      return cached;
+    }
+    final resolved = await SharedPreferences.getInstance();
+    _preferences = resolved;
+    return resolved;
+  }
+
+  void _restoreMovementLastSeenIfNeeded(String salonKey) {
+    if (_movementLastSeen.containsKey(salonKey) ||
+        _movementLoadingKeys.contains(salonKey)) {
+      return;
+    }
+    _movementLoadingKeys.add(salonKey);
+    unawaited(_restoreMovementLastSeen(salonKey));
+  }
+
+  Future<void> _restoreMovementLastSeen(String salonKey) async {
+    SharedPreferences prefs;
+    try {
+      prefs = await _ensurePreferences();
+    } catch (_) {
+      _movementLoadingKeys.remove(salonKey);
+      return;
+    }
+    final raw = prefs.getString(_movementPrefsKey(salonKey));
+    final parsed = raw == null ? null : DateTime.tryParse(raw);
+    if (!mounted) {
+      _movementLoadingKeys.remove(salonKey);
+      return;
+    }
+    setState(() {
+      _movementLastSeen[salonKey] = parsed;
+      _movementLoadingKeys.remove(salonKey);
+    });
+  }
+
+  Future<void> _persistMovementLastSeen(
+    String salonKey,
+    DateTime timestamp,
+  ) async {
+    SharedPreferences prefs;
+    try {
+      prefs = await _ensurePreferences();
+    } catch (_) {
+      return;
+    }
+    await prefs.setString(
+      _movementPrefsKey(salonKey),
+      timestamp.toIso8601String(),
+    );
+  }
+
+  void _updateMovementLastSeen(String salonKey, DateTime timestamp) {
+    final previous = _movementLastSeen[salonKey];
+    if (previous != null && !timestamp.isAfter(previous)) {
+      return;
+    }
+    setState(() => _movementLastSeen[salonKey] = timestamp);
+    unawaited(_persistMovementLastSeen(salonKey, timestamp));
+  }
+
+  void _markMovementsRead(AppDataState data, String? salonId) {
+    final salonKey = _movementSalonKey(salonId);
+    final movements =
+        data.clientAppMovements
+            .where(
+              (movement) =>
+                  (salonId == null || movement.salonId == salonId) &&
+                  _isClientAppMovement(movement),
+            )
+            .toList();
+    if (movements.isEmpty) {
+      _updateMovementLastSeen(salonKey, DateTime.now());
+      return;
+    }
+    movements.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    _updateMovementLastSeen(salonKey, movements.first.timestamp);
+  }
+
+  bool _isClientAppMovement(ClientAppMovement movement) {
+    final tokens = <String>[];
+
+    void collect(dynamic value) {
+      if (value == null) {
+        return;
+      }
+      if (value is String) {
+        final trimmed = value.trim();
+        if (trimmed.isNotEmpty) {
+          tokens.add(trimmed.toLowerCase());
+        }
+      } else if (value is Iterable) {
+        for (final item in value) {
+          collect(item);
+        }
+      } else if (value is Map) {
+        for (final entry in value.entries) {
+          collect(entry.value);
+        }
+      }
+    }
+
+    collect(movement.source);
+    collect(movement.channel);
+    collect(movement.createdBy);
+    collect(movement.metadata);
+
+    bool hasAppIndicator = false;
+    bool hasStripeIndicator = false;
+    bool hasStaffIndicator = false;
+
+    for (final token in tokens) {
+      if (token.contains('stripe')) {
+        hasStripeIndicator = true;
+      }
+      if (token.contains('app') ||
+          token.contains('client') ||
+          token.contains('mobile') ||
+          token.contains('ios') ||
+          token.contains('android') ||
+          token.contains('self') ||
+          token.contains('online') ||
+          token.contains('web')) {
+        hasAppIndicator = true;
+      }
+      if (token.contains('admin') ||
+          token.contains('staff') ||
+          token.contains('operator') ||
+          token.contains('desk') ||
+          token.contains('backoffice')) {
+        hasStaffIndicator = true;
+      }
+    }
+
+    if (hasStripeIndicator || hasAppIndicator) {
+      return true;
+    }
+    if (hasStaffIndicator) {
+      return false;
+    }
+    return true;
+  }
+
+  Map<String, int> _moduleBadgeCounts(AppDataState data, String? salonId) {
+    bool matchesSalon(String? candidate) =>
+        salonId == null || candidate == salonId;
+
+    final pendingAccess =
+        data.salonAccessRequests
+            .where(
+              (request) =>
+                  request.status == SalonAccessRequestStatus.pending &&
+                  matchesSalon(request.salonId),
+            )
+            .length;
+
+    final pendingAbsences =
+        data.staffAbsenceRequests
+            .where(
+              (request) =>
+                  request.status == StaffAbsenceRequestStatus.pending &&
+                  matchesSalon(request.salonId),
+            )
+            .length;
+
+    final salonKey = _movementSalonKey(salonId);
+    _restoreMovementLastSeenIfNeeded(salonKey);
+    final movementCutoff = _movementLastSeen[salonKey];
+    final unreadMovements =
+        data.clientAppMovements
+            .where(
+              (movement) =>
+                  matchesSalon(movement.salonId) &&
+                  _isClientAppMovement(movement) &&
+                  (movementCutoff == null ||
+                      movement.timestamp.isAfter(movementCutoff)),
+            )
+            .length;
+
+    final lowInventory =
+        data.inventoryItems
+            .where(
+              (item) => matchesSalon(item.salonId) && _isLowInventory(item),
+            )
+            .length;
+
+    final openTickets =
+        data.paymentTickets
+            .where(
+              (ticket) =>
+                  ticket.status == PaymentTicketStatus.open &&
+                  matchesSalon(ticket.salonId),
+            )
+            .length;
+
+    return <String, int>{
+      'clients': pendingAccess,
+      'staff': pendingAbsences,
+      'app_movements': unreadMovements,
+      'inventory': lowInventory,
+      'sales': openTickets,
+    };
+  }
+
+  bool _isLowInventory(InventoryItem item) => item.quantity <= item.threshold;
 
   Future<void> _handleSignOutRequest() async {
     final shouldSignOut = await showDialog<bool>(
@@ -235,7 +495,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         });
       }
     }
+    _currentSalonId = selectedSalonId;
+    final badgeCounts = _moduleBadgeCounts(data, selectedSalonId);
     final selectedModule = _modules[_selectedIndex];
+    final selectedBadgeCount = badgeCounts[selectedModule.id] ?? 0;
 
     final mediaQuery = MediaQuery.of(context);
     final baseScale = mediaQuery.textScaleFactor;
@@ -261,35 +524,36 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                         child: _DrawerNavigation(
                           modules: _modules,
                           selectedIndex: _selectedIndex,
-                          onSelect: (index) {
-                            setState(() => _selectedIndex = index);
-                            Navigator.of(context).maybePop();
-                          },
+                          badgeCounts: badgeCounts,
+                          onSelect:
+                              (index) => _selectModule(index, allowPop: true),
                         ),
                       ),
-            ),
+                    ),
             appBar: AppBar(
               automaticallyImplyLeading: !isLargeScreen,
               title:
                   isLargeScreen
                       ? Row(
                         children: [
-                          _ModuleBadge(module: selectedModule),
+                          _ModuleBadge(
+                            module: selectedModule,
+                            badgeCount: selectedBadgeCount,
+                          ),
                           if (showSalonSelector) ...[
                             const SizedBox(width: 16),
                             Expanded(
                               child: LayoutBuilder(
                                 builder: (context, constraints) {
                                   final maxWidth =
-                                      constraints.maxWidth.clamp(
-                                        160.0,
-                                        320.0,
-                                      ) as double;
+                                      constraints.maxWidth.clamp(160.0, 320.0)
+                                          as double;
                                   return Align(
                                     alignment: Alignment.centerLeft,
                                     child: ConstrainedBox(
-                                      constraints:
-                                          BoxConstraints(maxWidth: maxWidth),
+                                      constraints: BoxConstraints(
+                                        maxWidth: maxWidth,
+                                      ),
                                       child: _SalonSelector(
                                         salons: salons,
                                         selectedSalonId: selectedSalonId,
@@ -306,7 +570,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                       ? LayoutBuilder(
                         builder: (context, constraints) {
                           final maxWidth =
-                              constraints.maxWidth.clamp(160.0, 320.0) as double;
+                              constraints.maxWidth.clamp(160.0, 320.0)
+                                  as double;
                           return ConstrainedBox(
                             constraints: BoxConstraints(maxWidth: maxWidth),
                             child: _SalonSelector(
@@ -316,7 +581,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                           );
                         },
                       )
-                      : _ModuleBadge(module: selectedModule),
+                      : _ModuleBadge(
+                        module: selectedModule,
+                        badgeCount: selectedBadgeCount,
+                      ),
               actions: [
                 const ThemeModeAction(),
                 IconButton(
@@ -332,7 +600,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                   _RailNavigation(
                     modules: _modules,
                     selectedIndex: _selectedIndex,
-                    onSelect: (index) => setState(() => _selectedIndex = index),
+                    badgeCounts: badgeCounts,
+                    onSelect: (index) => _selectModule(index, allowPop: false),
                   ),
                 Expanded(
                   child: ColoredBox(color: moduleBackground, child: content),
@@ -350,11 +619,13 @@ class _RailNavigation extends StatefulWidget {
   const _RailNavigation({
     required this.modules,
     required this.selectedIndex,
+    required this.badgeCounts,
     required this.onSelect,
   });
 
   final List<AdminModuleDefinition> modules;
   final int selectedIndex;
+  final Map<String, int> badgeCounts;
   final ValueChanged<int> onSelect;
 
   @override
@@ -406,11 +677,17 @@ class _RailNavigationState extends State<_RailNavigation> {
                 widget.modules
                     .map(
                       (module) => NavigationRailDestination(
-                        icon: _navigationRailIcon(module, false, context),
+                        icon: _navigationRailIcon(
+                          module,
+                          false,
+                          context,
+                          widget.badgeCounts[module.id] ?? 0,
+                        ),
                         selectedIcon: _navigationRailIcon(
                           module,
                           true,
                           context,
+                          widget.badgeCounts[module.id] ?? 0,
                         ),
                         label: Text(module.title, textAlign: TextAlign.center),
                       ),
@@ -445,11 +722,13 @@ class _DrawerNavigation extends StatelessWidget {
   const _DrawerNavigation({
     required this.modules,
     required this.selectedIndex,
+    required this.badgeCounts,
     required this.onSelect,
   });
 
   final List<AdminModuleDefinition> modules;
   final int selectedIndex;
+  final Map<String, int> badgeCounts;
   final ValueChanged<int> onSelect;
 
   @override
@@ -469,6 +748,7 @@ class _DrawerNavigation extends StatelessWidget {
         itemBuilder: (context, index) {
           final module = modules[index];
           final selected = selectedIndex == index;
+          final badgeCount = badgeCounts[module.id] ?? 0;
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             child: ListTile(
@@ -489,6 +769,7 @@ class _DrawerNavigation extends StatelessWidget {
                 context,
                 icon: module.icon,
                 selected: selected,
+                badgeCount: badgeCount,
               ),
               title: Text(
                 module.title,
@@ -508,9 +789,10 @@ class _DrawerNavigation extends StatelessWidget {
 }
 
 class _ModuleBadge extends StatelessWidget {
-  const _ModuleBadge({required this.module});
+  const _ModuleBadge({required this.module, this.badgeCount = 0});
 
   final AdminModuleDefinition module;
+  final int badgeCount;
 
   @override
   Widget build(BuildContext context) {
@@ -539,6 +821,10 @@ class _ModuleBadge extends StatelessWidget {
                 ),
               ),
             ),
+            if (badgeCount > 0) ...[
+              const SizedBox(width: 8),
+              _InlineCountBadge(count: badgeCount),
+            ],
           ],
         ),
       ),
@@ -550,28 +836,37 @@ Widget _adminNavigationIcon(
   BuildContext context, {
   required IconData icon,
   required bool selected,
+  int badgeCount = 0,
 }) {
   final scheme = Theme.of(context).colorScheme;
 
   if (!selected) {
-    return Icon(icon, size: 28, color: scheme.onSurfaceVariant);
+    return _wrapWithBadge(
+      context,
+      badgeCount: badgeCount,
+      child: Icon(icon, size: 28, color: scheme.onSurfaceVariant),
+    );
   }
 
-  return DecoratedBox(
-    decoration: BoxDecoration(
-      shape: BoxShape.circle,
-      color: scheme.primary,
-      boxShadow: const [
-        BoxShadow(
-          color: Color(0x33000000),
-          blurRadius: 16,
-          offset: Offset(0, 8),
-        ),
-      ],
-    ),
-    child: Padding(
-      padding: const EdgeInsets.all(8),
-      child: Icon(icon, size: 28, color: scheme.onPrimary),
+  return _wrapWithBadge(
+    context,
+    badgeCount: badgeCount,
+    child: DecoratedBox(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: scheme.primary,
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x33000000),
+            blurRadius: 16,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Icon(icon, size: 28, color: scheme.onPrimary),
+      ),
     ),
   );
 }
@@ -579,8 +874,9 @@ Widget _adminNavigationIcon(
 Widget _navigationRailIcon(
   AdminModuleDefinition module,
   bool selected,
-  BuildContext context,
-) {
+  BuildContext context, [
+  int badgeCount = 0,
+]) {
   final theme = Theme.of(context);
   final scheme = theme.colorScheme;
   return Tooltip(
@@ -612,11 +908,58 @@ Widget _navigationRailIcon(
             context,
             icon: module.icon,
             selected: selected,
+            badgeCount: badgeCount,
           ),
         ),
       ),
     ),
   );
+}
+
+Widget _wrapWithBadge(
+  BuildContext context, {
+  required Widget child,
+  required int badgeCount,
+}) {
+  if (badgeCount <= 0) {
+    return child;
+  }
+  final scheme = Theme.of(context).colorScheme;
+  return Badge.count(
+    count: badgeCount,
+    isLabelVisible: badgeCount > 0,
+    backgroundColor: scheme.error,
+    textColor: scheme.onError,
+    child: child,
+  );
+}
+
+class _InlineCountBadge extends StatelessWidget {
+  const _InlineCountBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final label = count > 99 ? '99+' : count.toString();
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.error,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        child: Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: scheme.onError,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _SalonSelector extends ConsumerWidget {

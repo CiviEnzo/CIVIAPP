@@ -2,7 +2,7 @@ name: you_book
 description: "You Book gestionale per saloni di centri estetici"
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.0.0+3
 
 environment:
   sdk: ^3.7.2
@@ -26,7 +26,8 @@ dependencies:
   firebase_messaging: ^15.2.10
   firebase_in_app_messaging: ^0.8.1+10
   csv: ^6.0.0
-  file_picker: ^8.2.1
+  file_selector: ^1.0.4
+  image_picker: ^1.2.0
   path_provider: ^2.1.4
   pdf: ^3.11.0
   shared_preferences: ^2.5.3

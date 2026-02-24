@@ -75,6 +75,22 @@ class StaffModule extends ConsumerWidget {
     final salonsById = {for (final salon in salons) salon.id: salon};
     final canCreateStaff = primarySalon != null;
 
+    bool _hasStaffAccess(StaffMember staff) {
+      final staffEmail = staff.email?.trim().toLowerCase();
+      for (final user in data.users) {
+        if (user.staffId == staff.id) {
+          return true;
+        }
+        final userEmail = user.email?.trim().toLowerCase();
+        if (staffEmail != null &&
+            staffEmail.isNotEmpty &&
+            userEmail == staffEmail) {
+          return true;
+        }
+      }
+      return false;
+    }
+
     final roomsBySalon = <String, Map<String, String>>{};
     final roomSourceSalons = effectiveSalonId == null ? salons : visibleSalons;
     for (final salon in roomSourceSalons) {
@@ -167,6 +183,8 @@ class StaffModule extends ConsumerWidget {
         }
 
         final staff = staffMembers[index - 1];
+        final hasEmail = staff.email?.trim().isNotEmpty ?? false;
+        final canCreateAccess = !staff.isEquipment && !_hasStaffAccess(staff);
         final staffShifts =
             shifts.where((shift) => shift.staffId == staff.id).toList();
         final futureShifts =
@@ -537,6 +555,62 @@ class StaffModule extends ConsumerWidget {
                                       ],
                                     ),
                                   ],
+                                if (canCreateAccess) ...[
+                                  const SizedBox(height: 12),
+                                  OutlinedButton.icon(
+                                    onPressed: () async {
+                                      if (!hasEmail) {
+                                        await _openStaffForm(
+                                          context,
+                                          ref,
+                                          salons: staffSalons,
+                                          roles: staffRoles,
+                                          defaultSalonId: staff.salonId,
+                                          defaultRoleId: staff.primaryRoleId,
+                                          existing: staff,
+                                        );
+                                        return;
+                                      }
+                                      final messenger =
+                                          ScaffoldMessenger.of(context);
+                                      try {
+                                        await ref
+                                            .read(
+                                              appDataProvider.notifier,
+                                            )
+                                            .createStaffAccess(staff);
+                                        messenger.showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Accesso staff abilitato. Se nuovo account, inviata email di reset.',
+                                            ),
+                                          ),
+                                        );
+                                      } catch (_) {
+                                        messenger.showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Impossibile creare l\'accesso. Riprova.',
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    },
+                                    icon: const Icon(
+                                      Icons.key_rounded,
+                                    ),
+                                    label: const Text('Crea accesso'),
+                                  ),
+                                  if (!hasEmail) ...[
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Aggiungi un\'email per creare l\'accesso.',
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
+                                  ],
+                                ],
                               ],
                             ),
                           ),

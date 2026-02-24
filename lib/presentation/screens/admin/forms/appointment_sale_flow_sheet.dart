@@ -317,6 +317,7 @@ class _AppointmentSaleFlowSheetState
       initialNotes: ticket.notes,
       initialDate: ticket.appointmentEnd,
       initialStaffId: ticket.staffId,
+      lockServiceOperator: true,
       onSaved: _handleSaleSaved,
       onSkipTicket: _closeFlow,
     );

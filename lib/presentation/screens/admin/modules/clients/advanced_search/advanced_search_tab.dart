@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'dart:io';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:collection/collection.dart';
 import 'package:csv/csv.dart';
@@ -7,7 +8,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/data/repositories/app_data_state.dart';
@@ -1546,12 +1546,10 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
       final converter = const ListToCsvConverter(fieldDelimiter: ';');
       final csv = converter.convert(rows);
       final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-      final dir = await getTemporaryDirectory();
       final fileName = 'clienti_youbook_$timestamp.csv';
-      final file = File('${dir.path}/$fileName');
-      await file.writeAsString(csv, flush: true);
+      final csvBytes = Uint8List.fromList(utf8.encode(csv));
       await Share.shareXFiles(
-        [XFile(file.path, mimeType: 'text/csv', name: fileName)],
+        [XFile.fromData(csvBytes, mimeType: 'text/csv', name: fileName)],
         subject: 'Esportazione clienti',
         text: 'File generato dalla Ricerca avanzata di youbook.',
       );

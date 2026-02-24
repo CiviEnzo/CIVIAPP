@@ -28,6 +28,7 @@ class _ClientQuestionnaireTemplateFormSheetState
   late TextEditingController _descriptionController;
   late List<_EditableGroup> _groups;
   late bool _isDefault;
+  late bool _clientCanSelfComplete;
 
   @override
   void initState() {
@@ -38,6 +39,7 @@ class _ClientQuestionnaireTemplateFormSheetState
       text: existing?.description ?? '',
     );
     _isDefault = existing?.isDefault ?? widget.isFirstTemplate;
+    _clientCanSelfComplete = existing?.clientCanSelfComplete ?? false;
     _groups =
         existing == null
             ? <_EditableGroup>[]
@@ -114,6 +116,19 @@ class _ClientQuestionnaireTemplateFormSheetState
                             value: _isDefault,
                             onChanged:
                                 (value) => setState(() => _isDefault = value),
+                          ),
+                          const SizedBox(height: 4),
+                          SwitchListTile.adaptive(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Compilabile dal cliente in app'),
+                            subtitle: const Text(
+                              'Permette l\'assegnazione e la compilazione autonoma dal drawer cliente',
+                            ),
+                            value: _clientCanSelfComplete,
+                            onChanged:
+                                (value) => setState(
+                                  () => _clientCanSelfComplete = value,
+                                ),
                           ),
                           const SizedBox(height: 16),
                           if (_groups.isEmpty)
@@ -557,6 +572,7 @@ class _ClientQuestionnaireTemplateFormSheetState
       createdAt: widget.existing?.createdAt ?? now,
       updatedAt: now,
       isDefault: _isDefault,
+      clientCanSelfComplete: _clientCanSelfComplete,
       groups: groups,
     );
 

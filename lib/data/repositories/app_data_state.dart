@@ -4,6 +4,7 @@ import 'package:you_book/domain/entities/appointment_day_checklist.dart';
 import 'package:you_book/domain/entities/cash_flow_entry.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/client_app_movement.dart';
+import 'package:you_book/domain/entities/client_note.dart';
 import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
 import 'package:you_book/domain/entities/client_photo_collage.dart';
@@ -56,6 +57,7 @@ class AppDataState {
     required this.users,
     required this.clientPhotos,
     required this.clientPhotoCollages,
+    required this.clientNotes,
     required this.clientQuestionnaireTemplates,
     required this.clientQuestionnaires,
     required this.clientAppMovements,
@@ -93,6 +95,7 @@ class AppDataState {
       users: [],
       clientPhotos: [],
       clientPhotoCollages: [],
+      clientNotes: [],
       clientQuestionnaireTemplates: [],
       clientQuestionnaires: [],
       clientAppMovements: [],
@@ -129,6 +132,7 @@ class AppDataState {
   final List<AppUser> users;
   final List<ClientPhoto> clientPhotos;
   final List<ClientPhotoCollage> clientPhotoCollages;
+  final List<ClientNote> clientNotes;
   final List<ClientQuestionnaireTemplate> clientQuestionnaireTemplates;
   final List<ClientQuestionnaire> clientQuestionnaires;
   final List<ClientAppMovement> clientAppMovements;
@@ -164,6 +168,7 @@ class AppDataState {
     List<AppUser>? users,
     List<ClientPhoto>? clientPhotos,
     List<ClientPhotoCollage>? clientPhotoCollages,
+    List<ClientNote>? clientNotes,
     List<ClientQuestionnaireTemplate>? clientQuestionnaireTemplates,
     List<ClientQuestionnaire>? clientQuestionnaires,
     List<ClientAppMovement>? clientAppMovements,
@@ -199,6 +204,7 @@ class AppDataState {
       users: users ?? this.users,
       clientPhotos: clientPhotos ?? this.clientPhotos,
       clientPhotoCollages: clientPhotoCollages ?? this.clientPhotoCollages,
+      clientNotes: clientNotes ?? this.clientNotes,
       clientQuestionnaireTemplates:
           clientQuestionnaireTemplates ?? this.clientQuestionnaireTemplates,
       clientQuestionnaires: clientQuestionnaires ?? this.clientQuestionnaires,

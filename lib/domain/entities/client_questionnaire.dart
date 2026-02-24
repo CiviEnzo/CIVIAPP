@@ -12,6 +12,7 @@ class ClientQuestionnaireTemplate {
     this.createdAt,
     this.updatedAt,
     this.isDefault = false,
+    this.clientCanSelfComplete = false,
   }) : groups = List.unmodifiable(groups);
 
   final String id;
@@ -22,6 +23,7 @@ class ClientQuestionnaireTemplate {
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final bool isDefault;
+  final bool clientCanSelfComplete;
 
   ClientQuestionnaireTemplate copyWith({
     String? id,
@@ -32,6 +34,7 @@ class ClientQuestionnaireTemplate {
     Object? createdAt = _unset,
     Object? updatedAt = _unset,
     bool? isDefault,
+    bool? clientCanSelfComplete,
   }) {
     return ClientQuestionnaireTemplate(
       id: id ?? this.id,
@@ -43,6 +46,8 @@ class ClientQuestionnaireTemplate {
       createdAt: createdAt == _unset ? this.createdAt : createdAt as DateTime?,
       updatedAt: updatedAt == _unset ? this.updatedAt : updatedAt as DateTime?,
       isDefault: isDefault ?? this.isDefault,
+      clientCanSelfComplete:
+          clientCanSelfComplete ?? this.clientCanSelfComplete,
     );
   }
 
@@ -167,6 +172,11 @@ class ClientQuestionnaire {
     required List<ClientQuestionAnswer> answers,
     required this.createdAt,
     required this.updatedAt,
+    this.status = ClientQuestionnaireStatus.completed,
+    this.assignedToClientApp = false,
+    this.assignedAt,
+    this.assignedByUserId,
+    this.completedAt,
   }) : answers = List.unmodifiable(answers);
 
   final String id;
@@ -176,6 +186,27 @@ class ClientQuestionnaire {
   final List<ClientQuestionAnswer> answers;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final ClientQuestionnaireStatus status;
+  final bool assignedToClientApp;
+  final DateTime? assignedAt;
+  final String? assignedByUserId;
+  final DateTime? completedAt;
+
+  bool get hasAnyAnswer => answers.any((answer) => answer.hasValue);
+
+  bool get isCompleted {
+    if (status == ClientQuestionnaireStatus.completed) {
+      return true;
+    }
+    if (completedAt != null) {
+      return true;
+    }
+    return hasAnyAnswer;
+  }
+
+  bool get isPending => !isCompleted;
+
+  bool get isDraft => status == ClientQuestionnaireStatus.draft && !isCompleted;
 
   ClientQuestionAnswer? answerFor(String questionId) {
     for (final answer in answers) {
@@ -194,6 +225,11 @@ class ClientQuestionnaire {
     List<ClientQuestionAnswer>? answers,
     DateTime? createdAt,
     DateTime? updatedAt,
+    ClientQuestionnaireStatus? status,
+    bool? assignedToClientApp,
+    Object? assignedAt = _unset,
+    Object? assignedByUserId = _unset,
+    Object? completedAt = _unset,
   }) {
     return ClientQuestionnaire(
       id: id ?? this.id,
@@ -203,9 +239,23 @@ class ClientQuestionnaire {
       answers: answers ?? this.answers,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      status: status ?? this.status,
+      assignedToClientApp: assignedToClientApp ?? this.assignedToClientApp,
+      assignedAt:
+          assignedAt == _unset ? this.assignedAt : assignedAt as DateTime?,
+      assignedByUserId:
+          assignedByUserId == _unset
+              ? this.assignedByUserId
+              : assignedByUserId as String?,
+      completedAt:
+          completedAt == _unset ? this.completedAt : completedAt as DateTime?,
     );
   }
+
+  static const Object _unset = Object();
 }
+
+enum ClientQuestionnaireStatus { assigned, draft, completed }
 
 @immutable
 class ClientQuestionAnswer {

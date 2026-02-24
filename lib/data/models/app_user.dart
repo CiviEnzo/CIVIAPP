@@ -7,6 +7,7 @@ class AppUser {
     required this.role,
     required this.salonIds,
     this.isEmailVerified = false,
+    this.isEnabled = true,
     this.staffId,
     this.clientId,
     this.displayName,
@@ -23,6 +24,7 @@ class AppUser {
   final UserRole? role;
   final List<String> salonIds;
   final bool isEmailVerified;
+  final bool isEnabled;
   final String? staffId;
   final String? clientId;
   final String? displayName;
@@ -97,6 +99,7 @@ class AppUser {
       displayName: data['displayName'] as String?,
       email: data['email'] as String?,
       isEmailVerified: (data['emailVerified'] as bool?) ?? false,
+      isEnabled: (data['enabled'] as bool?) ?? true,
       availableRoles: availableRoles,
       pendingSalonId: _stringOrNull(data['pendingSalonId']),
       pendingFirstName: _stringOrNull(data['pendingFirstName']),
@@ -119,6 +122,7 @@ class AppUser {
       email: email,
       displayName: displayName,
       isEmailVerified: isEmailVerified,
+      isEnabled: true,
       availableRoles: const <UserRole>[],
       pendingSalonId: null,
       pendingFirstName: null,
@@ -132,6 +136,7 @@ class AppUser {
     Object? role = _undefined,
     Object? salonIds = _undefined,
     Object? isEmailVerified = _undefined,
+    Object? isEnabled = _undefined,
     Object? staffId = _undefined,
     Object? clientId = _undefined,
     Object? displayName = _undefined,
@@ -154,6 +159,8 @@ class AppUser {
           isEmailVerified == _undefined
               ? this.isEmailVerified
               : isEmailVerified as bool,
+      isEnabled:
+          isEnabled == _undefined ? this.isEnabled : isEnabled as bool,
       staffId:
           staffId == _undefined ? this.staffId : staffId as String?,
       clientId:

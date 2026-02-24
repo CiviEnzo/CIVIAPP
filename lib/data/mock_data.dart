@@ -3,6 +3,7 @@ import 'package:you_book/domain/entities/appointment_day_checklist.dart';
 import 'package:you_book/domain/entities/cash_flow_entry.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/client_app_movement.dart';
+import 'package:you_book/domain/entities/client_note.dart';
 import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
 import 'package:you_book/domain/entities/client_photo_collage.dart';
@@ -24,6 +25,7 @@ import 'package:you_book/domain/entities/staff_absence_request.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/domain/entities/staff_role.dart';
 import 'package:you_book/domain/entities/reminder_settings.dart';
+import 'package:you_book/domain/entities/user_role.dart';
 
 class MockData {
   MockData._();
@@ -931,6 +933,33 @@ class MockData {
       thumbnailUrl:
           'https://storage.googleapis.com/civiapp-mock/collage-sara-front-1-thumb.png',
       notes: 'Comparativa frontale pre/post trattamento.',
+    ),
+  ];
+
+  static final clientNotes = <ClientNote>[
+    ClientNote(
+      id: 'note-client-001-1',
+      salonId: 'salon-001',
+      clientId: 'client-001',
+      text: 'Preferisce gli appuntamenti al mattino e richiede sempre cabine silenziose.',
+      createdAt: _now.subtract(const Duration(days: 2, hours: 3)),
+      createdById: 'staff-001',
+      createdByRole: UserRole.staff,
+      createdByName: 'Laura Conti',
+    ),
+    ClientNote(
+      id: 'note-client-001-2',
+      salonId: 'salon-001',
+      clientId: 'client-001',
+      text: 'Sensibilità alla pelle: evitare prodotti con profumazioni forti.',
+      createdAt: _now.subtract(const Duration(days: 1, hours: 4)),
+      createdById: 'staff-002',
+      createdByRole: UserRole.staff,
+      createdByName: 'Giulia Serra',
+      updatedAt: _now.subtract(const Duration(hours: 6)),
+      updatedById: 'staff-002',
+      updatedByRole: UserRole.staff,
+      updatedByName: 'Giulia Serra',
     ),
   ];
 

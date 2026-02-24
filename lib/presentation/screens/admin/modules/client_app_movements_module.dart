@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:collection/collection.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -11,6 +14,7 @@ import 'package:you_book/domain/entities/last_minute_slot.dart';
 import 'package:you_book/domain/entities/sale.dart';
 import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
+import 'package:you_book/presentation/screens/admin/modules/client_detail_page.dart';
 
 class ClientAppMovementsModule extends ConsumerStatefulWidget {
   const ClientAppMovementsModule({super.key, this.salonId});
@@ -140,7 +144,12 @@ class _ClientAppMovementsModuleState
                     itemBuilder: (context, index) {
                       final day = sortedDays[index];
                       final entriesForDay = grouped[day]!;
-                      return _DaySection(day: day, entries: entriesForDay);
+                      return _DaySection(
+                        day: day,
+                        entries: entriesForDay,
+                        onClientTap: _openClientFromMovement,
+                        onAgendaTap: _openAgendaAt,
+                      );
                     },
                   ),
         ),
@@ -331,6 +340,37 @@ class _ClientAppMovementsModuleState
     return entries;
   }
 
+  Future<void> _openClientFromMovement(String clientId) async {
+    final isCompact = isCompactClientLayout(context);
+    final data = ref.read(appDataProvider);
+    final client = data.clients.firstWhereOrNull((item) => item.id == clientId);
+    final payload = <String, Object?>{'clientId': clientId};
+    final clientNumber = client?.clientNumber?.trim();
+    if (clientNumber != null && clientNumber.isNotEmpty) {
+      payload['clientNumber'] = clientNumber;
+    }
+    if (!isCompact) {
+      ref
+          .read(adminDashboardIntentProvider.notifier)
+          .state = AdminDashboardIntent(moduleId: 'clients', payload: payload);
+    }
+    await openClientDetailPage(
+      context,
+      clientId: clientId,
+      initialTabIndex: 0,
+      compactOnly: true,
+    );
+  }
+
+  void _openAgendaAt(DateTime dateTime) {
+    ref
+        .read(adminDashboardIntentProvider.notifier)
+        .state = AdminDashboardIntent(
+      moduleId: 'appointments',
+      payload: <String, Object?>{'focusDateTime': dateTime.toIso8601String()},
+    );
+  }
+
   _MovementEntry? _entryFromRecordedMovement(
     ClientAppMovement movement,
     Map<String, Client> clientsById,
@@ -341,6 +381,7 @@ class _ClientAppMovementsModuleState
     Map<String, LastMinuteSlot> lastMinuteById,
   ) {
     final client = clientsById[movement.clientId];
+    final clientName = client?.fullName.trim();
     final baseTitle =
         movement.label?.trim().isNotEmpty == true
             ? movement.label!.trim()
@@ -351,7 +392,11 @@ class _ClientAppMovementsModuleState
           id: movement.id,
           type: movement.type,
           timestamp: movement.timestamp,
-          title: baseTitle ?? 'Nuova registrazione',
+          title: _movementTitle(
+            movement.type,
+            clientName: clientName,
+            baseTitle: baseTitle,
+          ),
           subtitle:
               movement.description ??
               '${client?.fullName ?? 'Cliente'} ha completato la registrazione.',
@@ -380,15 +425,6 @@ class _ClientAppMovementsModuleState
                   staffById,
                 );
         final details = <_MovementDetail>[];
-        if (appointment?.bookingChannel != null &&
-            appointment!.bookingChannel!.isNotEmpty) {
-          details.add(
-                _MovementDetail(
-                  icon: Icons.link_rounded,
-                  label: 'Canale: ${appointment.bookingChannel}',
-                ),
-              );
-        }
         final newServiceNames = _resolveServiceNames(
           appointment: appointment,
           servicesById: servicesById,
@@ -449,6 +485,37 @@ class _ClientAppMovementsModuleState
               movement.metadata['newStart'] ?? movement.metadata['start'],
             ) ??
             appointment?.start;
+        if (nextStart != null) {
+          details.insert(
+            0,
+            _MovementDetail(
+              icon: Icons.event_rounded,
+              label: 'Data: ${_dateTimeChipFormat.format(nextStart)}',
+              agendaTarget: nextStart,
+            ),
+          );
+        }
+        if (appointment?.bookingChannel != null &&
+            appointment!.bookingChannel!.isNotEmpty) {
+          details.add(
+            _MovementDetail(
+              icon: Icons.link_rounded,
+              label: 'Canale: ${appointment.bookingChannel}',
+            ),
+          );
+        }
+        if (appointment != null) {
+          final staff = staffById[appointment.staffId];
+          final staffName = staff?.displayName.trim();
+          if (staffName != null && staffName.isNotEmpty) {
+            details.add(
+              _MovementDetail(
+                icon: Icons.badge_rounded,
+                label: 'Staff: $staffName',
+              ),
+            );
+          }
+        }
         if (previousStart != null &&
             nextStart != null &&
             !previousStart.isAtSameMomentAs(nextStart)) {
@@ -501,8 +568,16 @@ class _ClientAppMovementsModuleState
           id: movement.id,
           type: movement.type,
           timestamp: movement.timestamp,
-          title: baseTitle ?? _defaultAppointmentTitle(movement.type),
-          subtitle: summary,
+          title: _movementTitle(
+            movement.type,
+            clientName: clientName,
+            baseTitle: baseTitle,
+          ),
+          subtitle:
+              movement.type == ClientAppMovementType.appointmentCreated &&
+                      appointment != null
+                  ? null
+                  : summary,
           clientId: movement.clientId,
           clientName: client?.fullName,
           details: details,
@@ -555,7 +630,11 @@ class _ClientAppMovementsModuleState
           id: movement.id,
           type: movement.type,
           timestamp: movement.timestamp,
-          title: baseTitle ?? 'Acquisto completato',
+          title: _movementTitle(
+            movement.type,
+            clientName: clientName,
+            baseTitle: baseTitle,
+          ),
           subtitle:
               movement.description ??
               '${client?.fullName ?? 'Cliente'} ha finalizzato un pagamento.',
@@ -568,7 +647,11 @@ class _ClientAppMovementsModuleState
           id: movement.id,
           type: movement.type,
           timestamp: movement.timestamp,
-          title: baseTitle ?? 'Recensioni aperte',
+          title: _movementTitle(
+            movement.type,
+            clientName: clientName,
+            baseTitle: baseTitle,
+          ),
           subtitle:
               movement.description ??
               '${client?.fullName ?? 'Cliente'} ha aperto la pagina recensioni.',
@@ -616,7 +699,11 @@ class _ClientAppMovementsModuleState
           id: movement.id,
           type: movement.type,
           timestamp: movement.timestamp,
-          title: baseTitle ?? 'Last minute acquistato',
+          title: _movementTitle(
+            movement.type,
+            clientName: clientName,
+            baseTitle: baseTitle,
+          ),
           subtitle:
               movement.description ??
               '${client?.fullName ?? 'Cliente'} ha prenotato un\'offerta last minute.',
@@ -749,9 +836,7 @@ class _ClientAppMovementsModuleState
           }
           final dynamic quantityValue = raw['quantity'];
           if (quantityValue is num && quantityValue != 1) {
-            labels.add(
-              '$trimmedName x${_formatQuantityLabel(quantityValue)}',
-            );
+            labels.add('$trimmedName x${_formatQuantityLabel(quantityValue)}');
           } else {
             labels.add(trimmedName);
           }
@@ -842,6 +927,48 @@ class _ClientAppMovementsModuleState
     }
   }
 
+  String _movementTitle(
+    ClientAppMovementType type, {
+    required String? clientName,
+    String? baseTitle,
+  }) {
+    if (clientName == null || clientName.isEmpty) {
+      return baseTitle ?? _defaultMovementTitle(type);
+    }
+    return switch (type) {
+      ClientAppMovementType.registration =>
+        '$clientName ha completato la registrazione',
+      ClientAppMovementType.appointmentCreated =>
+        '$clientName ha creato un appuntamento',
+      ClientAppMovementType.appointmentUpdated =>
+        '$clientName ha aggiornato un appuntamento',
+      ClientAppMovementType.appointmentCancelled =>
+        '$clientName ha annullato un appuntamento',
+      ClientAppMovementType.purchase => '$clientName ha effettuato un acquisto',
+      ClientAppMovementType.reviewClick =>
+        '$clientName ha aperto le recensioni',
+      ClientAppMovementType.lastMinutePurchase =>
+        '$clientName ha acquistato un last minute',
+    };
+  }
+
+  String _defaultMovementTitle(ClientAppMovementType type) {
+    switch (type) {
+      case ClientAppMovementType.registration:
+        return 'Nuova registrazione';
+      case ClientAppMovementType.appointmentCreated:
+      case ClientAppMovementType.appointmentUpdated:
+      case ClientAppMovementType.appointmentCancelled:
+        return _defaultAppointmentTitle(type);
+      case ClientAppMovementType.purchase:
+        return 'Acquisto completato';
+      case ClientAppMovementType.reviewClick:
+        return 'Recensioni aperte';
+      case ClientAppMovementType.lastMinutePurchase:
+        return 'Last minute acquistato';
+    }
+  }
+
   String _paymentMethodLabel(PaymentMethod method) {
     switch (method) {
       case PaymentMethod.cash:
@@ -859,10 +986,17 @@ class _ClientAppMovementsModuleState
 }
 
 class _DaySection extends StatelessWidget {
-  const _DaySection({required this.day, required this.entries});
+  const _DaySection({
+    required this.day,
+    required this.entries,
+    this.onClientTap,
+    this.onAgendaTap,
+  });
 
   final DateTime day;
   final List<_MovementEntry> entries;
+  final Future<void> Function(String clientId)? onClientTap;
+  final void Function(DateTime dateTime)? onAgendaTap;
 
   @override
   Widget build(BuildContext context) {
@@ -886,7 +1020,13 @@ class _DaySection extends StatelessWidget {
               ),
             ),
           ),
-          ...sorted.map((entry) => _MovementCard(entry: entry)),
+          ...sorted.map(
+            (entry) => _MovementCard(
+              entry: entry,
+              onClientTap: onClientTap,
+              onAgendaTap: onAgendaTap,
+            ),
+          ),
         ],
       ),
     );
@@ -894,9 +1034,57 @@ class _DaySection extends StatelessWidget {
 }
 
 class _MovementCard extends StatelessWidget {
-  const _MovementCard({required this.entry});
+  const _MovementCard({
+    required this.entry,
+    this.onClientTap,
+    this.onAgendaTap,
+  });
 
   final _MovementEntry entry;
+  final Future<void> Function(String clientId)? onClientTap;
+  final void Function(DateTime dateTime)? onAgendaTap;
+
+  Widget _buildTitle(BuildContext context) {
+    final theme = Theme.of(context);
+    final titleStyle = theme.textTheme.titleMedium?.copyWith(
+      fontWeight: FontWeight.w600,
+    );
+    final clientId = entry.clientId;
+    final clientName = entry.clientName?.trim();
+    if (clientId == null ||
+        clientName == null ||
+        clientName.isEmpty ||
+        onClientTap == null ||
+        !entry.title.startsWith(clientName)) {
+      return Text(entry.title, style: titleStyle);
+    }
+    final suffix = entry.title.substring(clientName.length);
+    final linkColor = theme.colorScheme.primary;
+    return Text.rich(
+      TextSpan(
+        style: titleStyle,
+        children: [
+          TextSpan(
+            text: clientName,
+            style: titleStyle?.copyWith(
+              color: linkColor,
+              decoration: TextDecoration.underline,
+              decorationColor: linkColor,
+            ),
+            recognizer:
+                TapGestureRecognizer()
+                  ..onTap = () {
+                    final future = onClientTap?.call(clientId);
+                    if (future != null) {
+                      unawaited(future);
+                    }
+                  },
+          ),
+          TextSpan(text: suffix),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -924,46 +1112,7 @@ class _MovementCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        entry.title,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.schedule_rounded,
-                            size: 14,
-                            color: theme.hintColor,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            _ClientAppMovementsModuleState._timeFormat.format(
-                              entry.timestamp,
-                            ),
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.hintColor,
-                            ),
-                          ),
-                          if (entry.clientName != null) ...[
-                            const SizedBox(width: 12),
-                            Icon(
-                              Icons.person_rounded,
-                              size: 14,
-                              color: theme.hintColor,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              entry.clientName!,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.hintColor,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
+                      _buildTitle(context),
                       if (entry.subtitle != null) ...[
                         const SizedBox(height: 8),
                         Text(
@@ -984,10 +1133,23 @@ class _MovementCard extends StatelessWidget {
                 children:
                     entry.details
                         .map(
-                          (detail) => Chip(
-                            avatar: Icon(detail.icon, size: 16),
-                            label: Text(detail.label),
-                          ),
+                          (detail) =>
+                              detail.agendaTarget != null && onAgendaTap != null
+                                  ? ActionChip(
+                                    avatar: Icon(detail.icon, size: 16),
+                                    label: Text(detail.label),
+                                    labelStyle: theme.textTheme.labelLarge
+                                        ?.copyWith(
+                                          decoration: TextDecoration.underline,
+                                        ),
+                                    onPressed: () {
+                                      onAgendaTap?.call(detail.agendaTarget!);
+                                    },
+                                  )
+                                  : Chip(
+                                    avatar: Icon(detail.icon, size: 16),
+                                    label: Text(detail.label),
+                                  ),
                         )
                         .toList(),
               ),
@@ -1061,13 +1223,18 @@ class _MovementEntry {
 }
 
 class _MovementDetail {
-  const _MovementDetail({required this.icon, required this.label});
+  const _MovementDetail({
+    required this.icon,
+    required this.label,
+    this.agendaTarget,
+  });
 
   final IconData icon;
   final String label;
+  final DateTime? agendaTarget;
 }
 
-class _FiltersBar extends StatelessWidget {
+class _FiltersBar extends StatefulWidget {
   const _FiltersBar({
     required this.range,
     required this.counts,
@@ -1084,9 +1251,68 @@ class _FiltersBar extends StatelessWidget {
   final void Function(ClientAppMovementType, bool) onToggleType;
   final TextEditingController searchController;
 
+  @override
+  State<_FiltersBar> createState() => _FiltersBarState();
+}
+
+class _FiltersBarState extends State<_FiltersBar> {
+  final ScrollController _typesScrollController = ScrollController();
+  bool _canScrollLeft = false;
+  bool _canScrollRight = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _typesScrollController.addListener(_updateArrowState);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _updateArrowState());
+  }
+
+  @override
+  void didUpdateWidget(covariant _FiltersBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _updateArrowState());
+  }
+
+  @override
+  void dispose() {
+    _typesScrollController.removeListener(_updateArrowState);
+    _typesScrollController.dispose();
+    super.dispose();
+  }
+
+  void _updateArrowState() {
+    if (!_typesScrollController.hasClients || !mounted) return;
+    final position = _typesScrollController.position;
+    final canLeft = position.pixels > 0.5;
+    final canRight = position.pixels < (position.maxScrollExtent - 0.5);
+    if (canLeft != _canScrollLeft || canRight != _canScrollRight) {
+      setState(() {
+        _canScrollLeft = canLeft;
+        _canScrollRight = canRight;
+      });
+    }
+  }
+
+  Future<void> _scrollTypesBy(double delta) async {
+    if (!_typesScrollController.hasClients) return;
+    final position = _typesScrollController.position;
+    final target = (position.pixels + delta).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    await _typesScrollController.animateTo(
+      target.toDouble(),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
   Future<void> _pickRange(BuildContext context) async {
     final now = DateTime.now();
-    final initialRange = DateTimeRange(start: range.start, end: range.end);
+    final initialRange = DateTimeRange(
+      start: widget.range.start,
+      end: widget.range.end,
+    );
     final picked = await showDateRangePicker(
       context: context,
       firstDate: DateTime(now.year - 1),
@@ -1096,7 +1322,7 @@ class _FiltersBar extends StatelessWidget {
       saveText: 'Applica',
     );
     if (picked != null) {
-      onRangeChanged(picked);
+      widget.onRangeChanged(picked);
     }
   }
 
@@ -1105,7 +1331,7 @@ class _FiltersBar extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final rangeLabel =
-        '${DateFormat('dd/MM/yy').format(range.start)} → ${DateFormat('dd/MM/yy').format(range.end)}';
+        '${DateFormat('dd/MM/yy').format(widget.range.start)} → ${DateFormat('dd/MM/yy').format(widget.range.end)}';
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
@@ -1125,14 +1351,14 @@ class _FiltersBar extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: TextField(
-                  controller: searchController,
+                  controller: widget.searchController,
                   decoration: InputDecoration(
                     prefixIcon: const Icon(Icons.search_rounded),
                     suffixIcon:
-                        searchController.text.isEmpty
+                        widget.searchController.text.isEmpty
                             ? null
                             : IconButton(
-                              onPressed: searchController.clear,
+                              onPressed: widget.searchController.clear,
                               icon: const Icon(Icons.clear_rounded),
                             ),
                     hintText: 'Cerca per cliente o descrizione',
@@ -1142,35 +1368,55 @@ class _FiltersBar extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children:
-                  ClientAppMovementType.values.map((type) {
-                    final isSelected = selectedTypes.contains(type);
-                    final count = counts[type] ?? 0;
-                    final label =
-                        count > 0 ? '${type.label} ($count)' : type.label;
-                    final scheme = Theme.of(context).colorScheme;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: FilterChip(
-                        selected: isSelected,
-                        backgroundColor: scheme.surfaceContainerHighest,
-                        selectedColor: scheme.secondary,
-                        checkmarkColor: scheme.onSecondary,
-                        labelStyle: TextStyle(
-                          color:
-                              isSelected
-                                  ? scheme.onSecondary
-                                  : scheme.onSurface,
-                        ),
-                        label: Text(label),
-                        onSelected: (value) => onToggleType(type, value),
-                      ),
-                    );
-                  }).toList(),
-            ),
+          Row(
+            children: [
+              IconButton(
+                tooltip: 'Scorri filtri a sinistra',
+                onPressed: _canScrollLeft ? () => _scrollTypesBy(-220) : null,
+                icon: const Icon(Icons.chevron_left_rounded),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: _typesScrollController,
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children:
+                        ClientAppMovementType.values.map((type) {
+                          final isSelected = widget.selectedTypes.contains(
+                            type,
+                          );
+                          final count = widget.counts[type] ?? 0;
+                          final label =
+                              count > 0 ? '${type.label} ($count)' : type.label;
+                          final scheme = Theme.of(context).colorScheme;
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: FilterChip(
+                              selected: isSelected,
+                              backgroundColor: scheme.surfaceContainerHighest,
+                              selectedColor: scheme.secondary,
+                              checkmarkColor: scheme.onSecondary,
+                              labelStyle: TextStyle(
+                                color:
+                                    isSelected
+                                        ? scheme.onSecondary
+                                        : scheme.onSurface,
+                              ),
+                              label: Text(label),
+                              onSelected:
+                                  (value) => widget.onToggleType(type, value),
+                            ),
+                          );
+                        }).toList(),
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Scorri filtri a destra',
+                onPressed: _canScrollRight ? () => _scrollTypesBy(220) : null,
+                icon: const Icon(Icons.chevron_right_rounded),
+              ),
+            ],
           ),
           Divider(
             height: 24,

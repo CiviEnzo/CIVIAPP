@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:collection/collection.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:you_book/app/providers.dart';
@@ -27,6 +27,15 @@ class ClientImportSheet extends ConsumerStatefulWidget {
 }
 
 class _ClientImportSheetState extends ConsumerState<ClientImportSheet> {
+  static const XTypeGroup _csvTypeGroup = XTypeGroup(
+    label: 'CSV',
+    uniformTypeIdentifiers: <String>[
+      'public.comma-separated-values-text',
+      'public.text',
+    ],
+    extensions: <String>['csv'],
+  );
+
   String? _selectedSalonId;
   bool _isParsing = false;
   bool _isImporting = false;
@@ -66,20 +75,18 @@ class _ClientImportSheetState extends ConsumerState<ClientImportSheet> {
     });
 
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: const ['csv'],
-        withData: true,
+      final file = await openFile(
+        acceptedTypeGroups: const <XTypeGroup>[_csvTypeGroup],
+        confirmButtonText: 'Seleziona',
       );
-      if (result == null || result.files.isEmpty) {
+      if (file == null) {
         setState(() {
           _isParsing = false;
         });
         return;
       }
-      final file = result.files.first;
-      final bytes = file.bytes;
-      if (bytes == null) {
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) {
         throw const FormatException(
           'Impossibile leggere il contenuto del file selezionato.',
         );

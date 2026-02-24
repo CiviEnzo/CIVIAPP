@@ -10,8 +10,9 @@ import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
+import 'package:you_book/presentation/common/hybrid_image_picker.dart';
 import 'package:collection/collection.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart' show XFile;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -660,24 +661,19 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
     setState(() {
       _imageUploadError = null;
     });
-    final result = await FilePicker.platform.pickFiles(
-      allowMultiple: false,
-      type: FileType.image,
-      withData: true,
-      withReadStream: true,
-    );
-    if (!mounted || result == null || result.files.isEmpty) {
+    final file = await pickSingleImageFile(confirmButtonText: 'Seleziona');
+    if (!mounted || file == null) {
       return;
     }
-    final file = result.files.first;
-    if (file.size > _maxImageBytes) {
+    final fileSize = await _resolveXFileLength(file);
+    if (fileSize > _maxImageBytes) {
       final maxMb = (_maxImageBytes / (1024 * 1024)).toStringAsFixed(1);
       setState(() {
         _imageUploadError = 'L\'immagine supera il limite di $maxMb MB.';
       });
       return;
     }
-    final bytes = await _resolveBytes(file);
+    final bytes = await _resolveXFileBytes(file);
     if (!mounted || bytes == null || bytes.isEmpty) {
       setState(() {
         _imageUploadError = 'Impossibile leggere il file selezionato.';
@@ -735,23 +731,21 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
     });
   }
 
-  Future<Uint8List?> _resolveBytes(PlatformFile file) async {
-    if (file.bytes != null) {
-      return file.bytes;
+  Future<int> _resolveXFileLength(XFile file) async {
+    try {
+      return await file.length();
+    } catch (_) {
+      return 0;
     }
-    final stream = file.readStream;
-    if (stream == null) {
+  }
+
+  Future<Uint8List?> _resolveXFileBytes(XFile file) async {
+    try {
+      final data = await file.readAsBytes();
+      return data.isEmpty ? null : data;
+    } catch (_) {
       return null;
     }
-    final completer = Completer<Uint8List>();
-    final buffer = BytesBuilder(copy: false);
-    stream.listen(
-      buffer.add,
-      onDone: () => completer.complete(buffer.toBytes()),
-      onError: completer.completeError,
-      cancelOnError: true,
-    );
-    return completer.future;
   }
 
   void _submit() {

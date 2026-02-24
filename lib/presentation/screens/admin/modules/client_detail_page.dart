@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -34,16 +33,16 @@ import 'package:you_book/presentation/screens/admin/forms/package_sale_form_shee
 import 'package:you_book/presentation/screens/admin/forms/quote_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/sale_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/widgets/client_overview_section.dart';
+import 'package:you_book/presentation/common/hybrid_image_picker.dart';
 import 'package:you_book/presentation/screens/admin/modules/collage_editor_dialog.dart';
 import 'package:you_book/presentation/screens/admin/modules/sales/sale_helpers.dart';
 import 'package:you_book/presentation/shared/client_package_purchase.dart';
+import 'package:you_book/presentation/shared/widgets/client_notes_section.dart';
 import 'package:collection/collection.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
@@ -433,6 +432,9 @@ class _ProfileTab extends ConsumerWidget {
       children.add(overviewSection);
     }
 
+    children.add(const SizedBox(height: 16));
+    children.add(ClientNotesSection(client: client));
+
     return ListView(padding: const EdgeInsets.all(16), children: children);
   }
 }
@@ -540,11 +542,13 @@ class _ClientQuestionnaireCard extends ConsumerStatefulWidget {
 class _ClientQuestionnaireCardState
     extends ConsumerState<_ClientQuestionnaireCard> {
   final _uuid = const Uuid();
+  final Set<String> _selectedTemplateIdsForAssignment = <String>{};
   String? _selectedTemplateId;
   Map<String, _QuestionAnswerEditor> _answers =
       <String, _QuestionAnswerEditor>{};
   bool _initialized = false;
   bool _isSaving = false;
+  bool _isAssigningQuestionnaires = false;
   String? _currentQuestionnaireId;
   DateTime? _currentCreatedAt;
   DateTime? _currentUpdatedAt;
@@ -598,6 +602,12 @@ class _ClientQuestionnaireCardState
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
     final content = <Widget>[
+      _buildQuestionnaireOverview(
+        templates: templates,
+        questionnaires: questionnaires,
+        dateFormat: dateFormat,
+      ),
+      const SizedBox(height: 16),
       DropdownButtonFormField<String>(
         isExpanded: true,
         value: _selectedTemplateId,
@@ -678,6 +688,621 @@ class _ClientQuestionnaireCardState
     );
   }
 
+  Widget _buildQuestionnaireOverview({
+    required List<ClientQuestionnaireTemplate> templates,
+    required List<ClientQuestionnaire> questionnaires,
+    required DateFormat dateFormat,
+  }) {
+    final theme = Theme.of(context);
+    final assignableTemplates = templates
+        .where((template) => template.clientCanSelfComplete)
+        .toList(growable: false);
+    final openAppAssignments =
+        questionnaires
+            .where((item) => item.assignedToClientApp && item.isPending)
+            .length;
+    final globalAdminQuestionnaires =
+        questionnaires.where((item) => !item.assignedToClientApp).length;
+    final completedQuestionnaires =
+        questionnaires.where((item) => item.isCompleted).length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Panoramica questionari',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Vedi subito assegnati in app, questionari globali compilati dall\'admin e completati.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _buildOverviewMetricChip(
+              icon: Icons.pending_actions_rounded,
+              label: 'Assegnati in app',
+              value: openAppAssignments,
+            ),
+            _buildOverviewMetricChip(
+              icon: Icons.admin_panel_settings_rounded,
+              label: 'Globali (admin)',
+              value: globalAdminQuestionnaires,
+            ),
+            _buildOverviewMetricChip(
+              icon: Icons.verified_rounded,
+              label: 'Completati',
+              value: completedQuestionnaires,
+            ),
+          ],
+        ),
+        if (assignableTemplates.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _buildBulkAssignmentPanel(
+            templates: assignableTemplates,
+            allTemplates: templates,
+            questionnaires: questionnaires,
+          ),
+        ],
+        const SizedBox(height: 12),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            const spacing = 8.0;
+            final maxWidth =
+                constraints.hasBoundedWidth ? constraints.maxWidth : 360.0;
+            final columns =
+                maxWidth >= 1080
+                    ? 3
+                    : maxWidth >= 720
+                    ? 2
+                    : 1;
+            final cardWidth =
+                columns == 1
+                    ? maxWidth
+                    : (maxWidth - (spacing * (columns - 1))) / columns;
+
+            return Wrap(
+              spacing: spacing,
+              runSpacing: spacing,
+              children: templates
+                  .map(
+                    (template) => SizedBox(
+                      width: cardWidth,
+                      child: _buildTemplateStatusCard(
+                        template: template,
+                        templates: templates,
+                        questionnaires: questionnaires,
+                        dateFormat: dateFormat,
+                      ),
+                    ),
+                  )
+                  .toList(growable: false),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBulkAssignmentPanel({
+    required List<ClientQuestionnaireTemplate> templates,
+    required List<ClientQuestionnaireTemplate> allTemplates,
+    required List<ClientQuestionnaire> questionnaires,
+  }) {
+    final theme = Theme.of(context);
+    final selectableTemplateIds =
+        templates
+            .where(
+              (template) =>
+                  !_hasOpenPendingAppAssignment(questionnaires, template.id),
+            )
+            .map((template) => template.id)
+            .toSet();
+    final selectedCount =
+        _selectedTemplateIdsForAssignment
+            .where(selectableTemplateIds.contains)
+            .length;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+        color: theme.colorScheme.surfaceContainerLowest,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Assegnazione rapida in app',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Seleziona uno o più template e assegnali al cliente in un solo passaggio.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: templates
+                  .map((template) {
+                    final alreadyAssigned = _hasOpenPendingAppAssignment(
+                      questionnaires,
+                      template.id,
+                    );
+                    final selected = _selectedTemplateIdsForAssignment.contains(
+                      template.id,
+                    );
+                    return FilterChip(
+                      avatar: Icon(
+                        alreadyAssigned
+                            ? Icons.hourglass_top_rounded
+                            : Icons.smartphone_rounded,
+                        size: 18,
+                      ),
+                      label: Text(
+                        alreadyAssigned
+                            ? '${template.name} (già assegnato)'
+                            : template.name,
+                      ),
+                      selected: selected,
+                      onSelected:
+                          alreadyAssigned ||
+                                  _isSaving ||
+                                  _isAssigningQuestionnaires
+                              ? null
+                              : (value) {
+                                setState(() {
+                                  if (value) {
+                                    _selectedTemplateIdsForAssignment.add(
+                                      template.id,
+                                    );
+                                  } else {
+                                    _selectedTemplateIdsForAssignment.remove(
+                                      template.id,
+                                    );
+                                  }
+                                });
+                              },
+                    );
+                  })
+                  .toList(growable: false),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                TextButton.icon(
+                  onPressed:
+                      _isSaving || _isAssigningQuestionnaires
+                          ? null
+                          : () {
+                            setState(() {
+                              _selectedTemplateIdsForAssignment
+                                ..clear()
+                                ..addAll(selectableTemplateIds);
+                            });
+                          },
+                  icon: const Icon(Icons.select_all_rounded, size: 18),
+                  label: const Text('Seleziona disponibili'),
+                ),
+                TextButton.icon(
+                  onPressed:
+                      _selectedTemplateIdsForAssignment.isEmpty ||
+                              _isSaving ||
+                              _isAssigningQuestionnaires
+                          ? null
+                          : () {
+                            setState(_selectedTemplateIdsForAssignment.clear);
+                          },
+                  icon: const Icon(Icons.clear_all_rounded, size: 18),
+                  label: const Text('Pulisci'),
+                ),
+                FilledButton.icon(
+                  onPressed:
+                      selectedCount == 0 ||
+                              _isSaving ||
+                              _isAssigningQuestionnaires
+                          ? null
+                          : () => _assignSelectedQuestionnairesToViewedClient(
+                            templates: allTemplates,
+                            questionnaires: questionnaires,
+                          ),
+                  icon:
+                      _isAssigningQuestionnaires
+                          ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                          : const Icon(Icons.assignment_ind_rounded, size: 18),
+                  label: Text(
+                    _isAssigningQuestionnaires
+                        ? 'Assegnazione...'
+                        : 'Assegna selezionati ($selectedCount)',
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOverviewMetricChip({
+    required IconData icon,
+    required String label,
+    required int value,
+  }) {
+    return Chip(avatar: Icon(icon, size: 18), label: Text('$label: $value'));
+  }
+
+  Widget _buildTemplateStatusCard({
+    required ClientQuestionnaireTemplate template,
+    required List<ClientQuestionnaireTemplate> templates,
+    required List<ClientQuestionnaire> questionnaires,
+    required DateFormat dateFormat,
+  }) {
+    final theme = Theme.of(context);
+    final isBusy = _isSaving || _isAssigningQuestionnaires;
+    final latest = _latestQuestionnaireForTemplate(questionnaires, template.id);
+    final isSelected = _selectedTemplateId == template.id;
+    final openAssignments =
+        questionnaires
+            .where(
+              (item) =>
+                  item.templateId == template.id &&
+                  item.assignedToClientApp &&
+                  item.isPending,
+            )
+            .length;
+    final globalAdminCount =
+        questionnaires
+            .where(
+              (item) =>
+                  item.templateId == template.id && !item.assignedToClientApp,
+            )
+            .length;
+    final completedCount =
+        questionnaires
+            .where((item) => item.templateId == template.id && item.isCompleted)
+            .length;
+    final canAssign =
+        template.clientCanSelfComplete && openAssignments == 0 && !isBusy;
+
+    final stats = <String>[];
+    if (openAssignments > 0) {
+      stats.add(
+        openAssignments == 1
+            ? '1 assegnazione in app aperta'
+            : '$openAssignments assegnazioni in app aperte',
+      );
+    }
+    if (globalAdminCount > 0) {
+      stats.add(
+        globalAdminCount == 1
+            ? '1 globale (admin)'
+            : '$globalAdminCount globali (admin)',
+      );
+    }
+    if (completedCount > 0) {
+      stats.add(
+        completedCount == 1 ? '1 completato' : '$completedCount completati',
+      );
+    }
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap:
+            isBusy
+                ? null
+                : () => _selectTemplate(template.id, templates, questionnaires),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color:
+                  isSelected
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.outlineVariant,
+            ),
+            color:
+                isSelected
+                    ? theme.colorScheme.primaryContainer.withValues(alpha: 0.28)
+                    : theme.colorScheme.surfaceContainerHighest.withValues(
+                      alpha: 0.22,
+                    ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      template.name,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (template.isDefault || isSelected) ...[
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          if (template.isDefault)
+                            const Chip(label: Text('Predefinito')),
+                          if (isSelected)
+                            const Chip(
+                              avatar: Icon(Icons.edit_note_rounded, size: 18),
+                              label: Text('In modifica'),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _buildQuestionnaireStatusChips(latest),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  latest == null
+                      ? 'Nessun questionario ancora assegnato o compilato.'
+                      : 'Ultima attività: ${dateFormat.format(latest.updatedAt)}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                if (stats.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    stats.join(' • '),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    TextButton.icon(
+                      onPressed:
+                          isBusy
+                              ? null
+                              : () => _selectTemplate(
+                                template.id,
+                                templates,
+                                questionnaires,
+                              ),
+                      icon: const Icon(Icons.description_outlined, size: 18),
+                      label: const Text('Apri'),
+                    ),
+                    if (template.clientCanSelfComplete)
+                      OutlinedButton.icon(
+                        onPressed:
+                            canAssign
+                                ? () => _assignQuestionnaireToViewedClient(
+                                  templateId: template.id,
+                                  templates: templates,
+                                  questionnaires: questionnaires,
+                                )
+                                : null,
+                        icon: const Icon(Icons.smartphone_rounded, size: 18),
+                        label: Text(
+                          openAssignments > 0
+                              ? 'Già assegnato'
+                              : 'Assegna in app',
+                        ),
+                      )
+                    else
+                      const Chip(
+                        avatar: Icon(Icons.block_rounded, size: 18),
+                        label: Text('Solo admin'),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildQuestionnaireStatusChips(
+    ClientQuestionnaire? questionnaire,
+  ) {
+    if (questionnaire == null) {
+      return const [
+        Chip(
+          avatar: Icon(Icons.inbox_outlined, size: 18),
+          label: Text('Nessun record'),
+        ),
+      ];
+    }
+
+    final chips = <Widget>[
+      Chip(
+        avatar: Icon(
+          questionnaire.assignedToClientApp
+              ? Icons.smartphone_rounded
+              : Icons.admin_panel_settings_rounded,
+          size: 18,
+        ),
+        label: Text(
+          questionnaire.assignedToClientApp
+              ? 'Assegnato in app'
+              : 'Globale (admin)',
+        ),
+      ),
+    ];
+
+    if (questionnaire.isCompleted) {
+      chips.add(
+        const Chip(
+          avatar: Icon(Icons.verified_rounded, size: 18),
+          label: Text('Completato'),
+        ),
+      );
+    } else {
+      chips.add(
+        const Chip(
+          avatar: Icon(Icons.hourglass_top_rounded, size: 18),
+          label: Text('In attesa'),
+        ),
+      );
+    }
+
+    return chips;
+  }
+
+  bool _hasOpenPendingAppAssignment(
+    List<ClientQuestionnaire> questionnaires,
+    String templateId,
+  ) {
+    return questionnaires.any(
+      (item) =>
+          item.clientId == widget.client.id &&
+          item.templateId == templateId &&
+          item.assignedToClientApp &&
+          item.isPending,
+    );
+  }
+
+  Future<void> _assignSelectedQuestionnairesToViewedClient({
+    required List<ClientQuestionnaireTemplate> templates,
+    required List<ClientQuestionnaire> questionnaires,
+  }) async {
+    final templatesById = <String, ClientQuestionnaireTemplate>{
+      for (final template in templates) template.id: template,
+    };
+
+    final selectedTemplateIds = _selectedTemplateIdsForAssignment
+        .where((templateId) {
+          final template = templatesById[templateId];
+          return template != null &&
+              template.clientCanSelfComplete &&
+              !_hasOpenPendingAppAssignment(questionnaires, templateId);
+        })
+        .toList(growable: false);
+
+    if (selectedTemplateIds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Seleziona almeno un template disponibile da assegnare.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isAssigningQuestionnaires = true);
+
+    var assignedCount = 0;
+    final failedTemplates = <String>[];
+    final now = DateTime.now();
+    final assignedByUserId = ref.read(sessionControllerProvider).userId;
+
+    for (final templateId in selectedTemplateIds) {
+      final template = templatesById[templateId];
+      if (template == null || !template.clientCanSelfComplete) {
+        continue;
+      }
+      if (_hasOpenPendingAppAssignment(questionnaires, templateId)) {
+        continue;
+      }
+
+      final questionnaire = ClientQuestionnaire(
+        id: _uuid.v4(),
+        clientId: widget.client.id,
+        salonId: widget.client.salonId,
+        templateId: templateId,
+        answers: const <ClientQuestionAnswer>[],
+        createdAt: now,
+        updatedAt: now,
+        status: ClientQuestionnaireStatus.assigned,
+        assignedToClientApp: true,
+        assignedAt: now,
+        assignedByUserId: assignedByUserId,
+      );
+
+      try {
+        await ref
+            .read(appDataProvider.notifier)
+            .upsertClientQuestionnaire(questionnaire);
+        assignedCount++;
+      } catch (_) {
+        failedTemplates.add(template.name);
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isAssigningQuestionnaires = false;
+      for (final templateId in selectedTemplateIds) {
+        _selectedTemplateIdsForAssignment.remove(templateId);
+      }
+    });
+
+    final messages = <String>[];
+    if (assignedCount > 0) {
+      messages.add(
+        assignedCount == 1
+            ? '1 questionario assegnato'
+            : '$assignedCount questionari assegnati',
+      );
+    }
+    if (failedTemplates.isNotEmpty) {
+      messages.add(
+        failedTemplates.length == 1
+            ? '1 assegnazione non riuscita'
+            : '${failedTemplates.length} assegnazioni non riuscite',
+      );
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          messages.isEmpty
+              ? 'Nessun questionario assegnato.'
+              : messages.join(' • '),
+        ),
+      ),
+    );
+  }
+
   Widget _buildQuestionnaireForm({
     required ClientQuestionnaireTemplate template,
     required List<ClientQuestionnaire> questionnaires,
@@ -736,45 +1361,157 @@ class _ClientQuestionnaireCardState
         .clientQuestionnaireTemplates
         .where((item) => item.salonId == widget.client.salonId)
         .toList(growable: false);
+    final assignableTemplates = templatesForSalon
+        .where((item) => item.clientCanSelfComplete)
+        .toList(growable: false);
+    final openAppAssignments =
+        questionnaires
+            .where((item) => item.assignedToClientApp && item.isPending)
+            .length;
+    final currentTemplateOpenAssignment = _hasOpenPendingAppAssignment(
+      questionnaires,
+      template.id,
+    );
+    final theme = Theme.of(context);
+    final isBusy = _isSaving || _isAssigningQuestionnaires;
 
     return Padding(
       padding: const EdgeInsets.only(top: 16),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TextButton(
-            onPressed:
-                _isSaving
-                    ? null
-                    : () => _selectTemplate(
-                      template.id,
-                      templatesForSalon,
-                      questionnaires,
-                    ),
-            child: const Text('Reimposta'),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              Chip(
+                avatar: const Icon(Icons.pending_actions_rounded, size: 18),
+                label: Text('Assegnazioni app aperte: $openAppAssignments'),
+              ),
+              if (currentTemplateOpenAssignment)
+                const Chip(
+                  avatar: Icon(Icons.smartphone_rounded, size: 18),
+                  label: Text('Template corrente già assegnato in app'),
+                ),
+            ],
           ),
-          const Spacer(),
-          FilledButton(
-            onPressed: _isSaving ? null : () => _save(template, questionnaires),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              alignment: WrapAlignment.end,
               children: [
-                if (_isSaving) ...[
-                  const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                TextButton(
+                  onPressed:
+                      isBusy
+                          ? null
+                          : () => _selectTemplate(
+                            template.id,
+                            templatesForSalon,
+                            questionnaires,
+                          ),
+                  child: const Text('Reimposta'),
+                ),
+                FilledButton(
+                  onPressed:
+                      isBusy ? null : () => _save(template, questionnaires),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_isSaving) ...[
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text('Salvataggio...'),
+                      ] else ...[
+                        const Icon(Icons.save_rounded),
+                        const SizedBox(width: 8),
+                        const Text('Salva questionario'),
+                      ],
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  const Text('Salvataggio...'),
-                ] else ...[
-                  const Icon(Icons.save_rounded),
-                  const SizedBox(width: 8),
-                  const Text('Salva questionario'),
-                ],
+                ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _assignQuestionnaireToViewedClient({
+    required String templateId,
+    required List<ClientQuestionnaireTemplate> templates,
+    required List<ClientQuestionnaire> questionnaires,
+  }) async {
+    if (_isAssigningQuestionnaires) {
+      return;
+    }
+    final template = templates.firstWhereOrNull(
+      (item) => item.id == templateId,
+    );
+    if (template == null || !template.clientCanSelfComplete) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Template non disponibile per assegnazione in app.'),
+        ),
+      );
+      return;
+    }
+    if (_hasOpenPendingAppAssignment(questionnaires, templateId)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Esiste gia un\'assegnazione aperta per "${template.name}".',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final now = DateTime.now();
+    final questionnaire = ClientQuestionnaire(
+      id: _uuid.v4(),
+      clientId: widget.client.id,
+      salonId: widget.client.salonId,
+      templateId: templateId,
+      answers: const <ClientQuestionAnswer>[],
+      createdAt: now,
+      updatedAt: now,
+      status: ClientQuestionnaireStatus.assigned,
+      assignedToClientApp: true,
+      assignedAt: now,
+      assignedByUserId: ref.read(sessionControllerProvider).userId,
+    );
+
+    try {
+      await ref
+          .read(appDataProvider.notifier)
+          .upsertClientQuestionnaire(questionnaire);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Assegnazione non riuscita: $error')),
+      );
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Questionario "${template.name}" assegnato a ${widget.client.fullName}.',
+        ),
       ),
     );
   }
@@ -1443,7 +2180,7 @@ class _ClientQuestionnaireCardState
     List<ClientQuestionnaireTemplate> templates,
     List<ClientQuestionnaire> questionnaires,
   ) {
-    if (_isSaving) {
+    if (_isSaving || _isAssigningQuestionnaires) {
       return;
     }
     if (templates.isEmpty) {
@@ -1568,6 +2305,12 @@ class _ClientQuestionnaireCardState
 
     final answers = _collectAnswers(template);
     final now = DateTime.now();
+    final existingQuestionnaire =
+        _currentQuestionnaireId == null
+            ? null
+            : questionnaires.firstWhereOrNull(
+              (item) => item.id == _currentQuestionnaireId,
+            );
     final questionnaire = ClientQuestionnaire(
       id: _currentQuestionnaireId ?? _uuid.v4(),
       clientId: widget.client.id,
@@ -1576,6 +2319,11 @@ class _ClientQuestionnaireCardState
       answers: answers,
       createdAt: _currentCreatedAt ?? now,
       updatedAt: now,
+      status: ClientQuestionnaireStatus.completed,
+      assignedToClientApp: existingQuestionnaire?.assignedToClientApp ?? false,
+      assignedAt: existingQuestionnaire?.assignedAt,
+      assignedByUserId: existingQuestionnaire?.assignedByUserId,
+      completedAt: now,
     );
 
     setState(() => _isSaving = true);
@@ -1969,15 +2717,11 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
   }
 
   Future<void> _pickAndUpload(ClientPhotoSetType setType) async {
-    final result = await FilePicker.platform.pickFiles(
-      allowMultiple: true,
-      type: FileType.image,
-      withData: true,
-      withReadStream: true,
-    );
-    if (result == null || result.files.isEmpty) {
+    final selectedFile = await _pickSingleImageFile();
+    if (selectedFile == null) {
       return;
     }
+    final files = <_PickedClientImage>[selectedFile];
 
     final existing = ref.read(clientPhotosProvider(widget.client.id));
     final setPhotos = existing
@@ -2006,12 +2750,12 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
       final skippedTooLarge = <String>[];
       final skippedUnreadable = <String>[];
       String? lastUploadedPhotoId;
-      for (final file in result.files) {
-        if (file.size > _maxUploadBytes) {
+      for (final file in files) {
+        if (file.sizeBytes > _maxUploadBytes) {
           skippedTooLarge.add(file.name);
           continue;
         }
-        final Uint8List? bytes = await _resolveBytes(file);
+        final bytes = file.bytes;
         if (bytes == null || bytes.isEmpty) {
           skippedUnreadable.add(file.name);
           continue;
@@ -2101,24 +2845,81 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
     }
   }
 
-  Future<Uint8List?> _resolveBytes(PlatformFile file) async {
-    if (file.bytes != null && file.bytes!.isNotEmpty) {
-      return file.bytes;
-    }
-    final stream = file.readStream;
-    if (stream == null) {
+  Future<_PickedClientImage?> _pickSingleImageFile() async {
+    final file = await pickSingleImageFile(confirmButtonText: 'Seleziona');
+    if (file == null) {
       return null;
     }
-    final builder = BytesBuilder();
+    int sizeBytes = 0;
     try {
-      await for (final chunk in stream) {
-        builder.add(chunk);
-        if (builder.length > _maxUploadBytes) {
-          // Stop early if the stream exceeds the allowed size.
-          return null;
+      sizeBytes = await file.length();
+    } catch (_) {
+      sizeBytes = 0;
+    }
+    Uint8List? bytes;
+    if (sizeBytes == 0 || sizeBytes <= _maxUploadBytes) {
+      bytes = await _resolveXFileBytes(file);
+      if (sizeBytes == 0) {
+        sizeBytes = bytes?.length ?? 0;
+      }
+    }
+    return _PickedClientImage(
+      name: file.name.isEmpty ? 'Foto cliente' : file.name,
+      sizeBytes: sizeBytes,
+      bytes: bytes,
+    );
+  }
+
+  Future<List<_PickedClientImage>> _pickImageFiles({int? maxSelection}) async {
+    final selectedFiles = await pickMultipleImageFiles(
+      confirmButtonText: 'Seleziona',
+      limit: maxSelection,
+    );
+    if (selectedFiles.isEmpty) {
+      return const <_PickedClientImage>[];
+    }
+    if (maxSelection != null && selectedFiles.length > maxSelection) {
+      if (!mounted) {
+        return const <_PickedClientImage>[];
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Puoi selezionare al massimo $maxSelection foto per questa operazione.',
+          ),
+        ),
+      );
+      return const <_PickedClientImage>[];
+    }
+    final files = <_PickedClientImage>[];
+    for (final file in selectedFiles) {
+      int sizeBytes = 0;
+      try {
+        sizeBytes = await file.length();
+      } catch (_) {
+        sizeBytes = 0;
+      }
+      Uint8List? bytes;
+      if (sizeBytes == 0 || sizeBytes <= _maxUploadBytes) {
+        bytes = await _resolveXFileBytes(file);
+        if (sizeBytes == 0) {
+          sizeBytes = bytes?.length ?? 0;
         }
       }
-      final data = builder.takeBytes();
+      files.add(
+        _PickedClientImage(
+          name: file.name.isEmpty ? 'Foto cliente' : file.name,
+          sizeBytes: sizeBytes,
+          bytes: bytes,
+        ),
+      );
+    }
+    return files;
+  }
+
+  Future<Uint8List?> _resolveXFileBytes(XFile file) async {
+    try {
+      final data = await file.readAsBytes();
       return data.isEmpty ? null : data;
     } catch (_) {
       return null;
@@ -2522,18 +3323,35 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
 
   Future<void> _openCollageEditor() async {
     final initialNote = _noteController.text.trim();
-    final result = await showDialog<String?>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return Dialog.fullscreen(
-          child: CollageEditorDialog(
-            client: widget.client,
-            initialNote: initialNote.isEmpty ? null : initialNote,
-          ),
-        );
-      },
-    );
+    final mediaQuery = MediaQuery.of(context);
+    final size = mediaQuery.size;
+    final useDedicatedPage =
+        size.shortestSide < 600 && (size.width < 700 || size.height < 900);
+
+    final result =
+        useDedicatedPage
+            ? await Navigator.of(context).push<String?>(
+              MaterialPageRoute<String?>(
+                fullscreenDialog: true,
+                builder:
+                    (_) => CollageEditorDialog(
+                      client: widget.client,
+                      initialNote: initialNote.isEmpty ? null : initialNote,
+                    ),
+              ),
+            )
+            : await showDialog<String?>(
+              context: context,
+              barrierDismissible: false,
+              builder: (dialogContext) {
+                return Dialog.fullscreen(
+                  child: CollageEditorDialog(
+                    client: widget.client,
+                    initialNote: initialNote.isEmpty ? null : initialNote,
+                  ),
+                );
+              },
+            );
     if (!mounted || result == null || result.isEmpty) {
       return;
     }
@@ -2595,7 +3413,7 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Foto A: ${collage.primaryPlacement.photoId}\nFoto B: ${collage.secondaryPlacement.photoId}',
+                        'Prima: ${collage.primaryPlacement.photoId}\nFoto B: ${collage.secondaryPlacement.photoId}',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
@@ -2678,16 +3496,10 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
   }
 
   Future<void> _pickAndUploadFullSet() async {
-    final result = await FilePicker.platform.pickFiles(
-      allowMultiple: true,
-      type: FileType.image,
-      withData: true,
-      withReadStream: true,
-    );
-    if (result == null || result.files.isEmpty) {
+    final files = await _pickImageFiles(maxSelection: _orderedPhotoSets.length);
+    if (files.isEmpty) {
       return;
     }
-    final files = result.files.take(_orderedPhotoSets.length).toList();
     if (files.length < _orderedPhotoSets.length) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -2727,11 +3539,11 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
 
       for (final assignment in assignments) {
         final file = assignment.file;
-        if (file.size > _maxUploadBytes) {
+        if (file.sizeBytes > _maxUploadBytes) {
           skippedTooLarge.add(file.name);
           continue;
         }
-        final Uint8List? bytes = await _resolveBytes(file);
+        final bytes = file.bytes;
         if (bytes == null || bytes.isEmpty) {
           skippedUnreadable.add(file.name);
           continue;
@@ -2839,7 +3651,7 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
   }
 
   Future<List<_PhotoSetAssignment>?> _showFullSetAssignmentDialog(
-    List<PlatformFile> files,
+    List<_PickedClientImage> files,
   ) async {
     return showDialog<List<_PhotoSetAssignment>>(
       context: context,
@@ -2912,14 +3724,10 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
                               ),
                               clipBehavior: Clip.antiAlias,
                               child:
-                                  files[i].bytes != null
+                                  files[i].bytes != null &&
+                                          files[i].bytes!.isNotEmpty
                                       ? Image.memory(
                                         files[i].bytes!,
-                                        fit: BoxFit.cover,
-                                      )
-                                      : files[i].path != null
-                                      ? Image.file(
-                                        File(files[i].path!),
                                         fit: BoxFit.cover,
                                       )
                                       : const Icon(Icons.photo_outlined),
@@ -3358,8 +4166,20 @@ class _ClientCollageTile extends StatelessWidget {
 class _PhotoSetAssignment {
   const _PhotoSetAssignment({required this.file, required this.setType});
 
-  final PlatformFile file;
+  final _PickedClientImage file;
   final ClientPhotoSetType setType;
+}
+
+class _PickedClientImage {
+  const _PickedClientImage({
+    required this.name,
+    required this.sizeBytes,
+    required this.bytes,
+  });
+
+  final String name;
+  final int sizeBytes;
+  final Uint8List? bytes;
 }
 
 class _AppointmentsTab extends ConsumerWidget {
@@ -5034,9 +5854,11 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
       data: pdfBytes,
     );
 
-    final tempDir = await getTemporaryDirectory();
-    final tempFile = File('${tempDir.path}/$fileName');
-    await tempFile.writeAsBytes(pdfBytes, flush: true);
+    final pdfFile = XFile.fromData(
+      pdfBytes,
+      mimeType: 'application/pdf',
+      name: fileName,
+    );
 
     final shareMessage = _buildQuoteShareMessage(
       client: client,
@@ -5048,7 +5870,7 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
     );
 
     final shareResult = await Share.shareXFiles(
-      [XFile(tempFile.path, mimeType: 'application/pdf', name: fileName)],
+      [pdfFile],
       subject: 'Preventivo ${quote.number ?? _quoteLabel(quote)}',
       text: shareMessage,
     );

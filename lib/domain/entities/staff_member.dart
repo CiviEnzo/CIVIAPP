@@ -10,6 +10,7 @@ class StaffMember {
     this.dateOfBirth,
     this.isActive = true,
     this.isEquipment = false,
+    this.emailVerifiedOverride = false,
     this.vacationAllowance = defaultVacationAllowance,
     this.permissionAllowance = defaultPermissionAllowance,
     this.sortOrder = 0,
@@ -32,6 +33,7 @@ class StaffMember {
   final DateTime? dateOfBirth;
   final bool isActive;
   final bool isEquipment;
+  final bool emailVerifiedOverride;
   final int vacationAllowance;
   final int permissionAllowance;
   final int sortOrder;
@@ -75,6 +77,7 @@ class StaffMember {
     DateTime? dateOfBirth,
     bool? isActive,
     bool? isEquipment,
+    bool? emailVerifiedOverride,
     int? vacationAllowance,
     int? permissionAllowance,
     int? sortOrder,
@@ -100,6 +103,8 @@ class StaffMember {
       dateOfBirth: dateOfBirth ?? this.dateOfBirth,
       isActive: isActive ?? this.isActive,
       isEquipment: isEquipment ?? this.isEquipment,
+      emailVerifiedOverride:
+          emailVerifiedOverride ?? this.emailVerifiedOverride,
       vacationAllowance: vacationAllowance ?? this.vacationAllowance,
       permissionAllowance: permissionAllowance ?? this.permissionAllowance,
       sortOrder: sortOrder ?? this.sortOrder,

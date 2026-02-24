@@ -44,6 +44,10 @@ class _CollageImageController {
 class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
   static const double _minScale = 0.5;
   static const double _maxScale = 3.0;
+  static const double _minInnerFramesFactor = 0.6;
+  static const double _maxInnerFramesFactor = 1.0;
+  static const double _horizontalCanvasWidthFactor = 0.84;
+  static const double _verticalCanvasWidthFactor = 0.92;
 
   final _canvasKey = GlobalKey();
   final _noteController = TextEditingController();
@@ -56,6 +60,8 @@ class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
       ClientPhotoCollageOrientation.horizontal;
   bool _showGuides = true;
   bool _isSaving = false;
+  double _horizontalFramesWidthFactor = _horizontalCanvasWidthFactor;
+  double _verticalFramesHeightFactor = 1.0;
 
   double? _primaryScaleBase;
   double? _secondaryScaleBase;
@@ -85,7 +91,11 @@ class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
         .toList(growable: false);
     final theme = Theme.of(context);
     final mediaQuery = MediaQuery.of(context);
-    final isWide = mediaQuery.size.width >= 1100;
+    final size = mediaQuery.size;
+    final isWide = size.width >= 1100;
+    final isCompactMobile =
+        size.shortestSide < 600 && (size.width < 700 || size.height < 900);
+    final contentPadding = isCompactMobile ? 12.0 : 16.0;
     final canSave =
         _primaryController.photo != null && _secondaryController.photo != null;
     final hasNote = _noteController.text.trim().isNotEmpty;
@@ -99,37 +109,89 @@ class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
         ),
         title: const Text('Crea collage'),
         actions: [
-          IconButton(
-            tooltip:
-                hasNote ? 'Modifica nota collage' : 'Aggiungi nota collage',
-            icon: Icon(
-              hasNote ? Icons.sticky_note_2_outlined : Icons.note_add_outlined,
+          if (!isCompactMobile) ...[
+            IconButton(
+              tooltip:
+                  hasNote ? 'Modifica nota collage' : 'Aggiungi nota collage',
+              icon: Icon(
+                hasNote
+                    ? Icons.sticky_note_2_outlined
+                    : Icons.note_add_outlined,
+              ),
+              onPressed: _isSaving ? null : _openNoteDialog,
             ),
-            onPressed: _isSaving ? null : _openNoteDialog,
-          ),
-          TextButton.icon(
-            onPressed: !canSave || _isSaving ? null : _saveCollage,
-            icon:
-                _isSaving
-                    ? const SizedBox(
-                      height: 16,
-                      width: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                    : const Icon(Icons.save_outlined),
-            label: Text(_isSaving ? 'Salvataggio…' : 'Salva collage'),
-          ),
+            TextButton.icon(
+              onPressed: !canSave || _isSaving ? null : _saveCollage,
+              icon:
+                  _isSaving
+                      ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : const Icon(Icons.save_outlined),
+              label: Text(_isSaving ? 'Salvataggio…' : 'Salva collage'),
+            ),
+          ],
         ],
       ),
+      bottomNavigationBar:
+          isCompactMobile
+              ? SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _isSaving ? null : _openNoteDialog,
+                          icon: Icon(
+                            hasNote
+                                ? Icons.sticky_note_2_outlined
+                                : Icons.note_add_outlined,
+                          ),
+                          label: const Text('Nota'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        flex: 2,
+                        child: FilledButton.icon(
+                          onPressed:
+                              !canSave || _isSaving ? null : _saveCollage,
+                          icon:
+                              _isSaving
+                                  ? const SizedBox(
+                                    height: 16,
+                                    width: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                  : const Icon(Icons.save_outlined),
+                          label: Text(
+                            _isSaving ? 'Salvataggio…' : 'Salva collage',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+              : null,
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(contentPadding),
           child:
               isWide
                   ? Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(flex: 5, child: _buildCanvasSection(theme)),
+                      Expanded(
+                        flex: 5,
+                        child: _buildCanvasSection(theme, compact: false),
+                      ),
                       const SizedBox(width: 16),
                       Expanded(
                         flex: 4,
@@ -137,13 +199,22 @@ class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
                           theme: theme,
                           grouped: grouped,
                           otherPhotos: otherPhotos,
+                          compact: false,
                         ),
                       ),
                     ],
                   )
+                  : isCompactMobile
+                  ? _buildCompactMobileLayout(
+                    theme: theme,
+                    grouped: grouped,
+                    otherPhotos: otherPhotos,
+                  )
                   : Column(
                     children: [
-                      Expanded(child: _buildCanvasSection(theme)),
+                      Expanded(
+                        child: _buildCanvasSection(theme, compact: false),
+                      ),
                       const SizedBox(height: 16),
                       SizedBox(
                         height: mediaQuery.size.height * 0.4,
@@ -151,6 +222,7 @@ class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
                           theme: theme,
                           grouped: grouped,
                           otherPhotos: otherPhotos,
+                          compact: false,
                         ),
                       ),
                     ],
@@ -173,97 +245,231 @@ class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
     return result;
   }
 
-  Widget _buildCanvasSection(ThemeData theme) {
+  Widget _buildCompactMobileLayout({
+    required ThemeData theme,
+    required Map<ClientPhotoSetType, List<ClientPhoto>> grouped,
+    required List<ClientPhoto> otherPhotos,
+  }) {
+    return DefaultTabController(
+      length: 2,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: TabBar(
+              tabs: const [
+                Tab(icon: Icon(Icons.tune), text: 'Editor'),
+                Tab(icon: Icon(Icons.photo_library_outlined), text: 'Foto'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: TabBarView(
+              physics: const NeverScrollableScrollPhysics(),
+              children: [
+                _buildCanvasSection(theme, compact: true),
+                _buildSelectionSection(
+                  theme: theme,
+                  grouped: grouped,
+                  otherPhotos: otherPhotos,
+                  compact: true,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCanvasSection(ThemeData theme, {required bool compact}) {
+    final isHorizontal =
+        _orientation == ClientPhotoCollageOrientation.horizontal;
+    final framesFactor =
+        isHorizontal
+            ? _horizontalFramesWidthFactor
+            : _verticalFramesHeightFactor;
+    final framesLabel =
+        isHorizontal ? 'Larghezza riquadri A/B' : 'Altezza riquadri A/B';
+    final width = MediaQuery.of(context).size.width;
+    final isNarrowControls = compact || width < 560;
+    final controlsHeight = compact ? 240.0 : 290.0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Anteprima collage', style: theme.textTheme.titleMedium),
         const SizedBox(height: 12),
         Expanded(
-          child: RepaintBoundary(
-            key: _canvasKey,
-            child: Container(
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceVariant,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              padding: const EdgeInsets.all(12),
-              child: _buildCollageCanvas(theme),
+          child: Container(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceVariant,
+              borderRadius: BorderRadius.circular(16),
             ),
+            padding: EdgeInsets.all(compact ? 10 : 12),
+            child: _buildCollageCanvas(theme),
           ),
         ),
         const SizedBox(height: 16),
         SizedBox(
-          height: 290,
+          height: controlsHeight,
           child: SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Orientamento', style: theme.textTheme.titleSmall),
                 const SizedBox(height: 8),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: SegmentedButton<ClientPhotoCollageOrientation>(
-                        segments: const [
-                          ButtonSegment<ClientPhotoCollageOrientation>(
-                            value: ClientPhotoCollageOrientation.horizontal,
-                            label: Text('Orizzontale'),
-                            icon: Icon(Icons.view_week),
-                          ),
-                          ButtonSegment<ClientPhotoCollageOrientation>(
-                            value: ClientPhotoCollageOrientation.vertical,
-                            label: Text('Verticale'),
-                            icon: Icon(Icons.view_day),
-                          ),
-                        ],
-                        selected: <ClientPhotoCollageOrientation>{_orientation},
-                        onSelectionChanged: (selection) {
-                          setState(() => _orientation = selection.first);
-                        },
+                if (isNarrowControls) ...[
+                  SegmentedButton<ClientPhotoCollageOrientation>(
+                    segments: const [
+                      ButtonSegment<ClientPhotoCollageOrientation>(
+                        value: ClientPhotoCollageOrientation.horizontal,
+                        label: Text('Orizzontale'),
+                        icon: Icon(Icons.view_week),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Flexible(
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                      ButtonSegment<ClientPhotoCollageOrientation>(
+                        value: ClientPhotoCollageOrientation.vertical,
+                        label: Text('Verticale'),
+                        icon: Icon(Icons.view_day),
+                      ),
+                    ],
+                    selected: <ClientPhotoCollageOrientation>{_orientation},
+                    onSelectionChanged: (selection) {
+                      setState(() => _orientation = selection.first);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  _buildGuidesToggle(theme),
+                ] else
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: SegmentedButton<ClientPhotoCollageOrientation>(
+                          segments: const [
+                            ButtonSegment<ClientPhotoCollageOrientation>(
+                              value: ClientPhotoCollageOrientation.horizontal,
+                              label: Text('Orizzontale'),
+                              icon: Icon(Icons.view_week),
+                            ),
+                            ButtonSegment<ClientPhotoCollageOrientation>(
+                              value: ClientPhotoCollageOrientation.vertical,
+                              label: Text('Verticale'),
+                              icon: Icon(Icons.view_day),
+                            ),
+                          ],
+                          selected: <ClientPhotoCollageOrientation>{
+                            _orientation,
+                          },
+                          onSelectionChanged: (selection) {
+                            setState(() => _orientation = selection.first);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Flexible(child: _buildGuidesToggle(theme)),
+                    ],
+                  ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest
+                        .withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
-                          Switch.adaptive(
-                            value: _showGuides,
-                            onChanged:
-                                (value) => setState(() => _showGuides = value),
-                            materialTapTargetSize:
-                                MaterialTapTargetSize.shrinkWrap,
-                          ),
-                          const SizedBox(width: 8),
-                          Flexible(
+                          Expanded(
                             child: Text(
-                              'Mostra griglie di riferimento',
-                              style: theme.textTheme.bodySmall,
-                              overflow: TextOverflow.ellipsis,
+                              framesLabel,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${(framesFactor * 100).round()}%',
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              color: theme.colorScheme.primary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton(
+                            onPressed: () {
+                              setState(() {
+                                if (isHorizontal) {
+                                  _horizontalFramesWidthFactor =
+                                      _horizontalCanvasWidthFactor;
+                                } else {
+                                  _verticalFramesHeightFactor = 1.0;
+                                }
+                              });
+                            },
+                            style: TextButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                              ),
+                            ),
+                            child: const Text('Reset'),
+                          ),
                         ],
                       ),
-                    ),
-                  ],
+                      Slider(
+                        value: framesFactor,
+                        min: _minInnerFramesFactor,
+                        max: _maxInnerFramesFactor,
+                        onChanged: (value) {
+                          setState(() {
+                            if (isHorizontal) {
+                              _horizontalFramesWidthFactor = value;
+                            } else {
+                              _verticalFramesHeightFactor = value;
+                            }
+                          });
+                        },
+                      ),
+                      Text(
+                        isHorizontal
+                            ? 'Riduci o amplia la larghezza totale del collage (Prima + Dopo).'
+                            : 'Riduci o amplia l\'altezza totale del collage (Prima sopra Dopo).',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 12),
                 _buildSlotControls(
                   theme,
                   context: context,
-                  title: 'Foto A',
+                  title: 'Prima',
                   controller: _primaryController,
                   slot: CollageSelectionSlot.primary,
+                  compact: compact,
                 ),
                 const SizedBox(height: 12),
                 _buildSlotControls(
                   theme,
                   context: context,
-                  title: 'Foto B',
+                  title: 'Dopo',
                   controller: _secondaryController,
                   slot: CollageSelectionSlot.secondary,
+                  compact: compact,
                 ),
               ],
             ),
@@ -273,42 +479,84 @@ class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
     );
   }
 
+  Widget _buildGuidesToggle(ThemeData theme) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => setState(() => _showGuides = !_showGuides),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Switch.adaptive(
+                value: _showGuides,
+                onChanged: (value) => setState(() => _showGuides = value),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  'Mostra griglie di riferimento',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildCollageCanvas(ThemeData theme) {
     final isVertical = _orientation == ClientPhotoCollageOrientation.vertical;
+    final canvasWidthFactor =
+        isVertical ? _verticalCanvasWidthFactor : _horizontalFramesWidthFactor;
+    final canvasHeightFactor = isVertical ? _verticalFramesHeightFactor : 1.0;
     final divider = Container(
       color: theme.colorScheme.surfaceVariant,
-      width: isVertical ? double.infinity : 12,
-      height: isVertical ? 12 : double.infinity,
+      width: isVertical ? double.infinity : 0,
+      height: isVertical ? 0 : double.infinity,
     );
 
     final primarySlot = _buildCanvasSlot(
       theme,
       controller: _primaryController,
       slot: CollageSelectionSlot.primary,
-      label: 'Foto A',
+      label: 'Prima',
     );
     final secondarySlot = _buildCanvasSlot(
       theme,
       controller: _secondaryController,
       slot: CollageSelectionSlot.secondary,
-      label: 'Foto B',
+      label: 'Dopo',
     );
 
-    return isVertical
-        ? Column(
-          children: [
-            Expanded(child: primarySlot),
-            divider,
-            Expanded(child: secondarySlot),
-          ],
-        )
-        : Row(
-          children: [
-            Expanded(child: primarySlot),
-            divider,
-            Expanded(child: secondarySlot),
-          ],
-        );
+    final collageFrames =
+        isVertical
+            ? Column(
+              children: [
+                Expanded(child: primarySlot),
+                divider,
+                Expanded(child: secondarySlot),
+              ],
+            )
+            : Row(
+              children: [
+                Expanded(child: primarySlot),
+                divider,
+                Expanded(child: secondarySlot),
+              ],
+            );
+
+    return Center(
+      child: FractionallySizedBox(
+        widthFactor: canvasWidthFactor,
+        heightFactor: canvasHeightFactor,
+        child: RepaintBoundary(key: _canvasKey, child: collageFrames),
+      ),
+    );
   }
 
   Widget _buildCanvasSlot(
@@ -416,10 +664,12 @@ class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
     required String title,
     required _CollageImageController controller,
     required CollageSelectionSlot slot,
+    required bool compact,
   }) {
     final isSelected = controller.photo != null;
     final isActiveSlot = _activeSlot == slot;
     final showControls = isActiveSlot && isSelected;
+    final isNarrowControls = compact || MediaQuery.of(context).size.width < 560;
     final clampedScale =
         controller.scale.clamp(_minScale, _maxScale).toDouble();
     final fileName =
@@ -461,41 +711,78 @@ class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
               const SizedBox(width: 8),
             ],
           ),
+          if (fileName != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              fileName,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
           if (showControls) ...[
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildCompactSlider(
-                    theme: theme,
-                    sliderTheme: sliderTheme,
-                    label: 'Zoom',
-                    valueLabel: '${controller.scale.toStringAsFixed(2)}x',
-                    value: clampedScale,
-                    min: _minScale,
-                    max: _maxScale,
-                    onChanged:
-                        (value) => setState(() => controller.scale = value),
+            if (isNarrowControls) ...[
+              _buildCompactSlider(
+                theme: theme,
+                sliderTheme: sliderTheme,
+                label: 'Zoom',
+                valueLabel: '${controller.scale.toStringAsFixed(2)}x',
+                value: clampedScale,
+                min: _minScale,
+                max: _maxScale,
+                onChanged: (value) => setState(() => controller.scale = value),
+              ),
+              const SizedBox(height: 8),
+              _buildCompactSlider(
+                theme: theme,
+                sliderTheme: sliderTheme,
+                label: 'Rotazione',
+                valueLabel: '${controller.rotation.toStringAsFixed(0)}°',
+                value: controller.rotation,
+                min: -180,
+                max: 180,
+                onChanged:
+                    (value) => setState(
+                      () => controller.rotation = _normalizeAngle(value),
+                    ),
+              ),
+            ] else
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildCompactSlider(
+                      theme: theme,
+                      sliderTheme: sliderTheme,
+                      label: 'Zoom',
+                      valueLabel: '${controller.scale.toStringAsFixed(2)}x',
+                      value: clampedScale,
+                      min: _minScale,
+                      max: _maxScale,
+                      onChanged:
+                          (value) => setState(() => controller.scale = value),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildCompactSlider(
-                    theme: theme,
-                    sliderTheme: sliderTheme,
-                    label: 'Rotazione',
-                    valueLabel: '${controller.rotation.toStringAsFixed(0)}°',
-                    value: controller.rotation,
-                    min: -180,
-                    max: 180,
-                    onChanged:
-                        (value) => setState(
-                          () => controller.rotation = _normalizeAngle(value),
-                        ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildCompactSlider(
+                      theme: theme,
+                      sliderTheme: sliderTheme,
+                      label: 'Rotazione',
+                      valueLabel: '${controller.rotation.toStringAsFixed(0)}°',
+                      value: controller.rotation,
+                      min: -180,
+                      max: 180,
+                      onChanged:
+                          (value) => setState(
+                            () => controller.rotation = _normalizeAngle(value),
+                          ),
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
             const SizedBox(height: 8),
             Wrap(
               spacing: 6,
@@ -615,7 +902,10 @@ class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
     required ThemeData theme,
     required Map<ClientPhotoSetType, List<ClientPhoto>> grouped,
     required List<ClientPhoto> otherPhotos,
+    required bool compact,
   }) {
+    final width = MediaQuery.of(context).size.width;
+    final showSlotLabels = !compact || width >= 360;
     final tabs = <Tab>[const Tab(text: 'Tutte')];
     final tabPhotos = <List<ClientPhoto>>[];
     for (final type in _orderedSets) {
@@ -638,16 +928,16 @@ class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
           Text('Seleziona foto', style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
           SegmentedButton<CollageSelectionSlot>(
-            segments: const [
+            segments: [
               ButtonSegment(
                 value: CollageSelectionSlot.primary,
-                label: Text('Foto A'),
-                icon: Icon(Icons.filter_1),
+                label: showSlotLabels ? const Text('Prima') : null,
+                icon: const Icon(Icons.filter_1),
               ),
               ButtonSegment(
                 value: CollageSelectionSlot.secondary,
-                label: Text('Foto B'),
-                icon: Icon(Icons.filter_2),
+                label: showSlotLabels ? const Text('Dopo') : null,
+                icon: const Icon(Icons.filter_2),
               ),
             ],
             selected: <CollageSelectionSlot>{_activeSlot},
@@ -667,9 +957,9 @@ class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
           Expanded(
             child: TabBarView(
               children: [
-                _buildPhotoGrid(theme, photos: allPhotos),
+                _buildPhotoGrid(theme, photos: allPhotos, compact: compact),
                 for (final photos in tabPhotos)
-                  _buildPhotoGrid(theme, photos: photos),
+                  _buildPhotoGrid(theme, photos: photos, compact: compact),
               ],
             ),
           ),
@@ -678,7 +968,11 @@ class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
     );
   }
 
-  Widget _buildPhotoGrid(ThemeData theme, {required List<ClientPhoto> photos}) {
+  Widget _buildPhotoGrid(
+    ThemeData theme, {
+    required List<ClientPhoto> photos,
+    required bool compact,
+  }) {
     final ordered = photos.toList(growable: false)
       ..sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
     if (ordered.isEmpty) {
@@ -690,15 +984,24 @@ class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
       );
     }
     final mediaQuery = MediaQuery.of(context);
-    final crossAxisCount = mediaQuery.size.width >= 900 ? 3 : 2;
+    final width = mediaQuery.size.width;
+    final crossAxisCount =
+        width >= 1100
+            ? 4
+            : width >= 760
+            ? 3
+            : width >= 360
+            ? 2
+            : 1;
+    final childAspectRatio = compact ? 0.72 : 0.70;
 
     return GridView.builder(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: EdgeInsets.only(bottom: compact ? 8 : 16),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: crossAxisCount,
         crossAxisSpacing: 8,
         mainAxisSpacing: 8,
-        childAspectRatio: 3 / 4,
+        childAspectRatio: childAspectRatio,
       ),
       itemCount: ordered.length,
       itemBuilder: (context, index) {
@@ -781,6 +1084,7 @@ class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
                 uploadedLabel,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
+                  fontSize: compact ? 11 : null,
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -929,7 +1233,7 @@ class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
       await Future<void>.delayed(const Duration(milliseconds: 50));
       final devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
       final ui.Image image = await boundary.toImage(
-        pixelRatio: devicePixelRatio,
+        pixelRatio: math.min(devicePixelRatio, 2.5),
       );
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       if (byteData == null) {

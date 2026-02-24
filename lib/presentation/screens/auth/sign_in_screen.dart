@@ -128,8 +128,9 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                             prefixIcon: const Icon(Icons.lock_outline),
                             suffixIcon: IconButton(
                               onPressed:
-                                  () =>
-                                      setState(() => _isObscured = !_isObscured),
+                                  () => setState(
+                                    () => _isObscured = !_isObscured,
+                                  ),
                               icon: Icon(
                                 _isObscured
                                     ? Icons.visibility_off
@@ -164,7 +165,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                                   : const Text('Accedi'),
                         ),
                         TextButton(
-                          onPressed: _isLoading ? null : _resetPassword,
+                          onPressed: _isLoading ? null : _goToPasswordReset,
                           child: const Text('Password dimenticata?'),
                         ),
                         const SizedBox(height: 12),
@@ -175,6 +176,15 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                           label: const Text('Registrati come cliente'),
                         ),
                         const SizedBox(height: 12),
+                        /*OutlinedButton.icon(
+                          onPressed:
+                              _isLoading
+                                  ? null
+                                  : () => context.go('/register-center'),
+                          icon: const Icon(Icons.storefront_outlined),
+                          label: const Text('Registrati come centro'),
+                        ),
+                        const SizedBox(height: 12),*/
                         Text(
                           'Per accedere come Admin o Operatore assicurati che un amministratore abbia creato l\'utente in Firebase Authentication e configurato il documento in /users/<uid> con il relativo ruolo.',
                           style: theme.textTheme.bodySmall,
@@ -275,6 +285,13 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
       _closeSessionSubscription();
       return;
     }
+    if (session.role == UserRole.admin && session.user?.isEnabled == false) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Account in attesa di abilitazione.')),
+      );
+      _closeSessionSubscription();
+      return;
+    }
     final router = ref.read(appRouterProvider);
     router.go(_destinationForSession(session));
     _closeSessionSubscription();
@@ -301,30 +318,13 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
     _sessionSubscription = null;
   }
 
-  Future<void> _resetPassword() async {
+  void _goToPasswordReset() {
     final email = _emailController.text.trim();
-    if (email.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Inserisci l\'email per ricevere il link di reset.'),
-        ),
-      );
-      return;
+    final params = <String, dynamic>{};
+    if (email.isNotEmpty) {
+      params['email'] = email;
     }
-    try {
-      await ref.read(authRepositoryProvider).sendPasswordResetEmail(email);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Email di reset inviata. Controlla la posta.'),
-        ),
-      );
-    } on Exception catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(_friendlyError(error))));
-    }
+    context.goNamed('password_reset', queryParameters: params);
   }
 
   String _friendlyError(Exception error) {
@@ -340,6 +340,9 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
     }
     if (message.contains('user-disabled')) {
       return 'Account disabilitato.';
+    }
+    if (message.contains('admin-not-enabled')) {
+      return 'Account in attesa di abilitazione.';
     }
     if (message.contains('email-not-verified')) {
       return 'Email non verificata. Controlla la posta e conferma l\'indirizzo prima di accedere.';

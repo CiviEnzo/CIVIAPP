@@ -49,6 +49,7 @@ class SaleFormSheet extends StatefulWidget {
     this.initialDate,
     this.initialStaffId,
     this.initialSaleId,
+    this.lockServiceOperator = false,
     this.onSaved,
     this.onSkipTicket,
   });
@@ -72,6 +73,7 @@ class SaleFormSheet extends StatefulWidget {
   final DateTime? initialDate;
   final String? initialStaffId;
   final String? initialSaleId;
+  final bool lockServiceOperator;
   final void Function(Sale sale)? onSaved;
   final VoidCallback? onSkipTicket;
 
@@ -126,6 +128,11 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   Iterable<StaffMember> get _operatorStaff =>
       widget.staff.where((member) => !member.isEquipment);
 
+  StaffMember? get _selectedServiceOperator =>
+      _staffId == null
+          ? null
+          : widget.staff.firstWhereOrNull((member) => member.id == _staffId);
+
   @override
   void initState() {
     super.initState();
@@ -160,7 +167,9 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     }
 
     if (_staffId != null) {
-      final matchesSalon = _operatorStaff.any(
+      final allowedOperators =
+          widget.lockServiceOperator ? widget.staff : _operatorStaff;
+      final matchesSalon = allowedOperators.any(
         (member) => member.id == _staffId && member.salonId == _salonId,
       );
       if (!matchesSalon) {
@@ -329,33 +338,32 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           );
-          final staffPicker = DropdownButtonFormField<String>(
-            isExpanded: true,
-            value: _staffId,
-            decoration: const InputDecoration(
-              labelText: 'Operatore',
-              floatingLabelBehavior: FloatingLabelBehavior.always,
-            ),
-            items:
-                staff
-                    .map(
-                      (member) => DropdownMenuItem(
-                        value: member.id,
-                        child: Text(member.fullName),
-                      ),
-                    )
-                    .toList(),
-            onChanged: _onStaffChanged,
-          );
+          final staffPicker =
+              widget.lockServiceOperator
+                  ? _buildReadOnlyServiceOperatorField()
+                  : DropdownButtonFormField<String>(
+                    isExpanded: true,
+                    value: _staffId,
+                    decoration: const InputDecoration(
+                      labelText: 'Operatore',
+                      floatingLabelBehavior: FloatingLabelBehavior.always,
+                    ),
+                    items:
+                        staff
+                            .map(
+                              (member) => DropdownMenuItem(
+                                value: member.id,
+                                child: Text(member.fullName),
+                              ),
+                            )
+                            .toList(),
+                    onChanged: _onStaffChanged,
+                  );
 
           if (isCompact) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                title,
-                const SizedBox(height: 12),
-                staffPicker,
-              ],
+              children: [title, const SizedBox(height: 12), staffPicker],
             );
           }
 
@@ -554,11 +562,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     required Salon? salon,
     required Client? client,
   }) {
-    final staffName =
-        _operatorStaff
-            .firstWhereOrNull((member) => member.id == _staffId)
-            ?.fullName ??
-        'Non assegnato';
+    final staffName = _selectedServiceOperator?.fullName ?? 'Non assegnato';
     final salonName = salon?.name ?? 'Non associato';
     final clientName = () {
       if (client == null) {
@@ -823,16 +827,12 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                 _paymentStatus == SalePaymentStatus.posticipated
                     ? PaymentMethod.posticipated
                     : _payment,
-            decoration: const InputDecoration(
-              labelText: 'Metodo di pagamento',
-            ),
+            decoration: const InputDecoration(labelText: 'Metodo di pagamento'),
             items:
                 (_paymentStatus == SalePaymentStatus.posticipated
-                    ? const [PaymentMethod.posticipated]
-                    : PaymentMethod.values
-                        .where(
-                          (method) =>
-                              method != PaymentMethod.posticipated,
+                        ? const [PaymentMethod.posticipated]
+                        : PaymentMethod.values.where(
+                          (method) => method != PaymentMethod.posticipated,
                         ))
                     .map(
                       (method) => DropdownMenuItem(
@@ -841,15 +841,12 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                       ),
                     )
                     .toList(),
-            validator:
-                (value) {
-                  if (_paymentStatus == SalePaymentStatus.posticipated) {
-                    return null;
-                  }
-                  return value == null
-                      ? 'Seleziona il metodo di pagamento'
-                      : null;
-                },
+            validator: (value) {
+              if (_paymentStatus == SalePaymentStatus.posticipated) {
+                return null;
+              }
+              return value == null ? 'Seleziona il metodo di pagamento' : null;
+            },
             onChanged:
                 _paymentStatus == SalePaymentStatus.posticipated
                     ? null
@@ -1203,9 +1200,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                           ),
                           IconButton(
                             tooltip: 'Vai al cliente',
-                            icon: const Icon(
-                              Icons.open_in_new_rounded,
-                            ),
+                            icon: const Icon(Icons.open_in_new_rounded),
                             onPressed: () async {
                               await _openSelectedClient();
                             },
@@ -1254,10 +1249,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                     errorText: state.errorText,
                     suffixIcon:
                         _clientSearchController.text.isEmpty
-                            ? const Icon(
-                              Icons.search_rounded,
-                              size: 20,
-                            )
+                            ? const Icon(Icons.search_rounded, size: 20)
                             : IconButton(
                               tooltip: 'Pulisci ricerca',
                               icon: const Icon(Icons.clear_rounded),
@@ -1310,10 +1302,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                     hintText: 'Numero cliente',
                     suffixIcon:
                         _clientNumberSearchController.text.isEmpty
-                            ? const Icon(
-                              Icons.search_rounded,
-                              size: 20,
-                            )
+                            ? const Icon(Icons.search_rounded, size: 20)
                             : IconButton(
                               tooltip: 'Pulisci ricerca',
                               icon: const Icon(Icons.clear_rounded),
@@ -1322,9 +1311,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                   ),
                   keyboardType: TextInputType.number,
                   textInputAction: TextInputAction.search,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                  ],
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   onChanged:
                       (value) => _onClientSearchChanged(
                         value,
@@ -1688,6 +1675,23 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
 
   Client? get _currentClient =>
       widget.clients.firstWhereOrNull((client) => client.id == _clientId);
+
+  Widget _buildReadOnlyServiceOperatorField() {
+    final operator = _selectedServiceOperator;
+    final label =
+        operator == null
+            ? 'Non assegnato'
+            : operator.isEquipment
+            ? '${operator.fullName} (Macchinario)'
+            : operator.fullName;
+    return InputDecorator(
+      decoration: const InputDecoration(
+        labelText: 'Operatore',
+        floatingLabelBehavior: FloatingLabelBehavior.always,
+      ),
+      child: Text(label),
+    );
+  }
 
   Widget _buildLoyaltySection(
     NumberFormat currency,

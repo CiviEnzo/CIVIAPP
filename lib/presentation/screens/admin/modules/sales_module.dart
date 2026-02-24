@@ -106,9 +106,6 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
           ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
-    final income = allCashFlow
-        .where((entry) => entry.type == CashFlowType.income)
-        .fold<double>(0, (total, entry) => total + entry.amount);
     final salons = data.salons;
     final clients = data.clients;
     final staff = data.staff;
@@ -131,21 +128,21 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
         allCashFlow
             .where(
               (entry) =>
-                  DateUtils.isSameDay(entry.createdAt.toLocal(), _selectedDate),
+                  DateUtils.isSameDay(entry.date.toLocal(), _selectedDate),
             )
             .toList();
     final closedTickets =
         paymentTickets
             .where((ticket) => ticket.status == PaymentTicketStatus.closed)
-            .where((ticket) {
-              final closedAt = ticket.closedAt ?? ticket.createdAt;
-              return DateUtils.isSameDay(closedAt.toLocal(), _selectedDate);
-            })
+            .where(
+              (ticket) => DateUtils.isSameDay(
+                ticket.createdAt.toLocal(),
+                _selectedDate,
+              ),
+            )
             .toList()
           ..sort((a, b) {
-            final aAt = a.closedAt ?? a.createdAt;
-            final bAt = b.closedAt ?? b.createdAt;
-            return bAt.compareTo(aAt);
+            return b.createdAt.compareTo(a.createdAt);
           });
     final today = DateUtils.dateOnly(DateTime.now());
     final fallbackStartDate = today.subtract(const Duration(days: 365));
@@ -165,6 +162,7 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
       'it_IT',
     ).format(_selectedDate);
     final ticketDateFormat = DateFormat('dd/MM/yyyy HH:mm');
+    final quantityFormat = NumberFormat.decimalPattern('it_IT');
 
     final selectedSales =
         sales
@@ -206,7 +204,7 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
               ?.price;
       completedEntries.add(
         _CompletedEntry(
-          date: ticket.closedAt ?? ticket.createdAt,
+          date: ticket.createdAt,
           clientName: client?.fullName ?? 'Cliente',
           clientId: client?.id,
           onOpenClientBilling:
@@ -244,6 +242,67 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
       );
     }
     completedEntries.sort((a, b) => b.date.compareTo(a.date));
+    final selectedReceiptsCount = completedEntries.length;
+    final selectedIncome = cashFlow
+        .where((entry) => entry.type == CashFlowType.income)
+        .fold<double>(0, (total, entry) => total + entry.amount);
+    final selectedIncomeByPaymentMethod = <PaymentMethod, double>{
+      for (final method in PaymentMethod.values) method: 0.0,
+    };
+    for (final sale in selectedSales) {
+      if (sale.paymentStatus == SalePaymentStatus.posticipated) {
+        continue;
+      }
+      final cashAmount =
+          sale.paymentStatus == SalePaymentStatus.deposit
+              ? sale.paidAmount
+              : sale.total;
+      if (cashAmount <= 0.009) {
+        continue;
+      }
+      selectedIncomeByPaymentMethod.update(
+        sale.paymentMethod,
+        (value) => value + cashAmount,
+      );
+    }
+    final incomeByMethodLines =
+        PaymentMethod.values
+            .where(
+              (method) =>
+                  (selectedIncomeByPaymentMethod[method] ?? 0).abs() > 0.009,
+            )
+            .map(
+              (method) =>
+                  '${_paymentMethodLabel(method)}: ${currency.format(selectedIncomeByPaymentMethod[method] ?? 0)}',
+            )
+            .toList();
+    final classifiedIncome = selectedIncomeByPaymentMethod.values.fold<double>(
+      0,
+      (total, amount) => total + amount,
+    );
+    final unclassifiedIncome = selectedIncome - classifiedIncome;
+    if (unclassifiedIncome.abs() > 0.009) {
+      incomeByMethodLines.add(
+        'Altri mov.: ${currency.format(unclassifiedIncome)}',
+      );
+    }
+    final incomeSubtitle =
+        incomeByMethodLines.isEmpty
+            ? 'Totale incasso'
+            : 'Totale incasso\n${incomeByMethodLines.join('\n')}';
+    final selectedPackageItems =
+        selectedSales
+            .expand((sale) => sale.items)
+            .where((item) => item.referenceType == SaleReferenceType.package)
+            .toList();
+    final selectedPackagesSoldCount = selectedPackageItems.fold<double>(
+      0,
+      (total, item) => total + item.quantity,
+    );
+    final selectedPackagesSoldAmount = selectedPackageItems.fold<double>(
+      0,
+      (total, item) => total + item.amount,
+    );
     final selectedEarnedPoints = selectedSales.fold<int>(
       0,
       (sum, sale) => sum + sale.loyalty.resolvedEarnedPoints,
@@ -263,22 +322,23 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
             runSpacing: 16,
             children: [
               _SummaryTile(
-                icon: Icons.receipt_long_rounded,
-                title: 'Ticket aperti',
-                value: openTickets.length.toString(),
-                subtitle: 'Pagamenti da registrare',
-              ),
-              _SummaryTile(
                 icon: Icons.point_of_sale_rounded,
-                title: 'Vendite',
-                value: sales.length.toString(),
-                subtitle: 'Totale scontrini',
+                title: 'Ticket Chiusi',
+                value: selectedReceiptsCount.toString(),
+                subtitle: 'Scontrini',
               ),
               _SummaryTile(
                 icon: Icons.payments_rounded,
                 title: 'Incasso',
-                value: currency.format(income),
-                subtitle: 'Entrate registrate',
+                value: currency.format(selectedIncome),
+                subtitle: incomeSubtitle,
+              ),
+              _SummaryTile(
+                icon: Icons.card_giftcard_rounded,
+                title: 'Pacchetti venduti',
+                value: currency.format(selectedPackagesSoldAmount),
+                subtitle:
+                    '${quantityFormat.format(selectedPackagesSoldCount)} pacchetti',
               ),
               _SummaryTile(
                 icon: Icons.stars_rounded,
@@ -483,6 +543,14 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                     ),
                 icon: const Icon(Icons.event_rounded),
               ),
+              IconButton(
+                tooltip: 'Vai a oggi',
+                onPressed:
+                    DateUtils.isSameDay(_selectedDate, today)
+                        ? null
+                        : () => _setSelectedDate(today),
+                icon: const Icon(Icons.today_rounded),
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -501,13 +569,16 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
               separatorBuilder: (_, __) => const SizedBox(height: 12),
               itemBuilder: (context, index) {
                 final entry = completedEntries[index];
-                final isCompact =
-                    MediaQuery.of(context).size.width < 520.0;
+                final isCompact = MediaQuery.of(context).size.width < 520.0;
                 final creationLabel = DateFormat(
                   'dd/MM/yyyy HH:mm',
                   'it_IT',
                 ).format(entry.date.toLocal());
-                final subtitleLines = <String>['Registrato il $creationLabel'];
+                final subtitleLines = <String>[
+                  entry.ticket != null
+                      ? 'Ticket creato il $creationLabel'
+                      : 'Vendita registrata il $creationLabel',
+                ];
                 if (entry.ticket != null) {
                   subtitleLines.add(entry.serviceName ?? 'Servizio');
                   subtitleLines.add(
@@ -577,17 +648,17 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                             children: [
                               CircleAvatar(
                                 backgroundColor:
-                                    Theme.of(context)
-                                        .colorScheme
-                                        .surfaceContainerHighest,
+                                    Theme.of(
+                                      context,
+                                    ).colorScheme.surfaceContainerHighest,
                                 child: Icon(
                                   entry.ticket != null
                                       ? Icons.receipt_long_rounded
                                       : Icons.point_of_sale_rounded,
                                   color:
-                                      Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant,
+                                      Theme.of(
+                                        context,
+                                      ).colorScheme.onSurfaceVariant,
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -605,8 +676,9 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                                     const SizedBox(height: 6),
                                     ...subtitleLines.map(
                                       (line) => Padding(
-                                        padding:
-                                            const EdgeInsets.only(bottom: 4),
+                                        padding: const EdgeInsets.only(
+                                          bottom: 4,
+                                        ),
                                         child: Text(
                                           line,
                                           style:
@@ -633,8 +705,9 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                                         onPressed: () async {
                                           await entry.onOpenClientBilling!();
                                         },
-                                        icon:
-                                            const Icon(Icons.open_in_new_rounded),
+                                        icon: const Icon(
+                                          Icons.open_in_new_rounded,
+                                        ),
                                       ),
                                   ],
                                 ),
@@ -655,8 +728,7 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                                     onPressed: () async {
                                       await entry.onOpenClientBilling!();
                                     },
-                                    icon:
-                                        const Icon(Icons.open_in_new_rounded),
+                                    icon: const Icon(Icons.open_in_new_rounded),
                                   ),
                               ],
                             ),

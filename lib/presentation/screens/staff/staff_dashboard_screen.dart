@@ -1,5 +1,12 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/domain/entities/appointment.dart';
+import 'package:you_book/domain/entities/appointment_day_checklist.dart';
+import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/domain/entities/client_photo.dart';
+import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/staff_absence.dart';
 import 'package:you_book/domain/entities/staff_absence_request.dart';
@@ -7,12 +14,19 @@ import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/domain/entities/shift.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/common/theme_mode_action.dart';
+import 'package:you_book/presentation/common/hybrid_image_picker.dart';
+import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_calendar_view.dart';
+import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_anomaly.dart';
 import 'package:you_book/presentation/screens/staff/forms/staff_absence_request_form_sheet.dart';
 import 'package:you_book/presentation/shared/client_package_purchase.dart';
+import 'package:you_book/presentation/shared/widgets/client_notes_section.dart';
 import 'package:collection/collection.dart';
+import 'package:file_selector/file_selector.dart' show XFile;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 
 class StaffDashboardScreen extends ConsumerStatefulWidget {
   const StaffDashboardScreen({super.key});
@@ -174,7 +188,7 @@ class _AppointmentDetailSheet extends ConsumerWidget {
                     title: Text('Cliente non disponibile'),
                   ),
                 )
-              else
+              else ...[
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
@@ -217,6 +231,17 @@ class _AppointmentDetailSheet extends ConsumerWidget {
                     ),
                   ),
                 ),
+                const SizedBox(height: 16),
+                ClientNotesSection(client: client),
+                const SizedBox(height: 16),
+                Text('Questionari cliente', style: theme.textTheme.titleLarge),
+                const SizedBox(height: 12),
+                _StaffClientQuestionnairesSection(client: client),
+                const SizedBox(height: 16),
+                Text('Foto cliente', style: theme.textTheme.titleLarge),
+                const SizedBox(height: 12),
+                _StaffClientPhotosSection(client: client),
+              ],
               const SizedBox(height: 16),
               Text('Pacchetti attivi', style: theme.textTheme.titleLarge),
               const SizedBox(height: 12),
@@ -326,6 +351,910 @@ class _AppointmentDetailSheet extends ConsumerWidget {
   }
 }
 
+class _StaffClientQuestionnairesSection extends ConsumerWidget {
+  const _StaffClientQuestionnairesSection({required this.client});
+
+  final Client client;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final data = ref.watch(appDataProvider);
+    final templates =
+        data.clientQuestionnaireTemplates
+            .where((template) => template.salonId == client.salonId)
+            .toList()
+          ..sort((a, b) => a.name.compareTo(b.name));
+    final templatesById = {
+      for (final template in templates) template.id: template,
+    };
+    final questionnaires =
+        data.clientQuestionnaires
+            .where((item) => item.clientId == client.id)
+            .where((item) => item.isCompleted)
+            .toList()
+          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
+    if (questionnaires.isEmpty) {
+      return const Card(
+        child: ListTile(
+          leading: Icon(Icons.list_alt_rounded),
+          title: Text('Nessun questionario compilato'),
+        ),
+      );
+    }
+
+    final theme = Theme.of(context);
+    final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
+
+    return Column(
+      children:
+          questionnaires.map((questionnaire) {
+            final template = templatesById[questionnaire.templateId];
+            final updatedLabel = dateFormat.format(questionnaire.updatedAt);
+            final createdLabel = dateFormat.format(questionnaire.createdAt);
+            final subtitle =
+                questionnaire.updatedAt.isAfter(questionnaire.createdAt)
+                    ? 'Aggiornato il $updatedLabel'
+                    : 'Compilato il $createdLabel';
+            return Card(
+              child: ExpansionTile(
+                tilePadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                title: Text(
+                  template?.name ?? 'Questionario cliente',
+                  style: theme.textTheme.titleSmall,
+                ),
+                subtitle: Text(subtitle, style: theme.textTheme.bodySmall),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: _QuestionnaireAnswerList(
+                      template: template,
+                      questionnaire: questionnaire,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+    );
+  }
+}
+
+class _QuestionnaireAnswerList extends StatelessWidget {
+  const _QuestionnaireAnswerList({
+    required this.template,
+    required this.questionnaire,
+  });
+
+  final ClientQuestionnaireTemplate? template;
+  final ClientQuestionnaire questionnaire;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final answersById = {
+      for (final answer in questionnaire.answers) answer.questionId: answer,
+    };
+
+    if (template == null) {
+      final answered =
+          questionnaire.answers.where((answer) => answer.hasValue).toList();
+      if (answered.isEmpty) {
+        return Text(
+          'Nessuna risposta disponibile.',
+          style: theme.textTheme.bodySmall,
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children:
+            answered
+                .map(
+                  (answer) => _QuestionAnswerRow(
+                    label: 'Domanda ${answer.questionId}',
+                    value: _fallbackAnswerLabel(answer),
+                  ),
+                )
+                .toList(),
+      );
+    }
+
+    final children = <Widget>[];
+    for (final group in template!.groups) {
+      final groupAnswers = <Widget>[];
+      for (final question in group.questions) {
+        final answer = answersById[question.id];
+        if (answer == null || !answer.hasValue) {
+          continue;
+        }
+        final value = _formatAnswer(answer, question);
+        if (value == null || value.isEmpty) {
+          continue;
+        }
+        groupAnswers.add(
+          _QuestionAnswerRow(label: question.label, value: value),
+        );
+      }
+      if (groupAnswers.isNotEmpty) {
+        children
+          ..add(Text(group.title, style: theme.textTheme.titleSmall))
+          ..add(const SizedBox(height: 8))
+          ..addAll(groupAnswers)
+          ..add(const SizedBox(height: 12));
+      }
+    }
+
+    if (children.isEmpty) {
+      return Text(
+        'Nessuna risposta disponibile.',
+        style: theme.textTheme.bodySmall,
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: children,
+    );
+  }
+
+  static String _fallbackAnswerLabel(ClientQuestionAnswer answer) {
+    if (answer.boolValue != null) {
+      return answer.boolValue! ? 'Sì' : 'No';
+    }
+    if (answer.textValue != null && answer.textValue!.trim().isNotEmpty) {
+      return answer.textValue!.trim();
+    }
+    if (answer.optionIds.isNotEmpty) {
+      return answer.optionIds.join(', ');
+    }
+    if (answer.numberValue != null) {
+      return answer.numberValue!.toString();
+    }
+    if (answer.dateValue != null) {
+      return DateFormat('dd/MM/yyyy').format(answer.dateValue!);
+    }
+    return '-';
+  }
+
+  static String? _formatAnswer(
+    ClientQuestionAnswer answer,
+    ClientQuestionDefinition question,
+  ) {
+    switch (question.type) {
+      case ClientQuestionType.boolean:
+        if (answer.boolValue == null) {
+          return null;
+        }
+        return answer.boolValue! ? 'Sì' : 'No';
+      case ClientQuestionType.text:
+      case ClientQuestionType.textarea:
+        final text = answer.textValue?.trim();
+        return text == null || text.isEmpty ? null : text;
+      case ClientQuestionType.singleChoice:
+      case ClientQuestionType.multiChoice:
+        if (answer.optionIds.isEmpty) {
+          return null;
+        }
+        final labels =
+            answer.optionIds
+                .map(
+                  (id) =>
+                      question.options
+                          .firstWhereOrNull((option) => option.id == id)
+                          ?.label ??
+                      id,
+                )
+                .toList();
+        return labels.join(', ');
+      case ClientQuestionType.number:
+        return answer.numberValue?.toString();
+      case ClientQuestionType.date:
+        return answer.dateValue == null
+            ? null
+            : DateFormat('dd/MM/yyyy').format(answer.dateValue!);
+    }
+  }
+}
+
+class _QuestionAnswerRow extends StatelessWidget {
+  const _QuestionAnswerRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(value, style: theme.textTheme.bodySmall),
+        ],
+      ),
+    );
+  }
+}
+
+class _StaffClientPhotosSection extends ConsumerStatefulWidget {
+  const _StaffClientPhotosSection({required this.client});
+
+  final Client client;
+
+  @override
+  ConsumerState<_StaffClientPhotosSection> createState() =>
+      _StaffClientPhotosSectionState();
+}
+
+class _StaffClientPhotosSectionState
+    extends ConsumerState<_StaffClientPhotosSection> {
+  static const int _maxUploadBytes = 10 * 1024 * 1024;
+  static const List<ClientPhotoSetType> _orderedPhotoSets =
+      <ClientPhotoSetType>[
+        ClientPhotoSetType.front,
+        ClientPhotoSetType.back,
+        ClientPhotoSetType.right,
+        ClientPhotoSetType.left,
+      ];
+  final Uuid _uuid = const Uuid();
+  bool _isUploading = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final photos = ref.watch(clientPhotosProvider(widget.client.id));
+    final grouped = <ClientPhotoSetType, List<ClientPhoto>>{};
+    for (final type in _orderedPhotoSets) {
+      grouped[type] =
+          photos.where((photo) => photo.setType == type).toList()
+            ..sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
+    }
+    final otherPhotos =
+        photos.where((photo) => photo.setType == null).toList()
+          ..sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
+    final completedSets =
+        grouped.values
+            .where(
+              (setPhotos) => setPhotos.any((photo) => photo.isSetActiveVersion),
+            )
+            .length;
+
+    final summary =
+        photos.isEmpty
+            ? 'Nessuna foto disponibile'
+            : '$completedSets/4 set completati · ${photos.length} foto';
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Archivio fotografico',
+                        style: theme.textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(summary, style: theme.textTheme.bodySmall),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Aggiorna elenco foto',
+                  onPressed:
+                      _isUploading
+                          ? null
+                          : () => ref.invalidate(
+                            clientPhotosProvider(widget.client.id),
+                          ),
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                FilledButton.icon(
+                  onPressed:
+                      _isUploading ? null : () => _pickAndUploadFullSet(),
+                  icon: const Icon(Icons.grid_on_outlined),
+                  label: const Text('Carica set completo'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _orderedPhotoSets
+                    .map((type) {
+                      final setPhotos = grouped[type] ?? const <ClientPhoto>[];
+                      final activePhoto = _resolveActivePhoto(setPhotos);
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 12),
+                        child: _StaffPhotoSetTile(
+                          label: _setLabel(type),
+                          activePhoto: activePhoto,
+                          totalPhotos: setPhotos.length,
+                          isUploading: _isUploading,
+                          onPreview:
+                              activePhoto == null
+                                  ? null
+                                  : () => _showPhotoPreview(activePhoto),
+                          onShowHistory: () => _showSetHistory(type, setPhotos),
+                          onUpload: () => _pickAndUpload(type),
+                        ),
+                      );
+                    })
+                    .toList(growable: false),
+              ),
+            ),
+            if (otherPhotos.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text('Altre foto', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 8),
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: otherPhotos.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  final photo = otherPhotos[index];
+                  return _StaffPhotoListTile(
+                    photo: photo,
+                    onPreview: () => _showPhotoPreview(photo),
+                  );
+                },
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAndUpload(ClientPhotoSetType setType) async {
+    final selectedFile = await _pickSingleImageFile();
+    if (selectedFile == null) {
+      return;
+    }
+    final assignments = <_PhotoSetAssignment>[
+      _PhotoSetAssignment(setType: setType, file: selectedFile),
+    ];
+    await _uploadAssignments(assignments, setLabel: _setLabel(setType));
+  }
+
+  Future<void> _pickAndUploadFullSet() async {
+    final files = await _pickImageFiles(maxSelection: _orderedPhotoSets.length);
+    if (files.isEmpty) {
+      return;
+    }
+    if (files.length < _orderedPhotoSets.length) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Seleziona quattro foto per coprire Frontale, Dietro, Destra e Sinistra.',
+          ),
+        ),
+      );
+      return;
+    }
+    final assignments = <_PhotoSetAssignment>[];
+    for (var i = 0; i < _orderedPhotoSets.length; i++) {
+      assignments.add(
+        _PhotoSetAssignment(setType: _orderedPhotoSets[i], file: files[i]),
+      );
+    }
+    await _uploadAssignments(assignments, setLabel: 'set completo');
+  }
+
+  Future<void> _uploadAssignments(
+    List<_PhotoSetAssignment> assignments, {
+    required String setLabel,
+  }) async {
+    if (assignments.isEmpty) {
+      return;
+    }
+    final storage = ref.read(firebaseStorageServiceProvider);
+    final dataStore = ref.read(appDataProvider.notifier);
+    final session = ref.read(sessionControllerProvider);
+    final uploaderId = session.uid ?? 'unknown';
+    final existingPhotos = ref.read(clientPhotosProvider(widget.client.id));
+    final Map<ClientPhotoSetType, int> nextVersionIndex = {};
+    for (final assignment in assignments) {
+      nextVersionIndex.putIfAbsent(
+        assignment.setType,
+        () => _nextVersionSeed(existingPhotos, assignment.setType),
+      );
+    }
+    final Map<ClientPhotoSetType, String> lastUploadedBySet = {};
+
+    setState(() => _isUploading = true);
+    try {
+      var uploadedCount = 0;
+      final skippedTooLarge = <String>[];
+      final skippedUnreadable = <String>[];
+
+      for (final assignment in assignments) {
+        final file = assignment.file;
+        if (file.sizeBytes > _maxUploadBytes) {
+          skippedTooLarge.add(file.name);
+          continue;
+        }
+        final bytes = file.bytes;
+        if (bytes == null || bytes.isEmpty) {
+          skippedUnreadable.add(file.name);
+          continue;
+        }
+        final upload = await storage.uploadClientPhoto(
+          salonId: widget.client.salonId,
+          clientId: widget.client.id,
+          photoId: _uuid.v4(),
+          uploaderId: uploaderId,
+          data: bytes,
+          fileName: file.name,
+        );
+        final versionIndex = nextVersionIndex[assignment.setType]!;
+        nextVersionIndex[assignment.setType] = versionIndex + 1;
+        final photo = ClientPhoto(
+          id: upload.photoId,
+          salonId: upload.salonId,
+          clientId: upload.clientId,
+          storagePath: upload.storagePath,
+          downloadUrl: upload.downloadUrl,
+          uploadedAt: upload.uploadedAt,
+          uploadedBy: upload.uploadedBy,
+          fileName: upload.fileName,
+          contentType: upload.contentType,
+          sizeBytes: upload.sizeBytes,
+          setType: assignment.setType,
+          setVersionIndex: versionIndex,
+          isSetActiveVersion: true,
+        );
+        await dataStore.upsertClientPhoto(photo);
+        lastUploadedBySet[assignment.setType] = photo.id;
+        uploadedCount += 1;
+      }
+
+      for (final entry in lastUploadedBySet.entries) {
+        await dataStore.activateClientPhotoVersion(
+          clientId: widget.client.id,
+          setType: entry.key,
+          photoId: entry.value,
+        );
+      }
+
+      if (!mounted) {
+        return;
+      }
+      if (uploadedCount > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              uploadedCount == assignments.length
+                  ? 'Foto caricate correttamente nel $setLabel.'
+                  : '$uploadedCount foto caricate nel $setLabel.',
+            ),
+          ),
+        );
+      }
+      if (skippedTooLarge.isNotEmpty || skippedUnreadable.isNotEmpty) {
+        final messages = <String>[];
+        if (skippedTooLarge.isNotEmpty) {
+          messages.add(
+            'File troppo grandi (>${_maxUploadBytes ~/ (1024 * 1024)} MB): ${skippedTooLarge.join(', ')}',
+          );
+        }
+        if (skippedUnreadable.isNotEmpty) {
+          messages.add('File non leggibili: ${skippedUnreadable.join(', ')}');
+        }
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(messages.join('\n'))));
+      }
+      if (uploadedCount == 0 &&
+          skippedTooLarge.isEmpty &&
+          skippedUnreadable.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nessun file valido selezionato.')),
+        );
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Impossibile caricare le foto: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isUploading = false);
+      }
+    }
+  }
+
+  Future<_PickedClientImage?> _pickSingleImageFile() async {
+    final file = await pickSingleImageFile(confirmButtonText: 'Seleziona');
+    if (file == null) {
+      return null;
+    }
+    int sizeBytes = 0;
+    try {
+      sizeBytes = await file.length();
+    } catch (_) {
+      sizeBytes = 0;
+    }
+    Uint8List? bytes;
+    if (sizeBytes == 0 || sizeBytes <= _maxUploadBytes) {
+      bytes = await _resolveXFileBytes(file);
+      if (sizeBytes == 0) {
+        sizeBytes = bytes?.length ?? 0;
+      }
+    }
+    return _PickedClientImage(
+      name: file.name.isEmpty ? 'Foto cliente' : file.name,
+      sizeBytes: sizeBytes,
+      bytes: bytes,
+    );
+  }
+
+  Future<List<_PickedClientImage>> _pickImageFiles({int? maxSelection}) async {
+    final selectedFiles = await pickMultipleImageFiles(
+      confirmButtonText: 'Seleziona',
+      limit: maxSelection,
+    );
+    if (selectedFiles.isEmpty) {
+      return const <_PickedClientImage>[];
+    }
+    if (maxSelection != null && selectedFiles.length > maxSelection) {
+      if (!mounted) {
+        return const <_PickedClientImage>[];
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Puoi selezionare al massimo $maxSelection foto per questa operazione.',
+          ),
+        ),
+      );
+      return const <_PickedClientImage>[];
+    }
+    final files = <_PickedClientImage>[];
+    for (final file in selectedFiles) {
+      int sizeBytes = 0;
+      try {
+        sizeBytes = await file.length();
+      } catch (_) {
+        sizeBytes = 0;
+      }
+      Uint8List? bytes;
+      if (sizeBytes == 0 || sizeBytes <= _maxUploadBytes) {
+        bytes = await _resolveXFileBytes(file);
+        if (sizeBytes == 0) {
+          sizeBytes = bytes?.length ?? 0;
+        }
+      }
+      files.add(
+        _PickedClientImage(
+          name: file.name.isEmpty ? 'Foto cliente' : file.name,
+          sizeBytes: sizeBytes,
+          bytes: bytes,
+        ),
+      );
+    }
+    return files;
+  }
+
+  Future<Uint8List?> _resolveXFileBytes(XFile file) async {
+    try {
+      final data = await file.readAsBytes();
+      if (data.length > _maxUploadBytes) {
+        return null;
+      }
+      return data.isEmpty ? null : data;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  int _nextVersionSeed(List<ClientPhoto> existing, ClientPhotoSetType type) {
+    var maxVersion = 0;
+    for (final photo in existing) {
+      if (photo.setType != type) {
+        continue;
+      }
+      final version = photo.setVersionIndex ?? 0;
+      if (version > maxVersion) {
+        maxVersion = version;
+      }
+    }
+    return maxVersion + 1;
+  }
+
+  ClientPhoto? _resolveActivePhoto(List<ClientPhoto> photos) {
+    if (photos.isEmpty) {
+      return null;
+    }
+    for (final photo in photos) {
+      if (photo.isSetActiveVersion) {
+        return photo;
+      }
+    }
+    return photos.first;
+  }
+
+  void _showPhotoPreview(ClientPhoto photo) {
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        final width = MediaQuery.sizeOf(context).width;
+        final height = MediaQuery.sizeOf(context).height;
+        final maxWidth = width * 0.85;
+        final maxHeight = height * 0.7;
+        return Dialog(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: maxWidth,
+              maxHeight: maxHeight,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Expanded(
+                  child: InteractiveViewer(
+                    child: Image.network(
+                      photo.downloadUrl,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  DateFormat('dd/MM/yyyy HH:mm').format(photo.uploadedAt),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showSetHistory(ClientPhotoSetType type, List<ClientPhoto> setPhotos) {
+    final sorted = List<ClientPhoto>.from(setPhotos)
+      ..sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder:
+          (context) => SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              child:
+                  sorted.isEmpty
+                      ? const Text('Nessuna foto disponibile per questo set.')
+                      : ListView.separated(
+                        itemCount: sorted.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          final photo = sorted[index];
+                          return _StaffPhotoListTile(
+                            photo: photo,
+                            onPreview: () {
+                              Navigator.of(context).pop();
+                              _showPhotoPreview(photo);
+                            },
+                          );
+                        },
+                      ),
+            ),
+          ),
+    );
+  }
+
+  String _setLabel(ClientPhotoSetType type) {
+    switch (type) {
+      case ClientPhotoSetType.front:
+        return 'Frontale';
+      case ClientPhotoSetType.back:
+        return 'Dietro';
+      case ClientPhotoSetType.right:
+        return 'Destra';
+      case ClientPhotoSetType.left:
+        return 'Sinistra';
+    }
+  }
+}
+
+class _StaffPhotoSetTile extends StatelessWidget {
+  const _StaffPhotoSetTile({
+    required this.label,
+    required this.activePhoto,
+    required this.totalPhotos,
+    required this.isUploading,
+    required this.onUpload,
+    required this.onShowHistory,
+    this.onPreview,
+  });
+
+  final String label;
+  final ClientPhoto? activePhoto;
+  final int totalPhotos;
+  final bool isUploading;
+  final VoidCallback onUpload;
+  final VoidCallback onShowHistory;
+  final VoidCallback? onPreview;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: totalPhotos == 0 ? null : onShowHistory,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: 160,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AspectRatio(
+              aspectRatio: 1.1,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child:
+                    activePhoto == null
+                        ? DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surfaceContainerHigh,
+                          ),
+                          child: const Icon(Icons.photo_outlined, size: 32),
+                        )
+                        : Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Image.network(
+                              activePhoto!.downloadUrl,
+                              fit: BoxFit.cover,
+                            ),
+                            Positioned(
+                              right: 6,
+                              bottom: 6,
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: Colors.black54,
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  child: Text(
+                                    '$totalPhotos',
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(label, style: theme.textTheme.titleSmall),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    totalPhotos == 0 ? 'Nessuna foto' : '$totalPhotos foto',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Carica foto',
+                  onPressed: isUploading ? null : onUpload,
+                  icon: const Icon(Icons.upload_rounded),
+                ),
+              ],
+            ),
+            if (activePhoto != null && onPreview != null)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: onPreview,
+                  child: const Text('Apri'),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StaffPhotoListTile extends StatelessWidget {
+  const _StaffPhotoListTile({required this.photo, required this.onPreview});
+
+  final ClientPhoto photo;
+  final VoidCallback onPreview;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListTile(
+      onTap: onPreview,
+      leading: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.network(
+          photo.downloadUrl,
+          width: 56,
+          height: 56,
+          fit: BoxFit.cover,
+        ),
+      ),
+      title: Text(
+        DateFormat('dd/MM/yyyy HH:mm').format(photo.uploadedAt),
+        style: theme.textTheme.bodyMedium,
+      ),
+      subtitle:
+          photo.fileName == null || photo.fileName!.trim().isEmpty
+              ? null
+              : Text(photo.fileName!),
+      trailing: const Icon(Icons.open_in_full_rounded),
+    );
+  }
+}
+
+class _PhotoSetAssignment {
+  const _PhotoSetAssignment({required this.setType, required this.file});
+
+  final ClientPhotoSetType setType;
+  final _PickedClientImage file;
+}
+
+class _PickedClientImage {
+  const _PickedClientImage({
+    required this.name,
+    required this.sizeBytes,
+    required this.bytes,
+  });
+
+  final String name;
+  final int sizeBytes;
+  final Uint8List? bytes;
+}
+
 class _StaffDashboardScreenState extends ConsumerState<StaffDashboardScreen> {
   @override
   Widget build(BuildContext context) {
@@ -353,26 +1282,6 @@ class _StaffDashboardScreenState extends ConsumerState<StaffDashboardScreen> {
       );
     }
 
-    final relatedAppointments =
-        data.appointments
-            .where((appointment) => appointment.staffId == selectedStaff?.id)
-            .toList()
-          ..sort((a, b) => a.start.compareTo(b.start));
-    final today = DateTime.now();
-    final todayAppointments =
-        relatedAppointments
-            .where(
-              (appointment) =>
-                  appointment.start.year == today.year &&
-                  appointment.start.month == today.month &&
-                  appointment.start.day == today.day,
-            )
-            .toList();
-    final upcoming =
-        relatedAppointments
-            .where((appointment) => appointment.start.isAfter(DateTime.now()))
-            .toList();
-
     final staffAbsences =
         data.staffAbsences
             .where((absence) => absence.staffId == selectedStaff?.id)
@@ -390,18 +1299,14 @@ class _StaffDashboardScreenState extends ConsumerState<StaffDashboardScreen> {
             .toList();
 
     return DefaultTabController(
-      length: 3,
+      length: 2,
       child: Scaffold(
         appBar: AppBar(
           title: Text(
             'Ciao ${selectedStaff?.fullName.split(' ').first ?? 'Staff'}',
           ),
           bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Oggi'),
-              Tab(text: 'Agenda'),
-              Tab(text: 'Ferie & Permessi'),
-            ],
+            tabs: [Tab(text: 'Agenda'), Tab(text: 'Ferie & Permessi')],
           ),
           actions: [
             const ThemeModeAction(),
@@ -416,8 +1321,12 @@ class _StaffDashboardScreenState extends ConsumerState<StaffDashboardScreen> {
         ),
         body: TabBarView(
           children: [
-            _TodayView(appointments: todayAppointments),
-            _AgendaView(appointments: upcoming),
+            _AgendaView(
+              staff: selectedStaff,
+              appointments: data.appointments,
+              absences: data.staffAbsences,
+              shifts: data.shifts,
+            ),
             _AbsenceView(
               staff: selectedStaff,
               absences: staffAbsences,
@@ -438,8 +1347,8 @@ class _TodayView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final data = ref.watch(appDataProvider);
     final theme = Theme.of(context);
+    final data = ref.watch(appDataProvider);
     final sortedAppointments = List<Appointment>.from(appointments)
       ..sort((a, b) => a.start.compareTo(b.start));
     final now = DateTime.now();
@@ -565,51 +1474,464 @@ class _TodayView extends ConsumerWidget {
   }
 }
 
-class _AgendaView extends ConsumerWidget {
-  const _AgendaView({required this.appointments});
+class _AgendaView extends ConsumerStatefulWidget {
+  const _AgendaView({
+    required this.staff,
+    required this.appointments,
+    required this.absences,
+    required this.shifts,
+  });
 
+  final StaffMember? staff;
   final List<Appointment> appointments;
+  final List<StaffAbsence> absences;
+  final List<Shift> shifts;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final data = ref.watch(appDataProvider);
-    if (appointments.isEmpty) {
-      return const Center(child: Text('Nessun appuntamento futuro'));
-    }
+  ConsumerState<_AgendaView> createState() => _AgendaViewState();
+}
 
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemCount: appointments.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final appointment = appointments[index];
-        final client = data.clients.firstWhereOrNull(
-          (client) => client.id == appointment.clientId,
-        );
-        final services =
-            appointment.serviceIds
-                .map(
-                  (id) => data.services.firstWhereOrNull(
-                    (service) => service.id == id,
+class _AgendaViewState extends ConsumerState<_AgendaView> {
+  static const String _agendaScopePreferenceKey = 'staff_agenda_scope';
+  static const String _agendaShowEquipmentPreferenceKey =
+      'staff_agenda_show_equipment';
+  static final DateFormat _dayLabelFormat = DateFormat(
+    'EEEE dd MMMM yyyy',
+    'it_IT',
+  );
+  late DateTime _anchorDate;
+  AppointmentCalendarScope _scope = AppointmentCalendarScope.day;
+  bool _showEquipmentOperators = true;
+  DateTime? _scrollToDate;
+  int _scrollToDateRequestId = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _anchorDate = DateUtils.dateOnly(DateTime.now());
+    unawaited(_restoreAgendaScope());
+    unawaited(_restoreEquipmentPreference());
+  }
+
+  Future<void> _restoreAgendaScope() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(_agendaScopePreferenceKey);
+    final restored = AppointmentCalendarScope.values.firstWhereOrNull(
+      (scope) => scope.name == stored,
+    );
+    if (!mounted) {
+      return;
+    }
+    if (restored != null) {
+      setState(() {
+        _scope = restored;
+      });
+    }
+  }
+
+  Future<void> _restoreEquipmentPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getBool(_agendaShowEquipmentPreferenceKey);
+    if (!mounted) {
+      return;
+    }
+    if (stored != null) {
+      setState(() {
+        _showEquipmentOperators = stored;
+      });
+    }
+  }
+
+  Future<void> _persistAgendaScope() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_agendaScopePreferenceKey, _scope.name);
+  }
+
+  Future<void> _persistEquipmentPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(
+      _agendaShowEquipmentPreferenceKey,
+      _showEquipmentOperators,
+    );
+  }
+
+  void _updateScope(AppointmentCalendarScope scope) {
+    if (scope == _scope) {
+      return;
+    }
+    setState(() {
+      _scope = scope;
+    });
+    unawaited(_persistAgendaScope());
+  }
+
+  void _toggleEquipmentOperators([bool? value]) {
+    setState(() {
+      _showEquipmentOperators = value ?? !_showEquipmentOperators;
+    });
+    unawaited(_persistEquipmentPreference());
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _anchorDate,
+      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+      locale: const Locale('it', 'IT'),
+    );
+    if (picked == null) {
+      return;
+    }
+    setState(() {
+      if (_scope == AppointmentCalendarScope.week) {
+        _anchorDate = _startOfWeek(picked);
+      } else {
+        _anchorDate = DateUtils.dateOnly(picked);
+      }
+    });
+  }
+
+  void _shiftRange(int delta) {
+    final stepDays = _scope == AppointmentCalendarScope.day ? 1 : 7;
+    setState(() {
+      _anchorDate = DateUtils.dateOnly(
+        _anchorDate.add(Duration(days: stepDays * delta)),
+      );
+    });
+  }
+
+  void _goToToday() {
+    final now = DateUtils.dateOnly(DateTime.now());
+    setState(() {
+      _anchorDate = now;
+      if (_scope == AppointmentCalendarScope.week) {
+        _scrollToDate = now;
+        _scrollToDateRequestId += 1;
+      } else {
+        _scrollToDate = null;
+      }
+    });
+  }
+
+  Future<void> _showAppointmentDetails(
+    BuildContext context,
+    Appointment appointment,
+  ) {
+    return showAppModalSheet<void>(
+      context: context,
+      builder: (ctx) => _AppointmentDetailSheet(appointment: appointment),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final staff = widget.staff;
+    if (staff == null) {
+      return const Center(child: Text('Seleziona un membro dello staff'));
+    }
+    final data = ref.watch(appDataProvider);
+    final isDayScope = _scope == AppointmentCalendarScope.day;
+    final rangeStart = isDayScope ? _anchorDate : _startOfWeek(_anchorDate);
+    final rangeEnd = rangeStart.add(Duration(days: isDayScope ? 1 : 7));
+    final rangeLabel =
+        isDayScope
+            ? _dayLabelFormat.format(rangeStart)
+            : _formatWeekRange(rangeStart);
+    const fabIcon = Icons.tune_rounded;
+    const fabTooltip = 'Opzioni agenda';
+
+    final equipmentOperators =
+        data.staff
+            .where(
+              (member) =>
+                  member.isEquipment &&
+                  (staff.salonId == null || member.salonId == staff.salonId),
+            )
+            .toList()
+          ..sort((a, b) => a.fullName.compareTo(b.fullName));
+    final visibleStaff = <StaffMember>[
+      staff,
+      if (_showEquipmentOperators)
+        ...equipmentOperators.where((member) => member.id != staff.id),
+    ];
+    final visibleStaffIds = visibleStaff.map((member) => member.id).toSet();
+    final allVisibleAppointments =
+        widget.appointments
+            .where(
+              (appointment) => visibleStaffIds.contains(appointment.staffId),
+            )
+            .toList();
+
+    final visibleAppointments =
+        allVisibleAppointments
+            .where(
+              (appointment) => _dateRangesOverlap(
+                appointment.start,
+                appointment.end,
+                rangeStart,
+                rangeEnd,
+              ),
+            )
+            .toList()
+          ..sort((a, b) => a.start.compareTo(b.start));
+    final visibleShifts =
+        widget.shifts
+            .where(
+              (shift) =>
+                  visibleStaffIds.contains(shift.staffId) &&
+                  _dateRangesOverlap(
+                    shift.start,
+                    shift.end,
+                    rangeStart,
+                    rangeEnd,
                   ),
-                )
-                .whereType<Service>()
-                .toList();
-        final serviceLabel =
-            services.isNotEmpty
-                ? services.map((service) => service.name).join(' + ')
-                : 'Servizio';
-        return Card(
-          child: ListTile(
-            leading: const Icon(Icons.calendar_month_rounded),
-            title: Text(serviceLabel),
-            subtitle: Text(
-              '${client?.fullName ?? 'Cliente'} · ${DateFormat('dd/MM HH:mm').format(appointment.start)}',
-            ),
-            trailing: _appointmentStatusChip(appointment.status, context),
+            )
+            .toList();
+    final visibleAbsences =
+        widget.absences
+            .where(
+              (absence) =>
+                  visibleStaffIds.contains(absence.staffId) &&
+                  _dateRangesOverlap(
+                    absence.start,
+                    absence.end,
+                    rangeStart,
+                    rangeEnd,
+                  ),
+            )
+            .toList();
+
+    final salonsById = {for (final salon in data.salons) salon.id: salon};
+    final roomsById = <String, String>{};
+    for (final salon in data.salons) {
+      for (final room in salon.rooms) {
+        roomsById[room.id] = room.name;
+      }
+    }
+    final selectedSalon =
+        staff.salonId == null
+            ? null
+            : data.salons.firstWhereOrNull(
+              (salon) => salon.id == staff.salonId,
+            );
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: _StaffAgendaToolbar(
+            label: rangeLabel,
+            onPrevious: () => _shiftRange(-1),
+            onNext: () => _shiftRange(1),
+            onToday: _goToToday,
+            onPickDate: _pickDate,
           ),
-        );
-      },
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: Stack(
+            children: [
+              AppointmentCalendarView(
+                anchorDate: rangeStart,
+                scope: _scope,
+                weekLayout: AppointmentWeekLayoutMode.detailed,
+                appointments: visibleAppointments,
+                allAppointments: allVisibleAppointments,
+                lastMinutePlaceholders: const [],
+                lastMinuteSlots: const [],
+                staff: visibleStaff,
+                clients: data.clients,
+                clientsWithOutstandingPayments: const <String>{},
+                services: data.services,
+                serviceCategories: data.serviceCategories,
+                shifts: visibleShifts,
+                absences: visibleAbsences,
+                roles: data.staffRoles,
+                schedule: selectedSalon?.schedule,
+                roomsById: roomsById,
+                salonsById: salonsById,
+                selectedSalonId: staff.salonId,
+                visibleWeekdays: const {
+                  DateTime.monday,
+                  DateTime.tuesday,
+                  DateTime.wednesday,
+                  DateTime.thursday,
+                  DateTime.friday,
+                  DateTime.saturday,
+                  DateTime.sunday,
+                },
+                lockedAppointmentReasons: const <String, String>{},
+                anomalies: const <String, Set<AppointmentAnomalyType>>{},
+                statusColor:
+                    (status) => _appointmentStatusColor(context, status),
+                dayChecklists: const <DateTime, AppointmentDayChecklist>{},
+                onReschedule: (_) async {},
+                onEdit:
+                    (appointment) =>
+                        _showAppointmentDetails(context, appointment),
+                onCreate: (_) {},
+                readOnly: true,
+                showStaffHeader: visibleStaff.length > 1,
+                slotMinutes: 15,
+                interactionSlotMinutes: 15,
+                scrollToDate: _scrollToDate,
+                scrollToDateRequestId: _scrollToDateRequestId,
+              ),
+              Positioned(
+                right: 16,
+                bottom: 16,
+                child: SafeArea(
+                  minimum: const EdgeInsets.only(bottom: 8),
+                  child: MenuAnchor(
+                    alignmentOffset: const Offset(0, -8),
+                    builder: (context, controller, child) {
+                      return FloatingActionButton(
+                        tooltip: fabTooltip,
+                        onPressed: () {
+                          if (controller.isOpen) {
+                            controller.close();
+                          } else {
+                            controller.open();
+                          }
+                        },
+                        child: Icon(fabIcon),
+                      );
+                    },
+                    menuChildren: [
+                      MenuItemButton(
+                        leadingIcon: const Icon(
+                          Icons.calendar_view_day_rounded,
+                        ),
+                        trailingIcon:
+                            _scope == AppointmentCalendarScope.day
+                                ? const Icon(Icons.check_rounded)
+                                : null,
+                        onPressed:
+                            () => _updateScope(AppointmentCalendarScope.day),
+                        child: const Text('Visione giorno'),
+                      ),
+                      MenuItemButton(
+                        leadingIcon: const Icon(Icons.view_week_rounded),
+                        trailingIcon:
+                            _scope == AppointmentCalendarScope.week
+                                ? const Icon(Icons.check_rounded)
+                                : null,
+                        onPressed:
+                            () => _updateScope(AppointmentCalendarScope.week),
+                        child: const Text('Visione settimana'),
+                      ),
+                      const Divider(height: 1),
+                      MenuItemButton(
+                        leadingIcon: const Icon(
+                          Icons.precision_manufacturing_rounded,
+                        ),
+                        trailingIcon:
+                            _showEquipmentOperators
+                                ? const Icon(Icons.check_rounded)
+                                : null,
+                        onPressed:
+                            equipmentOperators.isEmpty
+                                ? null
+                                : () => _toggleEquipmentOperators(),
+                        child: const Text('Mostra macchinari'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StaffAgendaToolbar extends StatelessWidget {
+  const _StaffAgendaToolbar({
+    required this.label,
+    required this.onPrevious,
+    required this.onNext,
+    required this.onToday,
+    required this.onPickDate,
+  });
+
+  final String label;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+  final VoidCallback onToday;
+  final VoidCallback onPickDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    const dense = VisualDensity(horizontal: -2, vertical: -2);
+
+    return Row(
+      children: [
+        IconButton(
+          tooltip: 'Periodo precedente',
+          onPressed: onPrevious,
+          visualDensity: dense,
+          icon: const Icon(Icons.chevron_left_rounded),
+        ),
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                alignment: WrapAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  FilledButton.tonal(
+                    style: FilledButton.styleFrom(
+                      visualDensity: dense,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      minimumSize: const Size(0, 36),
+                    ),
+                    onPressed: onToday,
+                    child: const Text('Oggi'),
+                  ),
+                  IconButton(
+                    tooltip: 'Vai a data',
+                    onPressed: onPickDate,
+                    visualDensity: dense,
+                    style: IconButton.styleFrom(
+                      backgroundColor: colorScheme.surfaceVariant,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    icon: const Icon(Icons.event_available_rounded),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        IconButton(
+          tooltip: 'Periodo successivo',
+          onPressed: onNext,
+          visualDensity: dense,
+          icon: const Icon(Icons.chevron_right_rounded),
+        ),
+      ],
     );
   }
 }
@@ -1423,15 +2745,9 @@ class _AppointmentSummaryCard extends StatelessWidget {
     final details = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          title,
-          style: theme.textTheme.titleMedium,
-        ),
+        Text(title, style: theme.textTheme.titleMedium),
         const SizedBox(height: 4),
-        Text(
-          subtitle,
-          style: theme.textTheme.bodySmall,
-        ),
+        Text(subtitle, style: theme.textTheme.bodySmall),
       ],
     );
     final statusChip = _appointmentStatusChip(status, context);
@@ -1623,6 +2939,20 @@ Widget _appointmentStatusChip(AppointmentStatus status, BuildContext context) {
   }
 }
 
+Color _appointmentStatusColor(BuildContext context, AppointmentStatus status) {
+  final scheme = Theme.of(context).colorScheme;
+  switch (status) {
+    case AppointmentStatus.scheduled:
+      return scheme.primary;
+    case AppointmentStatus.completed:
+      return scheme.tertiary;
+    case AppointmentStatus.cancelled:
+      return scheme.onSurfaceVariant;
+    case AppointmentStatus.noShow:
+      return scheme.error.withAlpha(180);
+  }
+}
+
 Widget _requestStatusChip(
   StaffAbsenceRequestStatus status,
   BuildContext context,
@@ -1650,6 +2980,30 @@ Widget _requestStatusChip(
         backgroundColor: scheme.surfaceVariant,
       );
   }
+}
+
+DateTime _startOfWeek(DateTime date) {
+  final normalized = DateUtils.dateOnly(date);
+  final delta = normalized.weekday - DateTime.monday;
+  return normalized.subtract(Duration(days: delta));
+}
+
+String _formatWeekRange(DateTime weekStart) {
+  final startLabel = DateFormat('dd MMM', 'it_IT').format(weekStart);
+  final endLabel = DateFormat(
+    'dd MMM yyyy',
+    'it_IT',
+  ).format(weekStart.add(const Duration(days: 6)));
+  return '$startLabel - $endLabel';
+}
+
+bool _dateRangesOverlap(
+  DateTime start,
+  DateTime end,
+  DateTime rangeStart,
+  DateTime rangeEnd,
+) {
+  return start.isBefore(rangeEnd) && end.isAfter(rangeStart);
 }
 
 String _formatDuration(Duration duration) {

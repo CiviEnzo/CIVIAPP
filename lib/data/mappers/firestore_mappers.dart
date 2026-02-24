@@ -5,6 +5,7 @@ import 'package:you_book/domain/entities/cash_flow_entry.dart';
 import 'package:you_book/domain/entities/app_notification.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/client_app_movement.dart';
+import 'package:you_book/domain/entities/client_note.dart';
 import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
 import 'package:you_book/domain/entities/client_photo_collage.dart';
@@ -29,6 +30,7 @@ import 'package:you_book/domain/entities/staff_absence_request.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/domain/entities/staff_role.dart';
 import 'package:you_book/domain/entities/reminder_settings.dart';
+import 'package:you_book/domain/entities/user_role.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
 
@@ -904,6 +906,7 @@ StaffMember staffFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     dateOfBirth: dateOfBirth,
     isActive: data['isActive'] as bool? ?? true,
     isEquipment: data['isEquipment'] as bool? ?? false,
+    emailVerifiedOverride: data['emailVerifiedOverride'] as bool? ?? false,
     vacationAllowance: vacationAllowance,
     permissionAllowance: permissionAllowance,
     sortOrder: sortOrder,
@@ -931,6 +934,7 @@ Map<String, dynamic> staffToMap(StaffMember staff) {
       'dateOfBirth': Timestamp.fromDate(staff.dateOfBirth!),
     'isActive': staff.isActive,
     'isEquipment': staff.isEquipment,
+    'emailVerifiedOverride': staff.emailVerifiedOverride,
     'vacationAllowance': staff.vacationAllowance,
     'permissionAllowance': staff.permissionAllowance,
     'sortOrder': staff.sortOrder,
@@ -1124,6 +1128,45 @@ Map<String, dynamic> clientToMap(Client client) {
   return map;
 }
 
+ClientNote clientNoteFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+  final data = doc.data() ?? <String, dynamic>{};
+  final createdAt = _timestampToDate(data['createdAt']) ?? DateTime.now();
+  final createdByRole =
+      _userRoleFromName(data['createdByRole'] as String?) ?? UserRole.staff;
+  return ClientNote(
+    id: doc.id,
+    salonId: data['salonId'] as String? ?? '',
+    clientId: data['clientId'] as String? ?? '',
+    text: data['text'] as String? ?? '',
+    createdAt: createdAt,
+    createdById: data['createdById'] as String? ?? '',
+    createdByRole: createdByRole,
+    createdByName: data['createdByName'] as String?,
+    updatedAt: _timestampToDate(data['updatedAt']),
+    updatedById: data['updatedById'] as String?,
+    updatedByRole: _userRoleFromName(data['updatedByRole'] as String?),
+    updatedByName: data['updatedByName'] as String?,
+  );
+}
+
+Map<String, dynamic> clientNoteToMap(ClientNote note) {
+  final map = <String, dynamic>{
+    'salonId': note.salonId,
+    'clientId': note.clientId,
+    'text': note.text,
+    'createdAt': Timestamp.fromDate(note.createdAt),
+    'createdById': note.createdById,
+    'createdByRole': note.createdByRole.name,
+    if (note.createdByName != null) 'createdByName': note.createdByName,
+    if (note.updatedAt != null)
+      'updatedAt': Timestamp.fromDate(note.updatedAt!),
+    if (note.updatedById != null) 'updatedById': note.updatedById,
+    if (note.updatedByRole != null) 'updatedByRole': note.updatedByRole!.name,
+    if (note.updatedByName != null) 'updatedByName': note.updatedByName,
+  };
+  return map;
+}
+
 SalonAccessRequest salonAccessRequestFromDoc(
   DocumentSnapshot<Map<String, dynamic>> doc,
 ) {
@@ -1227,6 +1270,7 @@ ClientQuestionnaireTemplate clientQuestionnaireTemplateFromDoc(
     createdAt: _timestampToDate(data['createdAt']),
     updatedAt: _timestampToDate(data['updatedAt']),
     isDefault: data['isDefault'] as bool? ?? false,
+    clientCanSelfComplete: data['clientCanSelfComplete'] as bool? ?? false,
     groups: groups,
   );
 }
@@ -1238,6 +1282,7 @@ Map<String, dynamic> clientQuestionnaireTemplateToMap(
     'salonId': template.salonId,
     'name': template.name,
     'isDefault': template.isDefault,
+    'clientCanSelfComplete': template.clientCanSelfComplete,
     'groups':
         template.groups
             .map(
@@ -1312,6 +1357,19 @@ ClientQuestionnaire clientQuestionnaireFromDoc(
     );
   }
 
+  final assignedToClientApp = data['assignedToClientApp'] as bool? ?? false;
+  final completedAt = _timestampToDate(data['completedAt']);
+  final parsedStatus = _questionnaireStatusFromString(
+    data['status'] as String?,
+  );
+  final inferredStatus =
+      parsedStatus ??
+      ((completedAt != null || answers.any((answer) => answer.hasValue))
+          ? ClientQuestionnaireStatus.completed
+          : assignedToClientApp
+          ? ClientQuestionnaireStatus.assigned
+          : ClientQuestionnaireStatus.completed);
+
   return ClientQuestionnaire(
     id: doc.id,
     clientId: data['clientId'] as String? ?? '',
@@ -1320,6 +1378,11 @@ ClientQuestionnaire clientQuestionnaireFromDoc(
     answers: answers,
     createdAt: _timestampToDate(data['createdAt']) ?? DateTime.now(),
     updatedAt: _timestampToDate(data['updatedAt']) ?? DateTime.now(),
+    status: inferredStatus,
+    assignedToClientApp: assignedToClientApp,
+    assignedAt: _timestampToDate(data['assignedAt']),
+    assignedByUserId: data['assignedByUserId'] as String?,
+    completedAt: completedAt,
   );
 }
 
@@ -1351,6 +1414,14 @@ Map<String, dynamic> clientQuestionnaireToMap(
     'clientId': questionnaire.clientId,
     'salonId': questionnaire.salonId,
     'templateId': questionnaire.templateId,
+    'status': questionnaire.status.name,
+    'assignedToClientApp': questionnaire.assignedToClientApp,
+    if (questionnaire.assignedAt != null)
+      'assignedAt': Timestamp.fromDate(questionnaire.assignedAt!),
+    if (questionnaire.assignedByUserId != null)
+      'assignedByUserId': questionnaire.assignedByUserId,
+    if (questionnaire.completedAt != null)
+      'completedAt': Timestamp.fromDate(questionnaire.completedAt!),
     'answers': answers,
     'createdAt': Timestamp.fromDate(questionnaire.createdAt),
     'updatedAt': Timestamp.fromDate(questionnaire.updatedAt),
@@ -1814,7 +1885,8 @@ Sale saleFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
       (paidAmountRaw != null && (total - paidAmountRaw).abs() > 0.01
           ? SalePaymentStatus.deposit
           : SalePaymentStatus.paid);
-  final paidAmount = paidAmountRaw ??
+  final paidAmount =
+      paidAmountRaw ??
       (paymentStatus == SalePaymentStatus.deposit ||
               paymentStatus == SalePaymentStatus.posticipated
           ? 0
@@ -2856,9 +2928,7 @@ StaffAbsenceRequestStatus _stringToStaffAbsenceRequestStatus(String? value) {
   );
 }
 
-String _staffAbsenceRequestStatusToString(
-  StaffAbsenceRequestStatus status,
-) {
+String _staffAbsenceRequestStatusToString(StaffAbsenceRequestStatus status) {
   return status.name;
 }
 
@@ -2961,6 +3031,31 @@ TemplateUsage _stringToTemplateUsage(String? value) {
     (usage) => usage.name == value,
     orElse: () => TemplateUsage.reminder,
   );
+}
+
+UserRole? _userRoleFromName(String? value) {
+  if (value == null) {
+    return null;
+  }
+  final normalized = value.trim().toLowerCase();
+  for (final role in UserRole.values) {
+    if (role.name == normalized) {
+      return role;
+    }
+  }
+  return null;
+}
+
+ClientQuestionnaireStatus? _questionnaireStatusFromString(String? raw) {
+  if (raw == null || raw.isEmpty) {
+    return null;
+  }
+  for (final status in ClientQuestionnaireStatus.values) {
+    if (status.name == raw) {
+      return status;
+    }
+  }
+  return null;
 }
 
 Map<String, dynamic> _mapFromDynamic(Object? raw) {

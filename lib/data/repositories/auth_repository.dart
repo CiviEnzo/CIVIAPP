@@ -64,9 +64,24 @@ class AuthRepository {
       }
     }
     final user = auth.currentUser ?? signedInUser;
-    if (user != null && !user.emailVerified) {
-      final primaryRole = await _fetchPrimaryRole(user.uid);
-      if (primaryRole == UserRole.admin) {
+    if (user == null) {
+      return;
+    }
+
+    final access = await _fetchUserAccess(user.uid);
+    if (access.role == UserRole.admin && !access.isEnabled) {
+      await auth.signOut();
+      throw FirebaseAuthException(
+        code: 'admin-not-enabled',
+        message: 'Account in attesa di abilitazione.',
+      );
+    }
+
+    if (!user.emailVerified) {
+      if (access.role == UserRole.admin) {
+        return;
+      }
+      if (access.role == UserRole.staff && access.emailVerifiedOverride) {
         return;
       }
       try {
@@ -132,6 +147,71 @@ class AuthRepository {
     await auth.signOut();
   }
 
+  Future<void> registerCenterAdmin({
+    required String email,
+    required String password,
+    required String displayName,
+    required String salonName,
+    required String salonAddress,
+    required String salonCity,
+    required String salonPhone,
+  }) async {
+    final auth = _auth;
+    final firestore = _firestore;
+    if (auth == null || firestore == null) {
+      throw StateError('Firebase non inizializzato.');
+    }
+
+    final sanitizedEmail = email.trim();
+    final sanitizedName = displayName.trim();
+    final sanitizedSalonName = salonName.trim();
+    final sanitizedSalonAddress = salonAddress.trim();
+    final sanitizedSalonCity = salonCity.trim();
+    final sanitizedSalonPhone = salonPhone.trim();
+    final salonRef = firestore.collection('salons').doc();
+
+    try {
+      final credential = await auth.createUserWithEmailAndPassword(
+        email: sanitizedEmail,
+        password: password,
+      );
+      final user = credential.user;
+      if (user == null) {
+        throw StateError('Impossibile creare l\'utente.');
+      }
+      if (sanitizedName.isNotEmpty) {
+        await user.updateDisplayName(sanitizedName);
+      }
+
+      final userData = {
+        'role': UserRole.admin.name,
+        'roles': <String>[UserRole.admin.name],
+        'availableRoles': <String>[UserRole.admin.name],
+        'salonIds': <String>[salonRef.id],
+        'salonId': salonRef.id,
+        'displayName': sanitizedName.isEmpty ? null : sanitizedName,
+        'email': sanitizedEmail,
+        'enabled': false,
+        'status': 'pending',
+        'createdAt': FieldValue.serverTimestamp(),
+      };
+      userData.removeWhere((key, value) => value == null);
+      await firestore.collection('users').doc(user.uid).set(userData);
+
+      await salonRef.set({
+        'name': sanitizedSalonName,
+        'address': sanitizedSalonAddress,
+        'city': sanitizedSalonCity,
+        'phone': sanitizedSalonPhone,
+        'email': sanitizedEmail,
+        'status': 'active',
+        'isPublished': false,
+      });
+    } finally {
+      await auth.signOut();
+    }
+  }
+
   Future<void> completeUserProfile({
     required UserRole role,
     required List<String> salonIds,
@@ -167,37 +247,28 @@ class AuthRepository {
         .set(docData, SetOptions(merge: true));
   }
 
-  Future<UserRole?> _fetchPrimaryRole(String uid) async {
+  Future<_UserAccessSnapshot> _fetchUserAccess(String uid) async {
     final firestore = _firestore;
     if (firestore == null) {
-      return null;
+      return const _UserAccessSnapshot();
     }
     try {
       final doc = await firestore.collection('users').doc(uid).get();
       if (!doc.exists) {
-        return null;
+        return const _UserAccessSnapshot();
       }
       final data = doc.data();
       if (data == null) {
-        return null;
+        return const _UserAccessSnapshot();
       }
-      final directRole = _roleFromValue(data['role']);
-      if (directRole != null) {
-        return directRole;
-      }
-      final availableRoles = data['roles'];
-      if (availableRoles is Iterable) {
-        for (final entry in availableRoles) {
-          final resolved = _roleFromValue(entry);
-          if (resolved != null) {
-            return resolved;
-          }
-        }
-      }
+      return _UserAccessSnapshot(
+        role: _roleFromData(data),
+        isEnabled: (data['enabled'] as bool?) ?? true,
+        emailVerifiedOverride: (data['emailVerifiedOverride'] as bool?) ?? false,
+      );
     } catch (_) {
-      return null;
+      return const _UserAccessSnapshot();
     }
-    return null;
   }
 
   UserRole? _roleFromValue(Object? value) {
@@ -215,6 +286,26 @@ class AuthRepository {
       if (role.name == text) {
         return role;
       }
+    }
+    return null;
+  }
+
+  UserRole? _roleFromData(Map<String, dynamic> data) {
+    final directRole = _roleFromValue(data['role']);
+    if (directRole != null) {
+      return directRole;
+    }
+    final availableRoles =
+        data['roles'] ?? data['availableRoles'] ?? data['allowedRoles'];
+    if (availableRoles is Iterable) {
+      for (final entry in availableRoles) {
+        final resolved = _roleFromValue(entry);
+        if (resolved != null) {
+          return resolved;
+        }
+      }
+    } else if (availableRoles is String) {
+      return _roleFromValue(availableRoles);
     }
     return null;
   }
@@ -277,3 +368,15 @@ class AuthRepository {
 }
 
 enum ClientInviteOutcome { passwordReset, emailLink }
+
+class _UserAccessSnapshot {
+  const _UserAccessSnapshot({
+    this.role,
+    this.isEnabled = true,
+    this.emailVerifiedOverride = false,
+  });
+
+  final UserRole? role;
+  final bool isEnabled;
+  final bool emailVerifiedOverride;
+}

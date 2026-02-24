@@ -1,6 +1,8 @@
 import 'dart:convert';
 
+import 'package:cloud_firestore/cloud_firestore.dart' show FirebaseException;
 import 'package:you_book/app/providers.dart';
+import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/screens/admin/forms/client_questionnaire_template_form_sheet.dart';
@@ -47,7 +49,14 @@ class QuestionnairesModule extends ConsumerWidget {
         data.clientQuestionnaires
             .where((item) => item.salonId == selectedSalonId)
             .toList();
-
+    final clients =
+        data.clients
+            .where((client) => client.salonId == selectedSalonId)
+            .toList()
+          ..sort(
+            (a, b) =>
+                a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()),
+          );
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -77,6 +86,12 @@ class QuestionnairesModule extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 16),
+        _QuestionnaireCompletionOverviewCard(
+          templates: templates,
+          questionnaires: questionnaires,
+          clients: clients,
+        ),
+        const SizedBox(height: 16),
         if (templates.isEmpty)
           _EmptyState(
             onCreate:
@@ -87,6 +102,19 @@ class QuestionnairesModule extends ConsumerWidget {
             (template) => _TemplateCard(
               template: template,
               questionnaires: questionnaires,
+              clients: clients,
+              onAssignToClient:
+                  !template.clientCanSelfComplete || clients.isEmpty
+                      ? null
+                      : () => _assignToClient(
+                        context,
+                        ref,
+                        salonId: selectedSalonId,
+                        templates: <ClientQuestionnaireTemplate>[template],
+                        clients: clients,
+                        questionnaires: questionnaires,
+                        initialTemplateId: template.id,
+                      ),
               onEdit: () => _editTemplate(context, ref, template),
               onDuplicate:
                   () => _duplicateTemplate(context, ref, template, templates),
@@ -118,7 +146,12 @@ class QuestionnairesModule extends ConsumerWidget {
     if (result == null) {
       return;
     }
-    await _persistTemplate(ref, result);
+    try {
+      await _persistTemplate(ref, result);
+    } catch (error, stackTrace) {
+      _showQuestionnaireWriteError(context, error, stackTrace);
+      return;
+    }
     if (!context.mounted) {
       return;
     }
@@ -143,7 +176,12 @@ class QuestionnairesModule extends ConsumerWidget {
     if (result == null) {
       return;
     }
-    await _persistTemplate(ref, result);
+    try {
+      await _persistTemplate(ref, result);
+    } catch (error, stackTrace) {
+      _showQuestionnaireWriteError(context, error, stackTrace);
+      return;
+    }
     if (!context.mounted) {
       return;
     }
@@ -200,7 +238,12 @@ class QuestionnairesModule extends ConsumerWidget {
       isDefault: true,
       updatedAt: DateTime.now(),
     );
-    await _persistTemplate(ref, updated);
+    try {
+      await _persistTemplate(ref, updated);
+    } catch (error, stackTrace) {
+      _showQuestionnaireWriteError(context, error, stackTrace);
+      return;
+    }
     if (!context.mounted) {
       return;
     }
@@ -218,12 +261,155 @@ class QuestionnairesModule extends ConsumerWidget {
     List<ClientQuestionnaireTemplate> existing,
   ) async {
     final duplicate = _cloneTemplate(source, existing);
-    await _persistTemplate(ref, duplicate);
+    try {
+      await _persistTemplate(ref, duplicate);
+    } catch (error, stackTrace) {
+      _showQuestionnaireWriteError(context, error, stackTrace);
+      return;
+    }
     if (!context.mounted) {
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Copia di "${source.name}" creata.')),
+    );
+  }
+
+  Future<void> _assignToClient(
+    BuildContext context,
+    WidgetRef ref, {
+    required String salonId,
+    required List<ClientQuestionnaireTemplate> templates,
+    required List<Client> clients,
+    required List<ClientQuestionnaire> questionnaires,
+    String? initialTemplateId,
+  }) async {
+    if (templates.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Nessun template abilitato alla compilazione cliente disponibile.',
+          ),
+        ),
+      );
+      return;
+    }
+    if (clients.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nessun cliente disponibile nel salone.')),
+      );
+      return;
+    }
+
+    final request = await showDialog<_AssignQuestionnaireRequest>(
+      context: context,
+      builder:
+          (ctx) => _AssignQuestionnaireDialog(
+            templates: templates,
+            clients: clients,
+            initialTemplateId: initialTemplateId,
+          ),
+    );
+    if (request == null) {
+      return;
+    }
+
+    if (request.clientIds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Seleziona almeno un cliente.')),
+      );
+      return;
+    }
+
+    final template = templates.firstWhereOrNull(
+      (item) => item.id == request.templateId,
+    );
+    if (template == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Template selezionato non trovato.')),
+      );
+      return;
+    }
+    final clientsById = {for (final client in clients) client.id: client};
+    final requestedClients = request.clientIds
+        .map((id) => clientsById[id])
+        .whereType<Client>()
+        .toList(growable: false);
+    if (requestedClients.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nessun cliente valido selezionato.')),
+      );
+      return;
+    }
+
+    final store = ref.read(appDataProvider.notifier);
+    final assignedByUserId = ref.read(sessionControllerProvider).userId;
+    var createdCount = 0;
+    var skippedDuplicates = 0;
+    try {
+      for (final client in requestedClients) {
+        final duplicatePending = questionnaires.firstWhereOrNull(
+          (item) =>
+              item.clientId == client.id &&
+              item.templateId == request.templateId &&
+              item.assignedToClientApp &&
+              item.isPending,
+        );
+        if (duplicatePending != null) {
+          skippedDuplicates += 1;
+          continue;
+        }
+
+        final now = DateTime.now();
+        final questionnaire = ClientQuestionnaire(
+          id: const Uuid().v4(),
+          clientId: client.id,
+          salonId: salonId,
+          templateId: request.templateId,
+          answers: const <ClientQuestionAnswer>[],
+          createdAt: now,
+          updatedAt: now,
+          status: ClientQuestionnaireStatus.assigned,
+          assignedToClientApp: true,
+          assignedAt: now,
+          assignedByUserId: assignedByUserId,
+        );
+        await store.upsertClientQuestionnaire(questionnaire);
+        createdCount += 1;
+      }
+    } catch (error, stackTrace) {
+      _showQuestionnaireWriteError(context, error, stackTrace);
+      return;
+    }
+
+    if (!context.mounted) {
+      return;
+    }
+    if (createdCount == 0 && skippedDuplicates > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Nessuna nuova assegnazione creata: $skippedDuplicates gia aperte per "${template.name}".',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final targetLabel =
+        request.assignMode == _AssignTargetMode.all
+            ? 'tutti i clienti'
+            : createdCount == 1
+            ? requestedClients.first.fullName
+            : '$createdCount clienti';
+    final skippedLabel =
+        skippedDuplicates > 0 ? ' ($skippedDuplicates gia aperte saltate)' : '';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Questionario "${template.name}" assegnato a $targetLabel$skippedLabel.',
+        ),
+      ),
     );
   }
 
@@ -274,16 +460,21 @@ class QuestionnairesModule extends ConsumerWidget {
       return;
     }
 
-    final store = ref.read(appDataProvider.notifier);
-    await store.deleteClientQuestionnaireTemplate(template.id);
-    for (final questionnaire in associated) {
-      await store.deleteClientQuestionnaire(questionnaire.id);
-    }
+    try {
+      final store = ref.read(appDataProvider.notifier);
+      await store.deleteClientQuestionnaireTemplate(template.id);
+      for (final questionnaire in associated) {
+        await store.deleteClientQuestionnaire(questionnaire.id);
+      }
 
-    if (template.isDefault && fallback != null) {
-      await store.upsertClientQuestionnaireTemplate(
-        fallback.copyWith(isDefault: true, updatedAt: DateTime.now()),
-      );
+      if (template.isDefault && fallback != null) {
+        await store.upsertClientQuestionnaireTemplate(
+          fallback.copyWith(isDefault: true, updatedAt: DateTime.now()),
+        );
+      }
+    } catch (error, stackTrace) {
+      _showQuestionnaireWriteError(context, error, stackTrace);
+      return;
     }
 
     if (!context.mounted) {
@@ -318,6 +509,30 @@ class QuestionnairesModule extends ConsumerWidget {
       }
     }
     await store.upsertClientQuestionnaireTemplate(template);
+  }
+
+  void _showQuestionnaireWriteError(
+    BuildContext context,
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    FlutterError.reportError(
+      FlutterErrorDetails(
+        exception: error,
+        stack: stackTrace,
+        library: 'QuestionnairesModule',
+      ),
+    );
+    if (!context.mounted) {
+      return;
+    }
+    final message =
+        error is FirebaseException && error.code == 'permission-denied'
+            ? 'Permessi insufficienti per modificare i questionari del salone selezionato.'
+            : 'Operazione non riuscita: $error';
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   ClientQuestionnaireTemplate _cloneTemplate(
@@ -369,6 +584,7 @@ class QuestionnairesModule extends ConsumerWidget {
       createdAt: now,
       updatedAt: now,
       isDefault: false,
+      clientCanSelfComplete: template.clientCanSelfComplete,
       groups: groups,
     );
   }
@@ -518,6 +734,7 @@ class QuestionnairesModule extends ConsumerWidget {
       name: name,
       description: description?.isEmpty ?? true ? null : description,
       isDefault: markAsDefault || (map['isDefault'] as bool? ?? false),
+      clientCanSelfComplete: map['clientCanSelfComplete'] as bool? ?? false,
       createdAt: now,
       updatedAt: now,
       groups: groups,
@@ -569,10 +786,576 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
+class _QuestionnaireCompletionOverviewCard extends StatelessWidget {
+  const _QuestionnaireCompletionOverviewCard({
+    required this.templates,
+    required this.questionnaires,
+    required this.clients,
+  });
+
+  final List<ClientQuestionnaireTemplate> templates;
+  final List<ClientQuestionnaire> questionnaires;
+  final List<Client> clients;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final templatesById = {
+      for (final template in templates) template.id: template,
+    };
+    final clientsById = {for (final client in clients) client.id: client};
+    final assignedApp = questionnaires
+        .where((item) => item.assignedToClientApp)
+        .toList(growable: false);
+    final completed = assignedApp.where((item) => item.isCompleted).toList();
+    final pending =
+        assignedApp.where((item) => item.isPending).toList()..sort((a, b) {
+          final aDate = a.assignedAt ?? a.createdAt;
+          final bDate = b.assignedAt ?? b.createdAt;
+          return bDate.compareTo(aDate);
+        });
+
+    final completionRate =
+        assignedApp.isEmpty
+            ? 0
+            : ((completed.length / assignedApp.length) * 100).round();
+    final reachableTemplates =
+        templates.where((item) => item.clientCanSelfComplete).length;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Panoramica compilazioni cliente',
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Monitoraggio delle assegnazioni compilabili dall\'app cliente.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _StatChip(
+                  icon: Icons.article_outlined,
+                  label: 'Template',
+                  value: templates.length.toString(),
+                  subtitle: '$reachableTemplates self-service',
+                ),
+                _StatChip(
+                  icon: Icons.assignment_rounded,
+                  label: 'Assegnati',
+                  value: assignedApp.length.toString(),
+                  subtitle:
+                      '${clients.isEmpty ? 0 : assignedApp.map((e) => e.clientId).toSet().length} clienti',
+                ),
+                _StatChip(
+                  icon: Icons.pending_actions_rounded,
+                  label: 'Aperti',
+                  value: pending.length.toString(),
+                ),
+                _StatChip(
+                  icon: Icons.check_circle_outline_rounded,
+                  label: 'Completati',
+                  value: completed.length.toString(),
+                  subtitle: '$completionRate%',
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (pending.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.35,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text(
+                  'Nessun questionario assegnato in attesa di compilazione.',
+                ),
+              )
+            else ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'In attesa di compilazione',
+                      style: theme.textTheme.titleSmall,
+                    ),
+                  ),
+                  Chip(
+                    avatar: const Icon(Icons.hourglass_top_rounded, size: 18),
+                    label: Text('${pending.length} aperti'),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: 'Apri elenco questionari in attesa',
+                    onPressed:
+                        () => _showPendingQuestionnairesDialog(
+                          context,
+                          pending: pending,
+                          clientsById: clientsById,
+                          templatesById: templatesById,
+                        ),
+                    icon: const Icon(Icons.open_in_new_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Apri l\'elenco completo dei questionari ancora da compilare.',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showPendingQuestionnairesDialog(
+    BuildContext context, {
+    required List<ClientQuestionnaire> pending,
+    required Map<String, Client> clientsById,
+    required Map<String, ClientQuestionnaireTemplate> templatesById,
+  }) async {
+    final dateFormat = DateFormat('dd/MM/yyyy');
+    await showDialog<void>(
+      context: context,
+      builder:
+          (dialogContext) => AlertDialog(
+            title: Row(
+              children: [
+                const Icon(Icons.hourglass_top_rounded),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('In attesa di compilazione (${pending.length})'),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 680,
+              child:
+                  pending.isEmpty
+                      ? const Text('Nessun questionario aperto.')
+                      : ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 420),
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: pending.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final item = pending[index];
+                            final client = clientsById[item.clientId];
+                            final template = templatesById[item.templateId];
+                            final assignedDate =
+                                item.assignedAt ?? item.createdAt;
+                            return ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.schedule_rounded),
+                              title: Text(client?.fullName ?? 'Cliente'),
+                              subtitle: Text(
+                                '${template?.name ?? 'Questionario'} • assegnato ${dateFormat.format(assignedDate)}',
+                              ),
+                              trailing: const Chip(label: Text('Aperto')),
+                            );
+                          },
+                        ),
+                      ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Chiudi'),
+              ),
+            ],
+          ),
+    );
+  }
+}
+
+class _StatChip extends StatelessWidget {
+  const _StatChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.subtitle,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Container(
+      constraints: const BoxConstraints(minWidth: 170),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: colorScheme.primary.withValues(alpha: 0.12),
+            child: Icon(icon, size: 18, color: colorScheme.primary),
+          ),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(label, style: theme.textTheme.labelMedium),
+              Text(
+                value,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (subtitle != null)
+                Text(subtitle!, style: theme.textTheme.bodySmall),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AssignQuestionnaireRequest {
+  const _AssignQuestionnaireRequest({
+    required this.templateId,
+    required this.clientIds,
+    required this.assignMode,
+  });
+
+  final String templateId;
+  final List<String> clientIds;
+  final _AssignTargetMode assignMode;
+}
+
+enum _AssignTargetMode { all, multi }
+
+class _AssignQuestionnaireDialog extends StatefulWidget {
+  const _AssignQuestionnaireDialog({
+    required this.templates,
+    required this.clients,
+    this.initialTemplateId,
+  });
+
+  final List<ClientQuestionnaireTemplate> templates;
+  final List<Client> clients;
+  final String? initialTemplateId;
+
+  @override
+  State<_AssignQuestionnaireDialog> createState() =>
+      _AssignQuestionnaireDialogState();
+}
+
+class _AssignQuestionnaireDialogState
+    extends State<_AssignQuestionnaireDialog> {
+  late String _selectedTemplateId;
+  final TextEditingController _searchController = TextEditingController();
+  final Set<String> _selectedClientIds = <String>{};
+  _AssignTargetMode _assignMode = _AssignTargetMode.multi;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedTemplateId =
+        widget.templates
+            .firstWhereOrNull(
+              (template) => template.id == widget.initialTemplateId,
+            )
+            ?.id ??
+        widget.templates.first.id;
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _searchController.text.trim().toLowerCase();
+    final filteredClients =
+        query.isEmpty
+            ? widget.clients
+            : widget.clients
+                .where((client) {
+                  final name = client.fullName.toLowerCase();
+                  final phone = client.phone.toLowerCase();
+                  final email = (client.email ?? '').toLowerCase();
+                  return name.contains(query) ||
+                      phone.contains(query) ||
+                      email.contains(query);
+                })
+                .toList(growable: false);
+    final filteredIds = filteredClients.map((c) => c.id).toSet();
+    final selectedFilteredCount =
+        _selectedClientIds.where(filteredIds.contains).length;
+    final canSelectFiltered =
+        filteredClients.isNotEmpty &&
+        selectedFilteredCount < filteredClients.length;
+
+    return AlertDialog(
+      title: const Text('Assegna questionario a cliente'),
+      content: SizedBox(
+        width: 640,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (widget.templates.length == 1)
+              InputDecorator(
+                decoration: const InputDecoration(
+                  labelText: 'Template questionario',
+                ),
+                child: Text(widget.templates.first.name),
+              )
+            else
+              DropdownButtonFormField<String>(
+                value: _selectedTemplateId,
+                decoration: const InputDecoration(
+                  labelText: 'Template questionario',
+                ),
+                items:
+                    widget.templates
+                        .map(
+                          (template) => DropdownMenuItem<String>(
+                            value: template.id,
+                            child: Text(template.name),
+                          ),
+                        )
+                        .toList(),
+                onChanged: (value) {
+                  if (value == null) {
+                    return;
+                  }
+                  setState(() => _selectedTemplateId = value);
+                },
+              ),
+            const SizedBox(height: 12),
+            Text('Destinatari', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            SegmentedButton<_AssignTargetMode>(
+              segments: const [
+                ButtonSegment<_AssignTargetMode>(
+                  value: _AssignTargetMode.all,
+                  icon: Icon(Icons.groups_rounded),
+                  label: Text('Tutti i clienti'),
+                ),
+                ButtonSegment<_AssignTargetMode>(
+                  value: _AssignTargetMode.multi,
+                  icon: Icon(Icons.manage_search_rounded),
+                  label: Text('Ricerca + multiselezione'),
+                ),
+              ],
+              selected: <_AssignTargetMode>{_assignMode},
+              onSelectionChanged: (selection) {
+                final next = selection.firstOrNull;
+                if (next == null) {
+                  return;
+                }
+                setState(() => _assignMode = next);
+              },
+            ),
+            const SizedBox(height: 12),
+            if (_assignMode == _AssignTargetMode.all)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  'Verrà assegnato a ${widget.clients.length} clienti del salone.',
+                ),
+              )
+            else ...[
+              TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  labelText: 'Cerca cliente',
+                  hintText: 'Nome, telefono o email',
+                  suffixIcon:
+                      _searchController.text.isEmpty
+                          ? null
+                          : IconButton(
+                            tooltip: 'Pulisci',
+                            onPressed: () => setState(_searchController.clear),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Text(
+                    'Selezionati: ${_selectedClientIds.length}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const Spacer(),
+                  TextButton.icon(
+                    onPressed:
+                        _selectedClientIds.isEmpty
+                            ? null
+                            : () => setState(_selectedClientIds.clear),
+                    icon: const Icon(Icons.clear_rounded),
+                    label: const Text('Azzera'),
+                  ),
+                  TextButton.icon(
+                    onPressed:
+                        filteredClients.isEmpty
+                            ? null
+                            : () {
+                              setState(() {
+                                if (canSelectFiltered) {
+                                  _selectedClientIds.addAll(filteredIds);
+                                } else {
+                                  _selectedClientIds.removeAll(filteredIds);
+                                }
+                              });
+                            },
+                    icon: Icon(
+                      canSelectFiltered
+                          ? Icons.done_all_rounded
+                          : Icons.remove_done_rounded,
+                    ),
+                    label: Text(
+                      canSelectFiltered
+                          ? 'Seleziona filtrati'
+                          : 'Deseleziona filtrati',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Container(
+                constraints: const BoxConstraints(maxHeight: 260),
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child:
+                    filteredClients.isEmpty
+                        ? const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Text('Nessun cliente trovato.'),
+                          ),
+                        )
+                        : ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: filteredClients.length,
+                          itemBuilder: (context, index) {
+                            final client = filteredClients[index];
+                            final selected = _selectedClientIds.contains(
+                              client.id,
+                            );
+                            final subtitleParts = <String>[
+                              if (client.phone.trim().isNotEmpty)
+                                client.phone.trim(),
+                              if ((client.email ?? '').trim().isNotEmpty)
+                                (client.email ?? '').trim(),
+                            ];
+                            return CheckboxListTile(
+                              dense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
+                              value: selected,
+                              controlAffinity: ListTileControlAffinity.leading,
+                              title: Text(client.fullName),
+                              subtitle:
+                                  subtitleParts.isEmpty
+                                      ? null
+                                      : Text(subtitleParts.join(' • ')),
+                              onChanged: (value) {
+                                setState(() {
+                                  if (value ?? false) {
+                                    _selectedClientIds.add(client.id);
+                                  } else {
+                                    _selectedClientIds.remove(client.id);
+                                  }
+                                });
+                              },
+                            );
+                          },
+                        ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            const Text(
+              'Il questionario comparira nel drawer dell\'app cliente e potra essere compilato in autonomia.',
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Annulla'),
+        ),
+        FilledButton.icon(
+          onPressed:
+              _assignMode == _AssignTargetMode.multi &&
+                      _selectedClientIds.isEmpty
+                  ? null
+                  : () {
+                    final clientIds =
+                        _assignMode == _AssignTargetMode.all
+                            ? widget.clients
+                                .map((client) => client.id)
+                                .toList(growable: false)
+                            : _selectedClientIds.toList(growable: false);
+                    Navigator.of(context).pop(
+                      _AssignQuestionnaireRequest(
+                        templateId: _selectedTemplateId,
+                        clientIds: clientIds,
+                        assignMode: _assignMode,
+                      ),
+                    );
+                  },
+          icon: const Icon(Icons.send_rounded),
+          label: const Text('Assegna'),
+        ),
+      ],
+    );
+  }
+}
+
 class _TemplateCard extends StatelessWidget {
   const _TemplateCard({
     required this.template,
     required this.questionnaires,
+    required this.clients,
+    required this.onAssignToClient,
     required this.onEdit,
     required this.onDuplicate,
     required this.onDelete,
@@ -581,6 +1364,8 @@ class _TemplateCard extends StatelessWidget {
 
   final ClientQuestionnaireTemplate template;
   final List<ClientQuestionnaire> questionnaires;
+  final List<Client> clients;
+  final VoidCallback? onAssignToClient;
   final VoidCallback onEdit;
   final VoidCallback onDuplicate;
   final VoidCallback onDelete;
@@ -597,6 +1382,21 @@ class _TemplateCard extends StatelessWidget {
     );
     final usageCount =
         questionnaires.where((item) => item.templateId == template.id).length;
+    final assignedAppQuestionnaires = questionnaires
+        .where(
+          (item) => item.templateId == template.id && item.assignedToClientApp,
+        )
+        .toList(growable: false);
+    final pendingCount =
+        assignedAppQuestionnaires.where((item) => item.isPending).length;
+    final completedCount =
+        assignedAppQuestionnaires.where((item) => item.isCompleted).length;
+    final assignedClientIds =
+        assignedAppQuestionnaires.map((item) => item.clientId).toSet();
+    final coverageLabel =
+        clients.isEmpty
+            ? null
+            : '${assignedClientIds.length}/${clients.length} clienti';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
@@ -620,13 +1420,22 @@ class _TemplateCard extends StatelessWidget {
                               style: theme.textTheme.titleLarge,
                             ),
                           ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
                           if (template.isDefault)
-                            const Padding(
-                              padding: EdgeInsets.only(left: 8),
-                              child: Chip(
-                                label: Text('Predefinito'),
-                                avatar: Icon(Icons.star_rounded, size: 18),
-                              ),
+                            const Chip(
+                              label: Text('Predefinito'),
+                              avatar: Icon(Icons.star_rounded, size: 18),
+                            ),
+                          if (template.clientCanSelfComplete)
+                            const Chip(
+                              label: Text('Cliente app'),
+                              avatar: Icon(Icons.smartphone_rounded, size: 18),
                             ),
                         ],
                       ),
@@ -680,6 +1489,26 @@ class _TemplateCard extends StatelessWidget {
                       Text('$usageCount schede cliente'),
                     ],
                   ),
+                if (assignedAppQuestionnaires.isNotEmpty)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.pending_actions_rounded, size: 18),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Assegnati app: $completedCount completati, $pendingCount aperti',
+                      ),
+                    ],
+                  ),
+                if (coverageLabel != null)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.groups_rounded, size: 18),
+                      const SizedBox(width: 4),
+                      Text('Copertura: $coverageLabel'),
+                    ],
+                  ),
               ],
             ),
             const SizedBox(height: 16),
@@ -687,6 +1516,12 @@ class _TemplateCard extends StatelessWidget {
               spacing: 12,
               runSpacing: 12,
               children: [
+                if (template.clientCanSelfComplete)
+                  FilledButton.tonalIcon(
+                    onPressed: onAssignToClient,
+                    icon: const Icon(Icons.assignment_ind_rounded),
+                    label: const Text('Assegna a cliente'),
+                  ),
                 FilledButton.icon(
                   onPressed: onEdit,
                   icon: const Icon(Icons.edit_rounded),

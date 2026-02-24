@@ -75,6 +75,13 @@ service cloud.firestore {
           (currentSalonIds().size() == 0 || !isUserInitialized());
     }
 
+    function canManageQuestionnaireSalon(salonId) {
+      return salonId is string && (
+        canManageSalonDocument(salonId) ||
+        (isAdmin() && canViewAllSalons())
+      );
+    }
+
     function currentClientId() {
       let data = currentUserData();
       return data != null && data.clientId is string ? data.clientId : null;
@@ -135,6 +142,13 @@ service cloud.firestore {
       return request.resource != null && request.resource.data != null &&
           request.resource.data.templateId is string
           ? request.resource.data.templateId
+          : null;
+    }
+
+    function requestQuestionnaireStatus() {
+      return request.resource != null && request.resource.data != null &&
+          request.resource.data.status is string
+          ? request.resource.data.status
           : null;
     }
 
@@ -233,14 +247,55 @@ service cloud.firestore {
     function hasValidQuestionnaireTemplatePayload(data) {
       return data != null &&
           data.salonId is string && data.name is string &&
-          (data.description == null || data.description is string) &&
-          (data.isDefault == null || data.isDefault is bool) &&
+          (
+            !data.keys().hasAny(['description']) ||
+            data.description == null ||
+            data.description is string
+          ) &&
+          (
+            !data.keys().hasAny(['isDefault']) ||
+            data.isDefault == null ||
+            data.isDefault is bool
+          ) &&
+          (
+            !data.keys().hasAny(['clientCanSelfComplete']) ||
+            data.clientCanSelfComplete == null ||
+            data.clientCanSelfComplete is bool
+          ) &&
           data.groups is list;
     }
 
     function hasValidQuestionnairePayload(data) {
       return data != null && data.salonId is string && data.clientId is string &&
-          data.templateId is string && data.answers is map;
+          data.templateId is string && data.answers is map &&
+          (
+            !data.keys().hasAny(['status']) ||
+            data.status == null ||
+            (
+              data.status is string &&
+              ['assigned', 'draft', 'completed'].hasAny([data.status])
+            )
+          ) &&
+          (
+            !data.keys().hasAny(['assignedToClientApp']) ||
+            data.assignedToClientApp == null ||
+            data.assignedToClientApp is bool
+          ) &&
+          (
+            !data.keys().hasAny(['assignedAt']) ||
+            data.assignedAt == null ||
+            data.assignedAt is timestamp
+          ) &&
+          (
+            !data.keys().hasAny(['assignedByUserId']) ||
+            data.assignedByUserId == null ||
+            data.assignedByUserId is string
+          ) &&
+          (
+            !data.keys().hasAny(['completedAt']) ||
+            data.completedAt == null ||
+            data.completedAt is timestamp
+          );
     }
 
 
@@ -337,18 +392,21 @@ service cloud.firestore {
 
     match /client_questionnaire_templates/{templateId} {
       allow get: if isSignedIn() && canReadSalonDocument(resourceSalonId());
-      allow list: if isSignedIn() && isAdminOrStaff();
+      allow list: if isSignedIn() && (
+        (resourceSalonId() != null && canReadSalonDocument(resourceSalonId())) ||
+        (isAdmin() && canViewAllSalons())
+      );
 
       allow create: if isSignedIn() && isAdminOrStaff() &&
-          canManageSalonDocument(requestSalonId()) &&
+          canManageQuestionnaireSalon(requestSalonId()) &&
           hasValidQuestionnaireTemplatePayload(request.resource.data);
 
       allow update: if isSignedIn() && isAdminOrStaff() &&
-          canManageSalonDocument(resourceSalonId()) &&
+          canManageQuestionnaireSalon(resourceSalonId()) &&
           requestSalonId() == resourceSalonId();
 
       allow delete: if isSignedIn() && isAdminOrStaff() &&
-          canManageSalonDocument(resourceSalonId());
+          canManageQuestionnaireSalon(resourceSalonId());
     }
 
     match /client_questionnaires/{questionnaireId} {
@@ -360,7 +418,7 @@ service cloud.firestore {
       allow list: if isSignedIn() && (isAdminOrStaff() || isClient());
 
       allow create: if isSignedIn() && isAdminOrStaff() &&
-          canManageSalonDocument(requestSalonId()) &&
+          canManageQuestionnaireSalon(requestSalonId()) &&
           hasValidQuestionnairePayload(request.resource.data) &&
           requestTemplateId() != null &&
           exists(
@@ -370,22 +428,52 @@ service cloud.firestore {
             /databases/$(database)/documents/client_questionnaire_templates/$(requestTemplateId())
           ).data.salonId == requestSalonId();
 
-      allow update: if isSignedIn() && isAdminOrStaff() &&
-          canManageSalonDocument(resourceSalonId()) &&
-          hasValidQuestionnairePayload(request.resource.data) &&
-          resource.data.clientId == request.resource.data.clientId &&
-          resource.data.salonId == request.resource.data.salonId &&
-          request.resource.data.templateId == resource.data.templateId &&
-          requestTemplateId() != null &&
-          exists(
-            /databases/$(database)/documents/client_questionnaire_templates/$(requestTemplateId())
-          ) &&
-          get(
-            /databases/$(database)/documents/client_questionnaire_templates/$(requestTemplateId())
-          ).data.salonId == request.resource.data.salonId;
+      allow update: if isSignedIn() && (
+          (
+            isAdminOrStaff() &&
+            canManageQuestionnaireSalon(resourceSalonId()) &&
+            hasValidQuestionnairePayload(request.resource.data) &&
+            resource.data.clientId == request.resource.data.clientId &&
+            resource.data.salonId == request.resource.data.salonId &&
+            request.resource.data.templateId == resource.data.templateId &&
+            requestTemplateId() != null &&
+            exists(
+              /databases/$(database)/documents/client_questionnaire_templates/$(requestTemplateId())
+            ) &&
+            get(
+              /databases/$(database)/documents/client_questionnaire_templates/$(requestTemplateId())
+            ).data.salonId == request.resource.data.salonId
+          ) ||
+          (
+            isClient() &&
+            isOwnClient(resource != null ? resource.data.clientId : null) &&
+            resource != null && resource.data != null &&
+            resource.data.assignedToClientApp == true &&
+            hasValidQuestionnairePayload(request.resource.data) &&
+            request.resource != null && request.resource.data != null &&
+            request.resource.data.clientId == resource.data.clientId &&
+            request.resource.data.salonId == resource.data.salonId &&
+            request.resource.data.templateId == resource.data.templateId &&
+            request.resource.data.assignedToClientApp == resource.data.assignedToClientApp &&
+            request.resource.data.updatedAt is timestamp &&
+            (
+              (
+                requestQuestionnaireStatus() == 'completed' &&
+                request.resource.data.completedAt is timestamp
+              ) ||
+              (
+                requestQuestionnaireStatus() == 'draft' &&
+                (
+                  !request.resource.data.keys().hasAny(['completedAt']) ||
+                  request.resource.data.completedAt == null
+                )
+              )
+            )
+          )
+        );
 
       allow delete: if isSignedIn() && isAdminOrStaff() &&
-          canManageSalonDocument(resourceSalonId());
+          canManageQuestionnaireSalon(resourceSalonId());
     }
 
     match /clients/{clientId} {
@@ -648,6 +736,16 @@ service cloud.firestore {
           hasSalonAccess(requestSalonId());
       allow delete: if isSignedIn() && canManageSalonDocument(resourceSalonId());
       allow update: if false;
+    }
+
+    match /client_notes/{noteId} {
+      allow read: if isSignedIn() && canManageSalonDocument(resourceSalonId());
+      allow create, update, delete: if isSignedIn() &&
+          canManageSalonDocument(request.resource != null && request.resource.data != null &&
+              request.resource.data.salonId is string
+              ? request.resource.data.salonId
+              : resourceSalonId()) &&
+          (request.method != 'update' || requestSalonId() == resourceSalonId());
     }
 
     match /salon_sequences/{salonId} {

@@ -34,6 +34,7 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+tool/dart_defines.json
 
 # Symbolication related
 app.*.symbols
@@ -45,3 +46,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Android signing
+/android/key.properties
+/android/*.jks
+/android/*.keystore

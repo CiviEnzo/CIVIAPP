@@ -5,8 +5,9 @@ import 'package:you_book/app/providers.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/domain/entities/staff_role.dart';
+import 'package:you_book/presentation/common/hybrid_image_picker.dart';
 import 'package:collection/collection.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart' show XFile;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -68,6 +69,8 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
   bool _isUploadingAvatar = false;
   bool _hasSaved = false;
   bool _isEquipment = false;
+  bool _emailVerifiedOverride = false;
+  String? _lockedEmail;
   final Set<String> _pathsToDeleteOnSave = <String>{};
 
   @override
@@ -84,6 +87,10 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
     _lastNameController = TextEditingController(text: initial?.lastName ?? '');
     _phoneController = TextEditingController(text: initial?.phone ?? '');
     _emailController = TextEditingController(text: initial?.email ?? '');
+    _lockedEmail = (initial?.email ?? '').trim();
+    if (_lockedEmail != null && _lockedEmail!.isEmpty) {
+      _lockedEmail = null;
+    }
     _vacationAllowanceController = TextEditingController(
       text:
           '${initial?.vacationAllowance ?? StaffMember.defaultVacationAllowance}',
@@ -94,6 +101,7 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
     );
     _dateOfBirth = initial?.dateOfBirth;
     _isEquipment = initial?.isEquipment ?? false;
+    _emailVerifiedOverride = initial?.emailVerifiedOverride ?? false;
     final initialRoleIds = _normalizeRoleIds(initial?.roleIds ?? const []);
     if (initialRoleIds.isNotEmpty) {
       _selectedRoleIds = initialRoleIds;
@@ -192,24 +200,19 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
     if (_isUploadingAvatar) {
       return;
     }
-    final result = await FilePicker.platform.pickFiles(
-      allowMultiple: false,
-      type: FileType.image,
-      withData: true,
-      withReadStream: true,
-    );
-    if (!mounted || result == null || result.files.isEmpty) {
+    final file = await pickSingleImageFile(confirmButtonText: 'Seleziona');
+    if (!mounted || file == null) {
       return;
     }
-    final file = result.files.first;
-    if (file.size > _maxAvatarSourceBytes) {
+    final fileSize = await _resolveXFileLength(file);
+    if (fileSize > _maxAvatarSourceBytes) {
       final maxMb = (_maxAvatarSourceBytes / (1024 * 1024)).toStringAsFixed(1);
       setState(() {
         _avatarError = 'L\'immagine supera il limite di $maxMb MB.';
       });
       return;
     }
-    final bytes = await _resolveBytes(file);
+    final bytes = await _resolveXFileBytes(file);
     if (!mounted) {
       return;
     }
@@ -240,7 +243,9 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
       if (compressed != null) {
         uploadData = compressed;
       } else {
-        final fallbackExtension = _fallbackExtensionForUpload(file.extension);
+        final fallbackExtension = _fallbackExtensionForUpload(
+          _fileNameExtension(file.name),
+        );
         if (fallbackExtension == null) {
           if (!mounted) {
             return;
@@ -324,27 +329,32 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
     });
   }
 
-  Future<Uint8List?> _resolveBytes(PlatformFile file) async {
-    if (file.bytes != null && file.bytes!.isNotEmpty) {
-      return file.bytes;
-    }
-    final stream = file.readStream;
-    if (stream == null) {
-      return null;
-    }
-    final builder = BytesBuilder();
+  Future<int> _resolveXFileLength(XFile file) async {
     try {
-      await for (final chunk in stream) {
-        builder.add(chunk);
-        if (builder.length > _maxAvatarSourceBytes) {
-          return null;
-        }
+      return await file.length();
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<Uint8List?> _resolveXFileBytes(XFile file) async {
+    try {
+      final data = await file.readAsBytes();
+      if (data.isEmpty || data.length > _maxAvatarSourceBytes) {
+        return null;
       }
-      final data = builder.takeBytes();
-      return data.isEmpty ? null : data;
+      return data;
     } catch (_) {
       return null;
     }
+  }
+
+  String? _fileNameExtension(String fileName) {
+    final dotIndex = fileName.lastIndexOf('.');
+    if (dotIndex < 0 || dotIndex == fileName.length - 1) {
+      return null;
+    }
+    return fileName.substring(dotIndex + 1);
   }
 
   Future<_CompressedAvatar?> _compressAvatar(Uint8List bytes) async {
@@ -571,6 +581,66 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
                           : null,
             ),
             const SizedBox(height: 12),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Macchinario'),
+              subtitle: const Text(
+                'Usalo per rappresentare apparecchiature o cabine. Verrà escluso dalle vendite e non richiede email.',
+              ),
+              value: _isEquipment,
+              onChanged: (value) {
+                setState(() {
+                  _isEquipment = value;
+                  if (value) {
+                    if (_lockedEmail == null) {
+                      _emailController.clear();
+                    }
+                    _emailVerifiedOverride = false;
+                  }
+                });
+              },
+            ),
+            if (!_isEquipment) ...[
+              const SizedBox(height: 12),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Email verificata (admin)'),
+                subtitle: const Text(
+                  'Consente l\'accesso anche senza conferma via email.',
+                ),
+                value: _emailVerifiedOverride,
+                onChanged: (value) {
+                  setState(() {
+                    _emailVerifiedOverride = value;
+                  });
+                },
+              ),
+              const SizedBox(height: 8),
+              if (_lockedEmail != null) ...[
+                Text(
+                  'L\'email di accesso non è modificabile. '
+                  'Per cambiarla crea un nuovo account.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+              TextFormField(
+                controller: _emailController,
+                decoration: const InputDecoration(labelText: 'Email'),
+                keyboardType: TextInputType.emailAddress,
+                enabled: _lockedEmail == null,
+                validator: (value) {
+                  final text = value?.trim() ?? '';
+                  if (text.isNotEmpty && !text.contains('@')) {
+                    return 'Inserisci un\'email valida';
+                  }
+                  return null;
+                },
+              ),
+            ],
+            const SizedBox(height: 12),
             if (_hasRoles)
               FormField<List<String>>(
                 initialValue: List<String>.from(_selectedRoleIds),
@@ -640,64 +710,34 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
                   ),
                 ),
               ),
-            const SizedBox(height: 12),
-            GestureDetector(
-              onTap: _pickDateOfBirth,
-              child: InputDecorator(
-                decoration: const InputDecoration(
-                  labelText: 'Data di nascita',
-                  border: OutlineInputBorder(),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(dateLabel),
-                    const Icon(Icons.calendar_today_rounded, size: 18),
-                  ],
+            if (!_isEquipment) ...[
+              const SizedBox(height: 12),
+              GestureDetector(
+                onTap: _pickDateOfBirth,
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'Data di nascita',
+                    border: OutlineInputBorder(),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(dateLabel),
+                      const Icon(Icons.calendar_today_rounded, size: 18),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _phoneController,
-              decoration: const InputDecoration(labelText: 'Telefono'),
-              keyboardType: TextInputType.phone,
-            ),
-            const SizedBox(height: 12),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Macchinario'),
-              subtitle: const Text(
-                'Usalo per rappresentare apparecchiature o cabine. Verrà escluso dalle vendite e non richiede email.',
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _phoneController,
+                decoration: const InputDecoration(labelText: 'Telefono'),
+                keyboardType: TextInputType.phone,
               ),
-              value: _isEquipment,
-              onChanged: (value) {
-                setState(() {
-                  _isEquipment = value;
-                  if (value) {
-                    _emailController.clear();
-                  }
-                });
-              },
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _emailController,
-              decoration: const InputDecoration(labelText: 'Email'),
-              keyboardType: TextInputType.emailAddress,
-              enabled: !_isEquipment,
-
-              validator: (value) {
-                final text = value?.trim() ?? '';
-                if (text.isNotEmpty && !text.contains('@')) {
-                  return 'Inserisci un\'email valida';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 12),
+            ],
             if (widget.salons.isEmpty) ...[
+              const SizedBox(height: 12),
               Card(
                 color: theme.colorScheme.surfaceContainerHighest,
                 child: Padding(
@@ -710,32 +750,35 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
               ),
               const SizedBox(height: 12),
             ],
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _vacationAllowanceController,
-                    decoration: const InputDecoration(
-                      labelText: 'Ferie annue (giorni)',
+            if (!_isEquipment) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _vacationAllowanceController,
+                      decoration: const InputDecoration(
+                        labelText: 'Ferie annue (giorni)',
+                      ),
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     ),
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextFormField(
-                    controller: _permissionAllowanceController,
-                    decoration: const InputDecoration(
-                      labelText: 'Permessi annui',
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _permissionAllowanceController,
+                      decoration: const InputDecoration(
+                        labelText: 'Permessi annui',
+                      ),
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     ),
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ],
             const SizedBox(height: 24),
             Align(
               alignment: Alignment.centerRight,
@@ -778,7 +821,7 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
     }
 
     final phone = _phoneController.text.trim();
-    final email = _emailController.text.trim();
+    final email = (_lockedEmail ?? _emailController.text).trim();
     final staff = StaffMember(
       id: _staffId,
       salonId: _salonId!,
@@ -788,6 +831,7 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
       phone: phone.isEmpty ? null : phone,
       email: email.isEmpty ? null : email,
       isEquipment: _isEquipment,
+      emailVerifiedOverride: _isEquipment ? false : _emailVerifiedOverride,
       dateOfBirth: _dateOfBirth,
       vacationAllowance: _parseAllowance(
         _vacationAllowanceController,

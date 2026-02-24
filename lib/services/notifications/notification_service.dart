@@ -30,6 +30,10 @@ class NotificationService {
     if (_initialized) {
       return;
     }
+    if (kIsWeb) {
+      _initialized = true;
+      return;
+    }
 
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     const darwinInit = DarwinInitializationSettings(
@@ -103,6 +107,9 @@ class NotificationService {
       if (kDebugMode) {
         throw StateError('NotificationService not initialised');
       }
+      return;
+    }
+    if (kIsWeb) {
       return;
     }
 

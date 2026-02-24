@@ -4,8 +4,10 @@ import 'package:you_book/app/providers.dart';
 import 'package:you_book/app/router_constants.dart';
 import 'package:you_book/domain/entities/user_role.dart';
 import 'package:you_book/presentation/screens/admin/admin_dashboard_screen.dart';
+import 'package:you_book/presentation/screens/auth/center_registration_screen.dart';
 import 'package:you_book/presentation/screens/auth/client_registration_screen.dart';
 import 'package:you_book/presentation/screens/auth/onboarding_screen.dart';
+import 'package:you_book/presentation/screens/auth/password_reset_screen.dart';
 import 'package:you_book/presentation/screens/auth/sign_in_screen.dart';
 import 'package:you_book/presentation/screens/client/client_dashboard_screen.dart';
 import 'package:you_book/presentation/screens/client/client_salon_discovery_screen.dart';
@@ -27,12 +29,16 @@ GoRouter createRouter(Ref ref) {
         path: '/',
         name: 'sign_in',
         builder: (context, state) {
+          final noticeMessage = state.uri.queryParameters[noticeQueryParam];
           final showVerificationNotice =
               state.uri.queryParameters[verifyEmailQueryParam] == '1';
           const verificationMessage =
               'Registrazione completata. Controlla la tua email e conferma l\'indirizzo prima di accedere.';
+          final message =
+              noticeMessage ??
+              (showVerificationNotice ? verificationMessage : null);
           return SignInScreen(
-            notice: showVerificationNotice ? verificationMessage : null,
+            notice: message,
           );
         },
       ),
@@ -40,6 +46,19 @@ GoRouter createRouter(Ref ref) {
         path: '/register',
         name: 'client_register',
         builder: (context, state) => const ClientRegistrationScreen(),
+      ),
+      GoRoute(
+        path: '/register-center',
+        name: 'center_register',
+        builder: (context, state) => const CenterRegistrationScreen(),
+      ),
+      GoRoute(
+        path: '/password-reset',
+        name: 'password_reset',
+        builder:
+            (context, state) => PasswordResetScreen(
+              initialEmail: state.uri.queryParameters['email'],
+            ),
       ),
       GoRoute(
         path: '/onboarding',
@@ -72,14 +91,21 @@ GoRouter createRouter(Ref ref) {
       final registrationInProgress = ref.read(
         clientRegistrationInProgressProvider,
       );
+      final centerRegistrationInProgress = ref.read(
+        centerRegistrationInProgressProvider,
+      );
       final isAuthenticated = session.user != null;
       final loggingIn = state.matchedLocation == '/';
       final registering = state.matchedLocation == '/register';
+      final registeringCenter = state.matchedLocation == '/register-center';
+      final resettingPassword = state.matchedLocation == '/password-reset';
       final onboarding = state.matchedLocation == '/onboarding';
       final requiresProfile = session.requiresProfile;
       final requiresEmailVerification = session.requiresEmailVerification;
       final selectedSalonId = session.salonId;
       final hasClientProfile = session.user?.clientId != null;
+      final isAdminDisabled =
+          session.role == UserRole.admin && session.user?.isEnabled == false;
       final canEnterClientDashboard =
           session.role == UserRole.client &&
           selectedSalonId != null &&
@@ -90,8 +116,25 @@ GoRouter createRouter(Ref ref) {
         return null;
       }
 
+      if (registeringCenter && centerRegistrationInProgress) {
+        return null;
+      }
+
+      if (isAdminDisabled) {
+        unawaited(ref.read(authRepositoryProvider).signOut());
+        if (loggingIn) {
+          return null;
+        }
+        return Uri(
+          path: '/',
+          queryParameters: const {
+            noticeQueryParam: 'Account in attesa di abilitazione.',
+          },
+        ).toString();
+      }
+
       if (!isAuthenticated) {
-        if (loggingIn || registering) {
+        if (loggingIn || registering || registeringCenter || resettingPassword) {
           return null;
         }
         return '/';
@@ -121,7 +164,7 @@ GoRouter createRouter(Ref ref) {
         return destination;
       }
 
-      if (registering || onboarding) {
+      if (registering || registeringCenter || onboarding || resettingPassword) {
         return destination;
       }
 

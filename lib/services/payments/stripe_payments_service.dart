@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:http/http.dart' as http;
@@ -52,6 +53,9 @@ class StripePaymentsService {
     String? customerId,
     Map<String, dynamic>? metadataOverrides,
   }) async {
+    if (kIsWeb) {
+      throw StateError('Pagamento Stripe non disponibile su web.');
+    }
     if (cart.isEmpty) {
       throw StateError('Il carrello è vuoto.');
     }
@@ -129,6 +133,9 @@ class StripePaymentsService {
     String? clientName,
     String? salonName,
   }) async {
+    if (kIsWeb) {
+      throw StateError('Pagamento Stripe non disponibile su web.');
+    }
     if (totalAmount <= 0) {
       throw StateError('Il totale del preventivo non è valido.');
     }

@@ -6,6 +6,7 @@ Future<T?> showAppModalSheet<T>({
   bool barrierDismissible = false,
   bool includeCloseButton = true,
   VoidCallback? onClose,
+  double desktopMaxWidth = 720,
 }) {
   return showDialog<T>(
     context: context,
@@ -20,27 +21,43 @@ Future<T?> showAppModalSheet<T>({
           includeCloseButton
               ? _ModalSheetCloseWrapper(child: content, onClose: onClose)
               : content;
+      final dismissableContent = GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () => FocusScope.of(ctx).unfocus(),
+        child: wrappedContent,
+      );
       final shape = RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
       );
       const compactPadding = EdgeInsets.fromLTRB(16, 16, 16, 16);
 
       if (isCompactWidth) {
+        final shouldExpandToInsets = mediaQuery.viewInsets.bottom > 0;
+        final sheetBody = Material(
+          color: theme.colorScheme.surface,
+          elevation: 6,
+          shadowColor: Colors.black.withOpacity(0.25),
+          shape: shape,
+          clipBehavior: Clip.antiAlias,
+          child: dismissableContent,
+        );
+
         return Dialog.fullscreen(
           backgroundColor: Colors.transparent,
-          child: SafeArea(
-            child: AnimatedPadding(
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeOutCubic,
-              padding: mediaQuery.viewInsets + compactPadding,
-              child: Material(
-                color: theme.colorScheme.surface,
-                elevation: 6,
-                shadowColor: Colors.black.withOpacity(0.25),
-                shape: shape,
-                clipBehavior: Clip.antiAlias,
-                child: wrappedContent,
-              ),
+          child: Padding(
+            padding: compactPadding,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final maxHeight = constraints.maxHeight;
+                final minHeight = shouldExpandToInsets ? maxHeight : 0.0;
+                return ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: minHeight,
+                    maxHeight: maxHeight,
+                  ),
+                  child: sheetBody,
+                );
+              },
             ),
           ),
         );
@@ -52,8 +69,8 @@ Future<T?> showAppModalSheet<T>({
         shape: shape,
         clipBehavior: Clip.antiAlias,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720),
-          child: wrappedContent,
+          constraints: BoxConstraints(maxWidth: desktopMaxWidth),
+          child: dismissableContent,
         ),
       );
     },
