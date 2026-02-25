@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -90,9 +91,13 @@ class StripeConnectService {
     required Map<String, dynamic> body,
   }) async {
     final uri = _resolveFunctionUrl(path);
+    final authHeaders = await _buildAuthHeaders();
     final response = await _client.post(
       uri,
-      headers: const {'Content-Type': 'application/json'},
+      headers: <String, String>{
+        'Content-Type': 'application/json',
+        ...authHeaders,
+      },
       body: jsonEncode(body),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -105,6 +110,18 @@ class StripeConnectService {
       return decoded;
     }
     throw Exception('Risposta inattesa dal backend Stripe');
+  }
+
+  Future<Map<String, String>> _buildAuthHeaders() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw StateError('Utente non autenticato.');
+    }
+    final token = await user.getIdToken();
+    if (token == null || token.isEmpty) {
+      throw StateError('Token Firebase non disponibile.');
+    }
+    return <String, String>{'Authorization': 'Bearer $token'};
   }
 
   Uri _resolveFunctionUrl(String functionName) {

@@ -1237,10 +1237,6 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     BuildContext? overrideContext,
   }) async {
     final targetContext = overrideContext ?? context;
-    if (slot.requiresImmediatePayment && !_isClientPurchaseEnabled()) {
-      _showPurchasesDisabledSnackBar(targetContext);
-      return;
-    }
     final service = services.firstWhereOrNull(
       (service) => service.id == slot.serviceId,
     );
@@ -1255,17 +1251,31 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       return;
     }
 
+    final onlineCheckoutAvailable =
+        _isClientPurchaseEnabled() && salon.canAcceptOnlinePayments;
+    final effectivePaymentMode =
+        slot.paymentMode == LastMinutePaymentMode.online &&
+                !onlineCheckoutAvailable
+            ? LastMinutePaymentMode.onSite
+            : slot.paymentMode;
+    final isOnSiteFallbackForDisabledOnlinePayments =
+        slot.paymentMode == LastMinutePaymentMode.online &&
+        effectivePaymentMode == LastMinutePaymentMode.onSite;
+
     final confirmed = await _showLastMinuteSummary(
       context: targetContext,
       slot: slot,
       service: service,
+      paymentMode: effectivePaymentMode,
+      isOnSiteFallbackForDisabledOnlinePayments:
+          isOnSiteFallbackForDisabledOnlinePayments,
     );
     if (!mounted || !confirmed) {
       return;
     }
 
     final success =
-        slot.requiresImmediatePayment
+        effectivePaymentMode == LastMinutePaymentMode.online
             ? await _checkoutLastMinuteSlot(
               context: targetContext,
               client: client,
@@ -1290,6 +1300,8 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     required BuildContext context,
     required LastMinuteSlot slot,
     Service? service,
+    required LastMinutePaymentMode paymentMode,
+    bool isOnSiteFallbackForDisabledOnlinePayments = false,
   }) async {
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
     final dateLabel = DateFormat('EEEE d MMMM', 'it_IT').format(slot.start);
@@ -1308,11 +1320,10 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
             : countdownDiff.inHours >= 1
             ? '${countdownDiff.inHours}h ${countdownDiff.inMinutes.remainder(60).toString().padLeft(2, '0')}m'
             : '${countdownDiff.inMinutes} min';
-    final paymentMode = slot.paymentMode;
     final paymentDescription =
         paymentMode == LastMinutePaymentMode.online
             ? 'Pagamento online immediato con Stripe'
-            : 'Pagamento in salone il giorno dell\'appuntamento';
+            : 'Pagamento in centro il giorno dell\'appuntamento';
     final IconData ctaIcon =
         paymentMode == LastMinutePaymentMode.online
             ? Icons.lock_rounded
@@ -1320,7 +1331,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     final String ctaLabel =
         paymentMode == LastMinutePaymentMode.online
             ? 'Paga ora'
-            : 'Prenota ora';
+            : 'Paga in centro';
 
     final result = await showModalBottomSheet<bool>(
       context: context,
@@ -1443,6 +1454,13 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
                             label: 'Pagamento',
                             value: paymentDescription,
                           ),
+                          if (isOnSiteFallbackForDisabledOnlinePayments)
+                            detailCard(
+                              icon: Icons.info_outline_rounded,
+                              label: 'Nota',
+                              value:
+                                  'Il pagamento online non è disponibile per questo salone. Puoi comunque confermare il last-minute e pagare in centro.',
+                            ),
                           const SizedBox(height: 12),
 
                           const SizedBox(height: 24),
@@ -1516,7 +1534,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
                         if (paymentMode == LastMinutePaymentMode.onSite) ...[
                           const SizedBox(height: 8),
                           Text(
-                            'Non ti addebitiamo nulla ora: pagherai in salone al termine del servizio.',
+                            'Non ti addebitiamo nulla ora: pagherai in centro al termine del servizio.',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: scheme.onSurfaceVariant,
                               height: 1.3,
@@ -1796,7 +1814,9 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     if (!salon.canAcceptOnlinePayments) {
       messenger.showSnackBar(
         const SnackBar(
-          content: Text('Il salone non ha ancora attivato i pagamenti online.'),
+          content: Text(
+            'Il salone ha disattivato o non ha ancora attivato i pagamenti online.',
+          ),
         ),
       );
       return;
@@ -3093,11 +3113,12 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     final cartNotifier = ref.read(cartControllerProvider.notifier);
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
     final items = cartState.items;
+    final salonSupportsOnlinePayments = salon?.canAcceptOnlinePayments ?? false;
     final canCheckout =
         clientPurchasesEnabled &&
         items.isNotEmpty &&
         !cartState.isProcessing &&
-        salon?.stripeAccountId != null;
+        salonSupportsOnlinePayments;
 
     Future<void> handleCheckout() async {
       if (!clientPurchasesEnabled) {
@@ -3279,6 +3300,14 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
               const SizedBox(height: 12),
               Text(
                 'Acquisti online temporaneamente disattivati nell\'app clienti.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ] else if (salon != null && !salonSupportsOnlinePayments) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Il salone ha disattivato o non ha ancora attivato i pagamenti online.',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -3768,6 +3797,14 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     if (cartState.items.isEmpty) {
       messenger.showSnackBar(
         const SnackBar(content: Text('Il carrello è vuoto.')),
+      );
+      return;
+    }
+    if (!salon.canAcceptOnlinePayments) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Il salone ha disattivato i pagamenti online.'),
+        ),
       );
       return;
     }

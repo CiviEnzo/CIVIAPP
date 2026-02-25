@@ -277,7 +277,24 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 final cartControllerProvider = StateNotifierProvider<CartController, CartState>(
   (ref) {
     final paymentsService = ref.watch(stripePaymentsServiceProvider);
-    return CartController(paymentsService: paymentsService);
+    final cartDraftScope = ref.watch(
+      sessionControllerProvider.select((state) {
+        final uid = state.uid?.trim();
+        final userId = state.userId?.trim();
+        final salonId = state.salonId?.trim();
+        final normalizedUid = (uid != null && uid.isNotEmpty) ? uid : 'anon';
+        final normalizedUserId =
+            (userId != null && userId.isNotEmpty) ? userId : 'no-user';
+        final normalizedSalonId =
+            (salonId != null && salonId.isNotEmpty) ? salonId : 'no-salon';
+        return '$normalizedUid:$normalizedUserId:$normalizedSalonId';
+      }),
+    );
+    return CartController(
+      paymentsService: paymentsService,
+      sharedPreferencesLoader: SharedPreferences.getInstance,
+      localDraftKey: 'client_cart_draft_v1:$cartDraftScope',
+    );
   },
 );
 

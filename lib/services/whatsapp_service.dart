@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
@@ -114,6 +115,46 @@ class WhatsAppSendResult {
   final bool success;
   final String? messageId;
   final Map<String, dynamic>? raw;
+}
+
+class MetaWhatsAppTemplate {
+  const MetaWhatsAppTemplate({
+    required this.name,
+    this.id,
+    this.language,
+    this.status,
+    this.category,
+    this.bodyPreview,
+    this.rejectedReason,
+  });
+
+  final String name;
+  final String? id;
+  final String? language;
+  final String? status;
+  final String? category;
+  final String? bodyPreview;
+  final String? rejectedReason;
+
+  factory MetaWhatsAppTemplate.fromMap(Map<String, dynamic> map) {
+    String? asTrimmedString(Object? value) {
+      if (value is! String) {
+        return null;
+      }
+      final trimmed = value.trim();
+      return trimmed.isEmpty ? null : trimmed;
+    }
+
+    return MetaWhatsAppTemplate(
+      name: asTrimmedString(map['name']) ?? 'template_senza_nome',
+      id: asTrimmedString(map['id']),
+      language: asTrimmedString(map['language']),
+      status: asTrimmedString(map['status']),
+      category: asTrimmedString(map['category']),
+      bodyPreview: asTrimmedString(map['bodyPreview']),
+      rejectedReason: asTrimmedString(map['rejectedReason']),
+    );
+  }
 }
 
 class WhatsAppService {
@@ -289,7 +330,12 @@ class WhatsAppService {
       },
     );
 
-    final response = await _client.get(uri);
+    final idToken = await _requireFirebaseIdToken();
+
+    final response = await _client.get(
+      uri,
+      headers: {'Authorization': 'Bearer $idToken'},
+    );
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
       final authUrl = decoded['authUrl'] as String?;
@@ -310,6 +356,64 @@ class WhatsAppService {
     if (!launched) {
       throw WhatsAppSendException('Impossibile aprire il browser');
     }
+  }
+
+  Future<List<MetaWhatsAppTemplate>> listMetaTemplates({
+    required String salonId,
+    int limit = 100,
+  }) async {
+    final functionUri = _resolveFunctionUrl('listWhatsappTemplates');
+    final uri = functionUri.replace(
+      queryParameters: {'salonId': salonId, 'limit': '$limit'},
+    );
+    final idToken = await _requireFirebaseIdToken();
+    final response = await _client.get(
+      uri,
+      headers: {'Authorization': 'Bearer $idToken'},
+    );
+
+    final decodedBody =
+        response.body.isEmpty
+            ? const <String, dynamic>{}
+            : jsonDecode(response.body);
+    final body =
+        decodedBody is Map<String, dynamic> ? decodedBody : <String, dynamic>{};
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw WhatsAppSendException(
+        'Impossibile leggere i template Meta (${response.statusCode}): '
+        '${body['error'] ?? response.body}',
+      );
+    }
+
+    final rawTemplates = body['templates'];
+    if (rawTemplates is! List) {
+      return const <MetaWhatsAppTemplate>[];
+    }
+
+    return rawTemplates
+        .whereType<Map>()
+        .map(
+          (item) =>
+              MetaWhatsAppTemplate.fromMap(Map<String, dynamic>.from(item)),
+        )
+        .toList(growable: false);
+  }
+
+  Future<String> _requireFirebaseIdToken() async {
+    final user = firebase_auth.FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw WhatsAppSendException(
+        'Devi essere autenticato per usare WhatsApp Business.',
+      );
+    }
+    final idToken = await user.getIdToken();
+    if (idToken == null || idToken.isEmpty) {
+      throw WhatsAppSendException(
+        'Impossibile ottenere il token di autenticazione.',
+      );
+    }
+    return idToken;
   }
 
   void dispose() {

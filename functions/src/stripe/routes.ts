@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { onRequest } from 'firebase-functions/v2/https';
 import * as functions from 'firebase-functions';
@@ -32,6 +33,14 @@ const getCorsOrigin = (): string => stripeAllowedOrigin.value() || '*';
 const getPlatformName = (): string => stripePlatformName.value() || 'CIVIAPP';
 const getApplicationFeeAmount = (): number => stripeApplicationFeeAmount.value();
 
+type StripeRequestUserContext = {
+  uid: string;
+  role: string | null;
+  salonIds: string[];
+  clientId: string | null;
+  email: string | null;
+};
+
 const respondMethodNotAllowed = (res: Response): void => {
   res.set('Allow', 'POST, OPTIONS');
   res.status(405).json({ error: 'Method not allowed' });
@@ -46,18 +55,48 @@ const getSalonStripeAccountId = async (
   salonId?: string,
   explicitAccountId?: string,
 ): Promise<string | null> => {
-  if (explicitAccountId) {
-    return explicitAccountId;
-  }
   if (!salonId) {
-    return null;
+    return explicitAccountId ?? null;
   }
   const snapshot = await db.collection('salons').doc(salonId).get();
   if (!snapshot.exists) {
     return null;
   }
   const data = snapshot.data() as { stripeAccountId?: string } | undefined;
-  return data?.stripeAccountId ?? null;
+  const storedAccountId = normalizeString(data?.stripeAccountId);
+  const explicit = normalizeString(explicitAccountId);
+  if (storedAccountId && explicit && storedAccountId !== explicit) {
+    throw new Error('Provided Stripe account does not match the salon-linked account');
+  }
+  return storedAccountId || explicit || null;
+};
+
+const getSalonClientOnlinePaymentsEnabled = async (
+  salonId: string,
+): Promise<boolean> => {
+  if (!salonId) {
+    return true;
+  }
+  const snapshot = await db.collection('salons').doc(salonId).get();
+  if (!snapshot.exists) {
+    return true;
+  }
+  const data = snapshot.data() as
+    | {
+        featureFlags?: Record<string, unknown>;
+        features?: Record<string, unknown>;
+      }
+    | undefined;
+  const featureFlags = (data?.featureFlags ?? data?.features) as
+    | Record<string, unknown>
+    | undefined;
+  if (!featureFlags) {
+    return true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(featureFlags, 'clientOnlinePayments')) {
+    return true;
+  }
+  return normalizeBoolean(featureFlags.clientOnlinePayments, true);
 };
 
 const updateSalonAccountSnapshot = async (account: Stripe.Account): Promise<void> => {
@@ -92,6 +131,331 @@ const updateSalonAccountSnapshot = async (account: Stripe.Account): Promise<void
   );
 };
 
+function extractBearerToken(req: Request): string | null {
+  const authorization = req.header('authorization') ?? req.header('Authorization');
+  if (!authorization) {
+    return null;
+  }
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || null;
+}
+
+function normalizeRole(value: unknown): string | null {
+  const normalized = normalizeString(value).toLowerCase();
+  return normalized || null;
+}
+
+function collectNormalizedIds(...sources: unknown[]): string[] {
+  const values = new Set<string>();
+  for (const source of sources) {
+    if (Array.isArray(source)) {
+      for (const item of source) {
+        const candidate = normalizeString(item);
+        if (candidate) {
+          values.add(candidate);
+        }
+      }
+      continue;
+    }
+    const candidate = normalizeString(source);
+    if (candidate) {
+      values.add(candidate);
+    }
+  }
+  return Array.from(values);
+}
+
+async function loadStripeRequestUser(req: Request, res: Response): Promise<StripeRequestUserContext | null> {
+  const token = extractBearerToken(req);
+  if (!token) {
+    res.status(401).json({ error: 'Missing Authorization bearer token' });
+    return null;
+  }
+
+  try {
+    const decoded = await getAuth().verifyIdToken(token);
+    const claimsRole = normalizeRole(decoded.role);
+    const claimsSalonIds = collectNormalizedIds(decoded.salonIds);
+    const claimsClientId = normalizeString(decoded.clientId) || null;
+
+    let profileRole: string | null = null;
+    let profileSalonIds: string[] = [];
+    let profileClientId: string | null = null;
+
+    try {
+      const userDoc = await db.collection('users').doc(decoded.uid).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data() ?? {};
+        profileRole = normalizeRole(userData.role);
+        profileSalonIds = collectNormalizedIds(
+          userData.salonIds,
+          userData.managedSalonIds,
+          userData.joinedSalonIds,
+          userData.primarySalonId,
+          userData.salonId,
+        );
+        profileClientId = normalizeString(userData.clientId) || null;
+      }
+    } catch (error) {
+      console.warn('Stripe auth: unable to load user profile', {
+        uid: decoded.uid,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    return {
+      uid: decoded.uid,
+      role: profileRole ?? claimsRole,
+      salonIds: profileSalonIds.length > 0 ? profileSalonIds : claimsSalonIds,
+      clientId: profileClientId ?? claimsClientId,
+      email: typeof decoded.email === 'string' ? decoded.email : null,
+    };
+  } catch (error) {
+    console.warn('Stripe auth: token verification failed', error);
+    res.status(401).json({ error: 'Invalid authentication token' });
+    return null;
+  }
+}
+
+async function requireSalonAdmin(
+  req: Request,
+  res: Response,
+  salonId: string,
+): Promise<StripeRequestUserContext | null> {
+  const user = await loadStripeRequestUser(req, res);
+  if (!user) {
+    return null;
+  }
+  if (user.role !== 'admin') {
+    res.status(403).json({ error: 'Only salon admins can manage Stripe Connect' });
+    return null;
+  }
+  if (user.salonIds.length > 0 && !user.salonIds.includes(salonId)) {
+    res.status(403).json({ error: 'User is not authorized for the requested salon' });
+    return null;
+  }
+  return user;
+}
+
+async function requireAuthenticatedClientForPayment(
+  req: Request,
+  res: Response,
+  params: { salonId: string; clientId: string },
+): Promise<StripeRequestUserContext | null> {
+  const user = await loadStripeRequestUser(req, res);
+  if (!user) {
+    return null;
+  }
+  if (user.role !== 'client') {
+    res.status(403).json({ error: 'Only authenticated clients can initiate payments' });
+    return null;
+  }
+  if (user.clientId && user.clientId !== params.clientId) {
+    res.status(403).json({ error: 'Client does not match the authenticated user' });
+    return null;
+  }
+  if (user.salonIds.length > 0 && !user.salonIds.includes(params.salonId)) {
+    res.status(403).json({ error: 'Client does not have access to the requested salon' });
+    return null;
+  }
+  return user;
+}
+
+async function requireAuthenticatedClient(
+  req: Request,
+  res: Response,
+  clientId: string,
+): Promise<StripeRequestUserContext | null> {
+  const user = await loadStripeRequestUser(req, res);
+  if (!user) {
+    return null;
+  }
+  if (user.role !== 'client') {
+    res.status(403).json({ error: 'Only authenticated clients can access Stripe customer sessions' });
+    return null;
+  }
+  if (user.clientId && user.clientId !== clientId) {
+    res.status(403).json({ error: 'Client does not match the authenticated user' });
+    return null;
+  }
+  return user;
+}
+
+async function verifyClientStripeCustomerOwnership(params: {
+  clientId: string;
+  customerId: string;
+}): Promise<boolean> {
+  const snapshot = await db.collection(CLIENTS_COLLECTION).doc(params.clientId).get();
+  if (!snapshot.exists) {
+    return false;
+  }
+  const data = snapshot.data() ?? {};
+  const storedCustomerId = normalizeString(data.stripeCustomerId);
+  return !!storedCustomerId && storedCustomerId === params.customerId;
+}
+
+function normalizeStripeConnectBusinessType(
+  value: unknown,
+): Stripe.AccountCreateParams.BusinessType {
+  const normalized = normalizeString(value).toLowerCase();
+  if (normalized === 'individual' || normalized === 'company') {
+    return normalized as Stripe.AccountCreateParams.BusinessType;
+  }
+  throw new Error('businessType must be either "individual" or "company"');
+}
+
+type CreateStripePaymentIntentBody = {
+  amount?: number | string;
+  amountCents?: number | string;
+  currency?: string;
+  salonId?: string;
+  salonStripeAccountId?: string;
+  customerId?: string;
+  metadata?: Record<string, unknown>;
+  cartId?: string;
+  clientId?: string;
+  type?: string;
+};
+
+function parseMinorUnitsAmount(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function extractQuoteIdFromCreatePaymentBody(body: CreateStripePaymentIntentBody): string | null {
+  if (!body.metadata || typeof body.metadata !== 'object') {
+    return null;
+  }
+  const metadata = body.metadata as Record<string, unknown>;
+  const quoteId = normalizeString(metadata.quoteId);
+  return quoteId || null;
+}
+
+function computeQuoteItemsTotalCents(itemsRaw: unknown): number {
+  if (!Array.isArray(itemsRaw) || itemsRaw.length === 0) {
+    return 0;
+  }
+  let totalCents = 0;
+  for (const raw of itemsRaw) {
+    if (!raw || typeof raw !== 'object') {
+      continue;
+    }
+    const item = raw as Record<string, unknown>;
+    const quantity = Math.max(1, Math.round(normalizeNumber(item.quantity, 1)));
+    const unitPrice = normalizeCurrency(item.unitPrice ?? 0);
+    totalCents += Math.round(unitPrice * quantity * 100);
+  }
+  return totalCents;
+}
+
+async function resolveExpectedAmountCentsForPaymentIntent(
+  body: CreateStripePaymentIntentBody,
+): Promise<number> {
+  const cartId = normalizeString(body.cartId);
+  const quoteId = extractQuoteIdFromCreatePaymentBody(body);
+
+  if (quoteId || normalizeString(body.type) === 'quote') {
+    if (!quoteId) {
+      throw new Error('quoteId is required in metadata for quote payments');
+    }
+
+    const quoteSnap = await db.collection('quotes').doc(quoteId).get();
+    if (!quoteSnap.exists) {
+      throw new Error(`Quote ${quoteId} not found`);
+    }
+    const quoteData = quoteSnap.data() ?? {};
+
+    const quoteSalonId = normalizeString(quoteData.salonId);
+    if (body.salonId && quoteSalonId && quoteSalonId !== body.salonId) {
+      throw new Error('quote salonId mismatch');
+    }
+    const quoteClientId = normalizeString(quoteData.clientId);
+    if (body.clientId && quoteClientId && quoteClientId !== body.clientId) {
+      throw new Error('quote clientId mismatch');
+    }
+
+    let amountCents = parseMinorUnitsAmount(quoteData.totalAmountCents);
+    if (!amountCents) {
+      const totalValue = normalizeNumber(quoteData.total, 0);
+      if (totalValue > 0) {
+        amountCents = Math.round(normalizeCurrency(totalValue) * 100);
+      }
+    }
+    if (!amountCents) {
+      amountCents = computeQuoteItemsTotalCents(quoteData.items);
+    }
+    if (!amountCents || amountCents <= 0) {
+      throw new Error('Invalid quote total for payment');
+    }
+    return amountCents;
+  }
+
+  if (!cartId) {
+    throw new Error('cartId is required for cart payments');
+  }
+
+  const cartSnap = await db.collection(CARTS_COLLECTION).doc(cartId).get();
+  if (!cartSnap.exists) {
+    throw new Error(`Cart ${cartId} not found`);
+  }
+  const cartData = cartSnap.data() ?? {};
+
+  const cartSalonId = normalizeString(cartData.salonId);
+  if (body.salonId && cartSalonId && cartSalonId !== body.salonId) {
+    throw new Error('cart salonId mismatch');
+  }
+  const cartClientId = normalizeString(cartData.clientId);
+  if (body.clientId && cartClientId && cartClientId !== body.clientId) {
+    throw new Error('cart clientId mismatch');
+  }
+
+  const cartItems = extractCartItems(cartData);
+  if (cartItems.length === 0) {
+    throw new Error('Cart is empty');
+  }
+  const amountCents = Math.round(
+    normalizeCurrency(
+      cartItems.reduce((sum, item) => sum + computeCartItemSubtotal(item), 0),
+    ) * 100,
+  );
+  if (!amountCents || amountCents <= 0) {
+    throw new Error('Invalid cart total for payment');
+  }
+  return amountCents;
+}
+
+function buildPaymentIntentIdempotencyKey(params: {
+  body: CreateStripePaymentIntentBody;
+  stripeAccountId: string;
+  amountCents: number;
+  currency: string;
+}): string {
+  const cartId = normalizeString(params.body.cartId);
+  const quoteId = extractQuoteIdFromCreatePaymentBody(params.body);
+  const subject = quoteId
+    ? `quote:${quoteId}`
+    : cartId
+      ? `cart:${cartId}`
+      : `type:${normalizeString(params.body.type) || 'generic'}`;
+  const raw = [
+    'civiapp',
+    'pi',
+    subject,
+    params.stripeAccountId,
+    String(params.amountCents),
+    params.currency.toLowerCase(),
+  ].join(':');
+  return raw.length <= 255 ? raw : raw.slice(0, 255);
+}
+
 export const createStripeConnectAccount = onRequest(
   { secrets: [stripeSecretKey], cors: false, region: 'europe-west3' },
   async (req: Request, res: Response) => {
@@ -112,10 +476,30 @@ export const createStripeConnectAccount = onRequest(
         salonId?: string;
       }>(req.body);
 
-      const { email, country = 'IT', businessType = 'individual', salonId } = body;
+      const email = normalizeString(body.email);
+      const country = normalizeString(body.country).toUpperCase() || 'IT';
+      const salonId = normalizeString(body.salonId);
+      let businessType: Stripe.AccountCreateParams.BusinessType;
+      try {
+        businessType = normalizeStripeConnectBusinessType(body.businessType ?? 'individual');
+      } catch (error) {
+        res.status(400).json({
+          error: error instanceof Error ? error.message : 'Invalid businessType',
+        });
+        return;
+      }
 
       if (!email) {
         res.status(400).json({ error: 'email is required' });
+        return;
+      }
+      if (!salonId) {
+        res.status(400).json({ error: 'salonId is required' });
+        return;
+      }
+
+      const requester = await requireSalonAdmin(req, res, salonId);
+      if (!requester) {
         return;
       }
 
@@ -146,6 +530,8 @@ export const createStripeConnectAccount = onRequest(
                 payoutsEnabled: account.payouts_enabled ?? false,
                 detailsSubmitted: account.details_submitted ?? false,
                 email: account.email ?? email,
+                requestedByUserId: requester.uid,
+                requestedByUserEmail: requester.email,
               },
             },
             { merge: true },
@@ -1620,6 +2006,28 @@ function normalizeString(value: unknown): string {
   return '';
 }
 
+function normalizeBoolean(value: unknown, fallback = false): boolean {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) {
+      return fallback;
+    }
+    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) {
+      return true;
+    }
+    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) {
+      return false;
+    }
+  }
+  return fallback;
+}
+
 function normalizeNumber(value: unknown, fallback = 0): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
@@ -1748,9 +2156,25 @@ export const createStripeOnboardingLink = onRequest(
         refresh_url?: string;
       }>(req.body);
 
-      const salonId = body.salonId;
+      const salonId = normalizeString(body.salonId);
+      if (!salonId) {
+        res.status(400).json({ error: 'salonId is required' });
+        return;
+      }
+      const requester = await requireSalonAdmin(req, res, salonId);
+      if (!requester) {
+        return;
+      }
       const explicitAccountId = body.accountId ?? body.account_id;
-      const accountId = await getSalonStripeAccountId(salonId, explicitAccountId);
+      let accountId: string | null;
+      try {
+        accountId = await getSalonStripeAccountId(salonId, explicitAccountId);
+      } catch (error) {
+        res.status(400).json({
+          error: error instanceof Error ? error.message : 'Invalid Stripe account linkage',
+        });
+        return;
+      }
       if (!accountId) {
         res.status(400).json({ error: 'Stripe account id missing or salon not linked' });
         return;
@@ -1784,6 +2208,7 @@ export const createStripeOnboardingLink = onRequest(
             {
               stripeAccount: {
                 lastOnboardingLinkCreatedAt: FieldValue.serverTimestamp(),
+                lastOnboardingLinkRequestedByUserId: requester.uid,
               },
             },
             { merge: true },
@@ -1814,30 +2239,78 @@ export const createStripePaymentIntent = onRequest(
     }
 
     try {
-      const body = parseJsonBody<{
-        amount?: number | string;
-        amountCents?: number | string;
-        currency?: string;
-        salonId?: string;
-        salonStripeAccountId?: string;
-        customerId?: string;
-        metadata?: Record<string, unknown>;
-        cartId?: string;
-        clientId?: string;
-        type?: string;
-      }>(req.body);
+      const body = parseJsonBody<CreateStripePaymentIntentBody>(req.body);
 
       const amountValue = body.amount ?? body.amountCents;
-      const amount = typeof amountValue === 'string' ? Number.parseInt(amountValue, 10) : amountValue;
-
-      if (!Number.isInteger(amount) || (amount as number) <= 0) {
+      const requestedAmount = parseMinorUnitsAmount(amountValue);
+      if (!requestedAmount) {
         res.status(400).json({ error: 'amount must be a positive integer (in the smallest currency unit)' });
         return;
       }
 
       const currency = (body.currency ?? 'eur').toLowerCase();
-      const salonId = body.salonId;
-      const stripeAccountId = await getSalonStripeAccountId(salonId, body.salonStripeAccountId);
+      const salonId = normalizeString(body.salonId);
+      const clientId = normalizeString(body.clientId);
+      if (!salonId) {
+        res.status(400).json({ error: 'salonId is required' });
+        return;
+      }
+      if (!clientId) {
+        res.status(400).json({ error: 'clientId is required' });
+        return;
+      }
+      const requester = await requireAuthenticatedClientForPayment(req, res, { salonId, clientId });
+      if (!requester) {
+        return;
+      }
+      const clientOnlinePaymentsEnabled = await getSalonClientOnlinePaymentsEnabled(salonId);
+      if (!clientOnlinePaymentsEnabled) {
+        res.status(403).json({ error: 'Salon online payments are disabled by admin' });
+        return;
+      }
+      if (body.customerId) {
+        const customerId = normalizeString(body.customerId);
+        if (!customerId) {
+          res.status(400).json({ error: 'customerId is invalid' });
+          return;
+        }
+        const ownsCustomer = await verifyClientStripeCustomerOwnership({
+          clientId,
+          customerId,
+        });
+        if (!ownsCustomer) {
+          res.status(403).json({ error: 'customerId does not belong to the authenticated client' });
+          return;
+        }
+      }
+
+      let amount: number;
+      try {
+        amount = await resolveExpectedAmountCentsForPaymentIntent({
+          ...body,
+          salonId,
+          clientId,
+        });
+      } catch (error) {
+        res.status(400).json({
+          error: error instanceof Error ? error.message : 'Unable to validate payment amount',
+        });
+        return;
+      }
+      if (requestedAmount !== amount) {
+        res.status(400).json({ error: 'Requested amount does not match server-calculated total' });
+        return;
+      }
+
+      let stripeAccountId: string | null;
+      try {
+        stripeAccountId = await getSalonStripeAccountId(salonId, body.salonStripeAccountId);
+      } catch (error) {
+        res.status(400).json({
+          error: error instanceof Error ? error.message : 'Invalid Stripe account linkage',
+        });
+        return;
+      }
 
       if (!stripeAccountId) {
         res.status(400).json({ error: 'salonStripeAccountId is required' });
@@ -1855,12 +2328,13 @@ export const createStripePaymentIntent = onRequest(
 
       const baseMetadata: Record<string, string> = {
         platform: getPlatformName(),
+        requesterUid: requester.uid,
       };
       if (salonId) {
         baseMetadata.salonId = salonId;
       }
-      if (body.clientId) {
-        baseMetadata.clientId = body.clientId;
+      if (clientId) {
+        baseMetadata.clientId = clientId;
       }
       if (body.cartId) {
         baseMetadata.cartId = body.cartId;
@@ -1870,6 +2344,16 @@ export const createStripePaymentIntent = onRequest(
       }
 
       const metadata = toStripeMetadata(body.metadata ?? {}, baseMetadata);
+      metadata.platform = getPlatformName();
+      metadata.requesterUid = requester.uid;
+      metadata.salonId = salonId;
+      metadata.clientId = clientId;
+      if (body.cartId) {
+        metadata.cartId = body.cartId;
+      }
+      if (body.type) {
+        metadata.type = body.type;
+      }
       const applicationFeeAmount = getApplicationFeeAmount();
 
       const params: Stripe.PaymentIntentCreateParams = {
@@ -1897,7 +2381,14 @@ export const createStripePaymentIntent = onRequest(
         };
       }
 
-      const intent = await stripe.paymentIntents.create(params);
+      const idempotencyKey = buildPaymentIntentIdempotencyKey({
+        body: { ...body, salonId, clientId },
+        stripeAccountId,
+        amountCents: amount,
+        currency,
+      });
+
+      const intent = await stripe.paymentIntents.create(params, { idempotencyKey });
 
       res.status(200).json({
         clientSecret: intent.client_secret,
@@ -1926,10 +2417,26 @@ export const createStripeEphemeralKey = onRequest(
     }
 
     try {
-      const body = parseJsonBody<{ customerId?: string }>(req.body);
-      const customerId = body.customerId;
+      const body = parseJsonBody<{ customerId?: string; clientId?: string }>(req.body);
+      const customerId = normalizeString(body.customerId);
       if (!customerId) {
         res.status(400).json({ error: 'customerId is required' });
+        return;
+      }
+      const clientId = normalizeString(body.clientId);
+      if (!clientId) {
+        res.status(400).json({ error: 'clientId is required' });
+        return;
+      }
+      if (!(await requireAuthenticatedClient(req, res, clientId))) {
+        return;
+      }
+      const ownsCustomer = await verifyClientStripeCustomerOwnership({
+        clientId,
+        customerId,
+      });
+      if (!ownsCustomer) {
+        res.status(403).json({ error: 'customerId does not belong to the authenticated client' });
         return;
       }
       const stripeVersion = req.header('Stripe-Version') ?? req.header('stripe-version');

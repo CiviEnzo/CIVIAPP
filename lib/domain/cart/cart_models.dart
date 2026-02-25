@@ -51,6 +51,40 @@ class CartItem {
 
   int get totalAmountCents => (totalAmount * 100).round();
 
+  Map<String, dynamic> toLocalMap() {
+    return <String, dynamic>{
+      'id': id,
+      'referenceId': referenceId,
+      'type': type.label,
+      'name': name,
+      'unitPrice': unitPrice,
+      'quantity': quantity,
+      if (metadata.isNotEmpty) 'metadata': _sanitizeLocalMap(metadata),
+    };
+  }
+
+  factory CartItem.fromLocalMap(Map<String, dynamic> data) {
+    final quantityRaw = data['quantity'];
+    final quantity =
+        quantityRaw is num
+            ? quantityRaw.toInt()
+            : int.tryParse('${quantityRaw ?? ''}') ?? 1;
+    final unitPriceRaw = data['unitPrice'];
+    final unitPrice =
+        unitPriceRaw is num
+            ? unitPriceRaw.toDouble()
+            : double.tryParse('${unitPriceRaw ?? ''}') ?? 0;
+    return CartItem(
+      id: data['id'] as String? ?? '',
+      referenceId: data['referenceId'] as String? ?? '',
+      type: CartItemTypeX.fromLabel(data['type'] as String? ?? ''),
+      name: data['name'] as String? ?? '',
+      unitPrice: unitPrice,
+      quantity: quantity <= 0 ? 1 : quantity,
+      metadata: _readLocalMetadataMap(data['metadata']),
+    );
+  }
+
   Map<String, dynamic> toFirestoreMap() {
     return <String, dynamic>{
       'id': id,
@@ -235,3 +269,42 @@ class CartState {
 }
 
 const Object _sentinel = Object();
+
+Map<String, dynamic> _readLocalMetadataMap(Object? raw) {
+  if (raw is! Map) {
+    return const <String, dynamic>{};
+  }
+  final result = <String, dynamic>{};
+  raw.forEach((key, value) {
+    result['$key'] = value;
+  });
+  return Map<String, dynamic>.unmodifiable(result);
+}
+
+Map<String, dynamic> _sanitizeLocalMap(Map<String, dynamic> map) {
+  final result = <String, dynamic>{};
+  map.forEach((key, value) {
+    final sanitized = _sanitizeLocalValue(value);
+    if (sanitized != null) {
+      result[key] = sanitized;
+    }
+  });
+  return result;
+}
+
+Object? _sanitizeLocalValue(Object? value) {
+  if (value == null || value is num || value is String || value is bool) {
+    return value;
+  }
+  if (value is List) {
+    return value.map(_sanitizeLocalValue).toList(growable: false);
+  }
+  if (value is Map) {
+    final result = <String, Object?>{};
+    value.forEach((key, nestedValue) {
+      result['$key'] = _sanitizeLocalValue(nestedValue);
+    });
+    return result;
+  }
+  return value.toString();
+}

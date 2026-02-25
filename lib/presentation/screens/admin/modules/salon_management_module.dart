@@ -1571,12 +1571,24 @@ class _StripeConnectCard extends ConsumerStatefulWidget {
   ConsumerState<_StripeConnectCard> createState() => _StripeConnectCardState();
 }
 
+class _StripeConnectAccountDraft {
+  const _StripeConnectAccountDraft({
+    required this.email,
+    required this.businessType,
+  });
+
+  final String email;
+  final String businessType;
+
+  bool get isCompany => businessType == 'company';
+}
+
 class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
   bool _isCreatingAccount = false;
   bool _isGeneratingLink = false;
+  bool _isUpdatingClientOnlinePayments = false;
 
-  static const _defaultReturnUrl =
-      'https://civiapp.app/stripe/onboarding/success';
+  static const _defaultReturnUrl = 'https://civiapp.it/youbook/stripe-success';
   static const _defaultRefreshUrl =
       'https://civiapp.app/stripe/onboarding/retry';
 
@@ -1586,6 +1598,7 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
     final theme = Theme.of(context);
     final accountId = salon.stripeAccountId;
     final accountSnapshot = salon.stripeAccount;
+    final clientOnlinePaymentsEnabled = salon.featureFlags.clientOnlinePayments;
     final chargesEnabled = accountSnapshot.chargesEnabled;
     final payoutsEnabled = accountSnapshot.payoutsEnabled;
     final detailsSubmitted = accountSnapshot.detailsSubmitted;
@@ -1593,14 +1606,18 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
     final statusText =
         accountId == null
             ? 'Account non collegato'
-            : chargesEnabled
+            : !clientOnlinePaymentsEnabled
+            ? 'Pagamenti disattivati dall\'admin'
+            : salon.canAcceptOnlinePayments
             ? 'Pagamenti attivi'
             : 'In attesa di verifica';
 
     final statusColor =
         accountId == null
             ? theme.colorScheme.error
-            : chargesEnabled
+            : !clientOnlinePaymentsEnabled
+            ? theme.colorScheme.tertiary
+            : salon.canAcceptOnlinePayments
             ? theme.colorScheme.primary
             : theme.colorScheme.secondary;
 
@@ -1618,10 +1635,12 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
                 Chip(
                   label: Text(statusText),
                   avatar: Icon(
-                    chargesEnabled
-                        ? Icons.verified_rounded
-                        : accountId == null
+                    accountId == null
                         ? Icons.warning_amber_rounded
+                        : !clientOnlinePaymentsEnabled
+                        ? Icons.pause_circle_filled_rounded
+                        : salon.canAcceptOnlinePayments
+                        ? Icons.verified_rounded
                         : Icons.pending_actions_rounded,
                   ),
                   backgroundColor: statusColor.withValues(alpha: 0.12),
@@ -1651,8 +1670,8 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
                   ),
                   label: Text(
                     chargesEnabled
-                        ? 'Transazioni abilitate'
-                        : 'Transazioni disabilitate',
+                        ? 'Stripe: transazioni abilitate'
+                        : 'Stripe: transazioni disabilitate',
                   ),
                   onPressed: null,
                 ),
@@ -1685,6 +1704,31 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
                     onPressed: null,
                   ),
               ],
+            ),
+            const SizedBox(height: 12),
+            Container(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: SwitchListTile.adaptive(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 2,
+                ),
+                value: clientOnlinePaymentsEnabled,
+                onChanged:
+                    _isUpdatingClientOnlinePayments
+                        ? null
+                        : (enabled) =>
+                            _handleClientOnlinePaymentsToggle(context, enabled),
+                title: const Text('Pagamenti online clienti'),
+                subtitle: Text(
+                  clientOnlinePaymentsEnabled
+                      ? 'Abilitati nell\'app clienti (se Stripe è pronto).'
+                      : 'Disabilitati dall\'admin. I clienti non potranno pagare online.',
+                ),
+              ),
             ),
             const SizedBox(height: 12),
             Wrap(
@@ -1762,22 +1806,26 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
   Future<void> _handleCreateAccount(BuildContext context) async {
     final salon = widget.salon;
     final messenger = ScaffoldMessenger.of(context);
-    final email = await _promptForEmail(context, salon.email);
+    final draft = await _promptForConnectAccount(context, salon.email);
     if (!mounted) {
       return;
     }
-    if (email == null) {
+    if (draft == null) {
       return;
     }
     setState(() => _isCreatingAccount = true);
     try {
       final service = ref.read(stripeConnectServiceProvider);
-      await service.createAccount(email: email, salonId: salon.id);
+      await service.createAccount(
+        email: draft.email,
+        salonId: salon.id,
+        businessType: draft.businessType,
+      );
       if (!mounted) return;
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            'Account Stripe creato per $email. Completa l\'onboarding.',
+            'Account Stripe creato (${draft.isCompany ? 'azienda' : 'persona fisica'}) per ${draft.email}. Completa l\'onboarding.',
           ),
         ),
       );
@@ -1839,52 +1887,138 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
     }
   }
 
-  Future<String?> _promptForEmail(
+  Future<void> _handleClientOnlinePaymentsToggle(
+    BuildContext context,
+    bool enabled,
+  ) async {
+    final salon = widget.salon;
+    if (salon.featureFlags.clientOnlinePayments == enabled) {
+      return;
+    }
+
+    setState(() => _isUpdatingClientOnlinePayments = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final store = ref.read(appDataProvider.notifier);
+      final updatedSalon = salon.copyWith(
+        featureFlags: salon.featureFlags.copyWith(
+          clientOnlinePayments: enabled,
+        ),
+      );
+      await store.upsertSalon(updatedSalon);
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            enabled
+                ? 'Pagamenti online clienti abilitati.'
+                : 'Pagamenti online clienti disabilitati. I last-minute potranno essere prenotati con pagamento in centro.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Impossibile aggiornare i pagamenti online del salone: $error',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isUpdatingClientOnlinePayments = false);
+      }
+    }
+  }
+
+  Future<_StripeConnectAccountDraft?> _promptForConnectAccount(
     BuildContext context,
     String? defaultEmail,
   ) async {
     final controller = TextEditingController(text: defaultEmail);
-    return showDialog<String>(
+    var selectedBusinessType = 'individual';
+    return showDialog<_StripeConnectAccountDraft>(
       context: context,
       builder: (dialogContext) {
         final formKey = GlobalKey<FormState>();
-        return AlertDialog(
-          title: const Text('Collega Stripe Connect'),
-          content: Form(
-            key: formKey,
-            child: TextFormField(
-              controller: controller,
-              decoration: const InputDecoration(
-                labelText: 'Email a cui intestare l\'account Stripe',
+        return StatefulBuilder(
+          builder:
+              (context, setDialogState) => AlertDialog(
+                title: const Text('Collega Stripe Connect'),
+                content: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextFormField(
+                        controller: controller,
+                        decoration: const InputDecoration(
+                          labelText: 'Email a cui intestare l\'account Stripe',
+                        ),
+                        autofocus: true,
+                        validator: (value) {
+                          final text = value?.trim() ?? '';
+                          if (text.isEmpty) {
+                            return 'Inserisci un indirizzo email valido';
+                          }
+                          final emailRegex = RegExp(r'^[^@]+@[^@]+\.[^@]+');
+                          if (!emailRegex.hasMatch(text)) {
+                            return 'Formato email non valido';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: selectedBusinessType,
+                        decoration: const InputDecoration(
+                          labelText: 'Tipo soggetto',
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'individual',
+                            child: Text('Persona fisica'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'company',
+                            child: Text('Azienda / ditta'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          if (value == null) {
+                            return;
+                          }
+                          setDialogState(() => selectedBusinessType = value);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Annulla'),
+                  ),
+                  FilledButton(
+                    onPressed: () {
+                      if (formKey.currentState?.validate() ?? false) {
+                        Navigator.of(dialogContext).pop(
+                          _StripeConnectAccountDraft(
+                            email: controller.text.trim(),
+                            businessType: selectedBusinessType,
+                          ),
+                        );
+                      }
+                    },
+                    child: const Text('Continua'),
+                  ),
+                ],
               ),
-              autofocus: true,
-              validator: (value) {
-                final text = value?.trim() ?? '';
-                if (text.isEmpty) {
-                  return 'Inserisci un indirizzo email valido';
-                }
-                final emailRegex = RegExp(r'^[^@]+@[^@]+\.[^@]+');
-                if (!emailRegex.hasMatch(text)) {
-                  return 'Formato email non valido';
-                }
-                return null;
-              },
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Annulla'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (formKey.currentState?.validate() ?? false) {
-                  Navigator.of(dialogContext).pop(controller.text.trim());
-                }
-              },
-              child: const Text('Continua'),
-            ),
-          ],
         );
       },
     );
