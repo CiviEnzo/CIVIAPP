@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -26,6 +27,14 @@ class WhatsAppConfig {
     required this.displayPhoneNumber,
     required this.tokenSecretId,
     required this.verifyTokenSecretId,
+    required this.graphApiVersion,
+    required this.tokenExpiresAt,
+    required this.connectedAt,
+    required this.onboardingStatus,
+    required this.lastPreviewSendStatus,
+    required this.lastPreviewSendMessageId,
+    required this.lastPreviewSendError,
+    required this.lastPreviewSendAt,
     required this.updatedAt,
   });
 
@@ -37,6 +46,14 @@ class WhatsAppConfig {
   final String? displayPhoneNumber;
   final String? tokenSecretId;
   final String? verifyTokenSecretId;
+  final String? graphApiVersion;
+  final DateTime? tokenExpiresAt;
+  final DateTime? connectedAt;
+  final String? onboardingStatus;
+  final String? lastPreviewSendStatus;
+  final String? lastPreviewSendMessageId;
+  final String? lastPreviewSendError;
+  final DateTime? lastPreviewSendAt;
   final DateTime? updatedAt;
 
   bool get isConfigured =>
@@ -48,14 +65,17 @@ class WhatsAppConfig {
     Map<String, dynamic> map, {
     required String salonId,
   }) {
-    final updatedAtRaw = map['updatedAt'];
-    DateTime? updatedAt;
-    if (updatedAtRaw is Timestamp) {
-      updatedAt = updatedAtRaw.toDate();
-    } else if (updatedAtRaw is DateTime) {
-      updatedAt = updatedAtRaw;
-    } else if (updatedAtRaw is String) {
-      updatedAt = DateTime.tryParse(updatedAtRaw);
+    DateTime? parseDate(Object? value) {
+      if (value is Timestamp) {
+        return value.toDate();
+      }
+      if (value is DateTime) {
+        return value;
+      }
+      if (value is String) {
+        return DateTime.tryParse(value);
+      }
+      return null;
     }
 
     return WhatsAppConfig(
@@ -67,7 +87,15 @@ class WhatsAppConfig {
       displayPhoneNumber: map['displayPhoneNumber'] as String?,
       tokenSecretId: map['tokenSecretId'] as String?,
       verifyTokenSecretId: map['verifyTokenSecretId'] as String?,
-      updatedAt: updatedAt,
+      graphApiVersion: map['graphApiVersion'] as String?,
+      tokenExpiresAt: parseDate(map['tokenExpiresAt']),
+      connectedAt: parseDate(map['connectedAt']),
+      onboardingStatus: map['onboardingStatus'] as String?,
+      lastPreviewSendStatus: map['lastPreviewSendStatus'] as String?,
+      lastPreviewSendMessageId: map['lastPreviewSendMessageId'] as String?,
+      lastPreviewSendError: map['lastPreviewSendError'] as String?,
+      lastPreviewSendAt: parseDate(map['lastPreviewSendAt']),
+      updatedAt: parseDate(map['updatedAt']),
     );
   }
 
@@ -79,6 +107,14 @@ class WhatsAppConfig {
     String? displayPhoneNumber,
     String? tokenSecretId,
     String? verifyTokenSecretId,
+    String? graphApiVersion,
+    DateTime? tokenExpiresAt,
+    DateTime? connectedAt,
+    String? onboardingStatus,
+    String? lastPreviewSendStatus,
+    String? lastPreviewSendMessageId,
+    String? lastPreviewSendError,
+    DateTime? lastPreviewSendAt,
     DateTime? updatedAt,
   }) {
     return WhatsAppConfig(
@@ -90,6 +126,16 @@ class WhatsAppConfig {
       displayPhoneNumber: displayPhoneNumber ?? this.displayPhoneNumber,
       tokenSecretId: tokenSecretId ?? this.tokenSecretId,
       verifyTokenSecretId: verifyTokenSecretId ?? this.verifyTokenSecretId,
+      graphApiVersion: graphApiVersion ?? this.graphApiVersion,
+      tokenExpiresAt: tokenExpiresAt ?? this.tokenExpiresAt,
+      connectedAt: connectedAt ?? this.connectedAt,
+      onboardingStatus: onboardingStatus ?? this.onboardingStatus,
+      lastPreviewSendStatus:
+          lastPreviewSendStatus ?? this.lastPreviewSendStatus,
+      lastPreviewSendMessageId:
+          lastPreviewSendMessageId ?? this.lastPreviewSendMessageId,
+      lastPreviewSendError: lastPreviewSendError ?? this.lastPreviewSendError,
+      lastPreviewSendAt: lastPreviewSendAt ?? this.lastPreviewSendAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
@@ -104,6 +150,19 @@ class WhatsAppConfig {
       if (tokenSecretId != null) 'tokenSecretId': tokenSecretId,
       if (verifyTokenSecretId != null)
         'verifyTokenSecretId': verifyTokenSecretId,
+      if (graphApiVersion != null) 'graphApiVersion': graphApiVersion,
+      if (tokenExpiresAt != null)
+        'tokenExpiresAt': Timestamp.fromDate(tokenExpiresAt!),
+      if (connectedAt != null) 'connectedAt': Timestamp.fromDate(connectedAt!),
+      if (onboardingStatus != null) 'onboardingStatus': onboardingStatus,
+      if (lastPreviewSendStatus != null)
+        'lastPreviewSendStatus': lastPreviewSendStatus,
+      if (lastPreviewSendMessageId != null)
+        'lastPreviewSendMessageId': lastPreviewSendMessageId,
+      if (lastPreviewSendError != null)
+        'lastPreviewSendError': lastPreviewSendError,
+      if (lastPreviewSendAt != null)
+        'lastPreviewSendAt': Timestamp.fromDate(lastPreviewSendAt!),
       if (updatedAt != null) 'updatedAt': Timestamp.fromDate(updatedAt!),
     };
   }
@@ -241,19 +300,49 @@ class WhatsAppService {
     }
   }
 
-  Stream<WhatsAppConfig?> watchConfig(String salonId) {
+  Stream<WhatsAppConfig?> watchConfig(String salonId) async* {
     final doc = _firestore.collection('salons').doc(salonId);
-    return doc.snapshots().map((snapshot) {
-      final data = snapshot.data();
-      if (data == null) {
-        return null;
+    var permissionDeniedRetries = 0;
+
+    while (true) {
+      try {
+        await _prepareFirestoreAuthSession();
+
+        await for (final snapshot in doc.snapshots()) {
+          permissionDeniedRetries = 0;
+          final data = snapshot.data();
+          if (data == null) {
+            yield null;
+            continue;
+          }
+          final whatsapp = data['whatsapp'];
+          if (whatsapp is Map<String, dynamic>) {
+            yield WhatsAppConfig.fromMap(whatsapp, salonId: salonId);
+            continue;
+          }
+          yield null;
+        }
+
+        return;
+      } on FirebaseException catch (error) {
+        final isPermissionDenied = error.code == 'permission-denied';
+        if (!isPermissionDenied || permissionDeniedRetries >= 2) {
+          rethrow;
+        }
+
+        permissionDeniedRetries += 1;
+        if (kDebugMode) {
+          debugPrint(
+            '[WhatsAppService] Firestore permission-denied transitorio su config WhatsApp, retry #$permissionDeniedRetries (salone: $salonId)',
+          );
+        }
+
+        await _refreshFirebaseAuthTokenIfAvailable();
+        await Future<void>.delayed(
+          Duration(milliseconds: 350 * permissionDeniedRetries),
+        );
       }
-      final whatsapp = data['whatsapp'];
-      if (whatsapp is Map<String, dynamic>) {
-        return WhatsAppConfig.fromMap(whatsapp, salonId: salonId);
-      }
-      return null;
-    });
+    }
   }
 
   Future<void> disconnect(String salonId) async {
@@ -264,6 +353,18 @@ class WhatsAppService {
       'whatsapp.displayPhoneNumber': FieldValue.delete(),
       'whatsapp.tokenSecretId': FieldValue.delete(),
       'whatsapp.verifyTokenSecretId': FieldValue.delete(),
+      'whatsapp.graphApiVersion': FieldValue.delete(),
+      'whatsapp.tokenExpiresAt': FieldValue.delete(),
+      'whatsapp.connectedAt': FieldValue.delete(),
+      'whatsapp.onboardingStatus': FieldValue.delete(),
+      'whatsapp.lastOnboardingErrorMessage': FieldValue.delete(),
+      'whatsapp.lastOnboardingErrorAt': FieldValue.delete(),
+      'whatsapp.lastPreviewSendStatus': FieldValue.delete(),
+      'whatsapp.lastPreviewSendAt': FieldValue.delete(),
+      'whatsapp.lastPreviewSendMessageId': FieldValue.delete(),
+      'whatsapp.lastPreviewSendError': FieldValue.delete(),
+      'whatsapp.lastPreviewSendByUserId': FieldValue.delete(),
+      'whatsapp.lastPreviewSendByEmail': FieldValue.delete(),
       'whatsapp.updatedAt': FieldValue.serverTimestamp(),
     });
   }
@@ -292,11 +393,7 @@ class WhatsAppService {
       );
     }
 
-    final response = await _client.post(
-      endpoint,
-      headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode(payload),
-    );
+    final response = await _authorizedPostJson(endpoint, payload);
 
     final decodedBody =
         response.body.isEmpty
@@ -330,12 +427,7 @@ class WhatsAppService {
       },
     );
 
-    final idToken = await _requireFirebaseIdToken();
-
-    final response = await _client.get(
-      uri,
-      headers: {'Authorization': 'Bearer $idToken'},
-    );
+    final response = await _authorizedGet(uri, forceRefreshFirst: true);
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
       final authUrl = decoded['authUrl'] as String?;
@@ -345,8 +437,16 @@ class WhatsAppService {
       return Uri.parse(authUrl);
     }
 
+    final decodedBody =
+        response.body.isEmpty
+            ? const <String, dynamic>{}
+            : jsonDecode(response.body);
+    final body =
+        decodedBody is Map<String, dynamic> ? decodedBody : <String, dynamic>{};
+
     throw WhatsAppSendException(
-      'Impossibile generare URL OAuth (${response.statusCode})',
+      'Impossibile generare URL OAuth (${response.statusCode}): '
+      '${body['error'] ?? response.body}',
     );
   }
 
@@ -366,11 +466,7 @@ class WhatsAppService {
     final uri = functionUri.replace(
       queryParameters: {'salonId': salonId, 'limit': '$limit'},
     );
-    final idToken = await _requireFirebaseIdToken();
-    final response = await _client.get(
-      uri,
-      headers: {'Authorization': 'Bearer $idToken'},
-    );
+    final response = await _authorizedGet(uri);
 
     final decodedBody =
         response.body.isEmpty
@@ -400,20 +496,119 @@ class WhatsAppService {
         .toList(growable: false);
   }
 
-  Future<String> _requireFirebaseIdToken() async {
+  Future<http.Response> _authorizedGet(
+    Uri uri, {
+    bool forceRefreshFirst = false,
+  }) async {
+    var idToken = await _requireFirebaseIdToken(
+      forceRefresh: forceRefreshFirst,
+    );
+    var response = await _client.get(
+      uri,
+      headers: {'Authorization': 'Bearer $idToken'},
+    );
+
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      if (kDebugMode) {
+        debugPrint(
+          '[WhatsAppService] auth ${response.statusCode}, retry con token refresh per $uri',
+        );
+      }
+      idToken = await _requireFirebaseIdToken(forceRefresh: true);
+      response = await _client.get(
+        uri,
+        headers: {'Authorization': 'Bearer $idToken'},
+      );
+    }
+
+    return response;
+  }
+
+  Future<http.Response> _authorizedPostJson(
+    Uri uri,
+    Map<String, dynamic> body, {
+    bool forceRefreshFirst = false,
+  }) async {
+    var idToken = await _requireFirebaseIdToken(
+      forceRefresh: forceRefreshFirst,
+    );
+    var response = await _client.post(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $idToken',
+      },
+      body: jsonEncode(body),
+    );
+
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      if (kDebugMode) {
+        debugPrint(
+          '[WhatsAppService] auth ${response.statusCode}, retry POST con token refresh per $uri',
+        );
+      }
+      idToken = await _requireFirebaseIdToken(forceRefresh: true);
+      response = await _client.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $idToken',
+        },
+        body: jsonEncode(body),
+      );
+    }
+
+    return response;
+  }
+
+  Future<String> _requireFirebaseIdToken({bool forceRefresh = false}) async {
     final user = firebase_auth.FirebaseAuth.instance.currentUser;
     if (user == null) {
       throw WhatsAppSendException(
         'Devi essere autenticato per usare WhatsApp Business.',
       );
     }
-    final idToken = await user.getIdToken();
+    final idToken = await user.getIdToken(forceRefresh);
     if (idToken == null || idToken.isEmpty) {
       throw WhatsAppSendException(
         'Impossibile ottenere il token di autenticazione.',
       );
     }
     return idToken;
+  }
+
+  Future<void> _prepareFirestoreAuthSession() async {
+    final user = firebase_auth.FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      await _refreshFirebaseAuthTokenIfAvailable(forceRefresh: true);
+      return;
+    }
+
+    try {
+      final signedInUser = await firebase_auth.FirebaseAuth.instance
+          .authStateChanges()
+          .firstWhere((candidate) => candidate != null)
+          .timeout(const Duration(seconds: 2));
+      if (signedInUser != null) {
+        await _refreshFirebaseAuthTokenIfAvailable(forceRefresh: true);
+      }
+    } on TimeoutException {
+      // Se l'auth non e ancora pronta, lasciamo che Firestore ritenti/errore.
+    }
+  }
+
+  Future<void> _refreshFirebaseAuthTokenIfAvailable({
+    bool forceRefresh = true,
+  }) async {
+    final user = firebase_auth.FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return;
+    }
+    try {
+      await user.getIdToken(forceRefresh);
+    } catch (_) {
+      // Best-effort: la lettura Firestore gestisce gia i retry/errori.
+    }
   }
 
   void dispose() {

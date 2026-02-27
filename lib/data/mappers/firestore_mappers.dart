@@ -2497,14 +2497,30 @@ MessageTemplate messageTemplateFromDoc(
   DocumentSnapshot<Map<String, dynamic>> doc,
 ) {
   final data = doc.data() ?? <String, dynamic>{};
+  final channel = _stringToMessageChannel(data['channel'] as String?);
+  final metaTemplateNameRaw = data['metaTemplateName'];
+  final metaTemplateName =
+      metaTemplateNameRaw is String && metaTemplateNameRaw.trim().isNotEmpty
+          ? metaTemplateNameRaw.trim()
+          : null;
+  final metaTemplateLanguageRaw = data['metaTemplateLanguage'];
+  final metaTemplateLanguage =
+      metaTemplateLanguageRaw is String &&
+              metaTemplateLanguageRaw.trim().isNotEmpty
+          ? metaTemplateLanguageRaw.trim()
+          : null;
   return MessageTemplate(
     id: doc.id,
     salonId: data['salonId'] as String? ?? '',
     title: data['title'] as String? ?? '',
     body: data['body'] as String? ?? '',
-    channel: _stringToMessageChannel(data['channel'] as String?),
+    channel: channel,
     usage: _stringToTemplateUsage(data['usage'] as String?),
     isActive: data['isActive'] as bool? ?? true,
+    metaTemplateName:
+        channel == MessageChannel.whatsapp ? metaTemplateName : null,
+    metaTemplateLanguage:
+        channel == MessageChannel.whatsapp ? metaTemplateLanguage : null,
   );
 }
 
@@ -2516,6 +2532,14 @@ Map<String, dynamic> messageTemplateToMap(MessageTemplate template) {
     'channel': template.channel.name,
     'usage': template.usage.name,
     'isActive': template.isActive,
+    if (template.channel == MessageChannel.whatsapp &&
+        template.metaTemplateName != null &&
+        template.metaTemplateName!.trim().isNotEmpty)
+      'metaTemplateName': template.metaTemplateName!.trim(),
+    if (template.channel == MessageChannel.whatsapp &&
+        template.metaTemplateLanguage != null &&
+        template.metaTemplateLanguage!.trim().isNotEmpty)
+      'metaTemplateLanguage': template.metaTemplateLanguage!.trim(),
   };
 }
 
@@ -2540,6 +2564,18 @@ String _lastMinuteAudienceToString(LastMinuteNotificationAudience audience) {
       return 'everyone';
     case LastMinuteNotificationAudience.ownerSelection:
       return 'ownerSelection';
+  }
+}
+
+ReminderDeliveryMode _reminderDeliveryModeFromString(String? value) {
+  switch (value?.trim().toLowerCase()) {
+    case 'whatsapp':
+      return ReminderDeliveryMode.whatsapp;
+    case 'both':
+      return ReminderDeliveryMode.both;
+    case 'push':
+    default:
+      return ReminderDeliveryMode.push;
   }
 }
 
@@ -2571,12 +2607,21 @@ ReminderSettings reminderSettingsFromDoc(
               final active = entry['active'] as bool? ?? true;
               final title = entry['title'] as String?;
               final bodyTemplate = entry['bodyTemplate'] as String?;
+              final deliveryMode = _reminderDeliveryModeFromString(
+                (entry['deliveryMode'] ?? entry['deliveryChannel']) as String?,
+              );
+              final whatsappTemplateId = entry['whatsappTemplateId'] as String?;
+              final whatsappTemplateName =
+                  entry['whatsappTemplateName'] as String?;
               return ReminderOffsetConfig(
                 id: id,
                 minutesBefore: minutesBefore,
                 active: active,
                 title: title,
                 bodyTemplate: bodyTemplate,
+                deliveryMode: deliveryMode,
+                whatsappTemplateId: whatsappTemplateId,
+                whatsappTemplateName: whatsappTemplateName,
               );
             })
             .whereType<ReminderOffsetConfig>()
@@ -2640,6 +2685,12 @@ Map<String, dynamic> reminderSettingsToMap(ReminderSettings settings) {
           'active': offset.active,
           if (offset.title != null) 'title': offset.title,
           if (offset.bodyTemplate != null) 'bodyTemplate': offset.bodyTemplate,
+          if (offset.deliveryMode != ReminderDeliveryMode.push)
+            'deliveryMode': offset.deliveryMode.name,
+          if (offset.whatsappTemplateId != null)
+            'whatsappTemplateId': offset.whatsappTemplateId,
+          if (offset.whatsappTemplateName != null)
+            'whatsappTemplateName': offset.whatsappTemplateName,
         };
       }).toList();
 

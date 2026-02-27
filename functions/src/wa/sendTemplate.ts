@@ -5,6 +5,7 @@ import type { Request, Response } from 'express';
 
 import { FieldValue, db } from '../utils/firestore';
 
+import { requireWaSalonAdmin, type WaRequestUserContext } from './authz';
 import { getSalonWaConfig } from './config';
 import { readSecret } from './secrets';
 
@@ -221,6 +222,44 @@ function sendError(response: Response, status: number, message: string): void {
   response.status(status).json({ success: false, error: message });
 }
 
+async function updateLastPreviewSendStatus(params: {
+  salonId: string;
+  status: 'success' | 'error';
+  messageId?: string;
+  errorMessage?: string;
+  user?: WaRequestUserContext | null;
+}): Promise<void> {
+  const { salonId, status, messageId, errorMessage, user } = params;
+  try {
+    await db
+      .collection('salons')
+      .doc(salonId)
+      .set(
+        {
+          whatsapp: {
+            lastPreviewSendStatus: status,
+            lastPreviewSendAt: FieldValue.serverTimestamp(),
+            lastPreviewSendMessageId: messageId ?? FieldValue.delete(),
+            lastPreviewSendError:
+              status === 'error'
+                ? (errorMessage ?? 'Unknown error')
+                : FieldValue.delete(),
+            lastPreviewSendByUserId: user?.uid ?? null,
+            lastPreviewSendByEmail: user?.email ?? null,
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+        },
+        { merge: true },
+      );
+  } catch (error) {
+    logger.warn('Failed to persist WhatsApp preview send status', {
+      salonId,
+      status,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export const sendWhatsappTemplate = onRequest(
   { region: REGION, cors: true, maxInstances: 10 },
   async (request: Request, response: Response) => {
@@ -240,9 +279,21 @@ export const sendWhatsappTemplate = onRequest(
       return;
     }
 
+    let input: SendTemplateInput | null = null;
+    let requestUser: WaRequestUserContext | null = null;
     try {
-      const input = validateRequestBody(request.body);
+      input = validateRequestBody(request.body);
+      requestUser = await requireWaSalonAdmin(request, response, input.salonId);
+      if (!requestUser) {
+        return;
+      }
       const result = await sendTemplateMessage(input);
+      await updateLastPreviewSendStatus({
+        salonId: input.salonId,
+        status: 'success',
+        messageId: result.messageId,
+        user: requestUser,
+      });
       response.set('Access-Control-Allow-Origin', '*');
       response.status(200).json({
         success: true,
@@ -252,6 +303,14 @@ export const sendWhatsappTemplate = onRequest(
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Unknown error occurred';
+      if (input && requestUser) {
+        await updateLastPreviewSendStatus({
+          salonId: input.salonId,
+          status: 'error',
+          errorMessage: message,
+          user: requestUser,
+        });
+      }
       sendError(response, 400, message);
     }
   },

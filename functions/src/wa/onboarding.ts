@@ -473,6 +473,12 @@ export const syncWhatsappOAuth = onDocumentWritten(
         mode: 'own',
         tokenSecretId: secretName,
         tokenStrategy,
+        graphApiVersion: GRAPH_API_VERSION,
+        tokenExpiresAt,
+        connectedAt: FieldValue.serverTimestamp(),
+        onboardingStatus: 'synced',
+        lastOnboardingErrorMessage: FieldValue.delete(),
+        lastOnboardingErrorAt: FieldValue.delete(),
         updatedAt: FieldValue.serverTimestamp(),
       };
 
@@ -502,9 +508,11 @@ export const syncWhatsappOAuth = onDocumentWritten(
           phoneNumberId,
           businessId,
           displayPhoneNumber,
+          graphApiVersion: GRAPH_API_VERSION,
           tokenType: tokenInfo.token_type,
           tokenExpiresIn: tokenInfo.expires_in,
           tokenExpiresAt,
+          connectedAt: FieldValue.serverTimestamp(),
           connectedByUserId: requestedByUserId ?? null,
           connectedByEmail: requestedByEmail ?? null,
           status: 'synced',
@@ -565,6 +573,31 @@ export const syncWhatsappOAuth = onDocumentWritten(
         },
         { merge: true },
       );
+
+      await db
+        .collection('salons')
+        .doc(salonId)
+        .set(
+          {
+            whatsapp: {
+              onboardingStatus: 'error',
+              lastOnboardingErrorMessage:
+                error instanceof Error ? error.message : String(error),
+              lastOnboardingErrorAt: FieldValue.serverTimestamp(),
+              updatedAt: FieldValue.serverTimestamp(),
+            },
+          },
+          { merge: true },
+        )
+        .catch((salonUpdateError) => {
+          logger.warn('Unable to persist WhatsApp onboarding error on salon doc', {
+            salonId,
+            error:
+              salonUpdateError instanceof Error
+                ? salonUpdateError.message
+                : String(salonUpdateError),
+          });
+        });
 
       if (oauthSessionId) {
         await integrationRef

@@ -77,6 +77,14 @@ class _MessagesMarketingModuleState
           template.usage == TemplateUsage.birthday &&
           template.channel == MessageChannel.push,
     );
+    final reminderWhatsAppTemplates = templates
+        .where(
+          (template) =>
+              template.channel == MessageChannel.whatsapp &&
+              template.usage == TemplateUsage.reminder &&
+              template.isActive,
+        )
+        .toList(growable: false);
     final reminderSettings =
         selectedSalonId == null
             ? null
@@ -440,6 +448,7 @@ class _MessagesMarketingModuleState
                 salonName: salonName,
                 settings: effectiveSettings,
                 birthdayTemplate: birthdayTemplate,
+                reminderWhatsAppTemplates: reminderWhatsAppTemplates,
                 defaultBirthdayTitle: _defaultBirthdayTitle,
                 defaultBirthdayBody: _defaultBirthdayBody(salonName),
                 onEditBirthdayTemplate:
@@ -1292,6 +1301,7 @@ class _ReminderSettingsCard extends StatelessWidget {
     required this.settings,
     required this.defaultBirthdayTitle,
     required this.defaultBirthdayBody,
+    required this.reminderWhatsAppTemplates,
     this.onChanged,
     this.birthdayTemplate,
     this.onEditBirthdayTemplate,
@@ -1302,6 +1312,7 @@ class _ReminderSettingsCard extends StatelessWidget {
   final ReminderSettings? settings;
   final String defaultBirthdayTitle;
   final String defaultBirthdayBody;
+  final List<MessageTemplate> reminderWhatsAppTemplates;
   final Future<void> Function(ReminderSettings)? onChanged;
   final MessageTemplate? birthdayTemplate;
   final Future<void> Function()? onEditBirthdayTemplate;
@@ -1345,6 +1356,9 @@ class _ReminderSettingsCard extends StatelessWidget {
         templatePresent ? template!.title : defaultBirthdayTitle;
     final templateBody = templatePresent ? template!.body : defaultBirthdayBody;
     final templateActive = template?.isActive ?? true;
+    final reminderWhatsAppTemplatesById = {
+      for (final item in reminderWhatsAppTemplates) item.id: item,
+    };
 
     Future<void> emit(ReminderSettings updated) async {
       final callback = onChanged;
@@ -1390,6 +1404,85 @@ class _ReminderSettingsCard extends StatelessWidget {
       }
       final next = List<ReminderOffsetConfig>.from(current)..[index] = updated;
       await updateOffsets(next);
+    }
+
+    Future<void> updateOffsetDeliveryMode(
+      int index,
+      ReminderOffsetConfig config,
+      ReminderDeliveryMode mode,
+    ) async {
+      if (onChanged == null) {
+        return;
+      }
+      if (config.deliveryMode == mode) {
+        return;
+      }
+      if ((mode == ReminderDeliveryMode.whatsapp ||
+              mode == ReminderDeliveryMode.both) &&
+          reminderWhatsAppTemplates.isEmpty) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Nessun template WhatsApp (uso Promemoria) disponibile. Crea o importa prima un template reminder.',
+              ),
+            ),
+          );
+        return;
+      }
+
+      final selectedTemplate =
+          config.whatsappTemplateId != null
+              ? reminderWhatsAppTemplatesById[config.whatsappTemplateId!]
+              : null;
+      final fallbackTemplate =
+          selectedTemplate ?? reminderWhatsAppTemplates.firstOrNull;
+
+      await updateOffsetAt(
+        index,
+        config.copyWith(
+          deliveryMode: mode,
+          whatsappTemplateId:
+              (mode == ReminderDeliveryMode.whatsapp ||
+                      mode == ReminderDeliveryMode.both)
+                  ? (fallbackTemplate?.id ?? config.whatsappTemplateId)
+                  : config.whatsappTemplateId,
+          whatsappTemplateName:
+              (mode == ReminderDeliveryMode.whatsapp ||
+                      mode == ReminderDeliveryMode.both)
+                  ? (fallbackTemplate?.title ??
+                      config.whatsappTemplateName ??
+                      config.whatsappTemplateId)
+                  : config.whatsappTemplateName,
+        ),
+      );
+    }
+
+    Future<void> updateOffsetWhatsappTemplate(
+      int index,
+      ReminderOffsetConfig config,
+      String templateId,
+    ) async {
+      if (onChanged == null) {
+        return;
+      }
+      final template = reminderWhatsAppTemplatesById[templateId];
+      if (template == null) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(content: Text('Template WhatsApp non disponibile.')),
+          );
+        return;
+      }
+      await updateOffsetAt(
+        index,
+        config.copyWith(
+          whatsappTemplateId: template.id,
+          whatsappTemplateName: template.title,
+        ),
+      );
     }
 
     Future<void> toggleBirthday(bool enabled) async {
@@ -1679,11 +1772,43 @@ class _ReminderSettingsCard extends StatelessWidget {
                     {...hourOptions, parts.hours}.toList()..sort();
                 final minutesValues =
                     {...minuteOptions, parts.minutes}.toList()..sort();
+                final selectedWaTemplate =
+                    config.whatsappTemplateId != null
+                        ? reminderWhatsAppTemplatesById[config
+                            .whatsappTemplateId!]
+                        : null;
                 final chips = <Widget>[
                   if (config.title != null)
                     Chip(
                       avatar: const Icon(Icons.text_fields, size: 18),
                       label: Text(config.title!),
+                    ),
+                  Chip(
+                    avatar: Icon(
+                      config.deliveryMode == ReminderDeliveryMode.push
+                          ? Icons.smartphone_rounded
+                          : config.deliveryMode == ReminderDeliveryMode.whatsapp
+                          ? Icons.chat_rounded
+                          : Icons.sync_alt_rounded,
+                      size: 18,
+                    ),
+                    label: Text(switch (config.deliveryMode) {
+                      ReminderDeliveryMode.push => 'Push',
+                      ReminderDeliveryMode.whatsapp => 'WhatsApp',
+                      ReminderDeliveryMode.both => 'Push + WhatsApp',
+                    }),
+                  ),
+                  if (config.sendsWhatsapp &&
+                      (selectedWaTemplate != null ||
+                          (config.whatsappTemplateName ?? '')
+                              .trim()
+                              .isNotEmpty))
+                    Chip(
+                      avatar: const Icon(Icons.article_outlined, size: 18),
+                      label: Text(
+                        selectedWaTemplate?.title ??
+                            config.whatsappTemplateName!.trim(),
+                      ),
                     ),
                 ];
                 return Padding(
@@ -1865,6 +1990,98 @@ class _ReminderSettingsCard extends StatelessWidget {
                           );
                         },
                       ),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<ReminderDeliveryMode>(
+                        initialValue: config.deliveryMode,
+                        decoration: const InputDecoration(
+                          labelText: 'Tipo reminder',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: ReminderDeliveryMode.push,
+                            child: Text('Push'),
+                          ),
+                          DropdownMenuItem(
+                            value: ReminderDeliveryMode.whatsapp,
+                            child: Text('WhatsApp'),
+                          ),
+                          DropdownMenuItem(
+                            value: ReminderDeliveryMode.both,
+                            child: Text('Push + WhatsApp'),
+                          ),
+                        ],
+                        onChanged:
+                            canEditOffsets
+                                ? (value) {
+                                  if (value != null) {
+                                    unawaited(
+                                      updateOffsetDeliveryMode(
+                                        originalIndex,
+                                        config,
+                                        value,
+                                      ),
+                                    );
+                                  }
+                                }
+                                : null,
+                      ),
+                      if (config.sendsWhatsapp) ...[
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          initialValue: selectedWaTemplate?.id,
+                          decoration: const InputDecoration(
+                            labelText: 'Template WhatsApp (Promemoria)',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          hint: const Text('Seleziona template WhatsApp'),
+                          items: reminderWhatsAppTemplates
+                              .map(
+                                (template) => DropdownMenuItem<String>(
+                                  value: template.id,
+                                  child: Text(template.title),
+                                ),
+                              )
+                              .toList(growable: false),
+                          onChanged:
+                              canEditOffsets &&
+                                      reminderWhatsAppTemplates.isNotEmpty
+                                  ? (value) {
+                                    if (value != null) {
+                                      unawaited(
+                                        updateOffsetWhatsappTemplate(
+                                          originalIndex,
+                                          config,
+                                          value,
+                                        ),
+                                      );
+                                    }
+                                  }
+                                  : null,
+                        ),
+                        if (reminderWhatsAppTemplates.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              'Nessun template WhatsApp con uso Promemoria disponibile.',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.error,
+                              ),
+                            ),
+                          )
+                        else if (selectedWaTemplate == null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              'Template selezionato non disponibile o non piu attivo. Selezionane uno nuovo.',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.error,
+                              ),
+                            ),
+                          ),
+                      ],
                     ],
                   ),
                 );
@@ -2002,34 +2219,26 @@ const _messagesTabDefinitions = [
   _MessagesTabDefinition(label: 'Last-minute', icon: Icons.flash_on),
 ];
 
-TabBar _buildTabBar(
-  ThemeData theme,
-  List<_MessagesTabDefinition> tabs,
-) {
+TabBar _buildTabBar(ThemeData theme, List<_MessagesTabDefinition> tabs) {
   return TabBar(
     isScrollable: true,
     indicatorSize: TabBarIndicatorSize.label,
     indicatorColor: theme.colorScheme.primary,
     labelColor: theme.colorScheme.primary,
     unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
-    labelStyle: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+    labelStyle: theme.textTheme.labelLarge?.copyWith(
+      fontWeight: FontWeight.w600,
+    ),
     unselectedLabelStyle: theme.textTheme.labelLarge,
-    tabs: tabs
-        .map(
-          (tab) => Tab(
-            icon: Icon(tab.icon, size: 20),
-            text: tab.label,
-          ),
-        )
-        .toList(),
+    tabs:
+        tabs
+            .map((tab) => Tab(icon: Icon(tab.icon, size: 20), text: tab.label))
+            .toList(),
   );
 }
 
 class _MessagesTabDefinition {
-  const _MessagesTabDefinition({
-    required this.label,
-    required this.icon,
-  });
+  const _MessagesTabDefinition({required this.label, required this.icon});
 
   final String label;
   final IconData icon;

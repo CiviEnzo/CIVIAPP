@@ -332,6 +332,32 @@ function oauthSessionRef(salonId: string, sessionId: string) {
   return oauthIntegrationRef(salonId).collection('sessions').doc(sessionId);
 }
 
+async function updateSalonWhatsappOnboardingStatus(
+  salonId: string,
+  params: {
+    status: 'pending' | 'synced' | 'error';
+    errorMessage?: string | null;
+  },
+): Promise<void> {
+  const whatsappPayload: Record<string, unknown> = {
+    onboardingStatus: params.status,
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+  if (params.status === 'error') {
+    whatsappPayload.lastOnboardingErrorMessage =
+      params.errorMessage ?? 'Unknown OAuth callback error';
+    whatsappPayload.lastOnboardingErrorAt = FieldValue.serverTimestamp();
+  } else {
+    whatsappPayload.lastOnboardingErrorMessage = FieldValue.delete();
+    whatsappPayload.lastOnboardingErrorAt = FieldValue.delete();
+  }
+
+  await db
+    .collection('salons')
+    .doc(salonId)
+    .set({ whatsapp: whatsappPayload }, { merge: true });
+}
+
 async function createOAuthSession(params: {
   salonId: string;
   redirectUri: string;
@@ -565,6 +591,10 @@ export const handleWhatsappOAuthCallback = onRequest(
       : SUCCESS_REDIRECT;
 
     if (error) {
+      await updateSalonWhatsappOnboardingStatus(salonId, {
+        status: 'error',
+        errorMessage: errorDescription ?? String(error),
+      }).catch(() => undefined);
       await oauthSessionRef(salonId, session.sessionId).set(
         {
           status: 'error',
@@ -584,6 +614,10 @@ export const handleWhatsappOAuthCallback = onRequest(
     }
 
     if (!code) {
+      await updateSalonWhatsappOnboardingStatus(salonId, {
+        status: 'error',
+        errorMessage: 'Missing authorization code',
+      }).catch(() => undefined);
       await oauthSessionRef(salonId, session.sessionId).set(
         {
           status: 'error',
@@ -598,6 +632,10 @@ export const handleWhatsappOAuthCallback = onRequest(
 
     try {
       const oauthRef = oauthIntegrationRef(salonId);
+
+      await updateSalonWhatsappOnboardingStatus(salonId, {
+        status: 'pending',
+      }).catch(() => undefined);
 
       await oauthRef.set(
         {
@@ -625,6 +663,10 @@ export const handleWhatsappOAuthCallback = onRequest(
 
       logger.info('Stored WhatsApp OAuth callback payload', { salonId });
     } catch (err) {
+      await updateSalonWhatsappOnboardingStatus(salonId, {
+        status: 'error',
+        errorMessage: err instanceof Error ? err.message : String(err),
+      }).catch(() => undefined);
       await oauthSessionRef(salonId, session.sessionId).set(
         {
           status: 'error',

@@ -1,5 +1,7 @@
 enum LastMinuteNotificationAudience { none, everyone, ownerSelection }
 
+enum ReminderDeliveryMode { push, whatsapp, both }
+
 class ReminderOffsetConfig {
   const ReminderOffsetConfig({
     required this.id,
@@ -7,6 +9,9 @@ class ReminderOffsetConfig {
     this.active = true,
     this.title,
     this.bodyTemplate,
+    this.deliveryMode = ReminderDeliveryMode.push,
+    this.whatsappTemplateId,
+    this.whatsappTemplateName,
   });
 
   final String id;
@@ -14,6 +19,17 @@ class ReminderOffsetConfig {
   final bool active;
   final String? title;
   final String? bodyTemplate;
+  final ReminderDeliveryMode deliveryMode;
+  final String? whatsappTemplateId;
+  final String? whatsappTemplateName;
+
+  bool get sendsPush =>
+      deliveryMode == ReminderDeliveryMode.push ||
+      deliveryMode == ReminderDeliveryMode.both;
+
+  bool get sendsWhatsapp =>
+      deliveryMode == ReminderDeliveryMode.whatsapp ||
+      deliveryMode == ReminderDeliveryMode.both;
 
   ReminderOffsetConfig copyWith({
     String? id,
@@ -21,6 +37,9 @@ class ReminderOffsetConfig {
     bool? active,
     String? title,
     String? bodyTemplate,
+    ReminderDeliveryMode? deliveryMode,
+    String? whatsappTemplateId,
+    String? whatsappTemplateName,
   }) {
     return ReminderOffsetConfig(
       id: id ?? this.id,
@@ -28,6 +47,9 @@ class ReminderOffsetConfig {
       active: active ?? this.active,
       title: title ?? this.title,
       bodyTemplate: bodyTemplate ?? this.bodyTemplate,
+      deliveryMode: deliveryMode ?? this.deliveryMode,
+      whatsappTemplateId: whatsappTemplateId ?? this.whatsappTemplateId,
+      whatsappTemplateName: whatsappTemplateName ?? this.whatsappTemplateName,
     );
   }
 }
@@ -56,8 +78,9 @@ class ReminderSettings {
   List<ReminderOffsetConfig> get activeOffsets =>
       offsets.where((offset) => offset.active).toList(growable: false);
 
-  List<int> get activeOffsetsMinutes =>
-      activeOffsets.map((offset) => offset.minutesBefore).toList(growable: false);
+  List<int> get activeOffsetsMinutes => activeOffsets
+      .map((offset) => offset.minutesBefore)
+      .toList(growable: false);
 
   ReminderSettings copyWith({
     String? salonId,
@@ -137,10 +160,13 @@ class ReminderSettings {
       final minutes = _clampMinutes(entry.minutesBefore);
       var normalizedTitle = entry.title?.trim();
       if (normalizedTitle != null &&
-          (normalizedTitle.isEmpty || defaultTitleHints.contains(normalizedTitle))) {
+          (normalizedTitle.isEmpty ||
+              defaultTitleHints.contains(normalizedTitle))) {
         normalizedTitle = null;
       }
       final normalizedBody = entry.bodyTemplate?.trim();
+      final normalizedWhatsappTemplateId = entry.whatsappTemplateId?.trim();
+      final normalizedWhatsappTemplateName = entry.whatsappTemplateName?.trim();
       final uniqueId = _ensureUniqueId(sanitizedId, minutes);
       normalized.add(
         ReminderOffsetConfig(
@@ -149,13 +175,20 @@ class ReminderSettings {
           active: entry.active,
           title: normalizedTitle?.isEmpty == true ? null : normalizedTitle,
           bodyTemplate: normalizedBody?.isEmpty == true ? null : normalizedBody,
+          deliveryMode: entry.deliveryMode,
+          whatsappTemplateId:
+              normalizedWhatsappTemplateId?.isEmpty == true
+                  ? null
+                  : normalizedWhatsappTemplateId,
+          whatsappTemplateName:
+              normalizedWhatsappTemplateName?.isEmpty == true
+                  ? null
+                  : normalizedWhatsappTemplateName,
         ),
       );
     }
 
-    normalized.sort(
-      (a, b) => a.minutesBefore.compareTo(b.minutesBefore),
-    );
+    normalized.sort((a, b) => a.minutesBefore.compareTo(b.minutesBefore));
 
     return List<ReminderOffsetConfig>.unmodifiable(normalized);
   }

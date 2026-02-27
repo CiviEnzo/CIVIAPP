@@ -1,6 +1,5 @@
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/domain/entities/message_template.dart';
-import 'package:you_book/services/whatsapp_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -18,7 +17,6 @@ class _WhatsAppCampaignEditorPageState
     extends ConsumerState<WhatsAppCampaignEditorPage> {
   final _formKey = GlobalKey<FormState>();
   final _recipientController = TextEditingController();
-  final _languageController = TextEditingController(text: 'it');
   MessageTemplate? _selectedTemplate;
   List<String> _placeholders = const [];
   List<TextEditingController> _parameterControllers = const [];
@@ -28,7 +26,6 @@ class _WhatsAppCampaignEditorPageState
   @override
   void dispose() {
     _recipientController.dispose();
-    _languageController.dispose();
     for (final controller in _parameterControllers) {
       controller.dispose();
     }
@@ -102,19 +99,6 @@ class _WhatsAppCampaignEditorPageState
                   (value) =>
                       value == null || value.trim().isEmpty
                           ? 'Inserisci il numero del destinatario'
-                          : null,
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _languageController,
-              decoration: const InputDecoration(
-                labelText: 'Lingua del template (es. it, en)',
-                border: OutlineInputBorder(),
-              ),
-              validator:
-                  (value) =>
-                      value == null || value.trim().isEmpty
-                          ? 'Specifica la lingua approvata del template'
                           : null,
             ),
             const SizedBox(height: 16),
@@ -212,6 +196,18 @@ class _WhatsAppCampaignEditorPageState
     if (template == null) {
       return;
     }
+    final metaTemplateName = template.resolvedMetaTemplateName;
+    if (metaTemplateName == null || metaTemplateName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Template WhatsApp senza nome Meta configurato. Modifica il template locale e imposta il mapping.',
+          ),
+        ),
+      );
+      return;
+    }
+    final templateLanguage = template.resolvedMetaTemplateLanguage ?? 'it';
 
     setState(() => _isSending = true);
     final scaffold = ScaffoldMessenger.of(context);
@@ -240,8 +236,8 @@ class _WhatsAppCampaignEditorPageState
           .sendTemplate(
             salonId: widget.salonId,
             to: _recipientController.text.trim(),
-            templateName: template.id,
-            lang: _languageController.text.trim(),
+            templateName: metaTemplateName,
+            lang: templateLanguage,
             components: components,
             allowPreviewUrl: _allowPreviewUrl,
           );
@@ -308,9 +304,18 @@ class _PreviewCard extends StatelessWidget {
             if (template != null)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
-                child: Text(
-                  'ID template: ${template!.id}',
-                  style: Theme.of(context).textTheme.bodySmall,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Nome template Meta: ${template!.resolvedMetaTemplateName ?? 'NON CONFIGURATO'}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    Text(
+                      'ID locale: ${template!.id}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                 ),
               ),
           ],

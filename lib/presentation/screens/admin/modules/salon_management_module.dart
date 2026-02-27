@@ -2065,10 +2065,24 @@ class _WhatsAppSettingsCardState extends ConsumerState<_WhatsAppSettingsCard> {
     final statusColor =
         isConfigured ? theme.colorScheme.primary : theme.colorScheme.secondary;
     final updatedAt = config?.updatedAt?.toLocal();
+    final connectedAt = config?.connectedAt?.toLocal();
+    final tokenExpiresAt = config?.tokenExpiresAt?.toLocal();
     final updatedAtLabel =
         updatedAt != null
             ? DateFormat('dd MMM yyyy HH:mm', 'it').format(updatedAt)
             : 'Mai aggiornato';
+    final connectedAtLabel =
+        connectedAt != null
+            ? DateFormat('dd MMM yyyy HH:mm', 'it').format(connectedAt)
+            : 'Non disponibile';
+    final tokenExpiresAtLabel =
+        tokenExpiresAt != null
+            ? DateFormat('dd MMM yyyy HH:mm', 'it').format(tokenExpiresAt)
+            : 'Non disponibile';
+    final onboardingStatusLabel = _formatWhatsappOnboardingStatus(
+      config?.onboardingStatus,
+    );
+    final lastPreviewSendLabel = _formatLastPreviewSendStatus(config);
 
     final summaryBadges = <Widget>[
       _InfoBadge(
@@ -2080,9 +2094,23 @@ class _WhatsAppSettingsCardState extends ConsumerState<_WhatsAppSettingsCard> {
         icon: Icons.phone_iphone_rounded,
         label: config?.displayPhoneNumber ?? 'Numero non collegato',
       ),
+      _InfoBadge(
+        icon: Icons.sync_rounded,
+        label: 'Onboarding $onboardingStatusLabel',
+      ),
     ];
 
     final details = <Widget>[
+      _WhatsAppDetailRow(
+        icon: Icons.link_rounded,
+        label: 'Stato connessione',
+        value: isConfigured ? 'Collegato' : 'Da configurare',
+      ),
+      _WhatsAppDetailRow(
+        icon: Icons.event_available_rounded,
+        label: 'Data collegamento',
+        value: connectedAtLabel,
+      ),
       _WhatsAppDetailRow(
         icon: Icons.dns_rounded,
         label: 'Phone Number ID',
@@ -2107,6 +2135,21 @@ class _WhatsAppSettingsCardState extends ConsumerState<_WhatsAppSettingsCard> {
         icon: Icons.lock_outline_rounded,
         label: 'Verify token',
         value: _maskSecret(config?.verifyTokenSecretId),
+      ),
+      _WhatsAppDetailRow(
+        icon: Icons.api_rounded,
+        label: 'Graph API version',
+        value: config?.graphApiVersion ?? '—',
+      ),
+      _WhatsAppDetailRow(
+        icon: Icons.schedule_rounded,
+        label: 'Scadenza token (stimata)',
+        value: tokenExpiresAtLabel,
+      ),
+      _WhatsAppDetailRow(
+        icon: Icons.mark_email_read_rounded,
+        label: 'Ultimo test invio',
+        value: lastPreviewSendLabel,
       ),
     ];
 
@@ -2268,6 +2311,52 @@ class _WhatsAppSettingsCardState extends ConsumerState<_WhatsAppSettingsCard> {
         setState(() => _isConnecting = false);
       }
     }
+  }
+
+  String _formatWhatsappOnboardingStatus(String? status) {
+    switch ((status ?? '').trim().toLowerCase()) {
+      case 'synced':
+      case 'connected':
+        return 'Sincronizzato';
+      case 'error':
+        return 'Errore';
+      case 'pending':
+      case 'in_progress':
+        return 'In attesa';
+      default:
+        return 'N/D';
+    }
+  }
+
+  String _formatLastPreviewSendStatus(WhatsAppConfig? config) {
+    if (config == null) {
+      return 'Nessun test';
+    }
+
+    final at = config.lastPreviewSendAt?.toLocal();
+    final atLabel =
+        at != null ? DateFormat('dd MMM HH:mm', 'it').format(at) : null;
+    final status = (config.lastPreviewSendStatus ?? '').trim().toLowerCase();
+
+    if (status == 'success') {
+      final messageId = config.lastPreviewSendMessageId;
+      final base = atLabel != null ? 'OK ($atLabel)' : 'OK';
+      if (messageId != null && messageId.isNotEmpty) {
+        return '$base • ${_maskSecret(messageId)}';
+      }
+      return base;
+    }
+
+    if (status == 'error') {
+      final error = config.lastPreviewSendError;
+      final base = atLabel != null ? 'Errore ($atLabel)' : 'Errore';
+      if (error != null && error.isNotEmpty) {
+        return '$base • $error';
+      }
+      return base;
+    }
+
+    return 'Nessun test';
   }
 
   Future<void> _handleDisconnect(BuildContext context) async {

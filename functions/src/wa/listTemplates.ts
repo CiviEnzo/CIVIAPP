@@ -3,6 +3,7 @@ import { onRequest } from 'firebase-functions/v2/https'
 import * as logger from 'firebase-functions/logger'
 import type { Request, Response } from 'express'
 
+import { requireWaSalonAdmin } from './authz'
 import { getSalonWaConfig } from './config'
 import { readSecret } from './secrets'
 
@@ -130,6 +131,10 @@ export const listWhatsappTemplates = onRequest(
 
     try {
       const salonId = parseSalonId(request)
+      const user = await requireWaSalonAdmin(request, response, salonId)
+      if (!user) {
+        return
+      }
       const limit = parseLimit(request)
       const config = await getSalonWaConfig(salonId)
       if (!config.wabaId) {
@@ -189,6 +194,7 @@ export const listWhatsappTemplates = onRequest(
 
       logger.info('Fetched WhatsApp templates', {
         salonId,
+        userId: user.uid,
         wabaId: config.wabaId,
         count: templates.length,
       })

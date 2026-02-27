@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/domain/entities/message_template.dart';
 import 'package:you_book/services/whatsapp_service.dart';
@@ -66,7 +68,23 @@ class WhatsAppTemplateListPage extends ConsumerWidget {
               ),
             )
           else
-            ...templates.map((template) => _TemplateCard(template: template)),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final cardWidth = _wrapCardWidth(constraints.maxWidth);
+                return Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: templates
+                      .map(
+                        (template) => SizedBox(
+                          width: cardWidth,
+                          child: _TemplateCard(template: template),
+                        ),
+                      )
+                      .toList(growable: false),
+                );
+              },
+            ),
         ],
       ),
     );
@@ -142,15 +160,25 @@ class _MetaTemplatesSection extends StatelessWidget {
                     'Nessun modello trovato sul WABA collegato.',
                   );
                 }
-                return Column(
-                  children: templates
-                      .map(
-                        (template) => _MetaTemplateCard(
-                          salonId: salonId,
-                          template: template,
-                        ),
-                      )
-                      .toList(growable: false),
+                return LayoutBuilder(
+                  builder: (context, constraints) {
+                    final cardWidth = _wrapCardWidth(constraints.maxWidth);
+                    return Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: templates
+                          .map(
+                            (template) => SizedBox(
+                              width: cardWidth,
+                              child: _MetaTemplateCard(
+                                salonId: salonId,
+                                template: template,
+                              ),
+                            ),
+                          )
+                          .toList(growable: false),
+                    );
+                  },
                 );
               },
             ),
@@ -184,103 +212,147 @@ class _MetaTemplateCardState extends ConsumerState<_MetaTemplateCard> {
       if (template.status != null) template.status!,
     ];
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.dividerColor.withOpacity(0.35)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _showMetaPreviewDialog(context, template),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Text(
-                  template.name,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              if (_isSaving)
-                const Padding(
-                  padding: EdgeInsets.only(right: 8),
-                  child: SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                ),
-              IconButton.outlined(
-                tooltip: 'Salva in YouBook (mapping locale)',
-                onPressed:
-                    _isSaving ? null : () => _saveAsLocalTemplate(context),
-                icon: const Icon(Icons.download_rounded),
-              ),
-              const SizedBox(width: 8),
-              IconButton.outlined(
-                tooltip: 'Copia nome modello',
-                onPressed: () async {
-                  await Clipboard.setData(ClipboardData(text: template.name));
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Nome modello Meta copiato.'),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      template.name,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
                       ),
-                    );
-                  }
-                },
-                icon: const Icon(Icons.content_copy_rounded),
+                    ),
+                  ),
+                  if (_isSaving)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 8),
+                      child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  IconButton.outlined(
+                    tooltip: 'Salva in YouBook (mapping locale)',
+                    onPressed:
+                        _isSaving ? null : () => _saveAsLocalTemplate(context),
+                    icon: const Icon(Icons.download_rounded),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.outlined(
+                    tooltip: 'Copia nome modello',
+                    onPressed: () async {
+                      await Clipboard.setData(
+                        ClipboardData(text: template.name),
+                      );
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Nome modello Meta copiato.'),
+                          ),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.content_copy_rounded),
+                  ),
+                ],
+              ),
+              if (subtitleParts.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: subtitleParts
+                      .map((item) => _buildMetaChip(theme, item))
+                      .toList(growable: false),
+                ),
+              ],
+              const SizedBox(height: 8),
+              Text(
+                'Tocca la card per vedere l’anteprima',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),
-          if (subtitleParts.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: subtitleParts
-                  .map((item) => _buildMetaChip(theme, item))
-                  .toList(growable: false),
-            ),
-          ],
-          if (template.bodyPreview != null &&
-              template.bodyPreview!.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Tooltip(
-              message: template.bodyPreview!,
-              waitDuration: const Duration(milliseconds: 350),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceVariant.withOpacity(0.45),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  template.bodyPreview!,
-                  maxLines: 4,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium,
-                ),
-              ),
-            ),
-          ],
-          if (template.rejectedReason != null &&
-              template.rejectedReason!.trim().isNotEmpty &&
-              template.rejectedReason!.trim().toUpperCase() != 'NONE') ...[
-            const SizedBox(height: 8),
-            Text(
-              'Motivo rifiuto: ${template.rejectedReason}',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.error,
-              ),
-            ),
-          ],
-        ],
+        ),
       ),
+    );
+  }
+
+  void _showMetaPreviewDialog(
+    BuildContext context,
+    MetaWhatsAppTemplate template,
+  ) {
+    final theme = Theme.of(context);
+    final preview =
+        (template.bodyPreview == null || template.bodyPreview!.trim().isEmpty)
+            ? 'Anteprima non disponibile per questo template Meta.'
+            : template.bodyPreview!.trim();
+
+    showDialog<void>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: Text(template.name),
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      if (template.language != null)
+                        _buildMetaChip(theme, template.language!),
+                      if (template.category != null)
+                        _buildMetaChip(theme, template.category!),
+                      if (template.status != null)
+                        _buildMetaChip(theme, template.status!),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceVariant.withOpacity(0.45),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(preview, style: theme.textTheme.bodyMedium),
+                  ),
+                  if (template.rejectedReason != null &&
+                      template.rejectedReason!.trim().isNotEmpty &&
+                      template.rejectedReason!.trim().toUpperCase() !=
+                          'NONE') ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Motivo rifiuto: ${template.rejectedReason}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.error,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Chiudi'),
+              ),
+            ],
+          ),
     );
   }
 
@@ -318,12 +390,22 @@ class _MetaTemplateCardState extends ConsumerState<_MetaTemplateCard> {
   Future<void> _saveAsLocalTemplate(BuildContext context) async {
     final template = widget.template;
     final scaffold = ScaffoldMessenger.of(context);
+    final existingLocalTemplate = ref
+        .read(appDataProvider)
+        .messageTemplates
+        .where(
+          (item) =>
+              item.salonId == widget.salonId &&
+              item.channel == MessageChannel.whatsapp &&
+              item.resolvedMetaTemplateName == template.name,
+        )
+        .cast<MessageTemplate?>()
+        .firstWhere((item) => item != null, orElse: () => null);
 
     setState(() => _isSaving = true);
     try {
       final localTemplate = MessageTemplate(
-        // Il campaign editor usa template.id come templateName Meta.
-        id: template.name,
+        id: existingLocalTemplate?.id ?? 'wa_${template.name}',
         salonId: widget.salonId,
         title: _buildLocalTitle(template),
         body:
@@ -334,6 +416,8 @@ class _MetaTemplateCardState extends ConsumerState<_MetaTemplateCard> {
         channel: MessageChannel.whatsapp,
         usage: _guessUsage(template.category),
         isActive: _isMetaTemplateUsable(template.status),
+        metaTemplateName: template.name,
+        metaTemplateLanguage: template.language,
       );
 
       await ref.read(appDataProvider.notifier).upsertTemplate(localTemplate);
@@ -345,7 +429,7 @@ class _MetaTemplateCardState extends ConsumerState<_MetaTemplateCard> {
         SnackBar(
           content: Text(
             'Template salvato in YouBook. '
-            'Per il test usa lingua ${template.language ?? 'it'} nel tab invio.',
+            'La lingua (${template.language ?? 'it'}) verrà usata automaticamente nel tab invio.',
           ),
         ),
       );
@@ -411,79 +495,118 @@ class _TemplateCard extends ConsumerWidget {
     final theme = Theme.of(context);
 
     return Card(
+      clipBehavior: Clip.antiAlias,
       margin: const EdgeInsets.symmetric(vertical: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    template.title,
-                    style: theme.textTheme.titleMedium,
+      child: InkWell(
+        onTap: () => _showPreviewDialog(context, template),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      template.title,
+                      style: theme.textTheme.titleMedium,
+                    ),
                   ),
-                ),
-                Switch.adaptive(
-                  value: template.isActive,
-                  onChanged: (value) => _toggleTemplate(context, ref, value),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: [
-                Chip(
-                  label: Text(_usageLabel(template.usage)),
-                  avatar: const Icon(Icons.sell_rounded, size: 16),
-                ),
-                Chip(
-                  label: Text(template.isActive ? 'Attivo' : 'Disattivato'),
-                  avatar: Icon(
-                    template.isActive
-                        ? Icons.check_circle_outline
-                        : Icons.pause_circle_outline,
-                    size: 16,
+                  const SizedBox(width: 8),
+                  Switch.adaptive(
+                    value: template.isActive,
+                    onChanged: (value) => _toggleTemplate(context, ref, value),
                   ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  PopupMenuButton<TemplateUsage>(
+                    tooltip: 'Cambia scope template',
+                    onSelected:
+                        (usage) => unawaited(
+                          _changeTemplateUsage(context, ref, template, usage),
+                        ),
+                    itemBuilder:
+                        (context) => TemplateUsage.values
+                            .map(
+                              (usage) => PopupMenuItem<TemplateUsage>(
+                                value: usage,
+                                child: Row(
+                                  children: [
+                                    if (usage == template.usage)
+                                      Icon(
+                                        Icons.check_rounded,
+                                        size: 18,
+                                        color:
+                                            Theme.of(
+                                              context,
+                                            ).colorScheme.primary,
+                                      )
+                                    else
+                                      const SizedBox(width: 18),
+                                    const SizedBox(width: 8),
+                                    Text(_usageLabel(usage)),
+                                  ],
+                                ),
+                              ),
+                            )
+                            .toList(growable: false),
+                    child: Chip(
+                      label: Text(_usageLabel(template.usage)),
+                      avatar: const Icon(Icons.sell_rounded, size: 16),
+                    ),
+                  ),
+                  Chip(
+                    label: Text(template.isActive ? 'Attivo' : 'Disattivato'),
+                    avatar: Icon(
+                      template.isActive
+                          ? Icons.check_circle_outline
+                          : Icons.pause_circle_outline,
+                      size: 16,
+                    ),
+                  ),
+                ],
+              ),
+              if ((template.resolvedMetaTemplateName ?? '').isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Nome template Meta: ${template.resolvedMetaTemplateName}',
+                  style: theme.textTheme.bodySmall,
                 ),
               ],
-            ),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceVariant,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                template.body,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontFamily: 'monospace',
+              const SizedBox(height: 6),
+              Text(
+                'Tocca la card per vedere l’anteprima',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                IconButton.outlined(
-                  tooltip: 'Duplica template',
-                  onPressed: () => _duplicateTemplate(context, template),
-                  icon: const Icon(Icons.copy_rounded),
-                ),
-                const SizedBox(width: 8),
-                IconButton.outlined(
-                  tooltip: 'Copia ID template',
-                  onPressed: () => _copyTemplateId(context, template),
-                  icon: const Icon(Icons.content_paste_go_rounded),
-                ),
-              ],
-            ),
-          ],
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  IconButton.outlined(
+                    tooltip: 'Copia nome template Meta',
+                    onPressed: () => _copyTemplateId(context, template),
+                    icon: const Icon(Icons.content_paste_go_rounded),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.outlined(
+                    tooltip: 'Elimina template',
+                    onPressed: () => _deleteTemplate(context, ref, template),
+                    icon: Icon(
+                      Icons.delete_outline_rounded,
+                      color: theme.colorScheme.error,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -497,8 +620,6 @@ class _TemplateCard extends ConsumerWidget {
     final scaffold = ScaffoldMessenger.of(context);
     try {
       await FirebaseFirestore.instance
-          .collection('salons')
-          .doc(template.salonId)
           .collection('message_templates')
           .doc(template.id)
           .update({'isActive': isActive});
@@ -516,30 +637,152 @@ class _TemplateCard extends ConsumerWidget {
     }
   }
 
-  void _duplicateTemplate(BuildContext context, MessageTemplate template) {
+  Future<void> _changeTemplateUsage(
+    BuildContext context,
+    WidgetRef ref,
+    MessageTemplate template,
+    TemplateUsage usage,
+  ) async {
+    if (template.usage == usage) {
+      return;
+    }
+
+    final updated = MessageTemplate(
+      id: template.id,
+      salonId: template.salonId,
+      title: template.title,
+      body: template.body,
+      channel: template.channel,
+      usage: usage,
+      isActive: template.isActive,
+      metaTemplateName: template.metaTemplateName,
+      metaTemplateLanguage: template.metaTemplateLanguage,
+    );
+
+    try {
+      await ref.read(appDataProvider.notifier).upsertTemplate(updated);
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Scope aggiornato: ${_usageLabel(usage)}')),
+      );
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Impossibile aggiornare lo scope: $error')),
+      );
+    }
+  }
+
+  void _showPreviewDialog(BuildContext context, MessageTemplate template) {
+    final theme = Theme.of(context);
     showDialog<void>(
       context: context,
       builder:
           (context) => AlertDialog(
-            title: const Text('Duplicazione non ancora disponibile'),
-            content: const Text(
-              'Questo è uno stub: implementa la duplicazione e l’approvazione dei template direttamente dal backoffice Meta.',
+            title: Text(template.title),
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if ((template.resolvedMetaTemplateName ?? '').isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        'Nome template Meta: ${template.resolvedMetaTemplateName}',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceVariant,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      template.body,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Capito'),
+                child: const Text('Chiudi'),
               ),
             ],
           ),
     );
   }
 
+  Future<void> _deleteTemplate(
+    BuildContext context,
+    WidgetRef ref,
+    MessageTemplate template,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (dialogContext) => AlertDialog(
+            title: const Text('Elimina template'),
+            content: Text(
+              'Vuoi eliminare il template "${template.title}" da YouBook?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Annulla'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Elimina'),
+              ),
+            ],
+          ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+
+    try {
+      await ref.read(appDataProvider.notifier).deleteTemplate(template.id);
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Template eliminato da YouBook.')),
+      );
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Impossibile eliminare il template: $error')),
+      );
+    }
+  }
+
   void _copyTemplateId(BuildContext context, MessageTemplate template) {
-    Clipboard.setData(ClipboardData(text: template.id));
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('ID template copiato.')));
+    final valueToCopy = template.resolvedMetaTemplateName ?? template.id;
+    Clipboard.setData(ClipboardData(text: valueToCopy));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          template.resolvedMetaTemplateName != null
+              ? 'Nome template Meta copiato.'
+              : 'ID template locale copiato.',
+        ),
+      ),
+    );
   }
 }
 
@@ -554,4 +797,15 @@ String _usageLabel(TemplateUsage usage) {
     case TemplateUsage.birthday:
       return 'Compleanno';
   }
+}
+
+double _wrapCardWidth(double maxWidth) {
+  const spacing = 12.0;
+  if (maxWidth >= 1200) {
+    return ((maxWidth - spacing * 2) / 3).clamp(280.0, 420.0).toDouble();
+  }
+  if (maxWidth >= 760) {
+    return ((maxWidth - spacing) / 2).clamp(280.0, 520.0).toDouble();
+  }
+  return maxWidth;
 }

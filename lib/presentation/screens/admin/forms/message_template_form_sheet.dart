@@ -25,6 +25,7 @@ class _MessageTemplateFormSheetState extends State<MessageTemplateFormSheet> {
   final _uuid = const Uuid();
   late TextEditingController _title;
   late TextEditingController _body;
+  late TextEditingController _metaTemplateName;
   MessageChannel _channel = MessageChannel.whatsapp;
   TemplateUsage _usage = TemplateUsage.reminder;
   bool _active = true;
@@ -36,6 +37,10 @@ class _MessageTemplateFormSheetState extends State<MessageTemplateFormSheet> {
     final initial = widget.initial;
     _title = TextEditingController(text: initial?.title ?? '');
     _body = TextEditingController(text: initial?.body ?? '');
+    _metaTemplateName = TextEditingController(
+      text:
+          initial?.metaTemplateName ?? initial?.resolvedMetaTemplateName ?? '',
+    );
     _channel = initial?.channel ?? MessageChannel.whatsapp;
     _usage = initial?.usage ?? TemplateUsage.reminder;
     _active = initial?.isActive ?? true;
@@ -49,6 +54,7 @@ class _MessageTemplateFormSheetState extends State<MessageTemplateFormSheet> {
   void dispose() {
     _title.dispose();
     _body.dispose();
+    _metaTemplateName.dispose();
     super.dispose();
   }
 
@@ -126,6 +132,26 @@ class _MessageTemplateFormSheetState extends State<MessageTemplateFormSheet> {
                           ? 'Inserisci il contenuto'
                           : null,
             ),
+            if (_channel == MessageChannel.whatsapp) ...[
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _metaTemplateName,
+                decoration: const InputDecoration(
+                  labelText: 'Nome template Meta',
+                  helperText:
+                      'Nome esatto approvato in WhatsApp Manager (es. appointment_reminder_it_v1)',
+                ),
+                validator: (value) {
+                  if (_channel != MessageChannel.whatsapp) {
+                    return null;
+                  }
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Inserisci il nome template Meta';
+                  }
+                  return null;
+                },
+              ),
+            ],
             const SizedBox(height: 12),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
@@ -170,6 +196,16 @@ class _MessageTemplateFormSheetState extends State<MessageTemplateFormSheet> {
       channel: _channel,
       usage: _usage,
       isActive: _active,
+      metaTemplateName:
+          _channel == MessageChannel.whatsapp
+              ? _metaTemplateName.text.trim()
+              : null,
+      metaTemplateLanguage:
+          _channel == MessageChannel.whatsapp
+              ? (widget.initial?.metaTemplateLanguage ??
+                  widget.initial?.resolvedMetaTemplateLanguage ??
+                  'it')
+              : null,
     );
 
     Navigator.of(context).pop(template);

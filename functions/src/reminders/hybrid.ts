@@ -22,12 +22,17 @@ import {
 } from '../utils/firestore';
 import { formatReminderOffsetLabel } from '../messaging/reminder_settings';
 import { DEFAULT_TIMEZONE } from '../utils/time';
+import {
+  sendTemplateMessage,
+  type WhatsAppTemplateComponent,
+} from '../wa/sendTemplate';
 const REGION = 'europe-west1';
 const MAX_AHEAD_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_AHEAD_MINUTES = MAX_AHEAD_MS / 60000;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 type ReminderKind = string;
+type ReminderDeliveryMode = 'push' | 'whatsapp' | 'both';
 
 interface ReminderOffsetConfig {
   id: ReminderKind;
@@ -35,6 +40,9 @@ interface ReminderOffsetConfig {
   active: boolean;
   title?: string;
   bodyTemplate?: string;
+  deliveryMode: ReminderDeliveryMode;
+  whatsappTemplateId?: string;
+  whatsappTemplateName?: string;
 }
 
 interface ReminderPayload {
@@ -43,6 +51,40 @@ interface ReminderPayload {
   docPath: string;
   offsetId: ReminderKind | 'CHECKPOINT';
   offsetMinutes?: number;
+}
+
+interface ReminderClientContact {
+  clientId: string | null;
+  clientRef: DocumentReference<DocumentData> | null;
+  phone: string | null;
+  firstName?: string;
+  lastName?: string;
+  clientName?: string;
+}
+
+interface ReminderWhatsappTemplateRecord {
+  id: string;
+  salonId: string;
+  title?: string;
+  body: string;
+  isActive: boolean;
+  channel: string;
+  usage: string;
+  metaTemplateName?: string;
+  metaTemplateLanguage?: string;
+}
+
+interface ReminderTemplateContext {
+  firstName?: string;
+  lastName?: string;
+  clientName?: string;
+  salonName?: string;
+  serviceName?: string;
+  staffName?: string;
+  date?: string;
+  time?: string;
+  appointmentLabel?: string;
+  reminderOffsetLabel?: string;
 }
 
 const MIN_OFFSET_MINUTES = 15;
@@ -71,6 +113,10 @@ const DATE_COMPARE_FORMATTER = new Intl.DateTimeFormat('it-IT', {
   day: '2-digit',
   timeZone: DEFAULT_TIMEZONE,
 });
+const DATE_SHORT_FORMATTER = new Intl.DateTimeFormat('it-IT', {
+  dateStyle: 'short',
+  timeZone: DEFAULT_TIMEZONE,
+});
 
 function clampMinutes(value: number): number {
   if (Number.isNaN(value)) {
@@ -91,6 +137,36 @@ function normalizeSlug(value: unknown, fallback: string): string {
   }
   const sanitized = value.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '_');
   return sanitized.length > 0 ? sanitized.replace(/_+/g, '_') : fallback;
+}
+
+function normalizeString(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function parseReminderDeliveryMode(value: unknown): ReminderDeliveryMode {
+  if (typeof value !== 'string') {
+    return 'push';
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'whatsapp') {
+    return 'whatsapp';
+  }
+  if (normalized === 'both') {
+    return 'both';
+  }
+  return 'push';
+}
+
+function offsetSendsPush(offset: ReminderOffsetConfig): boolean {
+  return offset.deliveryMode === 'push' || offset.deliveryMode === 'both';
+}
+
+function offsetSendsWhatsapp(offset: ReminderOffsetConfig): boolean {
+  return offset.deliveryMode === 'whatsapp' || offset.deliveryMode === 'both';
 }
 
 function parseMinutesList(value: unknown): number[] {
@@ -176,12 +252,21 @@ async function loadReminderOffsets(
             ? raw.bodyTemplate.trim()
             : undefined;
         const active = raw.active !== false;
+        const deliveryMode = parseReminderDeliveryMode(
+          raw.deliveryMode ?? raw.deliveryChannel,
+        );
+        const whatsappTemplateId = normalizeString(raw.whatsappTemplateId) ?? undefined;
+        const whatsappTemplateName =
+          normalizeString(raw.whatsappTemplateName) ?? undefined;
         sanitized.push({
           id,
           minutesBefore: minutes,
           active,
           title,
           bodyTemplate,
+          deliveryMode,
+          whatsappTemplateId,
+          whatsappTemplateName,
         });
       }
     }
@@ -197,6 +282,7 @@ async function loadReminderOffsets(
             id,
             minutesBefore: minutes,
             active: true,
+            deliveryMode: 'push',
           });
         }
       }
@@ -215,6 +301,7 @@ async function loadReminderOffsets(
             id,
             minutesBefore: clampMinutes(minutes),
             active: true,
+            deliveryMode: 'push',
           });
         }
       }
@@ -347,6 +434,485 @@ function resolvePrimaryClientId(
   }
   const candidates = collectCandidateClientIds(appt);
   return candidates.length > 0 ? candidates[0] : null;
+}
+
+function pickString(
+  source: Record<string, unknown> | null | undefined,
+  ...keys: string[]
+): string | undefined {
+  if (!source) {
+    return undefined;
+  }
+  for (const key of keys) {
+    const value = normalizeString(source[key]);
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function normalizeWhatsappRecipient(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const compact = value.replace(/[\s().-]/g, '');
+  if (!compact) {
+    return null;
+  }
+  if (/^\+?\d+$/.test(compact)) {
+    return compact;
+  }
+  return null;
+}
+
+function extractAppointmentPhone(appt: DocumentData): string | null {
+  const direct = [
+    appt.phone,
+    appt.clientPhone,
+    appt.customerPhone,
+    appt.phoneNumber,
+    appt.mobile,
+  ]
+    .map((value) => normalizeWhatsappRecipient(value))
+    .find((value): value is string => Boolean(value));
+  if (direct) {
+    return direct;
+  }
+  const clientObj =
+    typeof appt.client === 'object' && appt.client
+      ? (appt.client as Record<string, unknown>)
+      : null;
+  return (
+    normalizeWhatsappRecipient(clientObj?.phone) ??
+    normalizeWhatsappRecipient(clientObj?.mobile) ??
+    normalizeWhatsappRecipient(clientObj?.whatsappPhone) ??
+    null
+  );
+}
+
+async function resolveClientContact(
+  appt: DocumentData,
+): Promise<ReminderClientContact> {
+  const candidateIds = collectCandidateClientIds(appt);
+  for (const candidate of candidateIds) {
+    const clientRef = db.collection('clients').doc(candidate);
+    const snapshot = await clientRef.get();
+    if (!snapshot.exists) {
+      continue;
+    }
+    const data = (snapshot.data() ?? {}) as Record<string, unknown>;
+    const firstName = normalizeString(data.firstName) ?? undefined;
+    const lastName = normalizeString(data.lastName) ?? undefined;
+    const fallbackClientName = [firstName, lastName]
+      .filter((part): part is string => Boolean(part))
+      .join(' ');
+    const clientName =
+      normalizeString(data.fullName) ??
+      (fallbackClientName.length > 0 ? fallbackClientName : undefined);
+    const phone =
+      normalizeWhatsappRecipient(data.phone) ??
+      normalizeWhatsappRecipient(data.mobile) ??
+      normalizeWhatsappRecipient(data.whatsappPhone) ??
+      normalizeWhatsappRecipient(data.phoneNumber) ??
+      extractAppointmentPhone(appt);
+    return {
+      clientId: snapshot.id,
+      clientRef,
+      phone,
+      firstName,
+      lastName,
+      clientName,
+    };
+  }
+
+  const apptClient =
+    typeof appt.client === 'object' && appt.client
+      ? (appt.client as Record<string, unknown>)
+      : null;
+  const firstName =
+    normalizeString(appt.firstName) ??
+    normalizeString(appt.clientFirstName) ??
+    pickString(apptClient, 'firstName', 'name');
+  const lastName =
+    normalizeString(appt.lastName) ??
+    normalizeString(appt.clientLastName) ??
+    pickString(apptClient, 'lastName', 'surname');
+  const fallbackClientName = [firstName, lastName]
+    .filter((part): part is string => Boolean(part))
+    .join(' ');
+  const clientName =
+    normalizeString(appt.clientName) ??
+    normalizeString(appt.customerName) ??
+    pickString(apptClient, 'fullName', 'displayName') ??
+    (fallbackClientName.length > 0 ? fallbackClientName : undefined);
+
+  return {
+    clientId: resolvePrimaryClientId(appt, null),
+    clientRef: null,
+    phone: extractAppointmentPhone(appt),
+    firstName: firstName ?? undefined,
+    lastName: lastName ?? undefined,
+    clientName,
+  };
+}
+
+function extractServiceId(appt: DocumentData): string | null {
+  const direct =
+    normalizeString(appt.serviceId) ??
+    (Array.isArray(appt.serviceIds)
+      ? normalizeString(appt.serviceIds[0])
+      : null);
+  if (direct) {
+    return direct;
+  }
+  if (Array.isArray(appt.serviceAllocations) && appt.serviceAllocations.length > 0) {
+    const first = appt.serviceAllocations[0];
+    if (first && typeof first === 'object') {
+      return normalizeString((first as Record<string, unknown>).serviceId);
+    }
+  }
+  return null;
+}
+
+async function resolveServiceName(appt: DocumentData): Promise<string | null> {
+  const apptService =
+    typeof appt.service === 'object' && appt.service
+      ? (appt.service as Record<string, unknown>)
+      : null;
+  const direct =
+    normalizeString(appt.serviceName) ??
+    normalizeString(appt.serviceLabel) ??
+    pickString(apptService, 'name', 'title');
+  if (direct) {
+    return direct;
+  }
+  const serviceId = extractServiceId(appt);
+  if (!serviceId) {
+    return normalizeString(appt.title);
+  }
+  try {
+    const snapshot = await db.collection('services').doc(serviceId).get();
+    if (snapshot.exists) {
+      const data = (snapshot.data() ?? {}) as Record<string, unknown>;
+      const name = normalizeString(data.name);
+      if (name) {
+        return name;
+      }
+    }
+  } catch (error) {
+    logger.warn('Unable to resolve reminder service name', {
+      serviceId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return normalizeString(appt.title);
+}
+
+async function resolveStaffName(appt: DocumentData): Promise<string | null> {
+  const apptStaff =
+    typeof appt.staff === 'object' && appt.staff
+      ? (appt.staff as Record<string, unknown>)
+      : null;
+  const direct =
+    normalizeString(appt.staffName) ??
+    pickString(apptStaff, 'displayName', 'fullName', 'name');
+  if (direct) {
+    return direct;
+  }
+  const staffId =
+    normalizeString(appt.staffId) ??
+    pickString(apptStaff, 'id');
+  if (!staffId) {
+    return null;
+  }
+  try {
+    const snapshot = await db.collection('staff').doc(staffId).get();
+    if (snapshot.exists) {
+      const data = (snapshot.data() ?? {}) as Record<string, unknown>;
+      const firstName = normalizeString(data.firstName);
+      const lastName = normalizeString(data.lastName);
+      const fullName =
+        normalizeString(data.displayName) ??
+        normalizeString(data.fullName) ??
+        [firstName, lastName]
+          .filter((part): part is string => Boolean(part))
+          .join(' ');
+      return fullName || null;
+    }
+  } catch (error) {
+    logger.warn('Unable to resolve reminder staff name', {
+      staffId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return null;
+}
+
+async function getReminderSalonName(salonId: string): Promise<string> {
+  try {
+    const snapshot = await db.collection('salons').doc(salonId).get();
+    const data = (snapshot.data() ?? {}) as Record<string, unknown>;
+    return normalizeString(data.name) ?? 'il salone';
+  } catch (error) {
+    logger.warn('Unable to resolve reminder salon name', {
+      salonId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return 'il salone';
+  }
+}
+
+async function buildAppointmentReminderTemplateContext(
+  appt: DocumentData,
+  salonId: string,
+  startTimestamp: Timestamp | null,
+  configuredOffsetMinutes?: number | null,
+): Promise<ReminderTemplateContext & { clientId: string | null; phone: string | null }> {
+  const [client, serviceName, staffName, salonName] = await Promise.all([
+    resolveClientContact(appt),
+    resolveServiceName(appt),
+    resolveStaffName(appt),
+    getReminderSalonName(salonId),
+  ]);
+
+  const startDate = startTimestamp?.toDate() ?? null;
+  const dateLabel = startDate ? DATE_SHORT_FORMATTER.format(startDate) : undefined;
+  const timeLabel = startDate ? TIME_FORMATTER.format(startDate) : undefined;
+  const appointmentLabel =
+    startDate && timeLabel
+      ? `${DATE_DISPLAY_FORMATTER.format(startDate)} alle ${timeLabel}`
+      : undefined;
+  const reminderOffsetLabel =
+    configuredOffsetMinutes != null
+      ? formatReminderOffsetLabel(Math.max(0, Math.round(configuredOffsetMinutes)))
+      : undefined;
+
+  return {
+    clientId: client.clientId,
+    phone: client.phone,
+    firstName: client.firstName,
+    lastName: client.lastName,
+    clientName: client.clientName,
+    salonName,
+    serviceName: serviceName ?? undefined,
+    staffName: staffName ?? undefined,
+    date: dateLabel,
+    time: timeLabel,
+    appointmentLabel,
+    reminderOffsetLabel,
+  };
+}
+
+async function loadReminderWhatsappTemplate(
+  templateId: string,
+): Promise<ReminderWhatsappTemplateRecord | null> {
+  const snapshot = await db.collection('message_templates').doc(templateId).get();
+  if (!snapshot.exists) {
+    return null;
+  }
+  const data = (snapshot.data() ?? {}) as Record<string, unknown>;
+  return {
+    id: snapshot.id,
+    salonId: normalizeString(data.salonId) ?? '',
+    title: normalizeString(data.title) ?? undefined,
+    body: normalizeString(data.body) ?? '',
+    isActive: data.isActive !== false,
+    channel: normalizeString(data.channel) ?? '',
+    usage: normalizeString(data.usage) ?? '',
+    metaTemplateName: normalizeString(data.metaTemplateName) ?? undefined,
+    metaTemplateLanguage: normalizeString(data.metaTemplateLanguage) ?? undefined,
+  };
+}
+
+const REMINDER_PLACEHOLDER_ALIASES: Record<string, keyof ReminderTemplateContext> = {
+  nome: 'firstName',
+  firstname: 'firstName',
+  first_name: 'firstName',
+  cognome: 'lastName',
+  lastname: 'lastName',
+  last_name: 'lastName',
+  cliente: 'clientName',
+  client: 'clientName',
+  clientname: 'clientName',
+  client_name: 'clientName',
+  salone: 'salonName',
+  salon: 'salonName',
+  salonname: 'salonName',
+  salon_name: 'salonName',
+  servizio: 'serviceName',
+  service: 'serviceName',
+  servicename: 'serviceName',
+  service_name: 'serviceName',
+  staff: 'staffName',
+  staffname: 'staffName',
+  staff_name: 'staffName',
+  data: 'date',
+  date: 'date',
+  giorno: 'date',
+  ora: 'time',
+  time: 'time',
+  orario: 'time',
+  appuntamento: 'appointmentLabel',
+  appointment: 'appointmentLabel',
+  appointmentlabel: 'appointmentLabel',
+  appointment_label: 'appointmentLabel',
+  promemoria: 'reminderOffsetLabel',
+  reminder: 'reminderOffsetLabel',
+  reminderoffsetlabel: 'reminderOffsetLabel',
+  reminder_offset_label: 'reminderOffsetLabel',
+};
+
+function normalizePlaceholderKey(raw: string): string {
+  return raw.trim().toLowerCase().replace(/\s+/g, '_');
+}
+
+function resolveReminderPlaceholderValue(
+  rawKey: string,
+  context: ReminderTemplateContext,
+): string {
+  const normalizedKey = normalizePlaceholderKey(rawKey);
+  const mappedKey = REMINDER_PLACEHOLDER_ALIASES[normalizedKey];
+  if (mappedKey && typeof context[mappedKey] === 'string') {
+    return context[mappedKey] ?? '';
+  }
+  const compactKey = normalizedKey.replace(/[_-]/g, '');
+  const compactMappedKey = REMINDER_PLACEHOLDER_ALIASES[compactKey];
+  if (compactMappedKey && typeof context[compactMappedKey] === 'string') {
+    return context[compactMappedKey] ?? '';
+  }
+  return '';
+}
+
+function extractPlaceholdersInOrder(body: string): string[] {
+  if (!body.trim()) {
+    return [];
+  }
+  const matches = body.matchAll(/\{\{\s*([^}]+?)\s*\}\}/g);
+  return Array.from(matches)
+    .map((match) => (match[1] ?? '').trim())
+    .filter((value) => value.length > 0);
+}
+
+function buildWhatsappBodyComponentsFromTemplate(
+  body: string,
+  context: ReminderTemplateContext,
+): WhatsAppTemplateComponent[] | undefined {
+  const placeholders = extractPlaceholdersInOrder(body);
+  if (!placeholders.length) {
+    return undefined;
+  }
+  return [
+    {
+      type: 'body',
+      parameters: placeholders.map((placeholder) => ({
+        type: 'text',
+        text: resolveReminderPlaceholderValue(placeholder, context),
+      })),
+    },
+  ];
+}
+
+async function storeReminderWhatsappOutboxEntry({
+  salonId,
+  clientId,
+  appointmentId,
+  offsetId,
+  offsetMinutes,
+  startTimestamp,
+  to,
+  templateId,
+  templateName,
+  language,
+  providerMessageId,
+  status,
+  errorMessage,
+}: {
+  salonId: string;
+  clientId: string | null;
+  appointmentId: string;
+  offsetId: string;
+  offsetMinutes: number | null;
+  startTimestamp: Timestamp | null;
+  to: string | null;
+  templateId: string | null;
+  templateName: string | null;
+  language: string | null;
+  providerMessageId?: string;
+  status: 'sent' | 'failed' | 'skipped';
+  errorMessage?: string;
+}): Promise<void> {
+  const resolvedClientId = clientId ?? 'unknown';
+  const offsetSlug = normalizeSlug(offsetId, 'OFFSET');
+  const docId = `reminder_wa_${salonId}_${resolvedClientId}_${appointmentId}_${offsetSlug}`;
+  const docRef = db.collection('message_outbox').doc(docId);
+
+  const payload: Record<string, unknown> = {
+    type: 'appointment_reminder',
+    appointmentId,
+    offsetId,
+    to,
+    templateName,
+    lang: language,
+  };
+  if (offsetMinutes != null) {
+    payload.offsetMinutes = offsetMinutes;
+  }
+  if (providerMessageId) {
+    payload.providerMessageId = providerMessageId;
+  }
+  if (startTimestamp) {
+    payload.appointmentStart = startTimestamp.toDate().toISOString();
+  }
+
+  const metadata: Record<string, unknown> = {
+    source: 'appointment_reminder_task',
+    offsetId,
+  };
+  if (offsetMinutes != null) {
+    metadata.offsetMinutes = offsetMinutes;
+  }
+  if (providerMessageId) {
+    metadata.providerMessageId = providerMessageId;
+  }
+  if (errorMessage) {
+    metadata.error = errorMessage;
+  }
+
+  const baseData: Record<string, unknown> = {
+    salonId,
+    clientId,
+    channel: 'whatsapp',
+    status,
+    type: 'appointment_reminder',
+    templateId: templateId ?? `wa_reminder_${offsetSlug}`,
+    payload,
+    metadata,
+    appointmentId,
+    appointmentStart: startTimestamp ?? null,
+    updatedAt: serverTimestamp(),
+    ...(providerMessageId ? { sentAt: serverTimestamp() } : {}),
+  };
+
+  try {
+    const snapshot = await docRef.get();
+    if (!snapshot.exists) {
+      await docRef.set({
+        ...baseData,
+        scheduledAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+        traces: [],
+      });
+    } else {
+      await docRef.update(baseData);
+    }
+  } catch (error) {
+    logger.error(
+      'Failed to persist WhatsApp reminder outbox entry',
+      error instanceof Error ? error : new Error(String(error)),
+      { salonId, appointmentId, offsetId, clientId },
+    );
+  }
 }
 
 function buildReminderNotificationCopy(
@@ -522,7 +1088,7 @@ async function markSent(
   });
 }
 
-async function sendNotification(
+async function sendPushReminderNotification(
   appt: DocumentData,
   salonId: string,
   appointmentId: string,
@@ -673,6 +1239,238 @@ async function sendNotification(
       failureCount: targetTokens.length,
       invalidTokenCount: 0,
     });
+  }
+}
+
+async function sendWhatsappReminderNotification(
+  appt: DocumentData,
+  salonId: string,
+  appointmentId: string,
+  offset: ReminderOffsetConfig,
+  offsetMinutes?: number | null,
+): Promise<void> {
+  const startTimestamp = getStartTimestamp(appt);
+  const effectiveOffsetMinutes =
+    typeof offsetMinutes === 'number'
+      ? Math.max(0, Math.round(offsetMinutes))
+      : Math.max(0, Math.round(offset.minutesBefore));
+  const context = await buildAppointmentReminderTemplateContext(
+    appt,
+    salonId,
+    startTimestamp,
+    effectiveOffsetMinutes,
+  );
+  const clientId = context.clientId ?? resolvePrimaryClientId(appt, null);
+  const recipient = context.phone;
+  if (!recipient) {
+    logger.warn('Skipping WhatsApp reminder: missing client phone', {
+      salonId,
+      appointmentId,
+      offsetId: offset.id,
+      clientId,
+    });
+    await storeReminderWhatsappOutboxEntry({
+      salonId,
+      clientId,
+      appointmentId,
+      offsetId: offset.id,
+      offsetMinutes: effectiveOffsetMinutes,
+      startTimestamp,
+      to: null,
+      templateId: offset.whatsappTemplateId ?? null,
+      templateName: offset.whatsappTemplateName ?? null,
+      language: 'it',
+      status: 'skipped',
+      errorMessage: 'missing-client-phone',
+    });
+    return;
+  }
+
+  const templateId = normalizeString(offset.whatsappTemplateId);
+  if (!templateId) {
+    logger.warn('Skipping WhatsApp reminder: missing template mapping', {
+      salonId,
+      appointmentId,
+      offsetId: offset.id,
+      clientId,
+    });
+    await storeReminderWhatsappOutboxEntry({
+      salonId,
+      clientId,
+      appointmentId,
+      offsetId: offset.id,
+      offsetMinutes: effectiveOffsetMinutes,
+      startTimestamp,
+      to: recipient,
+      templateId: null,
+      templateName: offset.whatsappTemplateName ?? null,
+      language: 'it',
+      status: 'failed',
+      errorMessage: 'missing-whatsapp-template-id',
+    });
+    return;
+  }
+
+  const template = await loadReminderWhatsappTemplate(templateId);
+  if (!template) {
+    await storeReminderWhatsappOutboxEntry({
+      salonId,
+      clientId,
+      appointmentId,
+      offsetId: offset.id,
+      offsetMinutes: effectiveOffsetMinutes,
+      startTimestamp,
+      to: recipient,
+      templateId,
+      templateName: offset.whatsappTemplateName ?? null,
+      language: 'it',
+      status: 'failed',
+      errorMessage: 'template-not-found',
+    });
+    logger.warn('Skipping WhatsApp reminder: template not found', {
+      salonId,
+      appointmentId,
+      offsetId: offset.id,
+      templateId,
+    });
+    return;
+  }
+
+  if (
+    template.salonId !== salonId ||
+    template.channel !== 'whatsapp' ||
+    template.usage !== 'reminder' ||
+    !template.isActive
+  ) {
+    await storeReminderWhatsappOutboxEntry({
+      salonId,
+      clientId,
+      appointmentId,
+      offsetId: offset.id,
+      offsetMinutes: effectiveOffsetMinutes,
+      startTimestamp,
+      to: recipient,
+      templateId: template.id,
+      templateName: template.title ?? offset.whatsappTemplateName ?? null,
+      language: template.metaTemplateLanguage ?? 'it',
+      status: 'failed',
+      errorMessage: 'template-invalid-for-reminder',
+    });
+    logger.warn('Skipping WhatsApp reminder: invalid local template', {
+      salonId,
+      appointmentId,
+      offsetId: offset.id,
+      templateId: template.id,
+      templateSalonId: template.salonId,
+      channel: template.channel,
+      usage: template.usage,
+      isActive: template.isActive,
+    });
+    return;
+  }
+
+  const metaTemplateName = template.metaTemplateName ?? template.id;
+  const language = template.metaTemplateLanguage ?? 'it';
+  const components = buildWhatsappBodyComponentsFromTemplate(
+    template.body,
+    context,
+  );
+
+  try {
+    const result = await sendTemplateMessage({
+      salonId,
+      to: recipient,
+      templateName: metaTemplateName,
+      lang: language,
+      components,
+      metadata: {
+        source: 'appointment_reminder_task',
+        type: 'appointment_reminder',
+        appointmentId,
+        offsetId: offset.id,
+      },
+    });
+
+    await storeReminderWhatsappOutboxEntry({
+      salonId,
+      clientId,
+      appointmentId,
+      offsetId: offset.id,
+      offsetMinutes: effectiveOffsetMinutes,
+      startTimestamp,
+      to: recipient,
+      templateId: template.id,
+      templateName: metaTemplateName,
+      language,
+      providerMessageId: result.messageId,
+      status: result.success ? 'sent' : 'failed',
+      errorMessage: result.success ? undefined : 'whatsapp-send-unsuccessful',
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error(
+      'Failed to send WhatsApp appointment reminder',
+      error instanceof Error ? error : new Error(message),
+      {
+        salonId,
+        appointmentId,
+        offsetId: offset.id,
+        templateId: template.id,
+        clientId,
+      },
+    );
+    await storeReminderWhatsappOutboxEntry({
+      salonId,
+      clientId,
+      appointmentId,
+      offsetId: offset.id,
+      offsetMinutes: effectiveOffsetMinutes,
+      startTimestamp,
+      to: recipient,
+      templateId: template.id,
+      templateName: metaTemplateName,
+      language,
+      status: 'failed',
+      errorMessage: message,
+    });
+  }
+}
+
+async function sendNotification(
+  appt: DocumentData,
+  salonId: string,
+  appointmentId: string,
+  offsetId: string,
+  offsetMinutes?: number | null,
+  offsetConfig?: ReminderOffsetConfig | null,
+): Promise<void> {
+  const resolvedOffset: ReminderOffsetConfig = offsetConfig ?? {
+    id: offsetId,
+    minutesBefore:
+      typeof offsetMinutes === 'number'
+        ? Math.max(0, Math.round(offsetMinutes))
+        : MIN_OFFSET_MINUTES,
+    active: true,
+    deliveryMode: 'push',
+  };
+
+  if (offsetSendsPush(resolvedOffset)) {
+    await sendPushReminderNotification(
+      appt,
+      salonId,
+      appointmentId,
+      offsetId,
+      offsetMinutes,
+    );
+  }
+  if (offsetSendsWhatsapp(resolvedOffset)) {
+    await sendWhatsappReminderNotification(
+      appt,
+      salonId,
+      appointmentId,
+      resolvedOffset,
+      offsetMinutes,
+    );
   }
 }
 
@@ -840,12 +1638,16 @@ export const processAppointmentReminderTask = onTaskDispatched(
       return;
     }
 
+    const currentOffsets = await loadReminderOffsets(salonId);
+    const offsetConfig = currentOffsets.find((offset) => offset.id === offsetId);
+
     await sendNotification(
       appt,
       salonId,
       appointmentId,
       offsetId,
       typeof offsetMinutes === 'number' ? offsetMinutes : null,
+      offsetConfig,
     );
     await markSent(apptRef, offsetId);
   },

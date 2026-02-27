@@ -18,46 +18,47 @@
 ## Priorita 1 - OAuth (da fare adesso)
 
 ### 1) Hardening sicurezza endpoint OAuth
-- [ ] Proteggere `startWhatsappOAuth` con autenticazione Firebase (ID token) e verifica ruolo admin del salone.
-- [ ] Verificare che l'utente autenticato sia autorizzato sul `salonId` richiesto.
-- [ ] Non accettare `salonId` anonimo da query senza controllo server-side.
-- [ ] Limitare `returnTo` / `successRedirect` a una allowlist di domini (`civiapp.app`, staging).
+- [x] Proteggere `startWhatsappOAuth` con autenticazione Firebase (ID token) e verifica ruolo admin del salone.
+- [x] Verificare che l'utente autenticato sia autorizzato sul `salonId` richiesto.
+- [x] Non accettare `salonId` anonimo da query senza controllo server-side.
+- [x] Limitare `returnTo` / `successRedirect` a una allowlist di domini (`civiapp.app`, staging).
 
 ### 2) Gestione `state` OAuth robusta
-- [ ] Sostituire il `state` solo-base64 con `state` firmato oppure `nonce` server-side (Firestore) con TTL.
-- [ ] Salvare sessione OAuth in `salons/{salonId}/integrations/whatsapp_oauth_sessions/{sessionId}` con:
+- [x] Sostituire il `state` solo-base64 con `state` firmato oppure `nonce` server-side (Firestore) con TTL.
+- [x] Salvare sessione OAuth in `salons/{salonId}/integrations/whatsapp_oauth/sessions/{sessionId}` con:
   - `requestedByUserId`
   - `salonId`
   - `createdAt`
   - `expiresAt`
   - `status` (`started`, `callback_received`, `processed`, `error`)
-- [ ] Validare in callback che `state` non sia scaduto e non sia riutilizzato (anti replay).
+- [x] Validare in callback che `state` non sia scaduto e non sia riutilizzato (anti replay).
 
 ### 3) Callback OAuth e tracciamento stato
-- [ ] In `handleWhatsappOAuthCallback` salvare esito piu esplicito (`error`, `errorDescription`, `callbackAt`).
-- [ ] Migliorare pagina di callback con messaggio chiaro per admin (successo / errore / prossimi passi).
-- [ ] Mostrare stato onboarding nel tab `Impostazioni` (es. `In attesa`, `Sincronizzato`, `Errore`).
+- [x] In `handleWhatsappOAuthCallback` salvare esito piu esplicito (`error`, `errorDescription`, timestamp callback/error).
+- [x] Migliorare pagina di callback con messaggio chiaro per admin (successo / errore / prossimi passi).
+- [x] Mostrare stato onboarding nel tab `Impostazioni` (es. `In attesa`, `Sincronizzato`, `Errore`).
 
 ### 4) Onboarding token/WABA post-callback
 - [ ] In `syncWhatsappOAuth` aggiungere generazione/salvataggio `verifyTokenSecretId` se manteniamo token per salone.
 - [x] Strategia token scelta per ora: **Opzione A**
   - usare token utente ottenuto via OAuth e gestire refresh/ricollegamento
   - nota: pianificare monitoraggio scadenza (`tokenExpiresAt`) e UX di ricollegamento
-- [ ] Salvare anche metadati utili per audit:
+- [x] Salvare anche metadati utili per audit:
   - `connectedByUserId`
   - `connectedByEmail`
   - `graphApiVersion`
   - `tokenExpiresAt` (calcolato)
 
 ### 5) Protezione endpoint invio (bloccante produzione)
-- [ ] Proteggere `sendWhatsappTemplate` con auth + autorizzazione salon admin / backend trusted.
-- [ ] Evitare endpoint pubblico con solo `salonId` nel body.
+- [x] Proteggere `sendWhatsappTemplate` con auth + autorizzazione salon admin / backend trusted.
+- [x] Evitare endpoint pubblico con solo `salonId` nel body.
 - [ ] Aggiungere rate limit / abuse guard per invio manuale preview.
+- [x] Proteggere anche `listWhatsappTemplates` con auth + autorizzazione salon admin (oggi basta `salonId` in query).
 
 ### 6) Webhook sicurezza (bloccante produzione)
 - [ ] Validare firma webhook Meta (`X-Hub-Signature-256`) nel `POST`.
 - [ ] Loggare e scartare payload non firmati/non validi.
-- [ ] Verificare strategia `verify_token`:
+- [x] Verificare strategia `verify_token`:
   - per il modello attuale (app unica multi-tenant) e sufficiente un verify token globale di app
   - il supporto per `verifyTokenSecretId` per salone va chiarito/semplificato se non serve
 
@@ -100,7 +101,7 @@
 
 ### E) Webhook Meta (app-level)
 - [ ] Configurare callback URL verso funzione webhook (diretto o tramite rewrite Hosting).
-- [ ] Impostare il verify token scelto (globale app oppure strategia per-salone da definire).
+- [ ] Impostare il verify token scelto (`WA_VERIFY_TOKEN` globale app).
 - [ ] Completare verifica `hub.challenge`.
 - [ ] Sottoscrivere i campi webhook necessari (almeno messaggi e status).
 - [ ] Verificare che gli eventi del numero arrivino alla callback dopo il collegamento WABA.
@@ -137,9 +138,9 @@
 - [ ] `dispatchWhatsAppOutbox`
 
 ## Adeguamenti applicativi subito dopo OAuth (necessari per reminder)
-- [ ] Mappare esplicitamente `Meta template name` nel modello `MessageTemplate` (oggi si usa `doc.id`, rischio mismatch).
-- [ ] Aggiungere test "Invia anteprima" con template Meta reale approvato.
-- [ ] Mostrare nel backoffice stato connessione completo:
+- [x] Mappare esplicitamente `Meta template name` nel modello `MessageTemplate` (fallback legacy su `doc.id` per template esistenti).
+- [x] Aggiungere test "Invia anteprima" con template Meta reale approvato (UI presente + test manuale eseguito).
+- [x] Mostrare nel backoffice stato connessione completo:
   - WABA ID
   - Phone Number ID
   - numero visualizzato
@@ -178,11 +179,15 @@
 - [ ] Login Meta + consenso completati.
 - [ ] Callback salva codice OAuth.
 - [ ] Trigger `syncWhatsappOAuth` salva `businessId`, `wabaId`, `phoneNumberId`, `tokenSecretId`.
-- [ ] UI backoffice mostra stato `Collegato`.
+- [x] UI backoffice mostra stato `Collegato`.
 - [ ] Invio anteprima template restituisce `messageId`.
 - [ ] Webhook riceve almeno `status` del messaggio inviato.
 
-## Note aperte da decidere
-- [ ] Verify token webhook: globale app (consigliato per app unica) vs per-salone.
-- [ ] Strategia token a lungo termine (refresh/ricollegamento).
-- [ ] Se adottare in futuro Meta Embedded Signup (UX migliore) invece del solo OAuth attuale.
+## Decisioni prese (chiuse)
+- [x] Verify token webhook: **globale app** (`WA_VERIFY_TOKEN`) per modello attuale con app unica multi-tenant.
+  - Il supporto per-salone resta solo come fallback/compatibilita tecnica, non come strategia standard.
+- [x] Strategia token a lungo termine: **Opzione A (token OAuth utente) + ricollegamento guidato**.
+  - Monitorare `tokenExpiresAt` e mostrare CTA "Ricollega WhatsApp" quando token scaduto o permessi Meta non piu validi.
+  - Questo copre anche i casi osservati dopo logout/login in YouBook, dove possono emergere errori di permesso e va forzata una nuova autorizzazione.
+- [x] Meta Embedded Signup: **non adesso**.
+  - Significa: flusso Meta integrato nella UI (meno passaggi manuali). Lo teniamo in backlog come miglioramento UX fase 2, dopo stabilizzazione OAuth/permessi.
