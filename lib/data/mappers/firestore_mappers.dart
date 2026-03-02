@@ -1623,7 +1623,7 @@ ServiceCategory serviceCategoryFromDoc(
       const <String, dynamic>{};
   final zoneServiceIds = <String, String>{};
   rawZoneServices.forEach((key, value) {
-    final zoneKey = key?.toString() ?? '';
+    final zoneKey = key.toString();
     final zoneValue = value?.toString() ?? '';
     if (zoneKey.isEmpty || zoneValue.isEmpty) {
       return;
@@ -2509,6 +2509,10 @@ MessageTemplate messageTemplateFromDoc(
               metaTemplateLanguageRaw.trim().isNotEmpty
           ? metaTemplateLanguageRaw.trim()
           : null;
+  final whatsappConfig =
+      channel == MessageChannel.whatsapp
+          ? _parseWhatsAppTemplateConfig(data['whatsappConfig'])
+          : null;
   return MessageTemplate(
     id: doc.id,
     salonId: data['salonId'] as String? ?? '',
@@ -2521,10 +2525,16 @@ MessageTemplate messageTemplateFromDoc(
         channel == MessageChannel.whatsapp ? metaTemplateName : null,
     metaTemplateLanguage:
         channel == MessageChannel.whatsapp ? metaTemplateLanguage : null,
+    whatsappConfig: whatsappConfig,
   );
 }
 
 Map<String, dynamic> messageTemplateToMap(MessageTemplate template) {
+  final whatsappConfigMap = _whatsappTemplateConfigToMap(
+    template.channel == MessageChannel.whatsapp
+        ? template.whatsappConfig
+        : null,
+  );
   return {
     'salonId': template.salonId,
     'title': template.title,
@@ -2540,7 +2550,212 @@ Map<String, dynamic> messageTemplateToMap(MessageTemplate template) {
         template.metaTemplateLanguage != null &&
         template.metaTemplateLanguage!.trim().isNotEmpty)
       'metaTemplateLanguage': template.metaTemplateLanguage!.trim(),
+    if (template.channel == MessageChannel.whatsapp &&
+        whatsappConfigMap != null)
+      'whatsappConfig': whatsappConfigMap,
   };
+}
+
+WhatsAppTemplateConfig? _parseWhatsAppTemplateConfig(Object? raw) {
+  final rawMap = _mapFromDynamic(raw);
+  if (rawMap.isEmpty) {
+    return null;
+  }
+
+  final schemaVersionRaw = rawMap['schemaVersion'];
+  final schemaVersion = schemaVersionRaw is num ? schemaVersionRaw.toInt() : 2;
+  final headerFormat = _trimToNull(rawMap['headerFormat']);
+  final allowedParams = _normalizeStringList(rawMap['allowedParams']);
+
+  WhatsAppTemplateBindings? bindings;
+  final rawBindings = _mapFromDynamic(rawMap['bindings']);
+  if (rawBindings.isNotEmpty) {
+    final bodyBindings = _normalizeBindingList(rawBindings['body']);
+    final headerBindings = _normalizeBindingList(rawBindings['header']);
+    final buttons = <WhatsAppTemplateButtonBinding>[];
+    final rawButtons = rawBindings['buttons'];
+    if (rawButtons is Iterable) {
+      var fallbackIndex = 0;
+      for (final rawButton in rawButtons) {
+        final buttonMap = _mapFromDynamic(rawButton);
+        if (buttonMap.isEmpty) {
+          continue;
+        }
+        final indexRaw = buttonMap['index'];
+        final index = indexRaw is num ? indexRaw.toInt() : fallbackIndex;
+        final typeRaw = buttonMap['type'];
+        final type =
+            typeRaw is String && typeRaw.trim().isNotEmpty
+                ? typeRaw.trim()
+                : 'url';
+        final staticValue = _trimToNull(buttonMap['staticValue']);
+        final placeholder = _trimToNull(buttonMap['placeholder']);
+        buttons.add(
+          WhatsAppTemplateButtonBinding(
+            index: index < 0 ? 0 : index,
+            type: type,
+            linkTargetType: _whatsappLinkTargetTypeFromString(
+              buttonMap['linkTargetType'] as String?,
+            ),
+            valueSource: _whatsappButtonValueSourceFromString(
+              buttonMap['valueSource'] as String?,
+            ),
+            staticValue: staticValue,
+            placeholder: placeholder,
+          ),
+        );
+        fallbackIndex += 1;
+      }
+    }
+    if (bodyBindings.isNotEmpty ||
+        headerBindings.isNotEmpty ||
+        buttons.isNotEmpty) {
+      bindings = WhatsAppTemplateBindings(
+        body: List<String>.unmodifiable(bodyBindings),
+        header: List<String>.unmodifiable(headerBindings),
+        buttons: List<WhatsAppTemplateButtonBinding>.unmodifiable(buttons),
+      );
+    }
+  }
+
+  return WhatsAppTemplateConfig(
+    schemaVersion: schemaVersion <= 0 ? 2 : schemaVersion,
+    allowedParams: List<String>.unmodifiable(allowedParams),
+    bindings: bindings,
+    headerFormat: headerFormat,
+  );
+}
+
+Map<String, dynamic>? _whatsappTemplateConfigToMap(
+  WhatsAppTemplateConfig? config,
+) {
+  if (config == null) {
+    return null;
+  }
+  final allowedParams = _normalizeStringList(config.allowedParams);
+  final bindings = config.bindings;
+  final bindingsMap = <String, dynamic>{};
+  if (bindings != null) {
+    final bodyBindings = _normalizeBindingList(bindings.body);
+    final headerBindings = _normalizeBindingList(bindings.header);
+    if (bodyBindings.isNotEmpty) {
+      bindingsMap['body'] = bodyBindings;
+    }
+    if (headerBindings.isNotEmpty) {
+      bindingsMap['header'] = headerBindings;
+    }
+    if (bindings.buttons.isNotEmpty) {
+      bindingsMap['buttons'] = bindings.buttons
+          .map((button) {
+            return {
+              'index': button.index,
+              'type': button.type,
+              'linkTargetType': _whatsappLinkTargetTypeToString(
+                button.linkTargetType,
+              ),
+              'valueSource': _whatsappButtonValueSourceToString(
+                button.valueSource,
+              ),
+              if (button.staticValue != null &&
+                  button.staticValue!.trim().isNotEmpty)
+                'staticValue': button.staticValue!.trim(),
+              if (button.placeholder != null &&
+                  button.placeholder!.trim().isNotEmpty)
+                'placeholder': button.placeholder!.trim(),
+            };
+          })
+          .toList(growable: false);
+    }
+  }
+
+  return {
+    'schemaVersion': config.schemaVersion <= 0 ? 2 : config.schemaVersion,
+    if (allowedParams.isNotEmpty) 'allowedParams': allowedParams,
+    if (config.headerFormat != null && config.headerFormat!.trim().isNotEmpty)
+      'headerFormat': config.headerFormat!.trim(),
+    if (bindingsMap.isNotEmpty) 'bindings': bindingsMap,
+  };
+}
+
+List<String> _normalizeStringList(Object? raw) {
+  if (raw is! Iterable) {
+    return const <String>[];
+  }
+  final values = <String>[];
+  final seen = <String>{};
+  for (final item in raw) {
+    if (item is! String) {
+      continue;
+    }
+    final normalized = item.trim();
+    if (normalized.isEmpty || seen.contains(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    values.add(normalized);
+  }
+  return values;
+}
+
+List<String> _normalizeBindingList(Object? raw) {
+  if (raw is! Iterable) {
+    return const <String>[];
+  }
+  final values = <String>[];
+  for (final item in raw) {
+    if (item is! String) {
+      continue;
+    }
+    final normalized = item.trim();
+    if (normalized.isEmpty) {
+      continue;
+    }
+    values.add(normalized);
+  }
+  return values;
+}
+
+String? _trimToNull(Object? value) {
+  if (value is! String) {
+    return null;
+  }
+  final trimmed = value.trim();
+  return trimmed.isEmpty ? null : trimmed;
+}
+
+WhatsAppLinkTargetType _whatsappLinkTargetTypeFromString(String? value) {
+  switch (value?.trim().toLowerCase()) {
+    case 'landing':
+    default:
+      return WhatsAppLinkTargetType.landing;
+  }
+}
+
+String _whatsappLinkTargetTypeToString(WhatsAppLinkTargetType value) {
+  switch (value) {
+    case WhatsAppLinkTargetType.landing:
+      return 'landing';
+  }
+}
+
+WhatsAppButtonValueSource _whatsappButtonValueSourceFromString(String? value) {
+  switch (value?.trim().toLowerCase()) {
+    case 'static':
+    case 'staticvalue':
+      return WhatsAppButtonValueSource.staticValue;
+    case 'placeholder':
+    default:
+      return WhatsAppButtonValueSource.placeholder;
+  }
+}
+
+String _whatsappButtonValueSourceToString(WhatsAppButtonValueSource value) {
+  switch (value) {
+    case WhatsAppButtonValueSource.staticValue:
+      return 'static';
+    case WhatsAppButtonValueSource.placeholder:
+      return 'placeholder';
+  }
 }
 
 LastMinuteNotificationAudience _lastMinuteAudienceFromString(String? value) {

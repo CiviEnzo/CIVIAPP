@@ -94,6 +94,14 @@ function toDateFromTimestamp(timestamp: unknown): Date | null {
   return null;
 }
 
+function omitUndefinedFields(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== undefined),
+  );
+}
+
 async function resolveSalonIdByVerifyToken(
   verifyToken: string,
 ): Promise<string | null> {
@@ -174,25 +182,24 @@ async function persistInboundMessage(
 
   const receivedAt = toDateFromTimestamp(message.timestamp) ?? new Date();
 
+  const payload = omitUndefinedFields({
+    salonId,
+    messageId,
+    from: message.from ?? message['wa_id'],
+    type: message.type,
+    payload: message,
+    receivedAt,
+    receivedAtMs: receivedAt.getTime(),
+    createdAt: FieldValue.serverTimestamp(),
+    quietHours: QUIET_HOURS,
+  });
+
   await db
     .collection('salons')
     .doc(salonId)
     .collection('message_inbox')
     .doc(messageId)
-    .set(
-      {
-        salonId,
-        messageId,
-        from: message.from ?? message['wa_id'],
-        type: message.type,
-        payload: message,
-        receivedAt,
-        receivedAtMs: receivedAt.getTime(),
-        createdAt: FieldValue.serverTimestamp(),
-        quietHours: QUIET_HOURS,
-      },
-      { merge: true },
-    );
+    .set(payload, { merge: true });
 }
 
 async function persistDeliveryStatus(
@@ -206,27 +213,26 @@ async function persistDeliveryStatus(
 
   const eventAt = toDateFromTimestamp(status.timestamp) ?? new Date();
 
+  const payload = omitUndefinedFields({
+    salonId,
+    messageId: status.id ?? status.statusId,
+    status: status.status,
+    recipient: status.recipient_id ?? status.recipientId,
+    conversation: status.conversation,
+    pricing: status.pricing,
+    errors: status.errors,
+    eventAt,
+    eventAtMs: eventAt.getTime(),
+    raw: status,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
   await db
     .collection('salons')
     .doc(salonId)
     .collection('delivery_receipts')
     .doc(statusId)
-    .set(
-      {
-        salonId,
-        messageId: status.id,
-        status: status.status,
-        recipient: status.recipient_id ?? status.recipientId,
-        conversation: status.conversation,
-        pricing: status.pricing,
-        errors: status.errors,
-        eventAt,
-        eventAtMs: eventAt.getTime(),
-        raw: status,
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    );
+    .set(payload, { merge: true });
 }
 
 async function processChange(
@@ -312,7 +318,7 @@ export const onWhatsappWebhook = onRequest(
 
       await handleNotification(request, response);
     } catch (error) {
-    logError('Unhandled error in WhatsApp webhook', error);
+      logError('Unhandled error in WhatsApp webhook', error);
       response.status(500).json({ error: 'Internal Server Error' });
     }
   },

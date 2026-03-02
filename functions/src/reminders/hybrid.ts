@@ -72,6 +72,13 @@ interface ReminderWhatsappTemplateRecord {
   usage: string;
   metaTemplateName?: string;
   metaTemplateLanguage?: string;
+  whatsappConfig?: {
+    headerFormat?: string;
+    bindings?: {
+      body?: string[];
+      header?: string[];
+    };
+  };
 }
 
 interface ReminderTemplateContext {
@@ -81,6 +88,7 @@ interface ReminderTemplateContext {
   salonName?: string;
   serviceName?: string;
   staffName?: string;
+  dateTimeFull?: string;
   date?: string;
   time?: string;
   appointmentLabel?: string;
@@ -113,8 +121,9 @@ const DATE_COMPARE_FORMATTER = new Intl.DateTimeFormat('it-IT', {
   day: '2-digit',
   timeZone: DEFAULT_TIMEZONE,
 });
-const DATE_SHORT_FORMATTER = new Intl.DateTimeFormat('it-IT', {
-  dateStyle: 'short',
+const DATE_DAY_MONTH_FORMATTER = new Intl.DateTimeFormat('it-IT', {
+  day: 'numeric',
+  month: 'long',
   timeZone: DEFAULT_TIMEZONE,
 });
 
@@ -677,12 +686,11 @@ async function buildAppointmentReminderTemplateContext(
   ]);
 
   const startDate = startTimestamp?.toDate() ?? null;
-  const dateLabel = startDate ? DATE_SHORT_FORMATTER.format(startDate) : undefined;
+  const dateLabel = startDate ? DATE_DAY_MONTH_FORMATTER.format(startDate) : undefined;
   const timeLabel = startDate ? TIME_FORMATTER.format(startDate) : undefined;
-  const appointmentLabel =
-    startDate && timeLabel
-      ? `${DATE_DISPLAY_FORMATTER.format(startDate)} alle ${timeLabel}`
-      : undefined;
+  const dateTimeFullLabel =
+    dateLabel && timeLabel ? `${dateLabel} alle ore ${timeLabel}` : undefined;
+  const appointmentLabel = dateTimeFullLabel;
   const reminderOffsetLabel =
     configuredOffsetMinutes != null
       ? formatReminderOffsetLabel(Math.max(0, Math.round(configuredOffsetMinutes)))
@@ -697,6 +705,7 @@ async function buildAppointmentReminderTemplateContext(
     salonName,
     serviceName: serviceName ?? undefined,
     staffName: staffName ?? undefined,
+    dateTimeFull: dateTimeFullLabel,
     date: dateLabel,
     time: timeLabel,
     appointmentLabel,
@@ -712,6 +721,31 @@ async function loadReminderWhatsappTemplate(
     return null;
   }
   const data = (snapshot.data() ?? {}) as Record<string, unknown>;
+  const rawWhatsappConfig =
+    data.whatsappConfig && typeof data.whatsappConfig === 'object'
+      ? (data.whatsappConfig as Record<string, unknown>)
+      : undefined;
+  const rawBindings =
+    rawWhatsappConfig?.bindings && typeof rawWhatsappConfig.bindings === 'object'
+      ? (rawWhatsappConfig.bindings as Record<string, unknown>)
+      : undefined;
+  const bodyBindings =
+    rawBindings?.body && Array.isArray(rawBindings.body)
+      ? rawBindings.body
+          .map((item) => (typeof item === 'string' ? item.trim() : ''))
+          .filter((item) => item.length > 0)
+      : undefined;
+  const headerBindings =
+    rawBindings?.header && Array.isArray(rawBindings.header)
+      ? rawBindings.header
+          .map((item) => (typeof item === 'string' ? item.trim() : ''))
+          .filter((item) => item.length > 0)
+      : undefined;
+  const headerFormatRaw =
+    typeof rawWhatsappConfig?.headerFormat === 'string'
+      ? rawWhatsappConfig.headerFormat.trim()
+      : '';
+  const headerFormat = headerFormatRaw.length > 0 ? headerFormatRaw : undefined;
   return {
     id: snapshot.id,
     salonId: normalizeString(data.salonId) ?? '',
@@ -722,6 +756,18 @@ async function loadReminderWhatsappTemplate(
     usage: normalizeString(data.usage) ?? '',
     metaTemplateName: normalizeString(data.metaTemplateName) ?? undefined,
     metaTemplateLanguage: normalizeString(data.metaTemplateLanguage) ?? undefined,
+    whatsappConfig:
+      (bodyBindings && bodyBindings.length) ||
+      (headerBindings && headerBindings.length) ||
+      headerFormat
+        ? {
+            headerFormat,
+            bindings: {
+              body: bodyBindings,
+              header: headerBindings,
+            },
+          }
+        : undefined,
   };
 }
 
@@ -747,6 +793,21 @@ const REMINDER_PLACEHOLDER_ALIASES: Record<string, keyof ReminderTemplateContext
   staff: 'staffName',
   staffname: 'staffName',
   staff_name: 'staffName',
+  datacompleta: 'dateTimeFull',
+  data_completa: 'dateTimeFull',
+  dataora: 'dateTimeFull',
+  data_ora: 'dateTimeFull',
+  datetime: 'dateTimeFull',
+  date_time: 'dateTimeFull',
+  fulldate: 'dateTimeFull',
+  full_date: 'dateTimeFull',
+  fulltime: 'dateTimeFull',
+  full_time: 'dateTimeFull',
+  datetimefull: 'dateTimeFull',
+  datatimefull: 'dateTimeFull',
+  date_time_full: 'dateTimeFull',
+  datefull: 'dateTimeFull',
+  date_full: 'dateTimeFull',
   data: 'date',
   date: 'date',
   giorno: 'date',
@@ -767,21 +828,84 @@ function normalizePlaceholderKey(raw: string): string {
   return raw.trim().toLowerCase().replace(/\s+/g, '_');
 }
 
+const CUSTOM_BINDING_PREFIX = 'custom:';
+
+function decodeCustomBindingValue(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed.length) {
+    return null;
+  }
+  if (!trimmed.toLowerCase().startsWith(CUSTOM_BINDING_PREFIX)) {
+    return null;
+  }
+  return trimmed.slice(CUSTOM_BINDING_PREFIX.length);
+}
+
 function resolveReminderPlaceholderValue(
   rawKey: string,
   context: ReminderTemplateContext,
 ): string {
   const normalizedKey = normalizePlaceholderKey(rawKey);
   const mappedKey = REMINDER_PLACEHOLDER_ALIASES[normalizedKey];
-  if (mappedKey && typeof context[mappedKey] === 'string') {
-    return context[mappedKey] ?? '';
+  if (mappedKey) {
+    const rawValue = context[mappedKey];
+    const direct = typeof rawValue === 'string' ? rawValue.trim() : '';
+    if (direct.length > 0) {
+      return direct;
+    }
+    return fallbackReminderPlaceholderValue(mappedKey, context);
   }
   const compactKey = normalizedKey.replace(/[_-]/g, '');
   const compactMappedKey = REMINDER_PLACEHOLDER_ALIASES[compactKey];
-  if (compactMappedKey && typeof context[compactMappedKey] === 'string') {
-    return context[compactMappedKey] ?? '';
+  if (compactMappedKey) {
+    const rawValue = context[compactMappedKey];
+    const direct = typeof rawValue === 'string' ? rawValue.trim() : '';
+    if (direct.length > 0) {
+      return direct;
+    }
+    return fallbackReminderPlaceholderValue(compactMappedKey, context);
   }
   return '';
+}
+
+function fallbackReminderPlaceholderValue(
+  key: keyof ReminderTemplateContext,
+  context: ReminderTemplateContext,
+): string {
+  switch (key) {
+    case 'firstName':
+      return (context.firstName ?? context.clientName ?? 'Cliente').trim();
+    case 'clientName':
+      return (context.clientName ?? context.firstName ?? 'Cliente').trim();
+    case 'salonName':
+      return (context.salonName ?? 'il salone').trim();
+    case 'serviceName':
+      return (context.serviceName ?? 'il servizio').trim();
+    case 'staffName':
+      return (context.staffName ?? 'il team').trim();
+    case 'dateTimeFull': {
+      const date = context.date?.trim() ?? '';
+      const time = context.time?.trim() ?? '';
+      if (date.length > 0 && time.length > 0) {
+        return `${date} alle ore ${time}`;
+      }
+      return (context.dateTimeFull ?? date).trim();
+    }
+    case 'date':
+      return (context.date ?? '').trim();
+    case 'time':
+      return (context.time ?? '').trim();
+    case 'appointmentLabel':
+      return (
+        context.appointmentLabel ??
+        context.dateTimeFull ??
+        fallbackReminderPlaceholderValue('dateTimeFull', context)
+      ).trim();
+    case 'lastName':
+    case 'reminderOffsetLabel':
+    default:
+      return '';
+  }
 }
 
 function extractPlaceholdersInOrder(body: string): string[] {
@@ -794,23 +918,102 @@ function extractPlaceholdersInOrder(body: string): string[] {
     .filter((value) => value.length > 0);
 }
 
-function buildWhatsappBodyComponentsFromTemplate(
-  body: string,
-  context: ReminderTemplateContext,
-): WhatsAppTemplateComponent[] | undefined {
-  const placeholders = extractPlaceholdersInOrder(body);
-  if (!placeholders.length) {
-    return undefined;
+function buildWhatsappTemplateComponentsFromTemplate(params: {
+  body: string;
+  context: ReminderTemplateContext;
+  bodyPlaceholderOrder?: string[];
+  headerBindings?: string[];
+  headerFormat?: string;
+}): {
+  components?: WhatsAppTemplateComponent[];
+  unresolvedPlaceholders: string[];
+} {
+  const {
+    body,
+    context,
+    bodyPlaceholderOrder,
+    headerBindings,
+    headerFormat,
+  } = params;
+  const components: WhatsAppTemplateComponent[] = [];
+  const unresolvedPlaceholders: string[] = [];
+  const normalizedHeaderFormat = (headerFormat ?? '').trim().toUpperCase();
+  const hasImageHeader = normalizedHeaderFormat === 'IMAGE';
+  const firstHeaderBinding =
+    headerBindings && headerBindings.length > 0
+      ? headerBindings[0]?.trim() ?? ''
+      : '';
+
+  if (hasImageHeader) {
+    if (!firstHeaderBinding.length) {
+      unresolvedPlaceholders.push('header:image');
+    } else {
+      const customValue = decodeCustomBindingValue(firstHeaderBinding);
+      const resolved = (
+        customValue ?? resolveReminderPlaceholderValue(firstHeaderBinding, context)
+      ).trim();
+      if (!resolved.length || !/^https?:\/\//i.test(resolved)) {
+        unresolvedPlaceholders.push(firstHeaderBinding);
+      } else {
+        components.push({
+          type: 'header',
+          parameters: [
+            {
+              type: 'image',
+              image: { link: resolved },
+            },
+          ],
+        });
+      }
+    }
+  } else if (firstHeaderBinding.length) {
+    const customValue = decodeCustomBindingValue(firstHeaderBinding);
+    const resolved = (
+      customValue ?? resolveReminderPlaceholderValue(firstHeaderBinding, context)
+    ).trim();
+    if (!resolved.length) {
+      unresolvedPlaceholders.push(firstHeaderBinding);
+    } else {
+      components.push({
+        type: 'header',
+        parameters: [
+          {
+            type: 'text',
+            text: resolved,
+          },
+        ],
+      });
+    }
   }
-  return [
-    {
+
+  const placeholders =
+    bodyPlaceholderOrder && bodyPlaceholderOrder.length
+      ? bodyPlaceholderOrder
+      : extractPlaceholdersInOrder(body);
+  if (placeholders.length) {
+    const parameters = placeholders.map((placeholder) => {
+      const customValue = decodeCustomBindingValue(placeholder);
+      const resolved = (
+        customValue ?? resolveReminderPlaceholderValue(placeholder, context)
+      ).trim();
+      if (!resolved.length) {
+        unresolvedPlaceholders.push(placeholder);
+      }
+      return {
+        type: 'text' as const,
+        text: resolved,
+      };
+    });
+    components.push({
       type: 'body',
-      parameters: placeholders.map((placeholder) => ({
-        type: 'text',
-        text: resolveReminderPlaceholderValue(placeholder, context),
-      })),
-    },
-  ];
+      parameters,
+    });
+  }
+
+  return {
+    components: components.length > 0 ? components : undefined,
+    unresolvedPlaceholders,
+  };
 }
 
 async function storeReminderWhatsappOutboxEntry({
@@ -1371,10 +1574,48 @@ async function sendWhatsappReminderNotification(
 
   const metaTemplateName = template.metaTemplateName ?? template.id;
   const language = template.metaTemplateLanguage ?? 'it';
-  const components = buildWhatsappBodyComponentsFromTemplate(
-    template.body,
-    context,
-  );
+  const { components, unresolvedPlaceholders } =
+    buildWhatsappTemplateComponentsFromTemplate({
+      body: template.body,
+      context,
+      bodyPlaceholderOrder: template.whatsappConfig?.bindings?.body,
+      headerBindings: template.whatsappConfig?.bindings?.header,
+      headerFormat: template.whatsappConfig?.headerFormat,
+    });
+  if (unresolvedPlaceholders.length > 0) {
+    const unresolved = Array.from(
+      new Set(
+        unresolvedPlaceholders
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0),
+      ),
+    );
+    const errorMessage = `missing-template-parameter-values:${unresolved.join(',')}`;
+    logger.warn('Skipping WhatsApp reminder: unresolved template parameters', {
+      salonId,
+      appointmentId,
+      offsetId: offset.id,
+      templateId: template.id,
+      unresolvedPlaceholders: unresolved,
+      configuredBindings: template.whatsappConfig?.bindings ?? null,
+      headerFormat: template.whatsappConfig?.headerFormat ?? null,
+    });
+    await storeReminderWhatsappOutboxEntry({
+      salonId,
+      clientId,
+      appointmentId,
+      offsetId: offset.id,
+      offsetMinutes: effectiveOffsetMinutes,
+      startTimestamp,
+      to: recipient,
+      templateId: template.id,
+      templateName: metaTemplateName,
+      language,
+      status: 'failed',
+      errorMessage,
+    });
+    return;
+  }
 
   try {
     const result = await sendTemplateMessage({

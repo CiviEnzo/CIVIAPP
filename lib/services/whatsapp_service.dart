@@ -183,6 +183,9 @@ class MetaWhatsAppTemplate {
     this.language,
     this.status,
     this.category,
+    this.components = const <Map<String, dynamic>>[],
+    this.headerFormat,
+    this.headerTextPreview,
     this.bodyPreview,
     this.rejectedReason,
   });
@@ -192,8 +195,20 @@ class MetaWhatsAppTemplate {
   final String? language;
   final String? status;
   final String? category;
+  final List<Map<String, dynamic>> components;
+  final String? headerFormat;
+  final String? headerTextPreview;
   final String? bodyPreview;
   final String? rejectedReason;
+
+  bool get hasImageHeader =>
+      (headerFormat ?? '').trim().toUpperCase() == 'IMAGE';
+
+  bool get hasMediaHeader => const <String>{
+    'IMAGE',
+    'VIDEO',
+    'DOCUMENT',
+  }.contains((headerFormat ?? '').trim().toUpperCase());
 
   factory MetaWhatsAppTemplate.fromMap(Map<String, dynamic> map) {
     String? asTrimmedString(Object? value) {
@@ -204,13 +219,40 @@ class MetaWhatsAppTemplate {
       return trimmed.isEmpty ? null : trimmed;
     }
 
+    final components = <Map<String, dynamic>>[];
+    final rawComponents = map['components'];
+    if (rawComponents is List) {
+      for (final item in rawComponents) {
+        if (item is! Map) {
+          continue;
+        }
+        components.add(Map<String, dynamic>.from(item));
+      }
+    }
+
+    String? headerFormat;
+    String? headerTextPreview;
+    String? extractedBodyPreview;
+    for (final component in components) {
+      final type = asTrimmedString(component['type'])?.toUpperCase();
+      if (type == 'HEADER') {
+        headerFormat = asTrimmedString(component['format'])?.toUpperCase();
+        headerTextPreview = asTrimmedString(component['text']);
+      } else if (type == 'BODY') {
+        extractedBodyPreview = asTrimmedString(component['text']);
+      }
+    }
+
     return MetaWhatsAppTemplate(
       name: asTrimmedString(map['name']) ?? 'template_senza_nome',
       id: asTrimmedString(map['id']),
       language: asTrimmedString(map['language']),
       status: asTrimmedString(map['status']),
       category: asTrimmedString(map['category']),
-      bodyPreview: asTrimmedString(map['bodyPreview']),
+      components: List<Map<String, dynamic>>.unmodifiable(components),
+      headerFormat: headerFormat,
+      headerTextPreview: headerTextPreview,
+      bodyPreview: asTrimmedString(map['bodyPreview']) ?? extractedBodyPreview,
       rejectedReason: asTrimmedString(map['rejectedReason']),
     );
   }

@@ -11,7 +11,6 @@ import { readSecret } from './secrets';
 
 const REGION = process.env.WA_REGION ?? 'europe-west1';
 const GRAPH_API_VERSION = process.env.WA_GRAPH_API_VERSION ?? 'v19.0';
-const DEFAULT_LANGUAGE = process.env.WA_DEFAULT_LANGUAGE ?? 'it';
 
 export interface WhatsAppTemplateComponent {
   type: string;
@@ -35,6 +34,7 @@ export interface SendTemplateResult {
   success: boolean;
   messageId?: string;
   response?: unknown;
+  languageCode?: string;
 }
 
 async function createOutboxTrace(
@@ -60,6 +60,65 @@ async function createOutboxTrace(
     });
 }
 
+function normalizeLanguageCode(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const normalized = value.trim().replace(/-/g, '_');
+  if (!normalized) {
+    return undefined;
+  }
+  if (/^[a-z]{2}$/i.test(normalized)) {
+    return normalized.toLowerCase();
+  }
+  if (/^[a-z]{2}_[a-z]{2}$/i.test(normalized)) {
+    const [language, country] = normalized.split('_');
+    return `${language.toLowerCase()}_${country.toUpperCase()}`;
+  }
+  return normalized;
+}
+
+function resolveTemplateLanguageCode(value: unknown): string {
+  const normalized = normalizeLanguageCode(value);
+  if (!normalized) {
+    throw new Error('Missing template language (lang)');
+  }
+  const key = normalized.toLowerCase();
+  if (key === 'en' || key === 'en_us') {
+    return 'en_US';
+  }
+  return normalized;
+}
+
+function buildTemplatePayload(params: {
+  to: string;
+  templateName: string;
+  languageCode: string;
+  components?: WhatsAppTemplateComponent[];
+  allowPreviewUrl?: boolean;
+}): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    messaging_product: 'whatsapp',
+    to: params.to,
+    type: 'template',
+    template: {
+      name: params.templateName,
+      language: {
+        code: params.languageCode,
+      },
+      ...(Array.isArray(params.components) && params.components.length
+        ? { components: params.components }
+        : {}),
+    },
+  };
+
+  if (params.allowPreviewUrl === false) {
+    (payload.template as Record<string, unknown>).disable_preview = true;
+  }
+
+  return payload;
+}
+
 export async function sendTemplateMessage(
   input: SendTemplateInput,
 ): Promise<SendTemplateResult> {
@@ -81,30 +140,16 @@ export async function sendTemplateMessage(
     tokenSecretId: config.tokenSecretId,
   });
   const accessToken = await readSecret(config.tokenSecretId);
-
-  const languageCode =
-    input.lang ?? config.defaultLanguage ?? DEFAULT_LANGUAGE;
+  const languageCode = resolveTemplateLanguageCode(input.lang);
 
   const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${config.phoneNumberId}/messages`;
-
-  const payload: Record<string, unknown> = {
-    messaging_product: 'whatsapp',
+  const payload = buildTemplatePayload({
     to,
-    type: 'template',
-    template: {
-      name: templateName,
-      language: {
-        code: languageCode,
-      },
-      ...(Array.isArray(input.components) && input.components.length
-        ? { components: input.components }
-        : {}),
-    },
-  };
-
-  if (input.allowPreviewUrl === false) {
-    (payload.template as Record<string, unknown>).disable_preview = true;
-  }
+    templateName,
+    languageCode,
+    components: input.components,
+    allowPreviewUrl: input.allowPreviewUrl,
+  });
 
   try {
     const response = await axios.post(url, payload, {
@@ -124,6 +169,7 @@ export async function sendTemplateMessage(
         salonId,
         to,
         templateName,
+        languageCode,
         response: response.data,
       });
     }
@@ -131,6 +177,7 @@ export async function sendTemplateMessage(
     if (input.outboxMessageId) {
       await createOutboxTrace(salonId, input.outboxMessageId, {
         event: 'graph_api_response',
+        languageCode,
         response: response.data,
       });
     }
@@ -139,6 +186,7 @@ export async function sendTemplateMessage(
       success: true,
       messageId,
       response: response.data,
+      languageCode,
     };
   } catch (error) {
     const axiosError = axios.isAxiosError(error) ? error : null;
@@ -148,12 +196,13 @@ export async function sendTemplateMessage(
     logger.error(
       'Failed to send WhatsApp template',
       error instanceof Error ? error : new Error(String(error)),
-      { salonId, to, templateName, status, data },
+      { salonId, to, templateName, languageCode, status, data },
     );
 
     if (input.outboxMessageId) {
       await createOutboxTrace(salonId, input.outboxMessageId, {
         event: 'graph_api_error',
+        languageCode,
         status,
         data,
       });

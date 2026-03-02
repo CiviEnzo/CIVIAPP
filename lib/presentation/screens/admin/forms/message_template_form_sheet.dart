@@ -206,6 +206,10 @@ class _MessageTemplateFormSheetState extends State<MessageTemplateFormSheet> {
                   widget.initial?.resolvedMetaTemplateLanguage ??
                   'it')
               : null,
+      whatsappConfig:
+          _channel == MessageChannel.whatsapp
+              ? widget.initial?.whatsappConfig
+              : null,
     );
 
     Navigator.of(context).pop(template);

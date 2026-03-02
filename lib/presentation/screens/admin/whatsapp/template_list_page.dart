@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/domain/entities/message_template.dart';
+import 'package:you_book/presentation/common/hybrid_image_picker.dart';
 import 'package:you_book/services/whatsapp_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -275,6 +276,22 @@ class _MetaTemplateCardState extends ConsumerState<_MetaTemplateCard> {
                       .toList(growable: false),
                 ),
               ],
+              if (template.hasMediaHeader || template.headerFormat != null) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    if (template.hasImageHeader)
+                      _buildMetaChip(theme, 'HEADER_IMAGE')
+                    else if (template.headerFormat != null)
+                      _buildMetaChip(
+                        theme,
+                        'HEADER_${template.headerFormat!.toUpperCase()}',
+                      ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 8),
               Text(
                 'Tocca la card per vedere l’anteprima',
@@ -319,8 +336,21 @@ class _MetaTemplateCardState extends ConsumerState<_MetaTemplateCard> {
                         _buildMetaChip(theme, template.category!),
                       if (template.status != null)
                         _buildMetaChip(theme, template.status!),
+                      if (template.headerFormat != null)
+                        _buildMetaChip(
+                          theme,
+                          'HEADER_${template.headerFormat!.toUpperCase()}',
+                        ),
                     ],
                   ),
+                  if (template.headerTextPreview != null &&
+                      template.headerTextPreview!.trim().isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Header: ${template.headerTextPreview}',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   Container(
                     width: double.infinity,
@@ -404,6 +434,22 @@ class _MetaTemplateCardState extends ConsumerState<_MetaTemplateCard> {
 
     setState(() => _isSaving = true);
     try {
+      final existingConfig = existingLocalTemplate?.whatsappConfig;
+      final mergedConfig =
+          existingConfig == null
+              ? _defaultWhatsAppConfigForUsage(
+                _guessUsage(template.category),
+                body:
+                    (template.bodyPreview == null ||
+                            template.bodyPreview!.trim().isEmpty)
+                        ? null
+                        : template.bodyPreview!.trim(),
+                headerFormat: template.headerFormat,
+              )
+              : (existingConfig.headerFormat == null &&
+                  template.headerFormat != null)
+              ? existingConfig.copyWith(headerFormat: template.headerFormat)
+              : existingConfig;
       final localTemplate = MessageTemplate(
         id: existingLocalTemplate?.id ?? 'wa_${template.name}',
         salonId: widget.salonId,
@@ -418,6 +464,7 @@ class _MetaTemplateCardState extends ConsumerState<_MetaTemplateCard> {
         isActive: _isMetaTemplateUsable(template.status),
         metaTemplateName: template.name,
         metaTemplateLanguage: template.language,
+        whatsappConfig: mergedConfig,
       );
 
       await ref.read(appDataProvider.notifier).upsertTemplate(localTemplate);
@@ -596,6 +643,12 @@ class _TemplateCard extends ConsumerWidget {
                   ),
                   const SizedBox(width: 8),
                   IconButton.outlined(
+                    tooltip: 'Configura parametri template',
+                    onPressed: () => _configureTemplate(context, ref, template),
+                    icon: const Icon(Icons.tune_rounded),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.outlined(
                     tooltip: 'Elimina template',
                     onPressed: () => _deleteTemplate(context, ref, template),
                     icon: Icon(
@@ -657,6 +710,7 @@ class _TemplateCard extends ConsumerWidget {
       isActive: template.isActive,
       metaTemplateName: template.metaTemplateName,
       metaTemplateLanguage: template.metaTemplateLanguage,
+      whatsappConfig: template.whatsappConfig,
     );
 
     try {
@@ -673,6 +727,95 @@ class _TemplateCard extends ConsumerWidget {
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Impossibile aggiornare lo scope: $error')),
+      );
+    }
+  }
+
+  Future<void> _configureTemplate(
+    BuildContext context,
+    WidgetRef ref,
+    MessageTemplate template,
+  ) async {
+    if (template.channel != MessageChannel.whatsapp) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'La configurazione avanzata e disponibile solo per template WhatsApp.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final initialConfig =
+        template.whatsappConfig ??
+        _defaultWhatsAppConfigForUsage(template.usage, body: template.body);
+    String? detectedHeaderFormat = initialConfig.headerFormat;
+    final metaTemplateName = template.resolvedMetaTemplateName;
+    if ((detectedHeaderFormat ?? '').isEmpty &&
+        metaTemplateName != null &&
+        metaTemplateName.isNotEmpty) {
+      final metaTemplates = ref
+          .read(whatsappMetaTemplatesProvider(template.salonId))
+          .maybeWhen(
+            data: (items) => items,
+            orElse: () => const <MetaWhatsAppTemplate>[],
+          );
+      for (final metaTemplate in metaTemplates) {
+        if (metaTemplate.name == metaTemplateName) {
+          detectedHeaderFormat = metaTemplate.headerFormat;
+          break;
+        }
+      }
+    }
+
+    final configured = await showDialog<WhatsAppTemplateConfig>(
+      context: context,
+      builder:
+          (dialogContext) => _TemplateConfigDialog(
+            salonId: template.salonId,
+            templateName: template.resolvedMetaTemplateName ?? template.id,
+            title: template.title,
+            usage: template.usage,
+            bodyTemplate: template.body,
+            initialConfig: initialConfig,
+            detectedHeaderFormat: detectedHeaderFormat,
+          ),
+    );
+
+    if (configured == null) {
+      return;
+    }
+
+    final updated = MessageTemplate(
+      id: template.id,
+      salonId: template.salonId,
+      title: template.title,
+      body: template.body,
+      channel: template.channel,
+      usage: template.usage,
+      isActive: template.isActive,
+      metaTemplateName: template.metaTemplateName,
+      metaTemplateLanguage: template.metaTemplateLanguage,
+      whatsappConfig: configured,
+    );
+
+    try {
+      await ref.read(appDataProvider.notifier).upsertTemplate(updated);
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Configurazione template salvata.')),
+      );
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Impossibile salvare la configurazione: $error'),
+        ),
       );
     }
   }
@@ -796,6 +939,1087 @@ String _usageLabel(TemplateUsage usage) {
       return 'Promozione';
     case TemplateUsage.birthday:
       return 'Compleanno';
+  }
+}
+
+class _TemplateConfigDialog extends ConsumerStatefulWidget {
+  const _TemplateConfigDialog({
+    required this.salonId,
+    required this.templateName,
+    required this.title,
+    required this.usage,
+    required this.bodyTemplate,
+    required this.initialConfig,
+    this.detectedHeaderFormat,
+  });
+
+  final String salonId;
+  final String templateName;
+  final String title;
+  final TemplateUsage usage;
+  final String bodyTemplate;
+  final WhatsAppTemplateConfig initialConfig;
+  final String? detectedHeaderFormat;
+
+  @override
+  ConsumerState<_TemplateConfigDialog> createState() =>
+      _TemplateConfigDialogState();
+}
+
+class _TemplateConfigDialogState extends ConsumerState<_TemplateConfigDialog> {
+  late final List<String> _metaSlots;
+  late final List<String> _availableParams;
+  late final List<String?> _bodyBindings;
+  late final List<TextEditingController> _customValueControllers;
+  late final TextEditingController _headerImageUrlController;
+  String? _headerBinding;
+  late final String? _resolvedHeaderFormat;
+  bool _isUploadingHeaderImage = false;
+  String? _validationError;
+  static const int _maxHeaderImageBytes = 5 * 1024 * 1024;
+
+  @override
+  void initState() {
+    super.initState();
+    final defaultConfig = _defaultWhatsAppConfigForUsage(
+      widget.usage,
+      body: widget.bodyTemplate,
+    );
+    final initial = widget.initialConfig;
+    _resolvedHeaderFormat = _normalizeHeaderFormat(
+      initial.headerFormat ?? widget.detectedHeaderFormat,
+    );
+    final initialBodyBindings = initial.bindings?.body ?? const <String>[];
+    final initialHeaderBindings = initial.bindings?.header ?? const <String>[];
+    final slotsFromTemplate = _extractMetaPlaceholderSlots(widget.bodyTemplate);
+    final fallbackSlots = List<String>.generate(
+      initialBodyBindings.length,
+      (index) => '${index + 1}',
+      growable: false,
+    );
+    _metaSlots =
+        slotsFromTemplate.isNotEmpty ? slotsFromTemplate : fallbackSlots;
+
+    final available = <String>{
+      ...defaultConfig.allowedParams,
+      ...initial.allowedParams,
+    };
+    _availableParams =
+        available
+            .map((item) => item.trim())
+            .where((item) => item.isNotEmpty)
+            .where((item) => !_isNumericMetaToken(item))
+            .where((item) => !_isDisabledParamForUsage(widget.usage, item))
+            .toSet()
+            .toList()
+          ..sort();
+    _ensureHeaderImageParams(widget.usage, _availableParams);
+
+    _customValueControllers = List<TextEditingController>.generate(
+      _metaSlots.length,
+      (_) => TextEditingController(),
+      growable: false,
+    );
+    _bodyBindings = List<String?>.generate(_metaSlots.length, (index) {
+      if (index >= initialBodyBindings.length) {
+        return null;
+      }
+      final value = initialBodyBindings[index].trim();
+      final customValue = _decodeCustomBindingValue(value);
+      if (customValue != null) {
+        _customValueControllers[index].text = customValue;
+        return null;
+      }
+      if (value.isEmpty ||
+          _isNumericMetaToken(value) ||
+          _isDisabledParamForUsage(widget.usage, value)) {
+        return null;
+      }
+      if (!_availableParams.contains(value)) {
+        _availableParams.add(value);
+        _availableParams.sort();
+      }
+      return value;
+    }, growable: false);
+
+    _headerImageUrlController = TextEditingController();
+    _headerBinding =
+        initialHeaderBindings.isEmpty ? null : initialHeaderBindings.first;
+    final headerCustom = _decodeCustomBindingValue(_headerBinding ?? '');
+    if (headerCustom != null) {
+      _headerImageUrlController.text = headerCustom;
+      _headerBinding = null;
+    } else if (_headerBinding != null &&
+        !_availableParams.contains(_headerBinding)) {
+      _availableParams.add(_headerBinding!);
+      _availableParams.sort();
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _customValueControllers) {
+      controller.dispose();
+    }
+    _headerImageUrlController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final previewText = _buildPreviewText();
+    final hasSlots = _metaSlots.isNotEmpty;
+    final hasImageHeader = _resolvedHeaderFormat == 'IMAGE';
+    final totalParametersToConfigure =
+        _metaSlots.length + (hasImageHeader ? 1 : 0);
+
+    return AlertDialog(
+      title: Text('Configura template: ${widget.title}'),
+      content: SizedBox(
+        width: 760,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Anteprima messaggio', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 6),
+              Text(
+                'Parametri da configurare: $totalParametersToConfigure',
+                style: theme.textTheme.bodySmall,
+              ),
+              if ((_resolvedHeaderFormat ?? '').isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  'Header Meta rilevato: $_resolvedHeaderFormat',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceVariant,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  previewText.isEmpty
+                      ? 'Anteprima non disponibile: corpo template vuoto.'
+                      : previewText,
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Parametri YouBook disponibili (${_usageLabel(widget.usage)})',
+                style: theme.textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _availableParams
+                    .map((param) => _buildDraggableParamChip(theme, param))
+                    .toList(growable: false),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Associazione parametri Meta -> parametri YouBook',
+                style: theme.textTheme.titleSmall,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Il numero dei parametri e bloccato dal template Meta. Trascina un parametro YouBook su ogni posizione oppure inserisci un testo custom per quel parametro.',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
+              if (!hasSlots)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceVariant,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Text(
+                    'Nessun placeholder rilevato nel corpo template. Non ci sono parametri da mappare.',
+                  ),
+                )
+              else
+                Column(
+                  children: List.generate(
+                    _metaSlots.length,
+                    (index) => _buildSlotRow(theme, index),
+                    growable: false,
+                  ),
+                ),
+              if (hasImageHeader) ...[
+                const SizedBox(height: 16),
+                _buildHeaderImageSection(theme),
+              ],
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceVariant,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Text(
+                  'CTA non configurabile in Fase 2: il bottone resta gestito direttamente in WhatsApp Manager.',
+                ),
+              ),
+              if (_validationError != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _validationError!,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Annulla'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Salva configurazione'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDraggableParamChip(ThemeData theme, String param) {
+    final sourceHint = _parameterSourceHint(widget.usage, param);
+    return Draggable<String>(
+      data: param,
+      dragAnchorStrategy: pointerDragAnchorStrategy,
+      maxSimultaneousDrags: 1,
+      onDragStarted: () {
+        setState(() {
+          _validationError = null;
+        });
+      },
+      feedback: Material(
+        elevation: 2,
+        borderRadius: BorderRadius.circular(999),
+        child: Chip(
+          label: Text(param),
+          side: BorderSide(color: theme.colorScheme.primary),
+        ),
+      ),
+      childWhenDragging: Opacity(
+        opacity: 0.35,
+        child: Chip(label: Text(param)),
+      ),
+      child: Tooltip(
+        message: sourceHint ?? 'Parametro custom',
+        child: MouseRegion(
+          cursor: SystemMouseCursors.grab,
+          child: Chip(
+            label: Text(param),
+            side: BorderSide(color: theme.colorScheme.outlineVariant),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSlotRow(ThemeData theme, int index) {
+    final assigned = _bodyBindings[index];
+    final customValue = _customValueControllers[index].text.trim();
+    final hasCustomValue = customValue.isNotEmpty;
+    final slotToken = _metaSlots[index];
+
+    return Padding(
+      padding: EdgeInsets.only(top: index == 0 ? 0 : 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: DragTarget<String>(
+              onWillAcceptWithDetails: (details) {
+                return !hasCustomValue &&
+                    _availableParams.contains(details.data);
+              },
+              onAcceptWithDetails: (details) {
+                setState(() {
+                  _bodyBindings[index] = details.data;
+                  _customValueControllers[index].clear();
+                  _validationError = null;
+                });
+              },
+              builder: (context, candidateData, rejectedData) {
+                final isActive = candidateData.isNotEmpty;
+                return Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color:
+                          isActive
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.outlineVariant,
+                    ),
+                    color:
+                        isActive
+                            ? theme.colorScheme.primaryContainer.withOpacity(
+                              0.2,
+                            )
+                            : theme.colorScheme.surface,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Parametro ${index + 1} (Meta {{$slotToken}})',
+                              style: theme.textTheme.titleSmall,
+                            ),
+                          ),
+                          if (assigned != null || hasCustomValue)
+                            IconButton(
+                              tooltip: 'Svuota mapping',
+                              onPressed: () {
+                                setState(() {
+                                  _bodyBindings[index] = null;
+                                  _customValueControllers[index].clear();
+                                });
+                              },
+                              icon: const Icon(Icons.close_rounded, size: 18),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        hasCustomValue
+                            ? 'Custom: "$customValue"'
+                            : assigned == null
+                            ? 'Trascina qui un parametro YouBook'
+                            : 'YouBook: $assigned',
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                      if (hasCustomValue)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            'Modalita custom attiva: viene inviato testo fisso.',
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: TextField(
+              controller: _customValueControllers[index],
+              decoration: InputDecoration(
+                labelText: 'Testo custom (opzionale)',
+                hintText: 'Valore fisso inviato',
+                border: const OutlineInputBorder(),
+                isDense: true,
+                helperText:
+                    'Se compilato, sostituisce il parametro YouBook e aggiorna l\'anteprima.',
+              ),
+              onChanged: (_) {
+                setState(() {
+                  if (_customValueControllers[index].text.trim().isNotEmpty) {
+                    _bodyBindings[index] = null;
+                  }
+                  _validationError = null;
+                });
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeaderImageSection(ThemeData theme) {
+    final assigned = _headerBinding;
+    final customUrl = _headerImageUrlController.text.trim();
+    final hasCustomUrl = customUrl.isNotEmpty;
+    final hasBinding = assigned != null && assigned.trim().isNotEmpty;
+    final showPreview = _isLikelyHttpUrl(customUrl);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Header immagine (Meta)', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 6),
+        Text(
+          'Template con HEADER IMAGE: configura una sorgente URL HTTPS. '
+          'Puoi mappare un parametro YouBook oppure caricare l\'immagine da YouBook.',
+          style: theme.textTheme.bodySmall,
+        ),
+        const SizedBox(height: 8),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: DragTarget<String>(
+                onWillAcceptWithDetails:
+                    (details) =>
+                        !hasCustomUrl &&
+                        _availableParams.contains(details.data),
+                onAcceptWithDetails: (details) {
+                  setState(() {
+                    _headerBinding = details.data;
+                    _headerImageUrlController.clear();
+                    _validationError = null;
+                  });
+                },
+                builder: (context, candidateData, rejectedData) {
+                  final isActive = candidateData.isNotEmpty;
+                  return Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color:
+                            isActive
+                                ? theme.colorScheme.primary
+                                : theme.colorScheme.outlineVariant,
+                      ),
+                      color:
+                          isActive
+                              ? theme.colorScheme.primaryContainer.withOpacity(
+                                0.2,
+                              )
+                              : theme.colorScheme.surface,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Parametro header (Meta IMAGE)',
+                                style: theme.textTheme.titleSmall,
+                              ),
+                            ),
+                            if (hasBinding || hasCustomUrl)
+                              IconButton(
+                                tooltip: 'Svuota sorgente header',
+                                onPressed: () {
+                                  setState(() {
+                                    _headerBinding = null;
+                                    _headerImageUrlController.clear();
+                                    _validationError = null;
+                                  });
+                                },
+                                icon: const Icon(Icons.close_rounded, size: 18),
+                                visualDensity: VisualDensity.compact,
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          hasCustomUrl
+                              ? 'URL custom: $customUrl'
+                              : hasBinding
+                              ? 'YouBook: $assigned'
+                              : 'Trascina qui un parametro URL da YouBook',
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TextField(
+                controller: _headerImageUrlController,
+                decoration: const InputDecoration(
+                  labelText: 'URL immagine HTTPS (opzionale)',
+                  hintText: 'https://...',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                  helperText:
+                      'Se compilato, sovrascrive il mapping YouBook e viene salvato nel template.',
+                ),
+                onChanged: (_) {
+                  setState(() {
+                    if (_headerImageUrlController.text.trim().isNotEmpty) {
+                      _headerBinding = null;
+                    }
+                    _validationError = null;
+                  });
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilledButton.tonalIcon(
+              onPressed:
+                  _isUploadingHeaderImage
+                      ? null
+                      : _uploadHeaderImageFromYouBook,
+              icon:
+                  _isUploadingHeaderImage
+                      ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : const Icon(Icons.upload_file_rounded),
+              label: const Text('Carica immagine da YouBook'),
+            ),
+            if (showPreview)
+              OutlinedButton.icon(
+                onPressed: () {
+                  showDialog<void>(
+                    context: context,
+                    builder:
+                        (dialogContext) => AlertDialog(
+                          title: const Text('Anteprima header image'),
+                          content: ConstrainedBox(
+                            constraints: const BoxConstraints(
+                              maxWidth: 480,
+                              maxHeight: 360,
+                            ),
+                            child: Image.network(
+                              customUrl,
+                              fit: BoxFit.contain,
+                              errorBuilder:
+                                  (context, error, stackTrace) => const Center(
+                                    child: Text(
+                                      'Impossibile caricare l\'anteprima immagine.',
+                                    ),
+                                  ),
+                            ),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed:
+                                  () => Navigator.of(dialogContext).pop(),
+                              child: const Text('Chiudi'),
+                            ),
+                          ],
+                        ),
+                  );
+                },
+                icon: const Icon(Icons.image_outlined),
+                label: const Text('Anteprima immagine'),
+              ),
+          ],
+        ),
+        if (showPreview) ...[
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: theme.colorScheme.outlineVariant),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Anteprima URL selezionato',
+                  style: theme.textTheme.labelLarge,
+                ),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 220),
+                    child: Image.network(
+                      customUrl,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      errorBuilder:
+                          (context, error, stackTrace) => Container(
+                            height: 120,
+                            alignment: Alignment.center,
+                            color: theme.colorScheme.surfaceContainerHighest,
+                            child: const Text(
+                              'Impossibile caricare l\'anteprima immagine.',
+                            ),
+                          ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(customUrl, style: theme.textTheme.bodySmall),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _uploadHeaderImageFromYouBook() async {
+    final selected = await pickSingleImageFile(confirmButtonText: 'Seleziona');
+    if (!mounted || selected == null) {
+      return;
+    }
+    final fileSize = await _resolveSelectedFileLength(selected);
+    if (fileSize > _maxHeaderImageBytes) {
+      final maxMb = (_maxHeaderImageBytes / (1024 * 1024)).toStringAsFixed(1);
+      setState(() {
+        _validationError = 'L\'immagine supera il limite di $maxMb MB.';
+      });
+      return;
+    }
+    final bytes = await _resolveSelectedFileBytes(selected);
+    if (bytes == null || bytes.isEmpty) {
+      setState(() {
+        _validationError = 'Impossibile leggere il file selezionato.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isUploadingHeaderImage = true;
+      _validationError = null;
+    });
+
+    try {
+      final storage = ref.read(firebaseStorageServiceProvider);
+      final session = ref.read(sessionControllerProvider);
+      final upload = await storage.uploadWhatsAppTemplateImage(
+        salonId: widget.salonId,
+        templateName: widget.templateName,
+        data: bytes,
+        fileName: selected.name,
+        uploaderId: session.uid ?? 'unknown',
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _headerImageUrlController.text = upload.downloadUrl;
+        _headerBinding = null;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _validationError = 'Upload immagine non riuscito: $error';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingHeaderImage = false);
+      }
+    }
+  }
+
+  Future<int> _resolveSelectedFileLength(dynamic selected) async {
+    try {
+      final value = await selected.length();
+      return value is int ? value : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<Uint8List?> _resolveSelectedFileBytes(dynamic selected) async {
+    try {
+      final bytes = await selected.readAsBytes();
+      if (bytes is! Uint8List) {
+        return null;
+      }
+      if (bytes.lengthInBytes > _maxHeaderImageBytes) {
+        return null;
+      }
+      return bytes.isEmpty ? null : bytes;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _buildPreviewText() {
+    final body = widget.bodyTemplate.trim();
+    if (body.isEmpty) {
+      return '';
+    }
+    var preview = body;
+    for (var index = 0; index < _metaSlots.length; index++) {
+      final slotToken = _metaSlots[index];
+      final assigned = _bodyBindings[index];
+      final customValue = _customValueControllers[index].text.trim();
+      final fallback =
+          assigned != null && assigned.trim().isNotEmpty
+              ? '[${assigned.trim()}]'
+              : '{{${slotToken.trim()}}}';
+      final replacement = customValue.isEmpty ? fallback : customValue;
+      final pattern = RegExp(
+        r'\{\{\s*' + RegExp.escape(slotToken) + r'\s*\}\}',
+      );
+      preview = preview.replaceAll(pattern, replacement);
+    }
+    if (_resolvedHeaderFormat == 'IMAGE') {
+      final headerCustom = _headerImageUrlController.text.trim();
+      final headerSource =
+          headerCustom.isNotEmpty
+              ? 'custom image'
+              : (_headerBinding?.trim().isNotEmpty ?? false)
+              ? _headerBinding!.trim()
+              : 'non configurata';
+      preview = '$preview\n\n[Header image: $headerSource]';
+    }
+    return preview;
+  }
+
+  void _submit() {
+    final allowedParams = _availableParams.toList()..sort();
+    final bodyBindings = <String>[];
+    var hasIncompleteMapping = false;
+    for (var index = 0; index < _metaSlots.length; index++) {
+      final customValue = _customValueControllers[index].text.trim();
+      if (customValue.isNotEmpty) {
+        bodyBindings.add(_encodeCustomBinding(customValue));
+        continue;
+      }
+      final assigned = _bodyBindings[index]?.trim() ?? '';
+      if (assigned.isNotEmpty) {
+        bodyBindings.add(assigned);
+        continue;
+      }
+      hasIncompleteMapping = true;
+      break;
+    }
+    if (hasIncompleteMapping) {
+      setState(() {
+        _validationError =
+            'Completa il drag and drop o inserisci un testo custom su tutti i parametri Meta prima di salvare.';
+      });
+      return;
+    }
+
+    final headerBindings = <String>[];
+    final headerCustomUrl = _headerImageUrlController.text.trim();
+    final hasHeaderMapping = (_headerBinding?.trim().isNotEmpty ?? false);
+    final requiresImageHeader = _resolvedHeaderFormat == 'IMAGE';
+    if (headerCustomUrl.isNotEmpty) {
+      if (!_isHttpsUrl(headerCustomUrl)) {
+        setState(() {
+          _validationError =
+              'L\'URL header immagine deve iniziare con https://';
+        });
+        return;
+      }
+      headerBindings.add(_encodeCustomBinding(headerCustomUrl));
+    } else if (hasHeaderMapping) {
+      final binding = _headerBinding!.trim();
+      if (!allowedParams.contains(binding)) {
+        setState(() {
+          _validationError =
+              'Il parametro header selezionato non e presente nei parametri disponibili.';
+        });
+        return;
+      }
+      headerBindings.add(binding);
+    } else if (requiresImageHeader) {
+      setState(() {
+        _validationError =
+            'Questo template richiede un header immagine: carica un\'immagine o mappa un parametro URL.';
+      });
+      return;
+    }
+
+    final hasInvalidMapping = bodyBindings.any(
+      (item) => !_isCustomBinding(item) && !allowedParams.contains(item),
+    );
+    if (hasInvalidMapping) {
+      setState(() {
+        _validationError =
+            'Uno o piu parametri body non sono presenti nei parametri disponibili.';
+      });
+      return;
+    }
+
+    final config = WhatsAppTemplateConfig(
+      schemaVersion: 3,
+      allowedParams: List<String>.unmodifiable(allowedParams),
+      headerFormat: _resolvedHeaderFormat,
+      bindings: WhatsAppTemplateBindings(
+        body: List<String>.unmodifiable(bodyBindings),
+        header: List<String>.unmodifiable(headerBindings),
+        buttons: const <WhatsAppTemplateButtonBinding>[],
+      ),
+    );
+
+    Navigator.of(context).pop(config);
+  }
+}
+
+WhatsAppTemplateConfig _defaultWhatsAppConfigForUsage(
+  TemplateUsage usage, {
+  String? body,
+  String? headerFormat,
+}) {
+  final defaults = _defaultAllowedParamsForUsage(usage);
+  final fallbackBody =
+      body != null && body.trim().isNotEmpty
+          ? _extractPlaceholdersInOrder(body)
+          : const <String>[];
+  final fallbackHasNumericSlots =
+      fallbackBody.isNotEmpty && fallbackBody.every(_isNumericMetaToken);
+  final bodyBindings =
+      fallbackBody.isNotEmpty && !fallbackHasNumericSlots
+          ? fallbackBody
+          : const <String>[];
+  return WhatsAppTemplateConfig(
+    schemaVersion: 2,
+    allowedParams: List<String>.unmodifiable(defaults),
+    headerFormat: _normalizeHeaderFormat(headerFormat),
+    bindings: WhatsAppTemplateBindings(
+      body: List<String>.unmodifiable(bodyBindings),
+      header: const <String>[],
+      buttons: const <WhatsAppTemplateButtonBinding>[],
+    ),
+  );
+}
+
+List<String> _defaultAllowedParamsForUsage(TemplateUsage usage) {
+  switch (usage) {
+    case TemplateUsage.reminder:
+      return const <String>[
+        'firstName',
+        'lastName',
+        'clientName',
+        'serviceName',
+        'staffName',
+        'dateTimeFull',
+        'date',
+        'time',
+        'salonName',
+      ];
+    case TemplateUsage.promotion:
+      return const <String>[
+        'clientName',
+        'promotionTitle',
+        'promotionSubtitle',
+        'discountPercentage',
+        'startsAtDateTimeFull',
+        'startsAtDate',
+        'startsAtTime',
+        'endsAtDateTimeFull',
+        'endsAtDate',
+        'endsAtTime',
+        'startsAt',
+        'endsAt',
+        'salonName',
+        'landingUrl',
+        'ctaLabel',
+        'promotionCoverImageUrl',
+        'promotionImageUrl',
+        'coverImageUrl',
+        'imageUrl',
+      ];
+    case TemplateUsage.followUp:
+      return const <String>[
+        'firstName',
+        'clientName',
+        'salonName',
+        'serviceName',
+      ];
+    case TemplateUsage.birthday:
+      return const <String>['firstName', 'clientName', 'date', 'salonName'];
+  }
+}
+
+List<String> _extractPlaceholdersInOrder(String body) {
+  if (body.trim().isEmpty) {
+    return const <String>[];
+  }
+  final matches = RegExp(r'\{\{\s*([^}]+?)\s*\}\}').allMatches(body);
+  return matches
+      .map((match) => (match.group(1) ?? '').trim())
+      .where((item) => item.isNotEmpty)
+      .toList(growable: false);
+}
+
+List<String> _extractMetaPlaceholderSlots(String body) {
+  final tokens = _extractPlaceholdersInOrder(body);
+  if (tokens.isEmpty) {
+    return const <String>[];
+  }
+
+  final isNumericOnly = tokens.every(_isNumericMetaToken);
+  if (isNumericOnly) {
+    final indices = <int>{};
+    for (final token in tokens) {
+      indices.add(int.parse(token));
+    }
+    final sorted = indices.toList()..sort();
+    return sorted.map((item) => '$item').toList(growable: false);
+  }
+
+  final seen = <String>{};
+  final ordered = <String>[];
+  for (final token in tokens) {
+    if (seen.add(token)) {
+      ordered.add(token);
+    }
+  }
+  return ordered;
+}
+
+bool _isNumericMetaToken(String value) {
+  return RegExp(r'^\d+$').hasMatch(value.trim());
+}
+
+const String _customBindingPrefix = 'custom:';
+
+bool _isCustomBinding(String value) {
+  final normalized = value.trim().toLowerCase();
+  return normalized.startsWith(_customBindingPrefix);
+}
+
+String _encodeCustomBinding(String value) {
+  return '$_customBindingPrefix$value';
+}
+
+String? _decodeCustomBindingValue(String raw) {
+  final trimmed = raw.trim();
+  if (trimmed.isEmpty) {
+    return null;
+  }
+  if (!_isCustomBinding(trimmed)) {
+    return null;
+  }
+  return trimmed.substring(_customBindingPrefix.length);
+}
+
+String? _normalizeHeaderFormat(String? raw) {
+  if (raw == null) {
+    return null;
+  }
+  final normalized = raw.trim().toUpperCase();
+  return normalized.isEmpty ? null : normalized;
+}
+
+void _ensureHeaderImageParams(TemplateUsage usage, List<String> values) {
+  if (usage != TemplateUsage.promotion) {
+    return;
+  }
+  const required = <String>[
+    'promotionCoverImageUrl',
+    'promotionImageUrl',
+    'coverImageUrl',
+    'imageUrl',
+  ];
+  var changed = false;
+  for (final item in required) {
+    if (!values.contains(item)) {
+      values.add(item);
+      changed = true;
+    }
+  }
+  if (changed) {
+    values.sort();
+  }
+}
+
+bool _isLikelyHttpUrl(String raw) {
+  final value = raw.trim().toLowerCase();
+  return value.startsWith('http://') || value.startsWith('https://');
+}
+
+bool _isHttpsUrl(String raw) {
+  return raw.trim().toLowerCase().startsWith('https://');
+}
+
+bool _isDisabledParamForUsage(TemplateUsage usage, String value) {
+  final normalized = value.trim();
+  if (normalized.isEmpty) {
+    return false;
+  }
+  if (usage == TemplateUsage.reminder && normalized == 'reminderOffsetLabel') {
+    return true;
+  }
+  return false;
+}
+
+String? _parameterSourceHint(TemplateUsage usage, String parameter) {
+  switch (usage) {
+    case TemplateUsage.reminder:
+      const reminderSources = <String, String>{
+        'firstName': 'Cliente.nome',
+        'lastName': 'Cliente.cognome',
+        'clientName': 'Cliente.nomeCompleto',
+        'serviceName': 'Appuntamento.servizio.nome',
+        'staffName': 'Appuntamento.staff.nome',
+        'dateTimeFull': 'Appuntamento data+ora (es. 15 aprile alle 15:00)',
+        'date': 'Appuntamento solo data (es. 15 aprile)',
+        'time': 'Appuntamento solo ora (es. 15:00)',
+        'appointmentLabel':
+            'Legacy: Appuntamento data+ora (es. 15 aprile alle 15:00)',
+        'salonName': 'Salone.nome',
+      };
+      return reminderSources[parameter];
+    case TemplateUsage.promotion:
+      const promotionSources = <String, String>{
+        'clientName': 'Cliente.nomeCompleto',
+        'promotionTitle': 'Promotion.title (Tab Promozioni)',
+        'promotionSubtitle': 'Promotion.subtitle (Tab Promozioni)',
+        'discountPercentage': 'Promotion.discountPercentage',
+        'startsAtDateTimeFull':
+            'Promotion.startsAt completa (es. 15 aprile alle 15:00)',
+        'startsAtDate': 'Promotion.startsAt solo data (es. 15 aprile)',
+        'startsAtTime': 'Promotion.startsAt solo ora (es. 15:00)',
+        'endsAtDateTimeFull':
+            'Promotion.endsAt completa (es. 20 aprile alle 18:30)',
+        'endsAtDate': 'Promotion.endsAt solo data (es. 20 aprile)',
+        'endsAtTime': 'Promotion.endsAt solo ora (es. 18:30)',
+        'startsAt': 'Legacy: Promotion.startsAt completa',
+        'endsAt': 'Legacy: Promotion.endsAt completa',
+        'salonName': 'Salone.nome',
+        'landingUrl': 'Promotion.ctaUrl o Promotion.cta.url',
+        'ctaLabel': 'Promotion.cta.label',
+        'promotionCoverImageUrl':
+            'Promotion.coverImageUrl (Tab Promozioni / media salvata)',
+        'promotionImageUrl': 'Alias: Promotion.coverImageUrl',
+        'coverImageUrl': 'Alias: Promotion.coverImageUrl',
+        'imageUrl': 'Alias: Promotion.coverImageUrl',
+      };
+      return promotionSources[parameter];
+    case TemplateUsage.followUp:
+      const followUpSources = <String, String>{
+        'firstName': 'Cliente.nome',
+        'clientName': 'Cliente.nomeCompleto',
+        'salonName': 'Salone.nome',
+        'serviceName': 'Appuntamento.servizio.nome',
+      };
+      return followUpSources[parameter];
+    case TemplateUsage.birthday:
+      const birthdaySources = <String, String>{
+        'firstName': 'Cliente.nome',
+        'clientName': 'Cliente.nomeCompleto',
+        'date': 'Cliente.birthDate formattata',
+        'salonName': 'Salone.nome',
+      };
+      return birthdaySources[parameter];
   }
 }
 
