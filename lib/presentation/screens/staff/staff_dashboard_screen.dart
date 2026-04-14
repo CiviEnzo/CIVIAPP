@@ -117,6 +117,219 @@ class _AppointmentDetailSheet extends ConsumerWidget {
         (notes == null || notes.isEmpty) ? 'Nessuna nota' : notes;
 
     final bottomPadding = MediaQuery.of(context).viewInsets.bottom;
+    final detailContent = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(serviceLabel, style: theme.textTheme.titleMedium),
+                const SizedBox(height: 12),
+                _InfoRow(
+                  icon: Icons.calendar_month_outlined,
+                  label: 'Data e ora',
+                  value: '$startLabel • $endLabel',
+                ),
+                _InfoRow(
+                  icon: Icons.timer_outlined,
+                  label: 'Durata',
+                  value: durationLabel,
+                ),
+                if (staff != null)
+                  _InfoRow(
+                    icon: Icons.person_outline,
+                    label: 'Staff',
+                    value: staff.fullName,
+                  ),
+                _InfoRow(
+                  icon: Icons.store_mall_directory_outlined,
+                  label: 'Cabina',
+                  value: roomLabel,
+                ),
+                _InfoRow(
+                  icon: Icons.sticky_note_2_outlined,
+                  label: 'Note',
+                  value: notesLabel,
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text('Scheda cliente', style: theme.textTheme.titleLarge),
+        const SizedBox(height: 12),
+        if (client == null)
+          const Card(
+            child: ListTile(
+              leading: Icon(Icons.person_off_outlined),
+              title: Text('Cliente non disponibile'),
+            ),
+          )
+        else ...[
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(client.fullName, style: theme.textTheme.titleMedium),
+                  if (client.clientNumber != null &&
+                      client.clientNumber!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Codice cliente: ${client.clientNumber}',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ),
+                  const SizedBox(height: 12),
+                  _InfoRow(
+                    icon: Icons.phone_outlined,
+                    label: 'Telefono',
+                    value: client.phone,
+                  ),
+                  if (client.email != null && client.email!.isNotEmpty)
+                    _InfoRow(
+                      icon: Icons.email_outlined,
+                      label: 'Email',
+                      value: client.email!,
+                    ),
+                  if (client.notes != null && client.notes!.trim().isNotEmpty)
+                    _InfoRow(
+                      icon: Icons.note_alt_outlined,
+                      label: 'Note cliente',
+                      value: client.notes!.trim(),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          ClientNotesSection(client: client),
+          const SizedBox(height: 16),
+          Text('Questionari cliente', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 12),
+          _StaffClientQuestionnairesSection(client: client),
+          const SizedBox(height: 16),
+          Text('Foto cliente', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 12),
+          _StaffClientPhotosSection(client: client),
+        ],
+        const SizedBox(height: 16),
+        Text('Pacchetti attivi', style: theme.textTheme.titleLarge),
+        const SizedBox(height: 12),
+        if (purchases.isEmpty)
+          const Card(
+            child: ListTile(
+              leading: Icon(Icons.inventory_2_outlined),
+              title: Text('Nessun pacchetto attivo'),
+            ),
+          )
+        else
+          ...purchases.map((purchase) {
+            final remaining = purchase.remainingSessions;
+            final totalSessions = purchase.totalSessions;
+            String sessionsLabel;
+            if (remaining != null && totalSessions != null) {
+              sessionsLabel = '$remaining / $totalSessions sessioni';
+            } else if (remaining != null) {
+              sessionsLabel = '$remaining sessioni residue';
+            } else {
+              sessionsLabel = 'Sessioni non disponibili';
+            }
+            final expiration = purchase.expirationDate;
+            final expirationLabel =
+                expiration != null
+                    ? DateFormat('dd/MM/yyyy').format(expiration)
+                    : 'Nessuna scadenza';
+            return Card(
+              child: ListTile(
+                leading: const Icon(Icons.inventory_2_outlined),
+                title: Text(purchase.displayName),
+                subtitle: Text('$sessionsLabel • $expirationLabel'),
+                trailing: Text(
+                  currencyFormatter.format(purchase.totalAmount),
+                  style: theme.textTheme.labelMedium,
+                ),
+              ),
+            );
+          }),
+        const SizedBox(height: 16),
+        Text('Prossimi appuntamenti', style: theme.textTheme.titleLarge),
+        const SizedBox(height: 12),
+        if (upcomingAppointments.isEmpty)
+          const Card(
+            child: ListTile(
+              leading: Icon(Icons.event_available_outlined),
+              title: Text('Nessun appuntamento in programma'),
+            ),
+          )
+        else
+          ...upcomingAppointments.take(5).map((appt) {
+            final upcomingService = data.services.firstWhereOrNull(
+              (service) => service.id == appt.serviceId,
+            );
+            final upcomingDate = dateFormatter.format(appt.start);
+            return _AppointmentSummaryCard(
+              icon: Icons.calendar_month_outlined,
+              title: upcomingService?.name ?? 'Servizio',
+              subtitle: upcomingDate,
+              status: appt.status,
+            );
+          }),
+        const SizedBox(height: 16),
+        if (historyAppointments.isEmpty)
+          const Card(
+            child: ListTile(
+              leading: Icon(Icons.history_toggle_off_outlined),
+              title: Text('Nessun appuntamento nello storico'),
+            ),
+          )
+        else
+          Card(
+            child: ExpansionTile(
+              title: const Text('Storico appuntamenti (ultimi 24 mesi)'),
+              childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              children:
+                  historyAppointments.map((appt) {
+                    final historyService = data.services.firstWhereOrNull(
+                      (service) => service.id == appt.serviceId,
+                    );
+                    final historyStaff = data.staff.firstWhereOrNull(
+                      (member) => member.id == appt.staffId,
+                    );
+                    final historyDate = dateFormatter.format(appt.start);
+                    final historyDuration = _formatDuration(appt.duration);
+                    final subtitleParts = [historyDate, historyDuration];
+                    if (historyStaff != null) {
+                      subtitleParts.add(historyStaff.fullName);
+                    }
+                    return _AppointmentSummaryCard(
+                      margin: const EdgeInsets.only(top: 8),
+                      icon: Icons.history_rounded,
+                      title: historyService?.name ?? 'Servizio',
+                      subtitle: subtitleParts.join(' • '),
+                      status: appt.status,
+                    );
+                  }).toList(),
+            ),
+          ),
+      ],
+    );
+
+    if (isAppSheetPhoneLayout(context)) {
+      return AppMobileSheetPageScaffold(
+        title: 'Dettaglio appuntamento',
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: detailContent,
+        ),
+      );
+    }
 
     return SafeArea(
       child: Padding(
@@ -140,209 +353,7 @@ class _AppointmentDetailSheet extends ConsumerWidget {
               ),
               Text('Dettagli appuntamento', style: theme.textTheme.titleLarge),
               const SizedBox(height: 12),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(serviceLabel, style: theme.textTheme.titleMedium),
-                      const SizedBox(height: 12),
-                      _InfoRow(
-                        icon: Icons.calendar_month_outlined,
-                        label: 'Data e ora',
-                        value: '$startLabel • $endLabel',
-                      ),
-                      _InfoRow(
-                        icon: Icons.timer_outlined,
-                        label: 'Durata',
-                        value: durationLabel,
-                      ),
-                      if (staff != null)
-                        _InfoRow(
-                          icon: Icons.person_outline,
-                          label: 'Staff',
-                          value: staff.fullName,
-                        ),
-                      _InfoRow(
-                        icon: Icons.store_mall_directory_outlined,
-                        label: 'Cabina',
-                        value: roomLabel,
-                      ),
-                      _InfoRow(
-                        icon: Icons.sticky_note_2_outlined,
-                        label: 'Note',
-                        value: notesLabel,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text('Scheda cliente', style: theme.textTheme.titleLarge),
-              const SizedBox(height: 12),
-              if (client == null)
-                const Card(
-                  child: ListTile(
-                    leading: Icon(Icons.person_off_outlined),
-                    title: Text('Cliente non disponibile'),
-                  ),
-                )
-              else ...[
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          client.fullName,
-                          style: theme.textTheme.titleMedium,
-                        ),
-                        if (client.clientNumber != null &&
-                            client.clientNumber!.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              'Codice cliente: ${client.clientNumber}',
-                              style: theme.textTheme.bodySmall,
-                            ),
-                          ),
-                        const SizedBox(height: 12),
-                        _InfoRow(
-                          icon: Icons.phone_outlined,
-                          label: 'Telefono',
-                          value: client.phone,
-                        ),
-                        if (client.email != null && client.email!.isNotEmpty)
-                          _InfoRow(
-                            icon: Icons.email_outlined,
-                            label: 'Email',
-                            value: client.email!,
-                          ),
-                        if (client.notes != null &&
-                            client.notes!.trim().isNotEmpty)
-                          _InfoRow(
-                            icon: Icons.note_alt_outlined,
-                            label: 'Note cliente',
-                            value: client.notes!.trim(),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                ClientNotesSection(client: client),
-                const SizedBox(height: 16),
-                Text('Questionari cliente', style: theme.textTheme.titleLarge),
-                const SizedBox(height: 12),
-                _StaffClientQuestionnairesSection(client: client),
-                const SizedBox(height: 16),
-                Text('Foto cliente', style: theme.textTheme.titleLarge),
-                const SizedBox(height: 12),
-                _StaffClientPhotosSection(client: client),
-              ],
-              const SizedBox(height: 16),
-              Text('Pacchetti attivi', style: theme.textTheme.titleLarge),
-              const SizedBox(height: 12),
-              if (purchases.isEmpty)
-                const Card(
-                  child: ListTile(
-                    leading: Icon(Icons.inventory_2_outlined),
-                    title: Text('Nessun pacchetto attivo'),
-                  ),
-                )
-              else
-                ...purchases.map((purchase) {
-                  final remaining = purchase.remainingSessions;
-                  final totalSessions = purchase.totalSessions;
-                  String sessionsLabel;
-                  if (remaining != null && totalSessions != null) {
-                    sessionsLabel = '$remaining / $totalSessions sessioni';
-                  } else if (remaining != null) {
-                    sessionsLabel = '$remaining sessioni residue';
-                  } else {
-                    sessionsLabel = 'Sessioni non disponibili';
-                  }
-                  final expiration = purchase.expirationDate;
-                  final expirationLabel =
-                      expiration != null
-                          ? DateFormat('dd/MM/yyyy').format(expiration)
-                          : 'Nessuna scadenza';
-                  return Card(
-                    child: ListTile(
-                      leading: const Icon(Icons.inventory_2_outlined),
-                      title: Text(purchase.displayName),
-                      subtitle: Text('$sessionsLabel • $expirationLabel'),
-                      trailing: Text(
-                        currencyFormatter.format(purchase.totalAmount),
-                        style: theme.textTheme.labelMedium,
-                      ),
-                    ),
-                  );
-                }),
-              const SizedBox(height: 16),
-              Text('Prossimi appuntamenti', style: theme.textTheme.titleLarge),
-              const SizedBox(height: 12),
-              if (upcomingAppointments.isEmpty)
-                const Card(
-                  child: ListTile(
-                    leading: Icon(Icons.event_available_outlined),
-                    title: Text('Nessun appuntamento in programma'),
-                  ),
-                )
-              else
-                ...upcomingAppointments.take(5).map((appt) {
-                  final upcomingService = data.services.firstWhereOrNull(
-                    (service) => service.id == appt.serviceId,
-                  );
-                  final upcomingDate = dateFormatter.format(appt.start);
-                  return _AppointmentSummaryCard(
-                    icon: Icons.calendar_month_outlined,
-                    title: upcomingService?.name ?? 'Servizio',
-                    subtitle: upcomingDate,
-                    status: appt.status,
-                  );
-                }),
-              const SizedBox(height: 16),
-              if (historyAppointments.isEmpty)
-                const Card(
-                  child: ListTile(
-                    leading: Icon(Icons.history_toggle_off_outlined),
-                    title: Text('Nessun appuntamento nello storico'),
-                  ),
-                )
-              else
-                Card(
-                  child: ExpansionTile(
-                    title: const Text('Storico appuntamenti (ultimi 24 mesi)'),
-                    childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                    children:
-                        historyAppointments.map((appt) {
-                          final historyService = data.services.firstWhereOrNull(
-                            (service) => service.id == appt.serviceId,
-                          );
-                          final historyStaff = data.staff.firstWhereOrNull(
-                            (member) => member.id == appt.staffId,
-                          );
-                          final historyDate = dateFormatter.format(appt.start);
-                          final historyDuration = _formatDuration(
-                            appt.duration,
-                          );
-                          final subtitleParts = [historyDate, historyDuration];
-                          if (historyStaff != null) {
-                            subtitleParts.add(historyStaff.fullName);
-                          }
-                          return _AppointmentSummaryCard(
-                            margin: const EdgeInsets.only(top: 8),
-                            icon: Icons.history_rounded,
-                            title: historyService?.name ?? 'Servizio',
-                            subtitle: subtitleParts.join(' • '),
-                            status: appt.status,
-                          );
-                        }).toList(),
-                  ),
-                ),
+              detailContent,
             ],
           ),
         ),
@@ -749,7 +760,7 @@ class _StaffClientPhotosSectionState
       return;
     }
     if (files.length < _orderedPhotoSets.length) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text(
             'Seleziona quattro foto per coprire Frontale, Dietro, Destra e Sinistra.',
@@ -847,7 +858,7 @@ class _StaffClientPhotosSectionState
         return;
       }
       if (uploadedCount > 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(
             content: Text(
               uploadedCount == assignments.length
@@ -869,12 +880,12 @@ class _StaffClientPhotosSectionState
         }
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(messages.join('\n'))));
+        ).showAppSnackBar(SnackBar(content: Text(messages.join('\n'))));
       }
       if (uploadedCount == 0 &&
           skippedTooLarge.isEmpty &&
           skippedUnreadable.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(content: Text('Nessun file valido selezionato.')),
         );
       }
@@ -882,7 +893,7 @@ class _StaffClientPhotosSectionState
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Impossibile caricare le foto: $error')),
       );
     } finally {
@@ -929,7 +940,7 @@ class _StaffClientPhotosSectionState
       if (!mounted) {
         return const <_PickedClientImage>[];
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             'Puoi selezionare al massimo $maxSelection foto per questa operazione.',
@@ -2184,6 +2195,7 @@ Future<void> _openAbsenceHistory(
 }) {
   return showAppModalSheet<void>(
     context: context,
+    includeCloseButton: false,
     builder: (_) => _AbsenceHistorySheet(requests: requests),
   );
 }
@@ -2223,7 +2235,7 @@ Future<void> _confirmCancelRequest(
   if (context.mounted) {
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('Richiesta annullata.')));
+    ).showAppSnackBar(const SnackBar(content: Text('Richiesta annullata.')));
   }
 }
 
@@ -2300,7 +2312,6 @@ class _AbsenceHistorySheet extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
     final body =
         requests.isEmpty
             ? const Card(
@@ -2329,13 +2340,10 @@ class _AbsenceHistorySheet extends ConsumerWidget {
             );
 
     return DialogActionLayout(
+      title: 'Storico richieste',
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Storico richieste', style: theme.textTheme.titleLarge),
-          const SizedBox(height: 12),
-          body,
-        ],
+        children: [body],
       ),
       actions: const [],
     );

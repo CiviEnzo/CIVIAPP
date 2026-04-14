@@ -1452,7 +1452,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   void _showMessage(String message) {
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ).showAppSnackBar(SnackBar(content: Text(message)));
   }
 
   bool _isSalonValid(String id) {

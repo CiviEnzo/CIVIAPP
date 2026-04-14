@@ -1,6 +1,7 @@
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:flutter/material.dart';
+import 'package:you_book/presentation/common/app_notice.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
@@ -64,7 +65,7 @@ class _SalonEquipmentSheetState extends State<SalonEquipmentSheet> {
     for (final item in _equipment) {
       final quantity = int.tryParse(item.quantity.text.trim());
       if (quantity == null || quantity <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('Imposta una quantità valida maggiore di 0.'),
           ),
@@ -87,20 +88,18 @@ class _SalonEquipmentSheetState extends State<SalonEquipmentSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return DialogActionLayout(
+      title: 'Gestione macchinari',
       body: Form(
         key: _formKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Gestione macchinari', style: theme.textTheme.titleLarge),
-            const SizedBox(height: 16),
             if (_equipment.isEmpty)
               Text(
                 'Nessun macchinario configurato. Aggiungi una voce per iniziare.',
-                style: theme.textTheme.bodyMedium,
+                style: Theme.of(context).textTheme.bodyMedium,
               ),
             ..._equipment.map(
               (item) => _EquipmentCard(

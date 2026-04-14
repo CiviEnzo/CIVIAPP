@@ -75,10 +75,10 @@ class _PackagePurchaseEditSheetState
     final serviceNames = {
       for (final service in data.services) service.id: service.name,
     };
-    final serviceIds = _serviceIds.toList()
-      ..sort(
-        (a, b) => (serviceNames[a] ?? a).compareTo(serviceNames[b] ?? b),
-      );
+    final serviceIds =
+        _serviceIds.toList()..sort(
+          (a, b) => (serviceNames[a] ?? a).compareTo(serviceNames[b] ?? b),
+        );
     final supportsBreakdown = serviceIds.isNotEmpty;
     final totalSessions = _initialTotalSessions;
     final outstandingAmount = _outstandingAmount();
@@ -157,15 +157,14 @@ class _PackagePurchaseEditSheetState
                     readOnly: supportsBreakdown,
                     enabled: !supportsBreakdown,
                     decoration: InputDecoration(
-                      labelText: supportsBreakdown
-                          ? 'Sessioni rimanenti (totale)'
-                          : 'Sessioni rimanenti',
+                      labelText:
+                          supportsBreakdown
+                              ? 'Sessioni rimanenti (totale)'
+                              : 'Sessioni rimanenti',
                     ),
                     keyboardType: TextInputType.number,
                     onChanged:
-                        supportsBreakdown
-                            ? null
-                            : (_) => setState(() {}),
+                        supportsBreakdown ? null : (_) => setState(() {}),
                     validator: (value) {
                       if (supportsBreakdown) {
                         return null;
@@ -219,10 +218,7 @@ class _PackagePurchaseEditSheetState
             ),
             if (supportsBreakdown) ...[
               const SizedBox(height: 12),
-              Text(
-                'Sessioni per servizio',
-                style: theme.textTheme.titleSmall,
-              ),
+              Text('Sessioni per servizio', style: theme.textTheme.titleSmall),
               const SizedBox(height: 8),
               ...serviceIds.map(
                 (serviceId) => _buildServiceSessionRow(
@@ -383,10 +379,7 @@ class _PackagePurchaseEditSheetState
       aggregated[id] = total;
     });
     final adjusted = <String, int>{};
-    final allIds = {
-      ...aggregated.keys,
-      ...widget.usedSessionsByService.keys,
-    };
+    final allIds = {...aggregated.keys, ...widget.usedSessionsByService.keys};
     for (final id in allIds) {
       final total = aggregated[id] ?? 0;
       final used = widget.usedSessionsByService[id] ?? 0;
@@ -404,7 +397,8 @@ class _PackagePurchaseEditSheetState
 
   Map<String, int> _scaleServiceMap(Map<String, int> base, int? target) {
     final sanitized = <String, int>{
-      for (final entry in base.entries) entry.key: entry.value < 0 ? 0 : entry.value,
+      for (final entry in base.entries)
+        entry.key: entry.value < 0 ? 0 : entry.value,
     };
     if (target == null) {
       return sanitized;
@@ -430,24 +424,19 @@ class _PackagePurchaseEditSheetState
       }
       return result;
     }
-    final allocations = sanitized.entries
-        .map(
-          (entry) {
-            final raw = entry.value * desired / sumBase;
-            final floor = raw.floor();
-            return _FractionalShare(
-              key: entry.key,
-              value: floor,
-              fraction: raw - floor,
-            );
-          },
-        )
-        .toList();
+    final allocations =
+        sanitized.entries.map((entry) {
+          final raw = entry.value * desired / sumBase;
+          final floor = raw.floor();
+          return _FractionalShare(
+            key: entry.key,
+            value: floor,
+            fraction: raw - floor,
+          );
+        }).toList();
     final floorSum = allocations.fold<int>(0, (sum, item) => sum + item.value);
     var remainder = desired - floorSum;
-    allocations.sort(
-      (a, b) => b.fraction.compareTo(a.fraction),
-    );
+    allocations.sort((a, b) => b.fraction.compareTo(a.fraction));
     var index = 0;
     while (remainder > 0 && allocations.isNotEmpty) {
       allocations[index] = allocations[index].increment();
@@ -567,10 +556,6 @@ class _FractionalShare {
   final double fraction;
 
   _FractionalShare increment() {
-    return _FractionalShare(
-      key: key,
-      value: value + 1,
-      fraction: fraction,
-    );
+    return _FractionalShare(key: key, value: value + 1, fraction: fraction);
   }
 }

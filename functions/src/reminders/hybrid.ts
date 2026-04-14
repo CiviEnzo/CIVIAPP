@@ -21,6 +21,7 @@ import {
   Timestamp as AdminTimestamp,
 } from '../utils/firestore';
 import { formatReminderOffsetLabel } from '../messaging/reminder_settings';
+import { buildWhatsappTemplateComponents } from '../messaging/whatsapp_templates';
 import { DEFAULT_TIMEZONE } from '../utils/time';
 import {
   sendTemplateMessage,
@@ -908,16 +909,6 @@ function fallbackReminderPlaceholderValue(
   }
 }
 
-function extractPlaceholdersInOrder(body: string): string[] {
-  if (!body.trim()) {
-    return [];
-  }
-  const matches = body.matchAll(/\{\{\s*([^}]+?)\s*\}\}/g);
-  return Array.from(matches)
-    .map((match) => (match[1] ?? '').trim())
-    .filter((value) => value.length > 0);
-}
-
 function buildWhatsappTemplateComponentsFromTemplate(params: {
   body: string;
   context: ReminderTemplateContext;
@@ -928,92 +919,20 @@ function buildWhatsappTemplateComponentsFromTemplate(params: {
   components?: WhatsAppTemplateComponent[];
   unresolvedPlaceholders: string[];
 } {
-  const {
+  const { body, context, bodyPlaceholderOrder, headerBindings, headerFormat } =
+    params;
+  return buildWhatsappTemplateComponents({
     body,
-    context,
     bodyPlaceholderOrder,
     headerBindings,
     headerFormat,
-  } = params;
-  const components: WhatsAppTemplateComponent[] = [];
-  const unresolvedPlaceholders: string[] = [];
-  const normalizedHeaderFormat = (headerFormat ?? '').trim().toUpperCase();
-  const hasImageHeader = normalizedHeaderFormat === 'IMAGE';
-  const firstHeaderBinding =
-    headerBindings && headerBindings.length > 0
-      ? headerBindings[0]?.trim() ?? ''
-      : '';
-
-  if (hasImageHeader) {
-    if (!firstHeaderBinding.length) {
-      unresolvedPlaceholders.push('header:image');
-    } else {
-      const customValue = decodeCustomBindingValue(firstHeaderBinding);
-      const resolved = (
-        customValue ?? resolveReminderPlaceholderValue(firstHeaderBinding, context)
-      ).trim();
-      if (!resolved.length || !/^https?:\/\//i.test(resolved)) {
-        unresolvedPlaceholders.push(firstHeaderBinding);
-      } else {
-        components.push({
-          type: 'header',
-          parameters: [
-            {
-              type: 'image',
-              image: { link: resolved },
-            },
-          ],
-        });
-      }
-    }
-  } else if (firstHeaderBinding.length) {
-    const customValue = decodeCustomBindingValue(firstHeaderBinding);
-    const resolved = (
-      customValue ?? resolveReminderPlaceholderValue(firstHeaderBinding, context)
-    ).trim();
-    if (!resolved.length) {
-      unresolvedPlaceholders.push(firstHeaderBinding);
-    } else {
-      components.push({
-        type: 'header',
-        parameters: [
-          {
-            type: 'text',
-            text: resolved,
-          },
-        ],
-      });
-    }
-  }
-
-  const placeholders =
-    bodyPlaceholderOrder && bodyPlaceholderOrder.length
-      ? bodyPlaceholderOrder
-      : extractPlaceholdersInOrder(body);
-  if (placeholders.length) {
-    const parameters = placeholders.map((placeholder) => {
+    resolveValue: (placeholder) => {
       const customValue = decodeCustomBindingValue(placeholder);
-      const resolved = (
+      return (
         customValue ?? resolveReminderPlaceholderValue(placeholder, context)
-      ).trim();
-      if (!resolved.length) {
-        unresolvedPlaceholders.push(placeholder);
-      }
-      return {
-        type: 'text' as const,
-        text: resolved,
-      };
-    });
-    components.push({
-      type: 'body',
-      parameters,
-    });
-  }
-
-  return {
-    components: components.length > 0 ? components : undefined,
-    unresolvedPlaceholders,
-  };
+      );
+    },
+  });
 }
 
 async function storeReminderWhatsappOutboxEntry({

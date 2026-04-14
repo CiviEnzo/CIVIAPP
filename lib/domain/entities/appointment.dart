@@ -90,6 +90,8 @@ List<AppointmentServiceAllocation> _resolveServiceAllocations({
 
 enum AppointmentStatus { scheduled, completed, cancelled, noShow }
 
+const Object _appointmentUnset = Object();
+
 extension AppointmentX on Appointment {
   Duration get duration => end.difference(start);
 
@@ -108,12 +110,12 @@ extension AppointmentX on Appointment {
     DateTime? start,
     DateTime? end,
     AppointmentStatus? status,
-    String? notes,
-    String? packageId,
-    String? roomId,
-    String? lastMinuteSlotId,
-    DateTime? createdAt,
-    String? bookingChannel,
+    Object? notes = _appointmentUnset,
+    Object? packageId = _appointmentUnset,
+    Object? roomId = _appointmentUnset,
+    Object? lastMinuteSlotId = _appointmentUnset,
+    Object? createdAt = _appointmentUnset,
+    Object? bookingChannel = _appointmentUnset,
   }) {
     final updatedAllocations =
         serviceAllocations ??
@@ -145,12 +147,28 @@ extension AppointmentX on Appointment {
       start: start ?? this.start,
       end: end ?? this.end,
       status: status ?? this.status,
-      notes: notes ?? this.notes,
-      packageId: packageId ?? this.packageId,
-      roomId: roomId ?? this.roomId,
-      lastMinuteSlotId: lastMinuteSlotId ?? this.lastMinuteSlotId,
-      createdAt: createdAt ?? this.createdAt,
-      bookingChannel: bookingChannel ?? this.bookingChannel,
+      notes:
+          identical(notes, _appointmentUnset) ? this.notes : notes as String?,
+      packageId:
+          identical(packageId, _appointmentUnset)
+              ? this.packageId
+              : packageId as String?,
+      roomId:
+          identical(roomId, _appointmentUnset)
+              ? this.roomId
+              : roomId as String?,
+      lastMinuteSlotId:
+          identical(lastMinuteSlotId, _appointmentUnset)
+              ? this.lastMinuteSlotId
+              : lastMinuteSlotId as String?,
+      createdAt:
+          identical(createdAt, _appointmentUnset)
+              ? this.createdAt
+              : createdAt as DateTime?,
+      bookingChannel:
+          identical(bookingChannel, _appointmentUnset)
+              ? this.bookingChannel
+              : bookingChannel as String?,
     );
   }
 }

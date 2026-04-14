@@ -86,15 +86,20 @@ class _PasswordResetScreenState extends ConsumerState<PasswordResetScreen> {
                       const SizedBox(height: 24),
                       FilledButton(
                         onPressed: _isLoading || _isSent ? null : _sendReset,
-                        child: _isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : Text(_isSent
-                                ? 'Email inviata'
-                                : 'Invia link di recupero'),
+                        child:
+                            _isLoading
+                                ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                                : Text(
+                                  _isSent
+                                      ? 'Email inviata'
+                                      : 'Invia link di recupero',
+                                ),
                       ),
                       if (_isSent) ...[
                         const SizedBox(height: 12),
@@ -129,13 +134,14 @@ class _PasswordResetScreenState extends ConsumerState<PasswordResetScreen> {
       await ref.read(authRepositoryProvider).sendPasswordResetEmail(email);
       if (!mounted) return;
       setState(() => _isSent = true);
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Email di reset inviata.')),
       );
     } on Exception catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_friendlyError(error))));
+      ScaffoldMessenger.of(
+        context,
+      ).showAppSnackBar(SnackBar(content: Text(_friendlyError(error))));
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);

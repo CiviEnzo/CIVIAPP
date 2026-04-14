@@ -651,12 +651,12 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
 
           final hideActions =
               !navConfig.showBackButton && navConfig.onNext == null;
-          final actions =
-              hideActions
-                  ? const <Widget>[]
-                  : [Expanded(child: _buildFloatingButtons(theme, navConfig))];
+          final footer =
+              hideActions ? null : _buildFloatingButtons(theme, navConfig);
 
           return DialogActionLayout(
+            footer: footer,
+            actions: const [],
             body: SafeArea(
               top: !widget.showCloseButton,
               bottom: false,
@@ -725,7 +725,6 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
                 ),
               ),
             ),
-            actions: actions,
           );
         },
       ),
@@ -3891,7 +3890,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ).showAppSnackBar(SnackBar(content: Text(message)));
   }
 }
 

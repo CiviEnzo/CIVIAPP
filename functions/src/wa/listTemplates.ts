@@ -6,9 +6,13 @@ import type { Request, Response } from 'express'
 import { requireWaSalonAdmin } from './authz'
 import { getSalonWaConfig } from './config'
 import { readSecret } from './secrets'
-
-const REGION = process.env.WA_REGION ?? 'europe-west1'
-const GRAPH_API_VERSION = process.env.WA_GRAPH_API_VERSION ?? 'v25.0'
+import {
+  GRAPH_API_VERSION,
+  GRAPH_TIMEOUT_MS,
+  REGION,
+  getSystemUserAccessToken,
+  toHttpError,
+} from './runtime'
 
 type GraphMessageTemplate = {
   id?: string
@@ -101,13 +105,22 @@ async function fetchWhatsappTemplates(params: {
       fields:
         'id,name,language,status,category,components,quality_score,rejected_reason,previous_category',
     },
-    timeout: Number(process.env.WA_GRAPH_TIMEOUT_MS ?? 10000),
+    timeout: GRAPH_TIMEOUT_MS,
   })
 
   return {
     templates: Array.isArray(response.data?.data) ? response.data.data : [],
     nextCursor: response.data?.paging?.cursors?.after,
   }
+}
+
+async function resolveListAccessToken(
+  tokenSecretId: string | undefined,
+): Promise<string> {
+  if (tokenSecretId) {
+    return readSecret(tokenSecretId)
+  }
+  return getSystemUserAccessToken()
 }
 
 export const listWhatsappTemplates = onRequest(
@@ -141,12 +154,8 @@ export const listWhatsappTemplates = onRequest(
         jsonError(response, 400, 'WABA not configured for salon')
         return
       }
-      if (!config.tokenSecretId) {
-        jsonError(response, 400, 'WhatsApp token secret not configured for salon')
-        return
-      }
 
-      const accessToken = await readSecret(config.tokenSecretId)
+      const accessToken = await resolveListAccessToken(config.tokenSecretId)
       const result = await fetchWhatsappTemplates({
         accessToken,
         wabaId: config.wabaId,
@@ -211,18 +220,21 @@ export const listWhatsappTemplates = onRequest(
         templates,
       })
     } catch (error) {
+      const httpError = toHttpError(
+        error,
+        error instanceof Error ? error.message : 'Unable to list WhatsApp templates',
+      )
       const axiosError = axios.isAxiosError(error) ? error : null
-      const status = axiosError?.response?.status ?? 400
       const data = axiosError?.response?.data
       logger.error(
         'Failed to list WhatsApp templates',
         error instanceof Error ? error : new Error(String(error)),
-        { status, data },
+        { status: httpError.statusCode, data },
       )
       jsonError(
         response,
-        status,
-        error instanceof Error ? error.message : 'Unable to list WhatsApp templates',
+        httpError.statusCode,
+        httpError.message,
         data && typeof data == 'object' ? { response: data as Record<string, unknown> } : undefined,
       )
     }

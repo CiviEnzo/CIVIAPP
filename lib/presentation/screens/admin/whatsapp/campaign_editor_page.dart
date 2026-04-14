@@ -29,7 +29,6 @@ class _WhatsAppCampaignEditorPageState
   final DateFormat _promotionDateOnlyFormat = DateFormat('d MMMM', 'it_IT');
   final DateFormat _promotionTimeOnlyFormat = DateFormat('HH:mm');
   MessageTemplate? _selectedTemplate;
-  String? _selectedPromotionId;
   List<String> _placeholders = const [];
   List<String> _headerBindings = const [];
   List<TextEditingController> _parameterControllers = const [];
@@ -38,6 +37,10 @@ class _WhatsAppCampaignEditorPageState
 
   bool get _isPromotionTemplateSelected =>
       _selectedTemplate?.usage == TemplateUsage.promotion;
+  bool get _isReminderTemplateSelected =>
+      _selectedTemplate?.usage == TemplateUsage.reminder;
+  bool get _usesClientSelection =>
+      _isPromotionTemplateSelected || _isReminderTemplateSelected;
 
   @override
   void dispose() {
@@ -59,15 +62,15 @@ class _WhatsAppCampaignEditorPageState
             (a, b) =>
                 a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()),
           );
-    final promotionEligibleRecipients = salonClients
+    final selectableRecipients = salonClients
         .where((client) => client.phone.trim().isNotEmpty)
         .toList(growable: false);
-    final selectedPromotionRecipients = promotionEligibleRecipients
+    final selectedRecipients = selectableRecipients
         .where((client) => _selectedClientIds.contains(client.id))
         .toList(growable: false);
-    final previewRecipient = _resolvePreviewClient(promotionEligibleRecipients);
+    final previewRecipient = _resolvePreviewClient(selectableRecipients);
     final clientsWithoutPhoneCount =
-        salonClients.length - promotionEligibleRecipients.length;
+        salonClients.length - selectableRecipients.length;
     final templates =
         data.messageTemplates
             .where(
@@ -89,6 +92,12 @@ class _WhatsAppCampaignEditorPageState
         data.salons
             .firstWhereOrNull((salon) => salon.id == widget.salonId)
             ?.name;
+    final configuredPromotion = _resolveConfiguredPromotion(
+      _selectedTemplate,
+      promotions,
+    );
+    final hasMissingPromotionAssociation =
+        _isPromotionTemplateSelected && configuredPromotion == null;
 
     if (_selectedTemplate != null &&
         templates.every((template) => template.id != _selectedTemplate!.id)) {
@@ -97,39 +106,9 @@ class _WhatsAppCampaignEditorPageState
           return;
         }
         _onTemplateChanged(
-          templates.firstOrNull,
+          null,
           promotions: promotions,
-          promotionEligibleRecipients: promotionEligibleRecipients,
-          salonName: salonName,
-        );
-      });
-    }
-
-    if (_selectedTemplate == null && templates.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || _selectedTemplate != null) {
-          return;
-        }
-        _onTemplateChanged(
-          templates.first,
-          promotions: promotions,
-          promotionEligibleRecipients: promotionEligibleRecipients,
-          salonName: salonName,
-        );
-      });
-    }
-
-    if (_isPromotionTemplateSelected &&
-        promotions.isNotEmpty &&
-        promotions.every((promotion) => promotion.id != _selectedPromotionId)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || promotions.isEmpty) {
-          return;
-        }
-        _onPromotionChanged(
-          promotions.first.id,
-          promotions: promotions,
-          promotionEligibleRecipients: promotionEligibleRecipients,
+          eligibleRecipients: selectableRecipients,
           salonName: salonName,
         );
       });
@@ -146,306 +125,290 @@ class _WhatsAppCampaignEditorPageState
               'Invia campagna WhatsApp',
               style: Theme.of(context).textTheme.headlineSmall,
             ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<MessageTemplate>(
-              isExpanded: true,
-              value: _selectedTemplate,
-              decoration: const InputDecoration(
-                labelText: 'Template approvato',
-                border: OutlineInputBorder(),
-              ),
-              items:
-                  templates
-                      .map(
-                        (template) => DropdownMenuItem(
-                          value: template,
-                          child: Text(template.title),
-                        ),
-                      )
-                      .toList(),
-              onChanged:
-                  (value) => _onTemplateChanged(
-                    value,
-                    promotions: promotions,
-                    promotionEligibleRecipients: promotionEligibleRecipients,
-                    salonName: salonName,
-                  ),
-              validator:
-                  (value) =>
-                      value == null ? 'Seleziona un template approvato' : null,
-            ),
-            if (_isPromotionTemplateSelected) ...[
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                isExpanded: true,
-                value:
-                    promotions.any(
-                          (promotion) => promotion.id == _selectedPromotionId,
-                        )
-                        ? _selectedPromotionId
-                        : null,
-                decoration: const InputDecoration(
-                  labelText: 'Promozione (modulo Messaggi & marketing)',
-                  border: OutlineInputBorder(),
-                ),
-                items: promotions
-                    .map(
-                      (promotion) => DropdownMenuItem<String>(
-                        value: promotion.id,
-                        child: Text(promotion.title),
-                      ),
-                    )
-                    .toList(growable: false),
-                onChanged:
-                    promotions.isEmpty
-                        ? null
-                        : (value) => _onPromotionChanged(
-                          value,
-                          promotions: promotions,
-                          promotionEligibleRecipients:
-                              promotionEligibleRecipients,
-                          salonName: salonName,
-                        ),
-                validator: (value) {
-                  if (!_isPromotionTemplateSelected) {
-                    return null;
-                  }
-                  if (promotions.isEmpty) {
-                    return 'Nessuna promozione disponibile nel tab Promozioni.';
-                  }
-                  return value == null ? 'Seleziona una promozione.' : null;
-                },
-              ),
-              const SizedBox(height: 16),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Destinatari promozione',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        '${selectedPromotionRecipients.length}/${promotionEligibleRecipients.length} selezionati',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      if (clientsWithoutPhoneCount > 0) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          '$clientsWithoutPhoneCount clienti esclusi: telefono non disponibile.',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
+            const SizedBox(height: 16),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isCompact = constraints.maxWidth < 980;
+                final leftColumn = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _CampaignSectionCard(
+                      title: 'Template',
+                      subtitle:
+                          'Scegli il template e controlla l\'anteprima gia compilata con i dati disponibili.',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          FilledButton.icon(
-                            onPressed:
-                                promotionEligibleRecipients.isEmpty ||
-                                        _isSending
-                                    ? null
-                                    : () => _showPromotionRecipientSelector(
-                                      promotionEligibleRecipients,
-                                      promotions: promotions,
-                                      salonName: salonName,
-                                    ),
-                            icon: const Icon(Icons.group_add_rounded),
-                            label: const Text('Seleziona destinatari'),
+                          DropdownButtonFormField<MessageTemplate>(
+                            isExpanded: true,
+                            value: _selectedTemplate,
+                            hint: const Text('Seleziona template'),
+                            decoration: const InputDecoration(
+                              labelText: 'Template approvato',
+                              border: OutlineInputBorder(),
+                            ),
+                            items:
+                                templates
+                                    .map(
+                                      (template) => DropdownMenuItem(
+                                        value: template,
+                                        child: Text(template.title),
+                                      ),
+                                    )
+                                    .toList(),
+                            onChanged:
+                                (value) => _onTemplateChanged(
+                                  value,
+                                  promotions: promotions,
+                                  eligibleRecipients: selectableRecipients,
+                                  salonName: salonName,
+                                ),
+                            validator:
+                                (value) =>
+                                    value == null
+                                        ? 'Seleziona un template approvato'
+                                        : null,
                           ),
-                          OutlinedButton.icon(
-                            onPressed:
-                                _selectedClientIds.isEmpty || _isSending
-                                    ? null
-                                    : () {
-                                      setState(() {
-                                        _selectedClientIds.clear();
-                                      });
-                                      _prefillPromotionValues(
-                                        promotions: promotions,
-                                        promotionEligibleRecipients:
-                                            promotionEligibleRecipients,
-                                        salonName: salonName,
-                                      );
-                                    },
-                            icon: const Icon(Icons.clear_all_rounded),
-                            label: const Text('Svuota'),
-                          ),
+                          if (_isPromotionTemplateSelected) ...[
+                            const SizedBox(height: 12),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color:
+                                    hasMissingPromotionAssociation
+                                        ? Theme.of(
+                                          context,
+                                        ).colorScheme.errorContainer
+                                        : Theme.of(
+                                          context,
+                                        ).colorScheme.surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Promozione associata',
+                                    style:
+                                        Theme.of(context).textTheme.titleSmall,
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    configuredPromotion?.title ??
+                                        'Questo template promozionale non ha una promozione collegata oppure la promozione non esiste piu.',
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ],
                       ),
-                      if (selectedPromotionRecipients.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: selectedPromotionRecipients
-                              .take(8)
-                              .map(
-                                (client) => InputChip(
-                                  label: Text(client.fullName),
-                                  onDeleted:
-                                      _isSending
-                                          ? null
-                                          : () {
-                                            setState(() {
-                                              _selectedClientIds.remove(
-                                                client.id,
-                                              );
-                                            });
-                                            _prefillPromotionValues(
-                                              promotions: promotions,
-                                              promotionEligibleRecipients:
-                                                  promotionEligibleRecipients,
-                                              salonName: salonName,
-                                            );
-                                          },
-                                ),
+                    ),
+                    const SizedBox(height: 16),
+                    _PreviewCard(
+                      template: _selectedTemplate,
+                      placeholders: _placeholders,
+                      controllers: _parameterControllers,
+                      infoMessage:
+                          hasMissingPromotionAssociation
+                              ? 'Collega una promozione nel configuratore template per sbloccare l\'invio.'
+                              : null,
+                      previewRecipientName:
+                          _usesClientSelection
+                              ? previewRecipient?.fullName
+                              : null,
+                      showPromotionRecipientHint: false,
+                    ),
+                    const SizedBox(height: 16),
+                    SwitchListTile.adaptive(
+                      value: _allowPreviewUrl,
+                      onChanged:
+                          (value) => setState(() => _allowPreviewUrl = value),
+                      title: const Text('Mostra anteprima link'),
+                      subtitle: const Text(
+                        'Controlla se WhatsApp deve espandere gli URL con la preview automatica nel messaggio.',
+                      ),
+                    ),
+                  ],
+                );
+                final rightColumn = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _CampaignSectionCard(
+                      title: _usesClientSelection ? 'Utenti' : 'Destinatario',
+                      subtitle:
+                          _usesClientSelection
+                              ? 'Seleziona gli utenti che riceveranno la campagna.'
+                              : 'Inserisci il numero destinatario per l\'invio singolo.',
+                      child:
+                          _usesClientSelection
+                              ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${selectedRecipients.length}/${selectableRecipients.length} selezionati',
+                                    style:
+                                        Theme.of(context).textTheme.bodySmall,
+                                  ),
+                                  if (clientsWithoutPhoneCount > 0) ...[
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '$clientsWithoutPhoneCount clienti esclusi: telefono non disponibile.',
+                                      style:
+                                          Theme.of(context).textTheme.bodySmall,
+                                    ),
+                                  ],
+                                  const SizedBox(height: 12),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      FilledButton.icon(
+                                        onPressed:
+                                            selectableRecipients.isEmpty ||
+                                                    hasMissingPromotionAssociation ||
+                                                    _isSending
+                                                ? null
+                                                : () =>
+                                                    _showPromotionRecipientSelector(
+                                                      selectableRecipients,
+                                                      promotions: promotions,
+                                                      salonName: salonName,
+                                                    ),
+                                        icon: const Icon(
+                                          Icons.group_add_rounded,
+                                        ),
+                                        label: const Text('Seleziona utenti'),
+                                      ),
+                                      OutlinedButton.icon(
+                                        onPressed:
+                                            _selectedClientIds.isEmpty ||
+                                                    _isSending
+                                                ? null
+                                                : () {
+                                                  setState(() {
+                                                    _selectedClientIds.clear();
+                                                  });
+                                                  _prefillTemplateValues(
+                                                    promotions: promotions,
+                                                    eligibleRecipients:
+                                                        selectableRecipients,
+                                                    salonName: salonName,
+                                                  );
+                                                },
+                                        icon: const Icon(
+                                          Icons.clear_all_rounded,
+                                        ),
+                                        label: const Text('Svuota'),
+                                      ),
+                                    ],
+                                  ),
+                                  if (selectedRecipients.isNotEmpty) ...[
+                                    const SizedBox(height: 12),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: selectedRecipients
+                                          .take(12)
+                                          .map(
+                                            (client) => InputChip(
+                                              label: Text(client.fullName),
+                                              onDeleted:
+                                                  _isSending
+                                                      ? null
+                                                      : () {
+                                                        setState(() {
+                                                          _selectedClientIds
+                                                              .remove(
+                                                                client.id,
+                                                              );
+                                                        });
+                                                        _prefillTemplateValues(
+                                                          promotions:
+                                                              promotions,
+                                                          eligibleRecipients:
+                                                              selectableRecipients,
+                                                          salonName: salonName,
+                                                        );
+                                                      },
+                                            ),
+                                          )
+                                          .toList(growable: false),
+                                    ),
+                                  ],
+                                ],
                               )
-                              .toList(growable: false),
+                              : TextFormField(
+                                controller: _recipientController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Numero destinatario (E.164)',
+                                  hintText: '+393331234567',
+                                  border: OutlineInputBorder(),
+                                ),
+                                keyboardType: TextInputType.phone,
+                                validator:
+                                    (value) =>
+                                        value == null || value.trim().isEmpty
+                                            ? 'Inserisci il numero del destinatario'
+                                            : null,
+                              ),
+                    ),
+                    const SizedBox(height: 16),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: FilledButton.icon(
+                        onPressed:
+                            _isSending || hasMissingPromotionAssociation
+                                ? null
+                                : () => _sendCampaign(
+                                  context,
+                                  promotions: promotions,
+                                  eligibleRecipients: selectableRecipients,
+                                  salonName: salonName,
+                                ),
+                        icon:
+                            _isSending
+                                ? const SizedBox(
+                                  height: 16,
+                                  width: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                                : const Icon(Icons.send_rounded),
+                        label: Text(
+                          _isSending
+                              ? 'Invio in corso...'
+                              : _usesClientSelection
+                              ? 'Invia ai selezionati'
+                              : 'Invia anteprima',
                         ),
-                        if (selectedPromotionRecipients.length > 8)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 6),
-                            child: Text(
-                              '+${selectedPromotionRecipients.length - 8} altri destinatari',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ],
-            const SizedBox(height: 16),
-            if (!_isPromotionTemplateSelected)
-              TextFormField(
-                controller: _recipientController,
-                decoration: const InputDecoration(
-                  labelText: 'Numero destinatario (E.164)',
-                  hintText: '+393331234567',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.phone,
-                validator:
-                    (value) =>
-                        value == null || value.trim().isEmpty
-                            ? 'Inserisci il numero del destinatario'
-                            : null,
-              ),
-            const SizedBox(height: 16),
-            if (_placeholders.isNotEmpty)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
+                      ),
+                    ),
+                  ],
+                );
+
+                if (isCompact) {
+                  return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Parametri del template',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 12),
-                      for (var i = 0; i < _placeholders.length; i++)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 6),
-                          child: Builder(
-                            builder: (context) {
-                              final placeholder = _placeholders[i];
-                              final customValue = _decodeCustomBindingValue(
-                                placeholder,
-                              );
-                              final isCustom = customValue != null;
-                              return TextFormField(
-                                controller: _parameterControllers[i],
-                                readOnly:
-                                    _isPromotionTemplateSelected || isCustom,
-                                decoration: InputDecoration(
-                                  labelText:
-                                      isCustom
-                                          ? 'Custom ${i + 1}'
-                                          : placeholder,
-                                  border: const OutlineInputBorder(),
-                                  helperText:
-                                      isCustom
-                                          ? 'Valore custom fisso impostato nel configuratore'
-                                          : _isPromotionTemplateSelected
-                                          ? 'Valore letto dal tab Promozioni'
-                                          : null,
-                                ),
-                                onChanged: (_) => setState(() {}),
-                                validator: (value) {
-                                  if (_isPromotionTemplateSelected ||
-                                      isCustom) {
-                                    return null;
-                                  }
-                                  return value == null || value.trim().isEmpty
-                                      ? 'Inserisci un valore per $placeholder'
-                                      : null;
-                                },
-                              );
-                            },
-                          ),
-                        ),
+                      leftColumn,
+                      const SizedBox(height: 16),
+                      rightColumn,
                     ],
-                  ),
-                ),
-              ),
-            const SizedBox(height: 16),
-            SwitchListTile.adaptive(
-              value: _allowPreviewUrl,
-              onChanged: (value) => setState(() => _allowPreviewUrl = value),
-              title: const Text('Consenti anteprima link'),
-              subtitle: const Text(
-                'Disattiva per template con link dinamici che non devono mostrare l\'anteprima.',
-              ),
-            ),
-            const SizedBox(height: 16),
-            _PreviewCard(
-              template: _selectedTemplate,
-              placeholders: _placeholders,
-              controllers: _parameterControllers,
-              previewRecipientName:
-                  _isPromotionTemplateSelected
-                      ? previewRecipient?.fullName
-                      : null,
-              showPromotionRecipientHint:
-                  _isPromotionTemplateSelected && previewRecipient == null,
-            ),
-            const SizedBox(height: 24),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton.icon(
-                onPressed:
-                    _isSending
-                        ? null
-                        : () => _sendCampaign(
-                          context,
-                          promotions: promotions,
-                          promotionEligibleRecipients:
-                              promotionEligibleRecipients,
-                          salonName: salonName,
-                        ),
-                icon:
-                    _isSending
-                        ? const SizedBox(
-                          height: 16,
-                          width: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                        : const Icon(Icons.send_rounded),
-                label: Text(
-                  _isSending
-                      ? 'Invio in corso...'
-                      : _isPromotionTemplateSelected
-                      ? 'Invia promozione ai selezionati'
-                      : 'Invia anteprima',
-                ),
-              ),
+                  );
+                }
+
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(flex: 6, child: leftColumn),
+                    const SizedBox(width: 16),
+                    Expanded(flex: 4, child: rightColumn),
+                  ],
+                );
+              },
             ),
           ],
         ),
@@ -456,7 +419,7 @@ class _WhatsAppCampaignEditorPageState
   void _onTemplateChanged(
     MessageTemplate? template, {
     required List<Promotion> promotions,
-    required List<Client> promotionEligibleRecipients,
+    required List<Client> eligibleRecipients,
     String? salonName,
   }) {
     setState(() {
@@ -481,68 +444,51 @@ class _WhatsAppCampaignEditorPageState
           _parameterControllers[i].text = customValue;
         }
       }
-
-      if (template?.usage != TemplateUsage.promotion) {
-        _selectedPromotionId = null;
-      } else if (promotions.isNotEmpty) {
-        final selectedStillValid = promotions.any(
-          (promotion) => promotion.id == _selectedPromotionId,
-        );
-        _selectedPromotionId =
-            selectedStillValid ? _selectedPromotionId : promotions.first.id;
-      } else {
-        _selectedPromotionId = null;
-      }
     });
 
-    if (template?.usage == TemplateUsage.promotion) {
-      _prefillPromotionValues(
+    if (template?.usage == TemplateUsage.promotion ||
+        template?.usage == TemplateUsage.reminder) {
+      _prefillTemplateValues(
         promotions: promotions,
-        promotionEligibleRecipients: promotionEligibleRecipients,
+        eligibleRecipients: eligibleRecipients,
         salonName: salonName,
       );
     }
   }
 
-  void _onPromotionChanged(
-    String? promotionId, {
+  void _prefillTemplateValues({
     required List<Promotion> promotions,
-    required List<Client> promotionEligibleRecipients,
+    required List<Client> eligibleRecipients,
     String? salonName,
   }) {
-    setState(() {
-      _selectedPromotionId = promotionId;
-    });
-    _prefillPromotionValues(
-      promotions: promotions,
-      promotionEligibleRecipients: promotionEligibleRecipients,
-      salonName: salonName,
-    );
-  }
-
-  void _prefillPromotionValues({
-    required List<Promotion> promotions,
-    required List<Client> promotionEligibleRecipients,
-    String? salonName,
-  }) {
-    if (!_isPromotionTemplateSelected ||
-        _selectedPromotionId == null ||
-        _parameterControllers.isEmpty) {
+    final template = _selectedTemplate;
+    if (template == null || _parameterControllers.isEmpty) {
       return;
     }
-    final promotion = promotions.firstWhereOrNull(
-      (entry) => entry.id == _selectedPromotionId,
-    );
-    if (promotion == null) {
-      return;
-    }
-
-    final previewClient = _resolvePreviewClient(promotionEligibleRecipients);
-    final context = _buildPromotionContext(
-      promotion,
-      salonName: salonName,
-      client: previewClient,
-    );
+    final previewClient = _resolvePreviewClient(eligibleRecipients);
+    final context =
+        template.usage == TemplateUsage.promotion
+            ? () {
+              final promotion = _resolveConfiguredPromotion(
+                template,
+                promotions,
+              );
+              if (promotion == null) {
+                return <String, String>{};
+              }
+              return _buildPromotionContext(
+                promotion,
+                salonName: salonName,
+                client: previewClient,
+              );
+            }()
+            : template.usage == TemplateUsage.reminder
+            ? _buildReminderContext(
+              client: previewClient,
+              salonName: salonName,
+              configuredBindings: _currentReminderBindings(),
+            )
+            : const <String, String>{};
     for (var i = 0; i < _placeholders.length; i++) {
       final customValue = _decodeCustomBindingValue(_placeholders[i]);
       if (customValue != null) {
@@ -563,7 +509,7 @@ class _WhatsAppCampaignEditorPageState
   Future<void> _sendCampaign(
     BuildContext context, {
     required List<Promotion> promotions,
-    required List<Client> promotionEligibleRecipients,
+    required List<Client> eligibleRecipients,
     String? salonName,
   }) async {
     if (!_formKey.currentState!.validate()) {
@@ -573,23 +519,17 @@ class _WhatsAppCampaignEditorPageState
     if (template == null) {
       return;
     }
-    if (_isPromotionTemplateSelected && _selectedPromotionId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Seleziona una promozione da usare come sorgente dati.',
-          ),
-        ),
-      );
-      return;
-    }
-    if (_isPromotionTemplateSelected &&
-        !promotionEligibleRecipients.any(
+    if (_usesClientSelection &&
+        !eligibleRecipients.any(
           (client) => _selectedClientIds.contains(client.id),
         )) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Seleziona almeno un destinatario per la promozione.'),
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        SnackBar(
+          content: Text(
+            _isPromotionTemplateSelected
+                ? 'Seleziona almeno un destinatario per la promozione.'
+                : 'Seleziona almeno un utente per il reminder.',
+          ),
         ),
       );
       return;
@@ -597,7 +537,7 @@ class _WhatsAppCampaignEditorPageState
 
     final metaTemplateName = template.resolvedMetaTemplateName;
     if (metaTemplateName == null || metaTemplateName.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text(
             'Template WhatsApp senza nome Meta configurato. Modifica il template locale e imposta il mapping.',
@@ -613,18 +553,19 @@ class _WhatsAppCampaignEditorPageState
     final fromPrimary = _buildCurrentPlaceholderValues();
 
     try {
-      if (_isPromotionTemplateSelected) {
-        final selectedRecipients = promotionEligibleRecipients
+      if (_usesClientSelection) {
+        final selectedRecipients = eligibleRecipients
             .where((client) => _selectedClientIds.contains(client.id))
             .toList(growable: false);
-        final promotion = promotions.firstWhereOrNull(
-          (entry) => entry.id == _selectedPromotionId,
-        );
-        if (promotion == null) {
-          scaffold.showSnackBar(
+        final promotion =
+            _isPromotionTemplateSelected
+                ? _resolveConfiguredPromotion(template, promotions)
+                : null;
+        if (_isPromotionTemplateSelected && promotion == null) {
+          scaffold.showAppSnackBar(
             const SnackBar(
               content: Text(
-                'Promozione non trovata. Seleziona nuovamente la promozione.',
+                'Promozione non trovata. Apri il configuratore del template e collega una promozione valida.',
               ),
             ),
           );
@@ -640,19 +581,22 @@ class _WhatsAppCampaignEditorPageState
             skippedCount += 1;
             continue;
           }
-          final personalizedContext = _buildPromotionContext(
-            promotion,
-            salonName: salonName,
-            client: recipient,
-          );
+          final personalizedContext =
+              _isPromotionTemplateSelected
+                  ? _buildPromotionContext(
+                    promotion!,
+                    salonName: salonName,
+                    client: recipient,
+                  )
+                  : _buildReminderContext(
+                    client: recipient,
+                    salonName: salonName,
+                    configuredBindings: _currentReminderBindings(),
+                  );
           final components = _buildTemplateComponents(
             fromPrimary: const <String, String>{},
             fromSecondary: personalizedContext,
           );
-          if (_requiresImageHeader && !_containsHeaderComponent(components)) {
-            failureCount += 1;
-            continue;
-          }
 
           try {
             final result = await ref
@@ -675,7 +619,7 @@ class _WhatsAppCampaignEditorPageState
           }
         }
 
-        scaffold.showSnackBar(
+        scaffold.showAppSnackBar(
           SnackBar(
             content: Text(
               'Invio completato: $successCount ok, $failureCount errori, $skippedCount saltati.',
@@ -687,16 +631,6 @@ class _WhatsAppCampaignEditorPageState
           fromPrimary: fromPrimary,
           fromSecondary: const <String, String>{},
         );
-        if (_requiresImageHeader && !_containsHeaderComponent(components)) {
-          scaffold.showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Header immagine richiesto ma non configurato. Apri il configuratore template e imposta l\'immagine.',
-              ),
-            ),
-          );
-          return;
-        }
         final result = await ref
             .read(whatsappServiceProvider)
             .sendTemplate(
@@ -708,7 +642,7 @@ class _WhatsAppCampaignEditorPageState
               allowPreviewUrl: _allowPreviewUrl,
             );
 
-        scaffold.showSnackBar(
+        scaffold.showAppSnackBar(
           SnackBar(
             content: Text(
               result.success
@@ -719,7 +653,7 @@ class _WhatsAppCampaignEditorPageState
         );
       }
     } on Exception catch (error) {
-      scaffold.showSnackBar(
+      scaffold.showAppSnackBar(
         SnackBar(content: Text('Errore durante l\'invio: $error')),
       );
     } finally {
@@ -824,8 +758,188 @@ class _WhatsAppCampaignEditorPageState
     return expanded;
   }
 
-  Client? _resolvePreviewClient(List<Client> promotionEligibleRecipients) {
-    return promotionEligibleRecipients.firstWhereOrNull(
+  Map<String, String> _buildReminderContext({
+    Client? client,
+    String? salonName,
+    required Iterable<String> configuredBindings,
+  }) {
+    final fallbackSalonName = (salonName ?? 'YouBook Studio').trim();
+    final context = <String, String>{
+      'firstName':
+          client?.firstName.trim().isNotEmpty == true
+              ? client!.firstName.trim()
+              : 'Cliente',
+      'clientName':
+          client?.fullName.trim().isNotEmpty == true
+              ? client!.fullName.trim()
+              : 'Cliente',
+      'salonName': fallbackSalonName,
+      'serviceName': 'Piega Glow',
+      'staffName': 'Marta',
+      'dateTimeFull': '18 aprile alle 15:00',
+      'date': '18 aprile',
+      'time': '15:00',
+      'appointmentLabel': '18 aprile alle 15:00',
+      'appointmentDate': '18 aprile',
+      'appointmentTime': '15:00',
+      'appointmentDateTime': '18 aprile alle 15:00',
+      'bookingUrl': 'https://youbook.app/appuntamento/ABC123',
+      'confirmationCode': 'AB1234',
+      'address': 'Via Roma 24, Milano',
+      'phone':
+          client?.phone.trim().isNotEmpty == true
+              ? client!.phone.trim()
+              : '+39 333 123 4567',
+      'email':
+          client?.email?.trim().isNotEmpty == true
+              ? client!.email!.trim()
+              : 'cliente@example.com',
+    };
+
+    final aliases = <String, String>{
+      'first_name': 'firstName',
+      'client_name': 'clientName',
+      'salon_name': 'salonName',
+      'appointment_label': 'appointmentLabel',
+      'appointment_date': 'appointmentDate',
+      'appointment_time': 'appointmentTime',
+      'appointment_date_time': 'appointmentDateTime',
+      'service_name': 'serviceName',
+      'staff_name': 'staffName',
+      'date_time_full': 'dateTimeFull',
+      'booking_url': 'bookingUrl',
+      'confirmation_code': 'confirmationCode',
+    };
+
+    final expanded = <String, String>{};
+    for (final entry in context.entries) {
+      expanded[entry.key] = entry.value;
+      expanded[_normalizePlaceholderKey(entry.key)] = entry.value;
+    }
+    for (final alias in aliases.entries) {
+      final targetValue = context[alias.value];
+      if (targetValue == null) {
+        continue;
+      }
+      expanded[alias.key] = targetValue;
+      expanded[_normalizePlaceholderKey(alias.key)] = targetValue;
+    }
+    for (final binding in configuredBindings) {
+      final trimmed = binding.trim();
+      if (trimmed.isEmpty || _decodeCustomBindingValue(trimmed) != null) {
+        continue;
+      }
+      final mockValue = _mockReminderValueForBinding(
+        trimmed,
+        client: client,
+        salonName: fallbackSalonName,
+      );
+      if (mockValue.isEmpty) {
+        continue;
+      }
+      expanded[trimmed] = mockValue;
+      expanded[_normalizePlaceholderKey(trimmed)] = mockValue;
+    }
+    return expanded;
+  }
+
+  List<String> _currentReminderBindings() {
+    return <String>[..._placeholders, ..._headerBindings]
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  String _mockReminderValueForBinding(
+    String raw, {
+    Client? client,
+    required String salonName,
+  }) {
+    final normalized = _normalizePlaceholderKey(raw);
+    if (normalized.isEmpty) {
+      return '';
+    }
+    final clientFirstName =
+        client?.firstName.trim().isNotEmpty == true
+            ? client!.firstName.trim()
+            : 'Cliente';
+    final clientName =
+        client?.fullName.trim().isNotEmpty == true
+            ? client!.fullName.trim()
+            : 'Cliente';
+    final clientPhone =
+        client?.phone.trim().isNotEmpty == true
+            ? client!.phone.trim()
+            : '+39 333 123 4567';
+    final clientEmail =
+        client?.email?.trim().isNotEmpty == true
+            ? client!.email!.trim()
+            : 'cliente@example.com';
+
+    if (normalized == 'firstname' || normalized == 'name') {
+      return clientFirstName;
+    }
+    if (normalized == 'lastname' || normalized == 'surname') {
+      return 'Rossi';
+    }
+    if (normalized == 'clientname' ||
+        normalized == 'customername' ||
+        normalized == 'fullname') {
+      return clientName;
+    }
+    if (normalized.contains('salon') ||
+        normalized.contains('shop') ||
+        normalized.contains('business')) {
+      return salonName;
+    }
+    if (normalized.contains('service') || normalized.contains('treatment')) {
+      return 'Piega Glow';
+    }
+    if (normalized.contains('staff') ||
+        normalized.contains('operator') ||
+        normalized.contains('employee')) {
+      return 'Marta';
+    }
+    if (normalized == 'date' ||
+        normalized.contains('appointmentdate') ||
+        (normalized.endsWith('date') && !normalized.contains('birth'))) {
+      return '18 aprile';
+    }
+    if (normalized == 'time' ||
+        normalized.contains('appointmenttime') ||
+        normalized.contains('hour')) {
+      return '15:00';
+    }
+    if (normalized.contains('datetime') ||
+        normalized.contains('datefull') ||
+        normalized.contains('appointmentlabel') ||
+        normalized.contains('appointment')) {
+      return '18 aprile alle 15:00';
+    }
+    if (normalized.contains('phone') || normalized.contains('mobile')) {
+      return clientPhone;
+    }
+    if (normalized.contains('email') || normalized.contains('mail')) {
+      return clientEmail;
+    }
+    if (normalized.contains('address') || normalized.contains('location')) {
+      return 'Via Roma 24, Milano';
+    }
+    if (normalized.contains('link') ||
+        normalized.contains('url') ||
+        normalized.contains('booking')) {
+      return 'https://youbook.app/appuntamento/ABC123';
+    }
+    if (normalized.contains('code') ||
+        normalized.contains('token') ||
+        normalized.contains('reference')) {
+      return 'AB1234';
+    }
+    return '';
+  }
+
+  Client? _resolvePreviewClient(List<Client> eligibleRecipients) {
+    return eligibleRecipients.firstWhereOrNull(
       (client) => _selectedClientIds.contains(client.id),
     );
   }
@@ -984,21 +1098,15 @@ class _WhatsAppCampaignEditorPageState
     };
   }
 
-  bool get _requiresImageHeader {
-    final format =
-        _selectedTemplate?.whatsappConfig?.headerFormat?.trim().toUpperCase() ??
-        '';
-    return format == 'IMAGE';
-  }
-
-  bool _containsHeaderComponent(List<Map<String, dynamic>> components) {
-    for (final component in components) {
-      final type = (component['type'] as String?)?.trim().toLowerCase();
-      if (type == 'header') {
-        return true;
-      }
+  Promotion? _resolveConfiguredPromotion(
+    MessageTemplate? template,
+    List<Promotion> promotions,
+  ) {
+    final promotionId = template?.whatsappConfig?.promotionId?.trim() ?? '';
+    if (promotionId.isEmpty) {
+      return null;
     }
-    return false;
+    return promotions.firstWhereOrNull((entry) => entry.id == promotionId);
   }
 
   String _normalizeWhatsappRecipient(String raw) {
@@ -1166,9 +1274,9 @@ class _WhatsAppCampaignEditorPageState
         ..clear()
         ..addAll(result!);
     });
-    _prefillPromotionValues(
+    _prefillTemplateValues(
       promotions: promotions,
-      promotionEligibleRecipients: clients,
+      eligibleRecipients: clients,
       salonName: salonName,
     );
   }
@@ -1179,6 +1287,7 @@ class _PreviewCard extends StatelessWidget {
     required this.template,
     required this.placeholders,
     required this.controllers,
+    required this.infoMessage,
     required this.previewRecipientName,
     required this.showPromotionRecipientHint,
   });
@@ -1186,6 +1295,7 @@ class _PreviewCard extends StatelessWidget {
   final MessageTemplate? template;
   final List<String> placeholders;
   final List<TextEditingController> controllers;
+  final String? infoMessage;
   final String? previewRecipientName;
   final bool showPromotionRecipientHint;
 
@@ -1217,6 +1327,10 @@ class _PreviewCard extends StatelessWidget {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
+            if ((infoMessage ?? '').isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(infoMessage!, style: Theme.of(context).textTheme.bodySmall),
+            ],
             if ((template?.whatsappConfig?.headerFormat ?? '')
                     .trim()
                     .toUpperCase() ==
@@ -1233,30 +1347,13 @@ class _PreviewCard extends StatelessWidget {
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
-                color: Theme.of(context).colorScheme.surfaceVariant,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
               ),
               child: Text(
                 previewText,
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
             ),
-            if (template != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Nome template Meta: ${template!.resolvedMetaTemplateName ?? 'NON CONFIGURATO'}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    Text(
-                      'ID locale: ${template!.id}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
           ],
         ),
       ),
@@ -1268,14 +1365,62 @@ class _PreviewCard extends StatelessWidget {
         template?.body ??
         'Seleziona un template approvato per visualizzare l\'anteprima.';
     var preview = base;
-    for (var i = 0; i < placeholders.length; i++) {
+    final rawSlots =
+        template == null
+            ? const <String>[]
+            : _extractPlaceholders(template!.body);
+    final slotsToReplace =
+        rawSlots.length == controllers.length ? rawSlots : placeholders;
+    for (var i = 0; i < slotsToReplace.length && i < controllers.length; i++) {
       final value = controllers[i].text.trim();
-      preview = preview.replaceAll(
-        '{{${placeholders[i]}}}',
-        value.isEmpty ? placeholders[i] : value,
+      final pattern = RegExp(
+        r'\{\{\s*' + RegExp.escape(slotsToReplace[i]) + r'\s*\}\}',
       );
+      preview = preview.replaceFirst(pattern, value);
     }
     return preview;
+  }
+}
+
+class _CampaignSectionCard extends StatelessWidget {
+  const _CampaignSectionCard({
+    required this.title,
+    required this.subtitle,
+    required this.child,
+  });
+
+  final String title;
+  final String subtitle;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 4),
+          Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 16),
+          child,
+        ],
+      ),
+    );
   }
 }
 

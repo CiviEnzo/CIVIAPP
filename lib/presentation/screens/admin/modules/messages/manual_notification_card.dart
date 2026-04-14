@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/message_template.dart';
+import 'package:you_book/presentation/screens/admin/widgets/admin_responsive_helpers.dart';
 
 class ManualNotificationCard extends ConsumerStatefulWidget {
   const ManualNotificationCard({
@@ -211,22 +212,9 @@ class _ManualNotificationCardState
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     if (widget.salonId == null) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
-              Text(
-                'Notifiche manuali',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-              ),
-              SizedBox(height: 8),
-              Text(
-                'Seleziona un salone per inviare notifiche push ai clienti.',
-              ),
-            ],
-          ),
+      return const _ManualPanel(
+        child: _ManualEmptyState(
+          message: 'Seleziona un salone per inviare notifiche push ai clienti.',
         ),
       );
     }
@@ -250,219 +238,300 @@ class _ManualNotificationCardState
                 a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()),
           );
 
-    return Card(
-      elevation: 2,
-      surfaceTintColor: Colors.transparent,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    final recipientsPanel = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final stackHeader = constraints.maxWidth < 420;
+            final selectionLabel = Text(
+              '${_selectedClientIds.length}/${widget.clients.length} selezionati',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
+            );
+            if (stackHeader) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Seleziona clienti',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  selectionLabel,
+                ],
+              );
+            }
+            return Row(
               children: [
                 Expanded(
                   child: Text(
-                    'Notifiche manuali',
-                    style: theme.textTheme.titleMedium,
-                  ),
-                ),
-                Text(
-                  '${_selectedClientIds.length}/${widget.clients.length} selezionati',
-                  style: theme.textTheme.bodyMedium,
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _searchController,
-                    decoration: const InputDecoration(
-                      labelText: 'Cerca clienti',
-                      prefixIcon: Icon(Icons.search),
+                    'Seleziona clienti',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Tooltip(
-                  message:
-                      allClientsSelected
-                          ? 'Deseleziona tutti'
-                          : 'Seleziona tutti',
-                  child: IconButton(
-                    icon: Icon(
-                      allClientsSelected
-                          ? Icons.check_box_rounded
-                          : Icons.check_box_outline_blank_rounded,
-                    ),
-                    onPressed:
-                        widget.clients.isEmpty
-                            ? null
-                            : () => _toggleSelectAll(!allClientsSelected),
-                  ),
-                ),
+                selectionLabel,
               ],
+            );
+          },
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          controller: _searchController,
+          decoration: InputDecoration(
+            hintText: 'Cerca clienti per nome, telefono o email',
+            prefixIcon: const Icon(Icons.search),
+            suffixIcon: Icon(
+              Icons.group_outlined,
+              color: theme.colorScheme.primary,
             ),
-            const SizedBox(height: 12),
-            if (isSearchActive)
-              _ClientSelectionList(
-                clients: filteredClients,
-                selectedIds: _selectedClientIds,
-                controller: _clientScrollController,
-                onToggle: (clientId, value) {
-                  setState(() {
-                    if (value) {
-                      _selectedClientIds.add(clientId);
-                    } else {
-                      _selectedClientIds.remove(clientId);
-                    }
-                  });
-                },
-              )
-            else
-              const _ClientSearchPlaceholder(),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              isExpanded: true,
-              value: dropdownValue,
-              decoration: const InputDecoration(
-                labelText: 'Template messaggio',
-              ),
-              items: [
-                const DropdownMenuItem<String>(
-                  value: _manualTemplateOption,
-                  child: Text('Scrivi manualmente'),
-                ),
-                ...pushTemplates.map(
-                  (template) => DropdownMenuItem<String>(
-                    value: template.id,
-                    child: Text(template.title),
-                  ),
-                ),
-              ],
-              onChanged: _sending ? null : _handleTemplateSelection,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed:
+                widget.clients.isEmpty
+                    ? null
+                    : () => _toggleSelectAll(!allClientsSelected),
+            icon: Icon(
+              allClientsSelected
+                  ? Icons.check_box_rounded
+                  : Icons.check_box_outline_blank_rounded,
+              size: 18,
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _titleController,
-              focusNode: _titleFocusNode,
-              readOnly: _sending,
-              decoration: const InputDecoration(
-                labelText: 'Titolo della notifica',
-              ),
+            label: Text(
+              allClientsSelected ? 'Deseleziona tutti' : 'Seleziona tutti',
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _bodyController,
-              focusNode: _bodyFocusNode,
-              readOnly: _sending,
-              maxLines: 4,
-              decoration: const InputDecoration(
-                labelText: 'Corpo del messaggio',
-                alignLabelWithHint: true,
-              ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          width: double.infinity,
+          constraints: const BoxConstraints(minHeight: 220),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: theme.colorScheme.outlineVariant,
+              style: BorderStyle.solid,
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Segnaposto disponibili: {{nome}} · {{cognome}} · {{salone}}',
-              style: theme.textTheme.bodySmall,
-            ),
-            const SizedBox(height: 12),
-            if (_statusMessage != null)
-              Container(
-                width: double.infinity,
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  color:
-                      _statusIsError
-                          ? theme.colorScheme.errorContainer
-                          : theme.colorScheme.surfaceContainerHighest,
-                ),
-                child: Text(
-                  _statusMessage!,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color:
-                        _statusIsError
-                            ? theme.colorScheme.onErrorContainer
-                            : theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
+          ),
+          child:
+              isSearchActive
+                  ? _ClientSelectionList(
+                    clients: filteredClients,
+                    selectedIds: _selectedClientIds,
+                    controller: _clientScrollController,
+                    onToggle: (clientId, value) {
+                      setState(() {
+                        if (value) {
+                          _selectedClientIds.add(clientId);
+                        } else {
+                          _selectedClientIds.remove(clientId);
+                        }
+                      });
+                    },
+                  )
+                  : const _ClientSearchPlaceholder(),
+        ),
+        if (selectedClients.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          if (selectedClients.length <= 12)
             Wrap(
-              spacing: 12,
+              spacing: 8,
               runSpacing: 8,
-              children: [
-                FilledButton.icon(
-                  onPressed: _sending ? null : _sendNotification,
-                  icon:
-                      _sending
-                          ? const SizedBox(
-                            height: 18,
-                            width: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                          : const Icon(Icons.send_rounded),
-                  label: Text(_sending ? 'Invio in corso…' : 'Invia notifica'),
-                ),
-                TextButton(
-                  onPressed: _sending ? null : _resetForm,
-                  child: const Text('Ripristina messaggio'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: _sending ? null : _showInAppPreview,
-                  icon: const Icon(Icons.visibility_outlined),
-                  label: const Text('Anteprima in-app'),
-                ),
-              ],
-            ),
-            if (selectedClients.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Text(
-                'Destinatari selezionati (${selectedClients.length})',
-                style: theme.textTheme.labelLarge,
-              ),
-              const SizedBox(height: 8),
-              if (selectedClients.length <= 20) //Civi nlista selezionati
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children:
-                      selectedClients
-                          .map(
-                            (client) => InputChip(
-                              label: Text(client.fullName),
-                              onDeleted:
-                                  _sending
-                                      ? null
-                                      : () {
-                                        setState(() {
-                                          _selectedClientIds.remove(client.id);
-                                        });
-                                      },
-                            ),
-                          )
-                          .toList(),
-                )
-              else
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    icon: const Icon(Icons.list_alt_outlined),
-                    onPressed:
-                        _sending
-                            ? null
-                            : () => _showSelectedClientsDialog(selectedClients),
-                    label: Text(
-                      'Mostra elenco completo (${selectedClients.length})',
+              children: selectedClients
+                  .map(
+                    (client) => InputChip(
+                      label: Text(client.fullName),
+                      onDeleted:
+                          _sending
+                              ? null
+                              : () {
+                                setState(() {
+                                  _selectedClientIds.remove(client.id);
+                                });
+                              },
                     ),
-                  ),
+                  )
+                  .toList(growable: false),
+            )
+          else
+            TextButton.icon(
+              icon: const Icon(Icons.list_alt_outlined),
+              onPressed:
+                  _sending
+                      ? null
+                      : () => _showSelectedClientsDialog(selectedClients),
+              label: Text('Mostra elenco completo (${selectedClients.length})'),
+            ),
+        ],
+      ],
+    );
+
+    final messagePanel = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Componi messaggio',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 14),
+        const _ManualFieldLabel(label: 'Template messaggio'),
+        const SizedBox(height: 6),
+        DropdownButtonFormField<String>(
+          isExpanded: true,
+          initialValue: dropdownValue,
+          decoration: const InputDecoration(isDense: true),
+          items: [
+            const DropdownMenuItem<String>(
+              value: _manualTemplateOption,
+              child: Text('Scrivi manualmente'),
+            ),
+            ...pushTemplates.map(
+              (template) => DropdownMenuItem<String>(
+                value: template.id,
+                child: Text(template.title),
+              ),
+            ),
+          ],
+          onChanged: _sending ? null : _handleTemplateSelection,
+        ),
+        const SizedBox(height: 14),
+        const _ManualFieldLabel(label: 'Titolo della notifica'),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _titleController,
+          focusNode: _titleFocusNode,
+          readOnly: _sending,
+          decoration: const InputDecoration(isDense: true),
+        ),
+        const SizedBox(height: 14),
+        const _ManualFieldLabel(label: 'Corpo del messaggio'),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _bodyController,
+          focusNode: _bodyFocusNode,
+          readOnly: _sending,
+          maxLines: 5,
+          decoration: const InputDecoration(
+            isDense: true,
+            alignLabelWithHint: true,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Segnaposti: {{nome}}   {{cognome}}   {{salone}}',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        if (_statusMessage != null) ...[
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              color:
+                  _statusIsError
+                      ? theme.colorScheme.errorContainer
+                      : theme.colorScheme.surfaceContainerHighest,
+            ),
+            child: Text(
+              _statusMessage!,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color:
+                    _statusIsError
+                        ? theme.colorScheme.onErrorContainer
+                        : theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 18),
+        Wrap(
+          spacing: 12,
+          runSpacing: 10,
+          children: [
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(0, 48),
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
                 ),
-            ],
+              ),
+              onPressed: _sending ? null : _sendNotification,
+              icon:
+                  _sending
+                      ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : const Icon(Icons.send_outlined),
+              label: Text(_sending ? 'Invio in corso…' : 'Invia notifica'),
+            ),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(0, 48),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              onPressed: _sending ? null : _resetForm,
+              icon: const Icon(Icons.autorenew_rounded),
+              label: const Text('Ripristina'),
+            ),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(0, 48),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              onPressed: _sending ? null : _showInAppPreview,
+              icon: const Icon(Icons.visibility_outlined),
+              label: const Text('Anteprima'),
+            ),
           ],
         ),
+      ],
+    );
+
+    return _ManualPanel(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWide = constraints.maxWidth >= 920;
+          if (!isWide) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                recipientsPanel,
+                const SizedBox(height: 20),
+                messagePanel,
+              ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(flex: 10, child: recipientsPanel),
+              const SizedBox(width: 18),
+              Expanded(flex: 10, child: messagePanel),
+            ],
+          );
+        },
       ),
     );
   }
@@ -682,7 +751,7 @@ class _ManualNotificationCardState
       _setStatus(buffer.toString(), failureCount > 0);
 
       final messenger = ScaffoldMessenger.maybeOf(context);
-      messenger?.showSnackBar(
+      messenger?.showAppSnackBar(
         SnackBar(
           content: Text(buffer.toString()),
           behavior: SnackBarBehavior.floating,
@@ -694,7 +763,7 @@ class _ManualNotificationCardState
       }
       final message = error.message ?? 'Invio non riuscito: ${error.code}';
       _setStatus(message, true);
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
       );
     } catch (error) {
@@ -702,7 +771,7 @@ class _ManualNotificationCardState
         return;
       }
       _setStatus('Errore imprevisto: $error', true);
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text('Errore imprevisto: $error'),
           behavior: SnackBarBehavior.floating,
@@ -730,24 +799,98 @@ class _ManualNotificationCardState
   }
 }
 
+class _ManualPanel extends StatelessWidget {
+  const _ManualPanel({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final padding = isAdminPhoneWidth(constraints.maxWidth) ? 14.0 : 18.0;
+          return Padding(padding: EdgeInsets.all(padding), child: child);
+        },
+      ),
+    );
+  }
+}
+
+class _ManualFieldLabel extends StatelessWidget {
+  const _ManualFieldLabel({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Text(
+      label.toUpperCase(),
+      style: theme.textTheme.labelSmall?.copyWith(
+        color: theme.colorScheme.primary,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.7,
+      ),
+    );
+  }
+}
+
+class _ManualEmptyState extends StatelessWidget {
+  const _ManualEmptyState({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 12),
+      child: Text(
+        message,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
 class _ClientSearchPlaceholder extends StatelessWidget {
   const _ClientSearchPlaceholder();
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        color: theme.colorScheme.surfaceContainerLowest,
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        'Digita nel campo di ricerca per selezionare i clienti.',
-        style: theme.textTheme.bodyMedium,
-        textAlign: TextAlign.center,
+    return SizedBox(
+      height: 260,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.group_outlined,
+                size: 34,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Digita nel campo di ricerca per selezionare i clienti.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -770,17 +913,15 @@ class _ClientSelectionList extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     if (clients.isEmpty) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 32),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          color: theme.colorScheme.surfaceContainerLowest,
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          'Nessun cliente trovato.',
-          style: theme.textTheme.bodyMedium,
+      return SizedBox(
+        height: 260,
+        child: Center(
+          child: Text(
+            'Nessun cliente trovato.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
         ),
       );
     }
@@ -791,7 +932,7 @@ class _ClientSelectionList extends StatelessWidget {
         controller: controller,
         child: ListView.separated(
           controller: controller,
-          padding: EdgeInsets.zero,
+          padding: const EdgeInsets.symmetric(vertical: 6),
           itemCount: clients.length,
           separatorBuilder: (_, __) => const Divider(height: 1),
           itemBuilder: (context, index) {

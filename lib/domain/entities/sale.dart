@@ -237,8 +237,7 @@ class SaleItem {
     final nextPackageServices =
         packageServiceSessions ?? this.packageServiceSessions;
     final nextRemainingServices =
-        remainingPackageServiceSessions ??
-        this.remainingPackageServiceSessions;
+        remainingPackageServiceSessions ?? this.remainingPackageServiceSessions;
     return SaleItem(
       referenceId: referenceId ?? this.referenceId,
       referenceType: referenceType ?? this.referenceType,
@@ -411,4 +410,25 @@ extension SalePaymentTypeX on SalePaymentType {
 
 enum SaleReferenceType { service, package, product }
 
-enum PaymentMethod { cash, pos, transfer, giftCard, posticipated }
+enum PaymentMethod { cash, pos, transfer, giftCard, posticipated, imp0 }
+
+extension PaymentMethodX on PaymentMethod {
+  String get label {
+    switch (this) {
+      case PaymentMethod.cash:
+        return 'Contanti';
+      case PaymentMethod.pos:
+        return 'POS';
+      case PaymentMethod.transfer:
+        return 'Bonifico';
+      case PaymentMethod.giftCard:
+        return 'Gift card';
+      case PaymentMethod.posticipated:
+        return 'Posticipato';
+      case PaymentMethod.imp0:
+        return 'Importo 0 €';
+    }
+  }
+
+  bool get isManualSelectable => this != PaymentMethod.imp0;
+}

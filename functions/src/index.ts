@@ -32,6 +32,13 @@ export { dispatchWhatsAppOutbox } from "./scheduler/dispatchOutbox";
 export { startWhatsappOAuth, handleWhatsappOAuthCallback } from "./wa/oauth";
 export { syncWhatsappOAuth } from "./wa/onboarding";
 export {
+  configureWhatsappManualSetup,
+  createWhatsappEmbeddedSignupSession,
+  completeWhatsappEmbeddedSignup,
+  requestWhatsappPhoneVerificationCode,
+  confirmWhatsappPhoneVerificationCode,
+} from "./wa/embeddedSignup";
+export {
   createStripeConnectAccount,
   createStripeOnboardingLink,
   createStripePaymentIntent,

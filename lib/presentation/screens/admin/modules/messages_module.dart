@@ -1,19 +1,21 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/data/repositories/app_data_store.dart';
-import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/last_minute_slot.dart';
 import 'package:you_book/domain/entities/message_template.dart';
 import 'package:you_book/domain/entities/promotion.dart';
 import 'package:you_book/domain/entities/reminder_settings.dart';
 import 'package:you_book/domain/entities/salon.dart';
+import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/domain/entities/user_role.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
-import 'package:you_book/presentation/screens/admin/forms/message_template_form_sheet.dart';
+import 'package:you_book/presentation/screens/admin/modules/appointments/express_slot_sheet.dart';
 import 'package:you_book/presentation/screens/admin/modules/messages/manual_notification_card.dart';
 import 'package:you_book/presentation/screens/admin/promotions/promotion_editor_dialog.dart';
+import 'package:you_book/presentation/screens/admin/widgets/admin_responsive_helpers.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -85,6 +87,14 @@ class _MessagesMarketingModuleState
               template.isActive,
         )
         .toList(growable: false);
+    final birthdayWhatsAppTemplates = templates
+        .where(
+          (template) =>
+              template.channel == MessageChannel.whatsapp &&
+              template.usage == TemplateUsage.birthday &&
+              template.isActive,
+        )
+        .toList(growable: false);
     final reminderSettings =
         selectedSalonId == null
             ? null
@@ -135,6 +145,16 @@ class _MessagesMarketingModuleState
                 )
                 .sortedBy((member) => member.fullName.toLowerCase())
                 .toList();
+    final salonServices =
+        selectedSalonId == null
+            ? <Service>[]
+            : data.services
+                .where(
+                  (service) =>
+                      service.salonId == selectedSalonId && service.isActive,
+                )
+                .sortedBy((service) => service.name.toLowerCase())
+                .toList();
 
     final canViewReminderSettings =
         selectedSalonId != null &&
@@ -146,16 +166,6 @@ class _MessagesMarketingModuleState
         selectedSalonId != null &&
         session.role != null &&
         (session.role == UserRole.admin || session.role == UserRole.staff);
-
-    Future<void> openTemplateForm({MessageTemplate? existing}) async {
-      await _openForm(
-        context,
-        ref,
-        salons: salons,
-        defaultSalonId: selectedSalonId,
-        existing: existing,
-      );
-    }
 
     Future<void> editBirthdayTemplate() async {
       final currentSalonId = selectedSalonId;
@@ -269,12 +279,12 @@ class _MessagesMarketingModuleState
       try {
         await ref.read(appDataProvider.notifier).upsertTemplate(updated);
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(content: Text('Template di compleanno aggiornato.')),
         );
       } catch (error) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(content: Text('Impossibile salvare il template: $error')),
         );
       }
@@ -291,7 +301,7 @@ class _MessagesMarketingModuleState
         featureFlags.copyWith(clientPromotions: value),
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             value
@@ -313,7 +323,7 @@ class _MessagesMarketingModuleState
         featureFlags.copyWith(clientLastMinute: value),
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             value
@@ -332,7 +342,7 @@ class _MessagesMarketingModuleState
           .read(appDataProvider.notifier)
           .upsertPromotion(promotion.copyWith(isActive: isActive));
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             isActive ? 'Promozione attivata.' : 'Promozione disattivata.',
@@ -364,41 +374,71 @@ class _MessagesMarketingModuleState
       await _confirmSlotDeletion(context, ref, slot);
     }
 
-    Future<void> deleteTemplate(MessageTemplate template) async {
-      final confirmed = await showDialog<bool>(
+    Future<void> openLastMinuteSlotForm() async {
+      final salonId = selectedSalonId;
+      if (salonId == null) {
+        return;
+      }
+      final now = DateTime.now();
+      final initialStart = DateTime(now.year, now.month, now.day, now.hour + 1);
+      final result = await showAppModalSheet<ExpressSlotSheetResult>(
         context: context,
-        builder: (dialogContext) {
-          return AlertDialog(
-            title: const Text('Elimina template'),
-            content: Text(
-              'Sei sicuro di voler eliminare il template "${template.title}"?',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: const Text('Annulla'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                child: const Text('Elimina'),
-              ),
-            ],
+        desktopMaxWidth: 1120,
+        builder: (sheetContext) {
+          return ExpressSlotSheet(
+            salonId: salonId,
+            initialStart: initialStart,
+            initialEnd: initialStart.add(const Duration(minutes: 60)),
+            services: salonServices,
+            staff: salonStaff,
+            clients: clients,
+            reminderSettings: effectiveSettings,
           );
         },
       );
-      if (confirmed != true) {
+      if (result == null) {
+        return;
+      }
+
+      final store = ref.read(appDataProvider.notifier);
+      await store.upsertLastMinuteSlot(result.slot);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        const SnackBar(content: Text('Slot last-minute creato.')),
+      );
+      final notification = result.notification;
+      if (notification == null) {
         return;
       }
       try {
-        await ref.read(appDataProvider.notifier).deleteTemplate(template.id);
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Template "${template.title}" eliminato.')),
+        final dispatchResult = await store.sendLastMinuteNotification(
+          slot: result.slot,
+          request: notification,
         );
+        if (!mounted) {
+          return;
+        }
+        final buffer =
+            StringBuffer()
+              ..write('Notifica slot inviata: ')
+              ..write('${dispatchResult.successCount} ok');
+        if (dispatchResult.failureCount > 0) {
+          buffer.write(', ${dispatchResult.failureCount} errori');
+        }
+        if (dispatchResult.skippedCount > 0) {
+          buffer.write(', ${dispatchResult.skippedCount} esclusi');
+        }
+        ScaffoldMessenger.of(
+          context,
+        ).showAppSnackBar(SnackBar(content: Text(buffer.toString())));
       } catch (error) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Impossibile eliminare il template: $error')),
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showAppSnackBar(
+          SnackBar(content: Text('Invio notifica non riuscito: $error')),
         );
       }
     }
@@ -406,12 +446,17 @@ class _MessagesMarketingModuleState
     return DefaultTabController(
       length: 4,
       child: LayoutBuilder(
-        builder: (context, _) {
+        builder: (context, constraints) {
+          final isPhone = isAdminPhoneWidth(constraints.maxWidth);
+          final pagePadding = isPhone ? 16.0 : 28.0;
+          final sectionPadding = isPhone ? 14.0 : 18.0;
+          final outerSpacing = isPhone ? 14.0 : 18.0;
+
           List<Widget> withSpacing(List<Widget> children) {
             final spaced = <Widget>[];
             for (var i = 0; i < children.length; i++) {
               if (i > 0) {
-                spaced.add(const SizedBox(height: 24));
+                spaced.add(SizedBox(height: isPhone ? 18 : 24));
               }
               spaced.add(children[i]);
             }
@@ -422,7 +467,7 @@ class _MessagesMarketingModuleState
             if (children.isEmpty) {
               return Center(
                 child: Padding(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(20),
                   child: Text(
                     emptyLabel ?? 'Nessun contenuto disponibile.',
                     style: theme.textTheme.bodyMedium,
@@ -433,7 +478,7 @@ class _MessagesMarketingModuleState
             }
 
             return SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
+              padding: EdgeInsets.all(sectionPadding),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: withSpacing(children),
@@ -449,6 +494,7 @@ class _MessagesMarketingModuleState
                 settings: effectiveSettings,
                 birthdayTemplate: birthdayTemplate,
                 reminderWhatsAppTemplates: reminderWhatsAppTemplates,
+                birthdayWhatsAppTemplates: birthdayWhatsAppTemplates,
                 defaultBirthdayTitle: _defaultBirthdayTitle,
                 defaultBirthdayBody: _defaultBirthdayBody(salonName),
                 onEditBirthdayTemplate:
@@ -470,18 +516,6 @@ class _MessagesMarketingModuleState
               salonName: salonName,
               clients: clients,
               templates: templates,
-            ),
-            _TemplatesLibraryCard(
-              templates: templates,
-              onCreate: salons.isEmpty ? null : () => openTemplateForm(),
-              onEdit:
-                  salons.isEmpty
-                      ? null
-                      : (template) => openTemplateForm(existing: template),
-              onDelete:
-                  salons.isEmpty
-                      ? null
-                      : (template) => deleteTemplate(template),
             ),
           ];
 
@@ -509,7 +543,7 @@ class _MessagesMarketingModuleState
           final lastMinuteContent = <Widget>[
             if (canViewReminderSettings && effectiveSettings != null)
               _LastMinuteDefaultsCard(
-                settings: effectiveSettings!,
+                settings: effectiveSettings,
                 onChanged:
                     canEditReminderSettings
                         ? (updated) async {
@@ -526,6 +560,8 @@ class _MessagesMarketingModuleState
               featureFlags: featureFlags,
               dateFormat: _slotDateFormat,
               onDelete: selectedSalonId == null ? null : deleteSlot,
+              onCreateSlot:
+                  selectedSalonId == null ? null : openLastMinuteSlotForm,
               onToggleVisibility:
                   selectedSalonId == null
                       ? null
@@ -534,31 +570,61 @@ class _MessagesMarketingModuleState
           ];
 
           final tabDefinitions = _messagesTabDefinitions;
-          return Column(
-            children: [
-              const SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: _buildTabBar(theme, tabDefinitions),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: TabBarView(
-                  children: [
-                    buildTabContent(
-                      automationContent,
-                      emptyLabel:
-                          canViewReminderSettings
-                              ? 'Nessuna automazione disponibile.'
-                              : 'Seleziona un salone o verifica i permessi per configurare le automazioni.',
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              pagePadding,
+              isPhone ? 16 : 22,
+              pagePadding,
+              isPhone ? 16 : 22,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (!isPhone) ...[
+                  Text(
+                    'Messaggi & Marketing',
+                    style: theme.textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
                     ),
-                    buildTabContent(manualContent),
-                    buildTabContent(promotionsContent),
-                    buildTabContent(lastMinuteContent),
-                  ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Gestione comunicazioni e campagne',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  SizedBox(height: outerSpacing),
+                ],
+                _buildTabBar(theme, tabDefinitions),
+                SizedBox(height: outerSpacing),
+                Expanded(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surface,
+                      borderRadius: BorderRadius.circular(isPhone ? 16 : 18),
+                      border: Border.all(
+                        color: theme.colorScheme.outlineVariant,
+                      ),
+                    ),
+                    child: TabBarView(
+                      children: [
+                        buildTabContent(
+                          automationContent,
+                          emptyLabel:
+                              canViewReminderSettings
+                                  ? 'Nessuna automazione disponibile.'
+                                  : 'Seleziona un salone o verifica i permessi per configurare le automazioni.',
+                        ),
+                        buildTabContent(manualContent),
+                        buildTabContent(promotionsContent),
+                        buildTabContent(lastMinuteContent),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           );
         },
       ),
@@ -588,7 +654,7 @@ class _MessagesMarketingModuleState
     }
     await ref.read(appDataProvider.notifier).upsertPromotion(result);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(
         content: Text(
           existing == null
@@ -630,7 +696,7 @@ class _MessagesMarketingModuleState
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('Promozione eliminata.')));
+    ).showAppSnackBar(const SnackBar(content: Text('Promozione eliminata.')));
   }
 
   Future<void> _confirmSlotDeletion(
@@ -664,192 +730,9 @@ class _MessagesMarketingModuleState
     }
     await ref.read(appDataProvider.notifier).deleteLastMinuteSlot(slot.id);
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Slot last-minute rimosso.')));
-  }
-}
-
-class _TemplatesLibraryCard extends StatelessWidget {
-  const _TemplatesLibraryCard({
-    required this.templates,
-    required this.onCreate,
-    required this.onEdit,
-    required this.onDelete,
-  });
-
-  final List<MessageTemplate> templates;
-  final Future<void> Function()? onCreate;
-  final Future<void> Function(MessageTemplate template)? onEdit;
-  final Future<void> Function(MessageTemplate template)? onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Libreria template',
-                    style: theme.textTheme.titleMedium,
-                  ),
-                ),
-                FilledButton.icon(
-                  onPressed:
-                      onCreate == null ? null : () => unawaited(onCreate!()),
-                  icon: const Icon(Icons.add_comment_rounded),
-                  label: const Text('Nuovo template'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            if (templates.isEmpty)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 32),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerLowest,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  'Crea il primo messaggio predefinito per iniziare.',
-                  style: theme.textTheme.bodyMedium,
-                  textAlign: TextAlign.center,
-                ),
-              )
-            else
-              Column(
-                children: List.generate(templates.length, (index) {
-                  final template = templates[index];
-                  return Column(
-                    children: [
-                      if (index > 0) const Divider(height: 24),
-                      _TemplateTile(
-                        template: template,
-                        onEdit: onEdit,
-                        onDelete: onDelete,
-                      ),
-                    ],
-                  );
-                }),
-              ),
-          ],
-        ),
-      ),
+    ScaffoldMessenger.of(context).showAppSnackBar(
+      const SnackBar(content: Text('Slot last-minute rimosso.')),
     );
-  }
-}
-
-class _TemplateTile extends StatelessWidget {
-  const _TemplateTile({
-    required this.template,
-    required this.onEdit,
-    required this.onDelete,
-  });
-
-  final MessageTemplate template;
-  final Future<void> Function(MessageTemplate template)? onEdit;
-  final Future<void> Function(MessageTemplate template)? onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(template.title, style: theme.textTheme.titleMedium),
-            ),
-            Switch.adaptive(value: template.isActive, onChanged: null),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _Badge(
-              label: _channelLabel(template.channel),
-              icon: Icons.chat_rounded,
-            ),
-            _Badge(
-              label: _usageLabel(template.usage),
-              icon: Icons.campaign_rounded,
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Container(
-          width: double.infinity,
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerLowest,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: theme.colorScheme.outlineVariant),
-          ),
-          padding: const EdgeInsets.all(16),
-          child: Text(template.body),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            TextButton.icon(
-              onPressed:
-                  onEdit == null ? null : () => unawaited(onEdit!(template)),
-              icon: const Icon(Icons.edit_rounded),
-              label: const Text('Modifica'),
-            ),
-            const SizedBox(width: 8),
-            TextButton.icon(
-              onPressed:
-                  onDelete == null
-                      ? null
-                      : () => unawaited(onDelete!(template)),
-              style: TextButton.styleFrom(
-                foregroundColor: theme.colorScheme.error,
-              ),
-              icon: const Icon(Icons.delete_outline_rounded),
-              label: const Text('Elimina'),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  static String _channelLabel(MessageChannel channel) {
-    switch (channel) {
-      case MessageChannel.push:
-        return 'Push';
-      case MessageChannel.whatsapp:
-        return 'WhatsApp';
-      case MessageChannel.email:
-        return 'Email';
-      case MessageChannel.sms:
-        return 'SMS';
-    }
-  }
-
-  static String _usageLabel(TemplateUsage usage) {
-    switch (usage) {
-      case TemplateUsage.reminder:
-        return 'Promemoria';
-      case TemplateUsage.followUp:
-        return 'Follow up';
-      case TemplateUsage.promotion:
-        return 'Promozione';
-      case TemplateUsage.birthday:
-        return 'Compleanno';
-    }
   }
 }
 
@@ -877,77 +760,103 @@ class _PromotionsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final hasSalon = salonId != null;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return _MarketingPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _MarketingSectionHeading(
+            title: 'Campagne promozionali',
+            subtitle: 'Promozioni visibili ai clienti nell\'app',
+            trailing: Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              alignment: WrapAlignment.end,
               children: [
-                Expanded(
-                  child: Text(
-                    'Campagne promozionali',
-                    style: theme.textTheme.titleMedium,
+                if (hasSalon && onToggleVisibility != null)
+                  _MarketingSwitchPill(
+                    label: 'Visibili ai clienti',
+                    value: promotionsVisible,
+                    onChanged: (value) => unawaited(onToggleVisibility!(value)),
                   ),
-                ),
                 FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 48),
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
                   onPressed:
                       hasSalon && onCreate != null
                           ? () => unawaited(onCreate!())
                           : null,
-                  icon: const Icon(Icons.add_rounded),
+                  icon: const Icon(Icons.add_rounded, size: 18),
                   label: const Text('Nuova promo'),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            if (hasSalon) ...[
-              SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Promozioni visibili ai clienti'),
-                subtitle: const Text(
-                  'Mostra le campagne attive nella home dell’app cliente.',
-                ),
-                value: promotionsVisible,
-                onChanged:
-                    onToggleVisibility == null
-                        ? null
-                        : (value) => unawaited(onToggleVisibility!(value)),
-              ),
-              const SizedBox(height: 12),
-            ],
-            if (!hasSalon)
-              Text(
-                'Seleziona un salone per creare e gestire le promozioni.',
-                style: theme.textTheme.bodyMedium,
-              )
-            else if (promotions.isEmpty)
-              Text(
-                'Nessuna promozione salvata. Crea una proposta irresistibile per i tuoi clienti.',
-                style: theme.textTheme.bodyMedium,
-              )
-            else
-              Column(
-                children: List.generate(promotions.length, (index) {
-                  final promotion = promotions[index];
-                  return Column(
-                    children: [
-                      if (index > 0) const Divider(height: 24),
-                      _PromotionTile(
-                        promotion: promotion,
-                        onEdit: onEdit,
-                        onToggleActive: onToggleActive,
-                        onDelete: onDelete,
-                      ),
-                    ],
-                  );
-                }),
-              ),
+          ),
+          if (!promotionsVisible && hasSalon) ...[
+            const SizedBox(height: 16),
+            const _MarketingInlineNotice(
+              message: 'Promozioni nascoste nella dashboard cliente.',
+              isError: true,
+            ),
           ],
-        ),
+          const SizedBox(height: 18),
+          if (!hasSalon)
+            const _MarketingEmptyState(
+              message:
+                  'Seleziona un salone per creare e gestire le promozioni.',
+            )
+          else if (promotions.isEmpty)
+            const _MarketingEmptyState(
+              message: 'Nessuna promozione salvata. Crea una nuova promo.',
+            )
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide = constraints.maxWidth >= 860;
+                if (!isWide) {
+                  return Column(
+                    children: List.generate(promotions.length, (index) {
+                      final promotion = promotions[index];
+                      return Padding(
+                        padding: EdgeInsets.only(top: index == 0 ? 0 : 12),
+                        child: _PromotionTile(
+                          promotion: promotion,
+                          onEdit: onEdit,
+                          onToggleActive: onToggleActive,
+                          onDelete: onDelete,
+                        ),
+                      );
+                    }),
+                  );
+                }
+
+                final tileWidth = (constraints.maxWidth - 14) / 2;
+                return Wrap(
+                  spacing: 14,
+                  runSpacing: 14,
+                  children: promotions
+                      .map(
+                        (promotion) => SizedBox(
+                          width: tileWidth,
+                          child: _PromotionTile(
+                            promotion: promotion,
+                            onEdit: onEdit,
+                            onToggleActive: onToggleActive,
+                            onDelete: onDelete,
+                          ),
+                        ),
+                      )
+                      .toList(growable: false),
+                );
+              },
+            ),
+        ],
       ),
     );
   }
@@ -970,67 +879,115 @@ class _PromotionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final chips = <Widget>[
-      _Badge(label: _promotionPeriod(promotion), icon: Icons.schedule_rounded),
-      _Badge(
-        label: _statusLabel(promotion.status),
-        icon: _statusIcon(promotion.status),
+    final statusColor = _statusColor(theme, promotion.status);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
       ),
-      if (promotion.discountPercentage > 0)
-        _Badge(
-          label: '-${promotion.discountPercentage.toStringAsFixed(0)}%',
-          icon: Icons.local_offer_rounded,
-        ),
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(promotion.title, style: theme.textTheme.titleMedium),
-            ),
-            Switch.adaptive(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final stackHeader = constraints.maxWidth < 460;
+            final titleBlock = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  promotion.title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (promotion.subtitle?.isNotEmpty == true) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    promotion.subtitle!,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            );
+            final toggle = Switch.adaptive(
               value: promotion.isActive,
               onChanged:
                   onToggleActive == null
                       ? null
                       : (value) => unawaited(onToggleActive!(promotion, value)),
-            ),
-          ],
+            );
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (stackHeader) ...[
+                  titleBlock,
+                  const SizedBox(height: 10),
+                  toggle,
+                ] else
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: titleBlock),
+                      const SizedBox(width: 12),
+                      toggle,
+                    ],
+                  ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _MarketingMetaChip(
+                      label: _promotionPeriod(promotion),
+                      icon: Icons.calendar_today_outlined,
+                    ),
+                    _MarketingMetaChip(
+                      label: _statusLabel(promotion.status),
+                      icon: _statusIcon(promotion.status),
+                      foregroundColor: statusColor,
+                      backgroundColor: statusColor.withValues(alpha: 0.10),
+                      borderColor: statusColor.withValues(alpha: 0.22),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Divider(color: theme.colorScheme.outlineVariant, height: 1),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      onPressed:
+                          onEdit == null
+                              ? null
+                              : () => unawaited(onEdit!(promotion)),
+                      icon: const Icon(Icons.edit_outlined, size: 16),
+                      label: const Text('Modifica'),
+                    ),
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        foregroundColor: theme.colorScheme.error,
+                      ),
+                      onPressed:
+                          onDelete == null
+                              ? null
+                              : () => unawaited(onDelete!(promotion)),
+                      icon: const Icon(Icons.delete_outline, size: 16),
+                      label: const Text('Elimina'),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
         ),
-        if (promotion.subtitle?.isNotEmpty == true) ...[
-          const SizedBox(height: 4),
-          Text(promotion.subtitle!, style: theme.textTheme.bodyMedium),
-        ],
-        const SizedBox(height: 8),
-        Wrap(spacing: 8, runSpacing: 8, children: chips),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            TextButton.icon(
-              onPressed:
-                  onEdit == null ? null : () => unawaited(onEdit!(promotion)),
-              icon: const Icon(Icons.edit_rounded),
-              label: const Text('Modifica'),
-            ),
-            const SizedBox(width: 8),
-            TextButton.icon(
-              onPressed:
-                  onDelete == null
-                      ? null
-                      : () => unawaited(onDelete!(promotion)),
-              style: TextButton.styleFrom(
-                foregroundColor: theme.colorScheme.error,
-              ),
-              icon: const Icon(Icons.delete_outline_rounded),
-              label: const Text('Elimina'),
-            ),
-          ],
-        ),
-      ],
+      ),
     );
   }
 
@@ -1076,6 +1033,19 @@ class _PromotionTile extends StatelessWidget {
         return Icons.history_rounded;
     }
   }
+
+  Color _statusColor(ThemeData theme, PromotionStatus status) {
+    switch (status) {
+      case PromotionStatus.draft:
+        return theme.colorScheme.onSurfaceVariant;
+      case PromotionStatus.scheduled:
+        return const Color(0xFFC98700);
+      case PromotionStatus.published:
+        return const Color(0xFF16A34A);
+      case PromotionStatus.expired:
+        return theme.colorScheme.error;
+    }
+  }
 }
 
 class _LastMinuteDefaultsCard extends StatelessWidget {
@@ -1088,67 +1058,72 @@ class _LastMinuteDefaultsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Impostazioni last-minute',
-              style: theme.textTheme.titleMedium,
+    return _MarketingPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _MarketingSectionHeading(
+            title: 'Impostazioni last-minute',
+            subtitle: 'Configura le notifiche last-minute predefinite',
+          ),
+          const SizedBox(height: 18),
+          _MarketingFieldLabel(label: 'Seleziona destinatari', theme: theme),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<LastMinuteNotificationAudience>(
+            key: ValueKey(settings.lastMinuteNotificationAudience),
+            isExpanded: true,
+            initialValue: settings.lastMinuteNotificationAudience,
+            decoration: const InputDecoration(
+              hintText: 'Seleziona destinatari',
             ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<LastMinuteNotificationAudience>(
-              isExpanded: true,
-              value: settings.lastMinuteNotificationAudience,
-              decoration: const InputDecoration(
-                labelText: 'Notifiche last-minute (predefinito)',
-                helperText:
-                    'Determina cosa proporre quando crei o modifichi uno slot express.',
-              ),
-              items:
-                  LastMinuteNotificationAudience.values.map((audience) {
-                    late final String label;
-                    switch (audience) {
-                      case LastMinuteNotificationAudience.none:
-                        label = 'Chiedi ogni volta';
-                        break;
-                      case LastMinuteNotificationAudience.everyone:
-                        label = 'Invia a tutti i clienti';
-                        break;
-                      case LastMinuteNotificationAudience.ownerSelection:
-                        label = 'Seleziona destinatari';
-                        break;
-                    }
-                    return DropdownMenuItem<LastMinuteNotificationAudience>(
-                      value: audience,
-                      child: Text(label),
-                    );
-                  }).toList(),
-              onChanged:
-                  onChanged == null
-                      ? null
-                      : (value) {
-                        if (value != null) {
-                          unawaited(
-                            onChanged!(
-                              settings.copyWith(
-                                lastMinuteNotificationAudience: value,
-                              ),
+            items:
+                LastMinuteNotificationAudience.values.map((audience) {
+                  late final String label;
+                  switch (audience) {
+                    case LastMinuteNotificationAudience.none:
+                      label = 'Chiedi ogni volta';
+                      break;
+                    case LastMinuteNotificationAudience.everyone:
+                      label = 'Tutti i clienti';
+                      break;
+                    case LastMinuteNotificationAudience.ownerSelection:
+                      label = 'Selezione manuale';
+                      break;
+                  }
+                  return DropdownMenuItem<LastMinuteNotificationAudience>(
+                    value: audience,
+                    child: Text(label),
+                  );
+                }).toList(),
+            onChanged:
+                onChanged == null
+                    ? null
+                    : (value) {
+                      if (value != null) {
+                        unawaited(
+                          onChanged!(
+                            settings.copyWith(
+                              lastMinuteNotificationAudience: value,
                             ),
-                          );
-                        }
-                      },
+                          ),
+                        );
+                      }
+                    },
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Determina cosa proporre quando crei o modifichi uno slot express.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _LastMinuteSection extends StatelessWidget {
+class _LastMinuteSection extends StatefulWidget {
   const _LastMinuteSection({
     required this.salonId,
     required this.slots,
@@ -1156,6 +1131,7 @@ class _LastMinuteSection extends StatelessWidget {
     required this.featureFlags,
     required this.dateFormat,
     required this.onDelete,
+    this.onCreateSlot,
     this.onToggleVisibility,
   });
 
@@ -1165,81 +1141,174 @@ class _LastMinuteSection extends StatelessWidget {
   final SalonFeatureFlags featureFlags;
   final DateFormat dateFormat;
   final Future<void> Function(LastMinuteSlot slot)? onDelete;
+  final Future<void> Function()? onCreateSlot;
   final Future<void> Function(bool value)? onToggleVisibility;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final hasSalon = salonId != null;
-    final staffById = {for (final member in staff) member.id: member};
-    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+  State<_LastMinuteSection> createState() => _LastMinuteSectionState();
+}
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+class _LastMinuteSectionState extends State<_LastMinuteSection> {
+  bool _historyExpanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasSalon = widget.salonId != null;
+    final staffById = {for (final member in widget.staff) member.id: member};
+    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    final now = DateTime.now();
+    final activeSlots = widget.slots
+        .where((slot) => slot.effectiveWindowEnd.isAfter(now))
+        .toList(growable: false);
+    final historicalSlots =
+        widget.slots
+            .where((slot) => !slot.effectiveWindowEnd.isAfter(now))
+            .toList()
+          ..sort((a, b) => b.start.compareTo(a.start));
+
+    return _MarketingPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _MarketingSectionHeading(
+            title: 'Slot last-minute',
+            subtitle: 'Prenotazioni rapide visibili ai clienti',
+            trailing:
+                hasSalon
+                    ? Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      alignment: WrapAlignment.end,
+                      children: [
+                        Switch.adaptive(
+                          value: widget.featureFlags.clientLastMinute,
+                          onChanged:
+                              widget.onToggleVisibility == null
+                                  ? null
+                                  : (value) => unawaited(
+                                    widget.onToggleVisibility!(value),
+                                  ),
+                        ),
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size(0, 48),
+                            padding: const EdgeInsets.symmetric(horizontal: 18),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                          onPressed:
+                              widget.onCreateSlot == null
+                                  ? null
+                                  : () => unawaited(widget.onCreateSlot!()),
+                          icon: const Icon(Icons.add_rounded),
+                          label: const Text('Aggiungi slot'),
+                        ),
+                      ],
+                    )
+                    : null,
+          ),
+          const SizedBox(height: 16),
+          if (!hasSalon)
+            const _MarketingEmptyState(
+              message: 'Seleziona un salone per monitorare le offerte express.',
+            )
+          else if (widget.slots.isEmpty)
+            const _MarketingEmptyState(
+              message:
+                  'Trasforma una disponibilità libera in offerta express dal calendario appuntamenti.',
+            )
+          else
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Text(
-                    'Slot last-minute',
-                    style: theme.textTheme.titleMedium,
-                  ),
+                _LastMinuteGroupHeader(
+                  title: 'Attivi',
+                  count: activeSlots.length,
                 ),
+                const SizedBox(height: 10),
+                if (activeSlots.isEmpty)
+                  const _MarketingEmptyState(
+                    message: 'Nessuno slot attivo al momento.',
+                  )
+                else
+                  Column(
+                    children: List.generate(activeSlots.length, (index) {
+                      final slot = activeSlots[index];
+                      final staffName =
+                          slot.operatorId != null
+                              ? staffById[slot.operatorId!]?.fullName
+                              : null;
+                      return Padding(
+                        padding: EdgeInsets.only(top: index == 0 ? 0 : 8),
+                        child: _LastMinuteTile(
+                          slot: slot,
+                          staffName: staffName,
+                          currency: currency,
+                          dateFormat: widget.dateFormat,
+                          onDelete: widget.onDelete,
+                        ),
+                      );
+                    }),
+                  ),
+                if (historicalSlots.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: Theme.of(context).colorScheme.outlineVariant,
+                      ),
+                    ),
+                    child: ExpansionTile(
+                      key: const PageStorageKey<String>(
+                        'messages_last_minute_history',
+                      ),
+                      initiallyExpanded: _historyExpanded,
+                      onExpansionChanged:
+                          (expanded) =>
+                              setState(() => _historyExpanded = expanded),
+                      tilePadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 4,
+                      ),
+                      childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                      title: _LastMinuteGroupHeader(
+                        title: 'Storico',
+                        count: historicalSlots.length,
+                        compact: true,
+                      ),
+                      children: [
+                        Column(
+                          children: List.generate(historicalSlots.length, (
+                            index,
+                          ) {
+                            final slot = historicalSlots[index];
+                            final staffName =
+                                slot.operatorId != null
+                                    ? staffById[slot.operatorId!]?.fullName
+                                    : null;
+                            return Padding(
+                              padding: EdgeInsets.only(top: index == 0 ? 0 : 8),
+                              child: _LastMinuteTile(
+                                slot: slot,
+                                staffName: staffName,
+                                currency: currency,
+                                dateFormat: widget.dateFormat,
+                                onDelete: widget.onDelete,
+                                compact: true,
+                              ),
+                            );
+                          }),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
-            const SizedBox(height: 12),
-            if (hasSalon) ...[
-              SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Slot last-minute visibili ai clienti'),
-                subtitle: const Text(
-                  'Permetti la prenotazione rapida delle offerte last-minute.',
-                ),
-                value: featureFlags.clientLastMinute,
-                onChanged:
-                    onToggleVisibility == null
-                        ? null
-                        : (value) => unawaited(onToggleVisibility!(value)),
-              ),
-              const SizedBox(height: 12),
-            ],
-            if (!hasSalon)
-              Text(
-                'Seleziona un salone per monitorare le offerte express.',
-                style: theme.textTheme.bodyMedium,
-              )
-            else if (slots.isEmpty)
-              Text(
-                'Trasforma una disponibilità libera in offerta express dal calendario appuntamenti.',
-                style: theme.textTheme.bodyMedium,
-              )
-            else
-              Column(
-                children: List.generate(slots.length, (index) {
-                  final slot = slots[index];
-                  final staffName =
-                      slot.operatorId != null
-                          ? staffById[slot.operatorId!]?.fullName
-                          : null;
-                  return Column(
-                    children: [
-                      if (index > 0) const Divider(height: 24),
-                      _LastMinuteTile(
-                        slot: slot,
-                        staffName: staffName,
-                        currency: currency,
-                        dateFormat: dateFormat,
-                        onDelete: onDelete,
-                      ),
-                    ],
-                  );
-                }),
-              ),
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -1252,6 +1321,7 @@ class _LastMinuteTile extends StatelessWidget {
     required this.currency,
     required this.dateFormat,
     required this.onDelete,
+    this.compact = false,
   });
 
   final LastMinuteSlot slot;
@@ -1259,37 +1329,182 @@ class _LastMinuteTile extends StatelessWidget {
   final NumberFormat currency;
   final DateFormat dateFormat;
   final Future<void> Function(LastMinuteSlot slot)? onDelete;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final timeLabel =
         '${dateFormat.format(slot.start)} · ${slot.duration.inMinutes} min';
-    final operatorLabel = staffName ?? 'Operatore non assegnato';
+    final operatorLabel =
+        staffName ?? slot.operatorName ?? 'Operatore non assegnato';
     final priceLabel =
-        '${currency.format(slot.priceNow)} · base ${currency.format(slot.basePrice)}';
+        '${currency.format(slot.priceNow)} - base ${currency.format(slot.basePrice)}';
     final paymentLabel =
         slot.paymentMode == LastMinutePaymentMode.online
             ? 'Pagamento online immediato'
             : 'Pagamento in sede';
-    final availabilityLabel =
-        slot.isAvailable
-            ? 'Disponibile'
-            : 'Prenotato da ${slot.bookedClientName?.isNotEmpty == true ? slot.bookedClientName : 'cliente'}';
-    final availabilityColor =
-        slot.isAvailable ? theme.colorScheme.primary : theme.colorScheme.error;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding:
+            compact
+                ? const EdgeInsets.fromLTRB(12, 12, 12, 10)
+                : const EdgeInsets.fromLTRB(14, 14, 14, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    slot.serviceName,
+                    style:
+                        compact
+                            ? theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            )
+                            : theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Rimuovi',
+                  visualDensity: VisualDensity.compact,
+                  onPressed:
+                      onDelete == null
+                          ? null
+                          : () => unawaited(onDelete!(slot)),
+                  icon: Icon(
+                    Icons.delete_outline_rounded,
+                    size: 18,
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+              ],
+            ),
+            Text(
+              timeLabel,
+              style:
+                  compact
+                      ? theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      )
+                      : theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+            ),
+            const SizedBox(height: 6),
+            if (compact)
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final stackCompactMeta = constraints.maxWidth < 300;
+                  final operatorText = Text(
+                    operatorLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  );
+                  final priceText = Text(
+                    priceLabel,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  );
+                  if (stackCompactMeta) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        operatorText,
+                        const SizedBox(height: 4),
+                        priceText,
+                      ],
+                    );
+                  }
+                  return Row(
+                    children: [
+                      Expanded(child: operatorText),
+                      const SizedBox(width: 10),
+                      Flexible(child: priceText),
+                    ],
+                  );
+                },
+              )
+            else ...[
+              Row(
+                children: [
+                  Icon(
+                    Icons.person_rounded,
+                    size: 17,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      operatorLabel,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                priceLabel,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+            const SizedBox(height: 4),
+            Text(
+              paymentLabel,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      title: Text(slot.serviceName),
-      subtitle: Text(
-        [timeLabel, operatorLabel, priceLabel, paymentLabel].join('\n'),
-      ),
-      trailing: IconButton(
-        tooltip: 'Rimuovi',
-        onPressed: onDelete == null ? null : () => unawaited(onDelete!(slot)),
-        icon: const Icon(Icons.delete_outline_rounded),
-      ),
+class _LastMinuteGroupHeader extends StatelessWidget {
+  const _LastMinuteGroupHeader({
+    required this.title,
+    required this.count,
+    this.compact = false,
+  });
+
+  final String title;
+  final int count;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final textStyle =
+        compact
+            ? theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)
+            : theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            );
+    return Row(
+      children: [
+        Expanded(child: Text(title, style: textStyle)),
+        _MarketingMetaChip(label: '$count', icon: Icons.layers_outlined),
+      ],
     );
   }
 }
@@ -1302,6 +1517,7 @@ class _ReminderSettingsCard extends StatelessWidget {
     required this.defaultBirthdayTitle,
     required this.defaultBirthdayBody,
     required this.reminderWhatsAppTemplates,
+    required this.birthdayWhatsAppTemplates,
     this.onChanged,
     this.birthdayTemplate,
     this.onEditBirthdayTemplate,
@@ -1313,6 +1529,7 @@ class _ReminderSettingsCard extends StatelessWidget {
   final String defaultBirthdayTitle;
   final String defaultBirthdayBody;
   final List<MessageTemplate> reminderWhatsAppTemplates;
+  final List<MessageTemplate> birthdayWhatsAppTemplates;
   final Future<void> Function(ReminderSettings)? onChanged;
   final MessageTemplate? birthdayTemplate;
   final Future<void> Function()? onEditBirthdayTemplate;
@@ -1322,22 +1539,10 @@ class _ReminderSettingsCard extends StatelessWidget {
     final theme = Theme.of(context);
     final reminder = settings;
     if (salonId == null || reminder == null) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
-              Text(
-                'Promemoria appuntamenti',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-              ),
-              SizedBox(height: 8),
-              Text(
-                'Seleziona un salone per configurare i promemoria automatici.',
-              ),
-            ],
-          ),
+      return const _MarketingPanel(
+        child: _MarketingEmptyState(
+          message:
+              'Seleziona un salone per configurare i promemoria automatici.',
         ),
       );
     }
@@ -1352,13 +1557,24 @@ class _ReminderSettingsCard extends StatelessWidget {
         template != null &&
         template.title.trim().isNotEmpty &&
         template.body.trim().isNotEmpty;
-    final templateTitle =
-        templatePresent ? template!.title : defaultBirthdayTitle;
-    final templateBody = templatePresent ? template!.body : defaultBirthdayBody;
+    final templateTitle = template?.title ?? defaultBirthdayTitle;
+    final templateBody = template?.body ?? defaultBirthdayBody;
     final templateActive = template?.isActive ?? true;
     final reminderWhatsAppTemplatesById = {
       for (final item in reminderWhatsAppTemplates) item.id: item,
     };
+    final birthdayWhatsAppTemplatesById = {
+      for (final item in birthdayWhatsAppTemplates) item.id: item,
+    };
+    final selectedBirthdayWhatsappTemplate =
+        reminder.birthdayWhatsappTemplateId != null
+            ? birthdayWhatsAppTemplatesById[reminder
+                .birthdayWhatsappTemplateId!]
+            : null;
+    final birthdayWhatsappTemplateMissing =
+        reminder.birthdaySendsWhatsapp &&
+        reminder.birthdayWhatsappTemplateId != null &&
+        selectedBirthdayWhatsappTemplate == null;
 
     Future<void> emit(ReminderSettings updated) async {
       final callback = onChanged;
@@ -1366,31 +1582,6 @@ class _ReminderSettingsCard extends StatelessWidget {
         return;
       }
       await callback(updated);
-    }
-
-    String formatOffsetLabel(int totalMinutes) {
-      final days = totalMinutes ~/ 1440;
-      final hours = (totalMinutes % 1440) ~/ 60;
-      final minutes = totalMinutes % 60;
-      final parts = <String>[];
-      if (days > 0) {
-        parts.add(days == 1 ? '1 giorno' : '$days giorni');
-      }
-      if (hours > 0) {
-        parts.add(hours == 1 ? '1 ora' : '$hours ore');
-      }
-      if (minutes > 0) {
-        parts.add('$minutes minuti');
-      }
-      if (parts.isEmpty) {
-        return '$totalMinutes minuti prima';
-      }
-      if (parts.length == 1) {
-        return '${parts.first} prima';
-      }
-      final last = parts.last;
-      final head = parts.sublist(0, parts.length - 1).join(', ');
-      return '$head e $last prima';
     }
 
     Future<void> updateOffsets(List<ReminderOffsetConfig> newOffsets) async {
@@ -1421,8 +1612,8 @@ class _ReminderSettingsCard extends StatelessWidget {
               mode == ReminderDeliveryMode.both) &&
           reminderWhatsAppTemplates.isEmpty) {
         ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
+          ..hideCurrentAppSnackBar()
+          ..showAppSnackBar(
             const SnackBar(
               content: Text(
                 'Nessun template WhatsApp (uso Promemoria) disponibile. Crea o importa prima un template reminder.',
@@ -1470,8 +1661,8 @@ class _ReminderSettingsCard extends StatelessWidget {
       final template = reminderWhatsAppTemplatesById[templateId];
       if (template == null) {
         ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
+          ..hideCurrentAppSnackBar()
+          ..showAppSnackBar(
             const SnackBar(content: Text('Template WhatsApp non disponibile.')),
           );
         return;
@@ -1487,6 +1678,76 @@ class _ReminderSettingsCard extends StatelessWidget {
 
     Future<void> toggleBirthday(bool enabled) async {
       await emit(reminder.copyWith(birthdayEnabled: enabled));
+    }
+
+    Future<void> updateBirthdayDeliveryMode(ReminderDeliveryMode mode) async {
+      if (onChanged == null || reminder.birthdayDeliveryMode == mode) {
+        return;
+      }
+      if ((mode == ReminderDeliveryMode.whatsapp ||
+              mode == ReminderDeliveryMode.both) &&
+          birthdayWhatsAppTemplates.isEmpty) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentAppSnackBar()
+          ..showAppSnackBar(
+            const SnackBar(
+              content: Text(
+                'Nessun template WhatsApp (uso Compleanno) disponibile. Crea o importa prima un template compleanno.',
+              ),
+            ),
+          );
+        return;
+      }
+      final fallbackTemplate =
+          selectedBirthdayWhatsappTemplate ??
+          birthdayWhatsAppTemplates.firstOrNull;
+      await emit(
+        reminder.copyWith(
+          birthdayDeliveryMode: mode,
+          birthdayWhatsappTemplateId:
+              mode == ReminderDeliveryMode.whatsapp ||
+                      mode == ReminderDeliveryMode.both
+                  ? (fallbackTemplate?.id ??
+                      reminder.birthdayWhatsappTemplateId)
+                  : reminder.birthdayWhatsappTemplateId,
+          birthdayWhatsappTemplateName:
+              mode == ReminderDeliveryMode.whatsapp ||
+                      mode == ReminderDeliveryMode.both
+                  ? (fallbackTemplate?.title ??
+                      reminder.birthdayWhatsappTemplateName ??
+                      reminder.birthdayWhatsappTemplateId)
+                  : reminder.birthdayWhatsappTemplateName,
+        ),
+      );
+    }
+
+    Future<void> updateBirthdayWhatsappTemplate(String templateId) async {
+      if (onChanged == null) {
+        return;
+      }
+      final template = birthdayWhatsAppTemplatesById[templateId];
+      if (template == null) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentAppSnackBar()
+          ..showAppSnackBar(
+            const SnackBar(content: Text('Template WhatsApp non disponibile.')),
+          );
+        return;
+      }
+      await emit(
+        reminder.copyWith(
+          birthdayWhatsappTemplateId: template.id,
+          birthdayWhatsappTemplateName: template.title,
+        ),
+      );
+    }
+
+    Future<void> toggleOffsetActive(int index, bool enabled) async {
+      final current = reminder.offsets;
+      if (index < 0 || index >= current.length) {
+        return;
+      }
+      await updateOffsetAt(index, current[index].copyWith(active: enabled));
     }
 
     final offsetsEntries =
@@ -1529,8 +1790,8 @@ class _ReminderSettingsCard extends StatelessWidget {
 
     void showValidationMessage(String message) {
       ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(message)));
+        ..hideCurrentAppSnackBar()
+        ..showAppSnackBar(SnackBar(content: Text(message)));
     }
 
     ({int days, int hours, int minutes}) splitOffset(int totalMinutes) {
@@ -1616,17 +1877,6 @@ class _ReminderSettingsCard extends StatelessWidget {
       ]);
     }
 
-    Future<void> toggleOffsetActive(int index, bool active) async {
-      if (!canEditOffsets) {
-        return;
-      }
-      final current = reminder.offsets;
-      if (index < 0 || index >= current.length) {
-        return;
-      }
-      await updateOffsetAt(index, current[index].copyWith(active: active));
-    }
-
     Future<void> removeOffset(int index) async {
       if (!canEditOffsets) {
         return;
@@ -1668,7 +1918,10 @@ class _ReminderSettingsCard extends StatelessWidget {
             ),
             title: const Text('Dettagli promemoria'),
             content: SizedBox(
-              width: 480,
+              width: math.min(
+                480,
+                math.max(280, MediaQuery.sizeOf(dialogContext).width - 48),
+              ),
               child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1730,469 +1983,923 @@ class _ReminderSettingsCard extends StatelessWidget {
       }
     }
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Promemoria appuntamenti', style: theme.textTheme.titleMedium),
+    String reminderModeLabel(ReminderDeliveryMode mode) {
+      switch (mode) {
+        case ReminderDeliveryMode.push:
+          return 'Push';
+        case ReminderDeliveryMode.whatsapp:
+          return 'WhatsApp';
+        case ReminderDeliveryMode.both:
+          return 'Push + WhatsApp';
+      }
+    }
 
-            const SizedBox(height: 12),
-            Text(
-              'Seleziona fino a ${ReminderSettings.maxOffsetsCount} promemoria automatici. Gli offset sono espressi rispetto all\'inizio appuntamento.',
-              style: theme.textTheme.bodySmall,
-            ),
-            const SizedBox(height: 16),
-            if (offsetsEntries.isEmpty)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.notifications_off_outlined),
-                title: const Text('Nessun promemoria automatico attivo'),
-                subtitle: const Text(
-                  'Aggiungi un orario per inviare promemoria prima dell\'appuntamento.',
-                ),
-                trailing:
-                    canAddOffset
-                        ? IconButton(
-                          tooltip: 'Aggiungi promemoria',
-                          onPressed: () => unawaited(addOffset()),
-                          icon: const Icon(Icons.add_alarm),
-                        )
-                        : null,
-              )
-            else
-              ...offsetsEntries.map((entry) {
-                final originalIndex = entry.key;
-                final config = entry.value;
-                final minutes = config.minutesBefore;
-                final parts = splitOffset(minutes);
-                final daysValues = {...dayOptions, parts.days}.toList()..sort();
-                final hoursValues =
-                    {...hourOptions, parts.hours}.toList()..sort();
-                final minutesValues =
-                    {...minuteOptions, parts.minutes}.toList()..sort();
-                final selectedWaTemplate =
-                    config.whatsappTemplateId != null
-                        ? reminderWhatsAppTemplatesById[config
-                            .whatsappTemplateId!]
-                        : null;
-                final chips = <Widget>[
-                  if (config.title != null)
-                    Chip(
-                      avatar: const Icon(Icons.text_fields, size: 18),
-                      label: Text(config.title!),
-                    ),
-                  Chip(
-                    avatar: Icon(
-                      config.deliveryMode == ReminderDeliveryMode.push
-                          ? Icons.smartphone_rounded
-                          : config.deliveryMode == ReminderDeliveryMode.whatsapp
-                          ? Icons.chat_rounded
-                          : Icons.sync_alt_rounded,
-                      size: 18,
-                    ),
-                    label: Text(switch (config.deliveryMode) {
-                      ReminderDeliveryMode.push => 'Push',
-                      ReminderDeliveryMode.whatsapp => 'WhatsApp',
-                      ReminderDeliveryMode.both => 'Push + WhatsApp',
-                    }),
+    String durationLabel(({int days, int hours, int minutes}) parts) {
+      return '${parts.days} giorni · ${parts.hours} ore · ${parts.minutes} minuti';
+    }
+
+    String optionLabel(String label, int option) {
+      if (label == 'Minuti' && option == 0) {
+        return '0 minuti';
+      }
+      if (label == 'Giorni' && option == 1) {
+        return '1 giorno';
+      }
+      if (label == 'Ore' && option == 1) {
+        return '1 ora';
+      }
+      return '$option ${label.toLowerCase()}';
+    }
+
+    Widget buildIntDropdown({
+      required String label,
+      required List<int> values,
+      required int value,
+      required ValueChanged<int?>? onChanged,
+    }) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _MarketingFieldLabel(label: label, theme: theme),
+          const SizedBox(height: 6),
+          DropdownButtonFormField<int>(
+            initialValue: value,
+            isExpanded: true,
+            decoration: const InputDecoration(isDense: true),
+            items: values
+                .map(
+                  (option) => DropdownMenuItem<int>(
+                    value: option,
+                    child: Text(optionLabel(label, option)),
                   ),
-                  if (config.sendsWhatsapp &&
-                      (selectedWaTemplate != null ||
-                          (config.whatsappTemplateName ?? '')
-                              .trim()
-                              .isNotEmpty))
-                    Chip(
-                      avatar: const Icon(Icons.article_outlined, size: 18),
-                      label: Text(
-                        selectedWaTemplate?.title ??
-                            config.whatsappTemplateName!.trim(),
-                      ),
-                    ),
-                ];
-                return Padding(
-                  padding: EdgeInsets.only(
-                    top: entry == offsetsEntries.first ? 0 : 8,
+                )
+                .toList(growable: false),
+            onChanged: onChanged,
+          ),
+        ],
+      );
+    }
+
+    Widget buildOffsetCard(MapEntry<int, ReminderOffsetConfig> entry) {
+      final originalIndex = entry.key;
+      final config = entry.value;
+      final parts = splitOffset(config.minutesBefore);
+      final daysValues = {...dayOptions, parts.days}.toList()..sort();
+      final hoursValues = {...hourOptions, parts.hours}.toList()..sort();
+      final minutesValues = {...minuteOptions, parts.minutes}.toList()..sort();
+      final selectedWaTemplate =
+          config.whatsappTemplateId != null
+              ? reminderWhatsAppTemplatesById[config.whatsappTemplateId!]
+              : null;
+      final chips = <Widget>[
+        _MarketingMetaChip(
+          label: reminderModeLabel(config.deliveryMode),
+          icon:
+              config.deliveryMode == ReminderDeliveryMode.push
+                  ? Icons.smartphone_rounded
+                  : config.deliveryMode == ReminderDeliveryMode.whatsapp
+                  ? Icons.chat_rounded
+                  : Icons.sync_alt_rounded,
+        ),
+        if (config.title != null && config.title!.trim().isNotEmpty)
+          _MarketingMetaChip(
+            label: config.title!.trim(),
+            icon: Icons.text_fields_rounded,
+          ),
+        if (config.sendsWhatsapp &&
+            (selectedWaTemplate != null ||
+                (config.whatsappTemplateName ?? '').trim().isNotEmpty))
+          _MarketingMetaChip(
+            label:
+                selectedWaTemplate?.title ??
+                config.whatsappTemplateName!.trim(),
+            icon: Icons.article_outlined,
+          ),
+      ];
+
+      return Container(
+        margin: EdgeInsets.only(top: entry == offsetsEntries.first ? 0 : 12),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: theme.colorScheme.outlineVariant),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final stackTopControls = constraints.maxWidth < 460;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (stackTopControls) ...[
+                  Wrap(spacing: 8, runSpacing: 8, children: chips),
+                  const SizedBox(height: 10),
+                  Switch.adaptive(
+                    value: config.active,
+                    onChanged:
+                        canEditOffsets
+                            ? (value) => unawaited(
+                              toggleOffsetActive(originalIndex, value),
+                            )
+                            : null,
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (chips.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Wrap(spacing: 8, runSpacing: 8, children: chips),
-                      ],
-                      const SizedBox(height: 8),
-                      LayoutBuilder(
-                        builder: (context, constraints) {
-                          const double compactBreakpoint = 520;
-
-                          Widget buildDropdown({
-                            required String label,
-                            required List<int> values,
-                            required int value,
-                            required ValueChanged<int?>? onChanged,
-                          }) {
-                            return InputDecorator(
-                              decoration: InputDecoration(
-                                labelText: label,
-                                isDense: true,
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                ),
-                              ),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<int>(
-                                  isExpanded: true,
-                                  value: value,
-                                  items:
-                                      values
-                                          .map(
-                                            (option) => DropdownMenuItem<int>(
-                                              value: option,
-                                              child: Text(
-                                                label == 'Minuti' && option == 0
-                                                    ? '0 minuti'
-                                                    : option == 1 &&
-                                                        label == 'Giorni'
-                                                    ? '1 giorno'
-                                                    : option == 1 &&
-                                                        label == 'Ore'
-                                                    ? '1 ora'
-                                                    : '$option ${label.toLowerCase()}',
-                                              ),
-                                            ),
-                                          )
-                                          .toList(),
-                                  onChanged: onChanged,
-                                ),
-                              ),
-                            );
-                          }
-
-                          final daysDropdown = buildDropdown(
-                            label: 'Giorni',
-                            values: daysValues,
-                            value: parts.days,
-                            onChanged:
-                                canEditOffsets
-                                    ? (value) {
-                                      if (value != null) {
-                                        unawaited(
-                                          changeOffset(
-                                            index: originalIndex,
-                                            config: config,
-                                            days: value,
-                                          ),
-                                        );
-                                      }
-                                    }
-                                    : null,
-                          );
-                          final hoursDropdown = buildDropdown(
-                            label: 'Ore',
-                            values: hoursValues,
-                            value: parts.hours,
-                            onChanged:
-                                canEditOffsets
-                                    ? (value) {
-                                      if (value != null) {
-                                        unawaited(
-                                          changeOffset(
-                                            index: originalIndex,
-                                            config: config,
-                                            hours: value,
-                                          ),
-                                        );
-                                      }
-                                    }
-                                    : null,
-                          );
-                          final minutesDropdown = buildDropdown(
-                            label: 'Minuti',
-                            values: minutesValues,
-                            value: parts.minutes,
-                            onChanged:
-                                canEditOffsets
-                                    ? (value) {
-                                      if (value != null) {
-                                        unawaited(
-                                          changeOffset(
-                                            index: originalIndex,
-                                            config: config,
-                                            minutes: value,
-                                          ),
-                                        );
-                                      }
-                                    }
-                                    : null,
-                          );
-
-                          final editButton = IconButton(
-                            visualDensity: VisualDensity.compact,
-                            tooltip: 'Modifica testo',
-                            onPressed:
-                                canEditOffsets
-                                    ? () => unawaited(
-                                      editOffsetMetadata(originalIndex),
-                                    )
-                                    : null,
-                            icon: const Icon(Icons.edit_note_outlined),
-                          );
-                          final deleteButton = IconButton(
-                            visualDensity: VisualDensity.compact,
-                            tooltip: 'Rimuovi promemoria',
-                            onPressed:
-                                canEditOffsets
-                                    ? () =>
-                                        unawaited(removeOffset(originalIndex))
-                                    : null,
-                            icon: const Icon(Icons.delete_outline),
-                          );
-
-                          if (constraints.maxWidth >= compactBreakpoint) {
-                            return Row(
-                              children: [
-                                Expanded(child: daysDropdown),
-                                const SizedBox(width: 8),
-                                Expanded(child: hoursDropdown),
-                                const SizedBox(width: 8),
-                                Expanded(child: minutesDropdown),
-                                const SizedBox(width: 8),
-                                editButton,
-                                const SizedBox(width: 4),
-                                deleteButton,
-                              ],
-                            );
-                          }
-
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(child: daysDropdown),
-                                  const SizedBox(width: 8),
-                                  Expanded(child: hoursDropdown),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  Expanded(child: minutesDropdown),
-                                  const SizedBox(width: 8),
-                                  editButton,
-                                  const SizedBox(width: 4),
-                                  deleteButton,
-                                ],
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 8),
-                      DropdownButtonFormField<ReminderDeliveryMode>(
-                        initialValue: config.deliveryMode,
-                        decoration: const InputDecoration(
-                          labelText: 'Tipo reminder',
-                          border: OutlineInputBorder(),
-                          isDense: true,
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: ReminderDeliveryMode.push,
-                            child: Text('Push'),
-                          ),
-                          DropdownMenuItem(
-                            value: ReminderDeliveryMode.whatsapp,
-                            child: Text('WhatsApp'),
-                          ),
-                          DropdownMenuItem(
-                            value: ReminderDeliveryMode.both,
-                            child: Text('Push + WhatsApp'),
-                          ),
-                        ],
-                        onChanged:
-                            canEditOffsets
-                                ? (value) {
-                                  if (value != null) {
-                                    unawaited(
-                                      updateOffsetDeliveryMode(
-                                        originalIndex,
-                                        config,
-                                        value,
-                                      ),
-                                    );
-                                  }
-                                }
-                                : null,
-                      ),
-                      if (config.sendsWhatsapp) ...[
-                        const SizedBox(height: 8),
-                        DropdownButtonFormField<String>(
-                          initialValue: selectedWaTemplate?.id,
-                          decoration: const InputDecoration(
-                            labelText: 'Template WhatsApp (Promemoria)',
-                            border: OutlineInputBorder(),
-                            isDense: true,
-                          ),
-                          hint: const Text('Seleziona template WhatsApp'),
-                          items: reminderWhatsAppTemplates
-                              .map(
-                                (template) => DropdownMenuItem<String>(
-                                  value: template.id,
-                                  child: Text(template.title),
-                                ),
-                              )
-                              .toList(growable: false),
-                          onChanged:
-                              canEditOffsets &&
-                                      reminderWhatsAppTemplates.isNotEmpty
-                                  ? (value) {
-                                    if (value != null) {
-                                      unawaited(
-                                        updateOffsetWhatsappTemplate(
-                                          originalIndex,
-                                          config,
-                                          value,
-                                        ),
-                                      );
-                                    }
-                                  }
-                                  : null,
-                        ),
-                        if (reminderWhatsAppTemplates.isEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              'Nessun template WhatsApp con uso Promemoria disponibile.',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.error,
-                              ),
-                            ),
-                          )
-                        else if (selectedWaTemplate == null)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              'Template selezionato non disponibile o non piu attivo. Selezionane uno nuovo.',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.error,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ],
-                  ),
-                );
-              }),
-            if (offsetsEntries.isNotEmpty) const SizedBox(height: 12),
-            if (canAddOffset)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  icon: const Icon(Icons.add_alarm),
-                  label: const Text('Aggiungi promemoria'),
-                  onPressed: () => unawaited(addOffset()),
-                ),
-              ),
-            if (offsetsEntries.isNotEmpty || canAddOffset)
-              const Divider(height: 24),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: reminder.birthdayEnabled,
-              title: const Text('Auguri di compleanno'),
-              subtitle: const Text(
-                'Invia un messaggio push automatico il giorno del compleanno.',
-              ),
-              onChanged:
-                  onChanged == null
-                      ? null
-                      : (value) => unawaited(toggleBirthday(value)),
-            ),
-            const SizedBox(height: 12),
-            Text('Messaggio di auguri', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerLowest,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: theme.colorScheme.outlineVariant),
-              ),
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+                ] else
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
-                        child: Text(
-                          templateTitle,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                        child: Wrap(spacing: 8, runSpacing: 8, children: chips),
+                      ),
+                      const SizedBox(width: 12),
+                      Switch.adaptive(
+                        value: config.active,
+                        onChanged:
+                            canEditOffsets
+                                ? (value) => unawaited(
+                                  toggleOffsetActive(originalIndex, value),
+                                )
+                                : null,
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  Text(templateBody, style: theme.textTheme.bodyMedium),
-                  if (!templatePresent) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      'Non hai ancora personalizzato il messaggio: verrà usato il testo predefinito.',
-                      style: theme.textTheme.bodySmall,
+                const SizedBox(height: 10),
+                Text(
+                  durationLabel(parts),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isWide = constraints.maxWidth >= 520;
+                    final daysDropdown = buildIntDropdown(
+                      label: 'Giorni',
+                      values: daysValues,
+                      value: parts.days,
+                      onChanged:
+                          canEditOffsets
+                              ? (value) {
+                                if (value != null) {
+                                  unawaited(
+                                    changeOffset(
+                                      index: originalIndex,
+                                      config: config,
+                                      days: value,
+                                    ),
+                                  );
+                                }
+                              }
+                              : null,
+                    );
+                    final hoursDropdown = buildIntDropdown(
+                      label: 'Ore',
+                      values: hoursValues,
+                      value: parts.hours,
+                      onChanged:
+                          canEditOffsets
+                              ? (value) {
+                                if (value != null) {
+                                  unawaited(
+                                    changeOffset(
+                                      index: originalIndex,
+                                      config: config,
+                                      hours: value,
+                                    ),
+                                  );
+                                }
+                              }
+                              : null,
+                    );
+                    final minutesDropdown = buildIntDropdown(
+                      label: 'Minuti',
+                      values: minutesValues,
+                      value: parts.minutes,
+                      onChanged:
+                          canEditOffsets
+                              ? (value) {
+                                if (value != null) {
+                                  unawaited(
+                                    changeOffset(
+                                      index: originalIndex,
+                                      config: config,
+                                      minutes: value,
+                                    ),
+                                  );
+                                }
+                              }
+                              : null,
+                    );
+                    if (isWide) {
+                      return Row(
+                        children: [
+                          Expanded(child: daysDropdown),
+                          const SizedBox(width: 8),
+                          Expanded(child: hoursDropdown),
+                          const SizedBox(width: 8),
+                          Expanded(child: minutesDropdown),
+                        ],
+                      );
+                    }
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        daysDropdown,
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(child: hoursDropdown),
+                            const SizedBox(width: 8),
+                            Expanded(child: minutesDropdown),
+                          ],
+                        ),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 12),
+                _MarketingFieldLabel(label: 'Tipo messaggio', theme: theme),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<ReminderDeliveryMode>(
+                  isExpanded: true,
+                  initialValue: config.deliveryMode,
+                  decoration: const InputDecoration(isDense: true),
+                  items: const [
+                    DropdownMenuItem(
+                      value: ReminderDeliveryMode.push,
+                      child: Text('Push'),
+                    ),
+                    DropdownMenuItem(
+                      value: ReminderDeliveryMode.whatsapp,
+                      child: Text('WhatsApp'),
+                    ),
+                    DropdownMenuItem(
+                      value: ReminderDeliveryMode.both,
+                      child: Text('Push + WhatsApp'),
                     ),
                   ],
+                  onChanged:
+                      canEditOffsets
+                          ? (value) {
+                            if (value != null) {
+                              unawaited(
+                                updateOffsetDeliveryMode(
+                                  originalIndex,
+                                  config,
+                                  value,
+                                ),
+                              );
+                            }
+                          }
+                          : null,
+                ),
+                if (config.sendsWhatsapp) ...[
                   const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      Chip(
-                        avatar: const Icon(Icons.smartphone, size: 18),
-                        label: const Text('Push'),
+                  _MarketingFieldLabel(
+                    label: 'Template WhatsApp',
+                    theme: theme,
+                  ),
+                  const SizedBox(height: 6),
+                  DropdownButtonFormField<String>(
+                    isExpanded: true,
+                    initialValue: selectedWaTemplate?.id,
+                    decoration: const InputDecoration(isDense: true),
+                    hint: const Text('Seleziona template WhatsApp'),
+                    items: reminderWhatsAppTemplates
+                        .map(
+                          (template) => DropdownMenuItem<String>(
+                            value: template.id,
+                            child: Text(template.title),
+                          ),
+                        )
+                        .toList(growable: false),
+                    onChanged:
+                        canEditOffsets && reminderWhatsAppTemplates.isNotEmpty
+                            ? (value) {
+                              if (value != null) {
+                                unawaited(
+                                  updateOffsetWhatsappTemplate(
+                                    originalIndex,
+                                    config,
+                                    value,
+                                  ),
+                                );
+                              }
+                            }
+                            : null,
+                  ),
+                  if (reminderWhatsAppTemplates.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'Nessun template WhatsApp con uso Promemoria disponibile.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.error,
+                        ),
                       ),
-                      Chip(
-                        avatar: Icon(
-                          templatePresent
-                              ? (templateActive
-                                  ? Icons.check_circle
-                                  : Icons.cancel_outlined)
-                              : Icons.info_outline,
-                          size: 18,
+                    )
+                  else if (selectedWaTemplate == null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'Template selezionato non disponibile o non piu attivo. Selezionane uno nuovo.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.error,
                         ),
-                        label: Text(
-                          templatePresent
-                              ? (templateActive ? 'Attivo' : 'Disattivato')
-                              : 'Da configurare',
-                        ),
+                      ),
+                    ),
+                ],
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: [
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        tooltip: 'Modifica testo',
+                        onPressed:
+                            canEditOffsets
+                                ? () =>
+                                    unawaited(editOffsetMetadata(originalIndex))
+                                : null,
+                        icon: const Icon(Icons.edit_note_outlined),
+                      ),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        tooltip: 'Rimuovi promemoria',
+                        onPressed:
+                            canEditOffsets
+                                ? () => unawaited(removeOffset(originalIndex))
+                                : null,
+                        icon: const Icon(Icons.delete_outline),
                       ),
                     ],
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+    }
+
+    final remindersColumn = _MarketingPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Promemoria appuntamenti',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Seleziona fino a ${ReminderSettings.maxOffsetsCount} promemoria automatici. Gli offset sono espressi rispetto all\'inizio appuntamento.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (offsetsEntries.isEmpty)
+            const _MarketingEmptyState(
+              message:
+                  'Nessun promemoria automatico attivo. Aggiungi un orario per inviare promemoria prima dell\'appuntamento.',
+            )
+          else
+            ...offsetsEntries.map(buildOffsetCard),
+          if (canAddOffset) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => unawaited(addOffset()),
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('Aggiungi promemoria'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+
+    final birthdayColumn = _MarketingPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final stackHeader = constraints.maxWidth < 460;
+              final description = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Auguri di compleanno',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Configura l\'invio automatico del compleanno su push, WhatsApp o entrambi.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              );
+              final toggle = Switch.adaptive(
+                value: reminder.birthdayEnabled,
+                onChanged:
+                    onChanged == null
+                        ? null
+                        : (value) => unawaited(toggleBirthday(value)),
+              );
+              if (stackHeader) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [description, const SizedBox(height: 10), toggle],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: description),
+                  const SizedBox(width: 12),
+                  toggle,
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 14),
+          _MarketingFieldLabel(label: 'Tipo messaggio', theme: theme),
+          const SizedBox(height: 6),
+          DropdownButtonFormField<ReminderDeliveryMode>(
+            key: const ValueKey('birthday_delivery_mode_field'),
+            isExpanded: true,
+            initialValue: reminder.birthdayDeliveryMode,
+            decoration: const InputDecoration(isDense: true),
+            items: const [
+              DropdownMenuItem(
+                value: ReminderDeliveryMode.push,
+                child: Text('Push'),
+              ),
+              DropdownMenuItem(
+                value: ReminderDeliveryMode.whatsapp,
+                child: Text('WhatsApp'),
+              ),
+              DropdownMenuItem(
+                value: ReminderDeliveryMode.both,
+                child: Text('Push + WhatsApp'),
+              ),
+            ],
+            onChanged:
+                onChanged == null
+                    ? null
+                    : (value) {
+                      if (value != null) {
+                        unawaited(updateBirthdayDeliveryMode(value));
+                      }
+                    },
+          ),
+          if (reminder.birthdaySendsWhatsapp) ...[
+            const SizedBox(height: 12),
+            _MarketingFieldLabel(label: 'Template WhatsApp', theme: theme),
+            const SizedBox(height: 6),
+            DropdownButtonFormField<String>(
+              key: const ValueKey('birthday_whatsapp_template_field'),
+              isExpanded: true,
+              initialValue: selectedBirthdayWhatsappTemplate?.id,
+              decoration: const InputDecoration(isDense: true),
+              hint: const Text('Seleziona template WhatsApp'),
+              items: birthdayWhatsAppTemplates
+                  .map(
+                    (template) => DropdownMenuItem<String>(
+                      value: template.id,
+                      child: Text(template.title),
+                    ),
+                  )
+                  .toList(growable: false),
+              onChanged:
+                  onChanged != null && birthdayWhatsAppTemplates.isNotEmpty
+                      ? (value) {
+                        if (value != null) {
+                          unawaited(updateBirthdayWhatsappTemplate(value));
+                        }
+                      }
+                      : null,
+            ),
+            if (birthdayWhatsAppTemplates.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'Nessun template WhatsApp con uso Compleanno disponibile.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+              )
+            else if (birthdayWhatsappTemplateMissing)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'Template compleanno selezionato non disponibile o non piu attivo. Selezionane uno nuovo.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+              ),
+          ],
+          const SizedBox(height: 14),
+          _MarketingFieldLabel(label: 'Messaggio di auguri', theme: theme),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: theme.colorScheme.outlineVariant),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  templateTitle,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(templateBody, style: theme.textTheme.bodyMedium),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (reminder.birthdaySendsPush)
+                const _MarketingMetaChip(
+                  label: 'Push',
+                  icon: Icons.smartphone_rounded,
+                ),
+              if (reminder.birthdaySendsWhatsapp)
+                const _MarketingMetaChip(
+                  label: 'WhatsApp',
+                  icon: Icons.chat_rounded,
+                ),
+              if (reminder.birthdaySendsWhatsapp &&
+                  selectedBirthdayWhatsappTemplate != null)
+                _MarketingMetaChip(
+                  label: selectedBirthdayWhatsappTemplate.title,
+                  icon: Icons.article_outlined,
+                ),
+              if (reminder.birthdaySendsWhatsapp &&
+                  reminder.birthdayWhatsappTemplateName != null &&
+                  selectedBirthdayWhatsappTemplate == null)
+                _MarketingMetaChip(
+                  label: reminder.birthdayWhatsappTemplateName!,
+                  icon: Icons.article_outlined,
+                ),
+              _MarketingMetaChip(
+                label:
+                    reminder.birthdayDeliveryMode == ReminderDeliveryMode.push
+                        ? 'Solo push'
+                        : reminder.birthdayDeliveryMode ==
+                            ReminderDeliveryMode.whatsapp
+                        ? 'Solo WhatsApp'
+                        : 'Push + WhatsApp',
+                icon:
+                    reminder.birthdayDeliveryMode == ReminderDeliveryMode.push
+                        ? Icons.smartphone_rounded
+                        : reminder.birthdayDeliveryMode ==
+                            ReminderDeliveryMode.whatsapp
+                        ? Icons.chat_rounded
+                        : Icons.sync_alt_rounded,
+              ),
+              _MarketingMetaChip(
+                label:
+                    templatePresent
+                        ? (templateActive ? 'Attivo' : 'Disattivato')
+                        : 'Da configurare',
+                icon:
+                    templatePresent
+                        ? (templateActive
+                            ? Icons.check_circle_outline_rounded
+                            : Icons.cancel_outlined)
+                        : Icons.info_outline_rounded,
+                foregroundColor:
+                    templatePresent && templateActive
+                        ? const Color(0xFF16A34A)
+                        : templatePresent
+                        ? theme.colorScheme.error
+                        : theme.colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+          if (!templatePresent) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Non hai ancora personalizzato il messaggio: verrà usato il testo predefinito.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          TextButton.icon(
+            onPressed:
+                onEditBirthdayTemplate == null
+                    ? null
+                    : () => unawaited(onEditBirthdayTemplate!()),
+            icon: const Icon(Icons.edit_rounded),
+            label: Text(
+              templatePresent ? 'Modifica messaggio' : 'Configura messaggio',
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            updatedLabel,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 920;
+        if (!isWide) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              remindersColumn,
+              const SizedBox(height: 16),
+              birthdayColumn,
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(flex: 11, child: remindersColumn),
+            const SizedBox(width: 16),
+            Expanded(flex: 8, child: birthdayColumn),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _MarketingPanel extends StatelessWidget {
+  const _MarketingPanel({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final padding = isAdminPhoneWidth(constraints.maxWidth) ? 14.0 : 18.0;
+          return Padding(padding: EdgeInsets.all(padding), child: child);
+        },
+      ),
+    );
+  }
+}
+
+class _MarketingSectionHeading extends StatelessWidget {
+  const _MarketingSectionHeading({
+    required this.title,
+    required this.subtitle,
+    this.trailing,
+  });
+
+  final String title;
+  final String subtitle;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stackVertically = constraints.maxWidth < 720;
+        final heading = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        );
+        if (trailing == null) {
+          return heading;
+        }
+        if (stackVertically) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              heading,
+              const SizedBox(height: 12),
+              Align(alignment: Alignment.centerRight, child: trailing!),
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: heading),
+            const SizedBox(width: 16),
+            trailing!,
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _MarketingFieldLabel extends StatelessWidget {
+  const _MarketingFieldLabel({required this.label, required this.theme});
+
+  final String label;
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label.toUpperCase(),
+      style: theme.textTheme.labelSmall?.copyWith(
+        color: theme.colorScheme.primary,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.7,
+      ),
+    );
+  }
+}
+
+class _MarketingMetaChip extends StatelessWidget {
+  const _MarketingMetaChip({
+    required this.label,
+    required this.icon,
+    this.foregroundColor,
+    this.backgroundColor,
+    this.borderColor,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color? foregroundColor;
+  final Color? backgroundColor;
+  final Color? borderColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final fg = foregroundColor ?? theme.colorScheme.onSurface;
+    final bg =
+        backgroundColor ??
+        theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5);
+    final border =
+        borderColor ?? theme.colorScheme.outlineVariant.withValues(alpha: 0.9);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth =
+            constraints.hasBoundedWidth
+                ? math.min(320.0, constraints.maxWidth)
+                : 320.0;
+        return ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: border),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 14, color: fg),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      softWrap: false,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: fg,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed:
-                    onEditBirthdayTemplate == null
-                        ? null
-                        : () => unawaited(onEditBirthdayTemplate!()),
-                icon: const Icon(Icons.edit_rounded),
-                label: Text(
-                  templatePresent
-                      ? 'Modifica messaggio'
-                      : 'Configura messaggio',
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(updatedLabel, style: theme.textTheme.bodySmall),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MarketingInlineNotice extends StatelessWidget {
+  const _MarketingInlineNotice({required this.message, this.isError = false});
+
+  final String message;
+  final bool isError;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = isError ? theme.colorScheme.error : theme.colorScheme.primary;
+    return Text(
+      message,
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: color,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+}
+
+class _MarketingEmptyState extends StatelessWidget {
+  const _MarketingEmptyState({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+class _MarketingSwitchPill extends StatelessWidget {
+  const _MarketingSwitchPill({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(label, style: theme.textTheme.bodySmall),
+            Switch.adaptive(value: value, onChanged: onChanged),
           ],
         ),
       ),
@@ -2200,40 +2907,58 @@ class _ReminderSettingsCard extends StatelessWidget {
   }
 }
 
-class _Badge extends StatelessWidget {
-  const _Badge({required this.label, required this.icon});
-
-  final String label;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Chip(avatar: Icon(icon, size: 18), label: Text(label));
-  }
-}
-
 const _messagesTabDefinitions = [
   _MessagesTabDefinition(label: 'Automazione', icon: Icons.autorenew_rounded),
-  _MessagesTabDefinition(label: 'Manuali', icon: Icons.message),
-  _MessagesTabDefinition(label: 'Promozioni', icon: Icons.local_offer),
-  _MessagesTabDefinition(label: 'Last-minute', icon: Icons.flash_on),
+  _MessagesTabDefinition(label: 'Manuali', icon: Icons.mail_outline_rounded),
+  _MessagesTabDefinition(label: 'Promozioni', icon: Icons.sell_outlined),
+  _MessagesTabDefinition(label: 'Last-minute', icon: Icons.bolt_rounded),
 ];
 
-TabBar _buildTabBar(ThemeData theme, List<_MessagesTabDefinition> tabs) {
-  return TabBar(
-    isScrollable: true,
-    indicatorSize: TabBarIndicatorSize.label,
-    indicatorColor: theme.colorScheme.primary,
-    labelColor: theme.colorScheme.primary,
-    unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
-    labelStyle: theme.textTheme.labelLarge?.copyWith(
-      fontWeight: FontWeight.w600,
+Widget _buildTabBar(ThemeData theme, List<_MessagesTabDefinition> tabs) {
+  return DecoratedBox(
+    decoration: BoxDecoration(
+      color: theme.colorScheme.surface,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: theme.colorScheme.outlineVariant),
     ),
-    unselectedLabelStyle: theme.textTheme.labelLarge,
-    tabs:
-        tabs
-            .map((tab) => Tab(icon: Icon(tab.icon, size: 20), text: tab.label))
-            .toList(),
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final isPhone = isAdminPhoneWidth(constraints.maxWidth);
+        return TabBar(
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
+          dividerColor: Colors.transparent,
+          padding: EdgeInsets.symmetric(
+            horizontal: isPhone ? 8 : 10,
+            vertical: isPhone ? 6 : 8,
+          ),
+          labelPadding: EdgeInsets.symmetric(horizontal: isPhone ? 8 : 10),
+          indicatorSize: TabBarIndicatorSize.tab,
+          indicator: BoxDecoration(
+            color: theme.colorScheme.primary,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          labelColor: theme.colorScheme.onPrimary,
+          unselectedLabelColor: theme.colorScheme.onSurface,
+          labelStyle: theme.textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+          unselectedLabelStyle: theme.textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w500,
+          ),
+          tabs:
+              tabs
+                  .map(
+                    (tab) => Tab(
+                      icon: Icon(tab.icon, size: 16),
+                      text: tab.label,
+                      height: isPhone ? 60 : null,
+                    ),
+                  )
+                  .toList(),
+        );
+      },
+    ),
   );
 }
 
@@ -2242,33 +2967,4 @@ class _MessagesTabDefinition {
 
   final String label;
   final IconData icon;
-}
-
-Future<void> _openForm(
-  BuildContext context,
-  WidgetRef ref, {
-  required List<Salon> salons,
-  String? defaultSalonId,
-  MessageTemplate? existing,
-}) async {
-  if (salons.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Crea un salone prima di definire i messaggi.'),
-      ),
-    );
-    return;
-  }
-  final result = await showAppModalSheet<MessageTemplate>(
-    context: context,
-    builder:
-        (ctx) => MessageTemplateFormSheet(
-          salons: salons,
-          defaultSalonId: defaultSalonId,
-          initial: existing,
-        ),
-  );
-  if (result != null) {
-    await ref.read(appDataProvider.notifier).upsertTemplate(result);
-  }
 }

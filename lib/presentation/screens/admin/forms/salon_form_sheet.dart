@@ -1,6 +1,7 @@
 import 'package:you_book/domain/entities/loyalty_settings.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:flutter/material.dart';
+import 'package:you_book/presentation/common/app_notice.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
@@ -1180,7 +1181,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
     }
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ).showAppSnackBar(SnackBar(content: Text(message)));
   }
 
   static TimeOfDay _minutesToTimeOfDay(int minutes) {

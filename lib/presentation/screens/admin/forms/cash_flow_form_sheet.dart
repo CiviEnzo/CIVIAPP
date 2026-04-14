@@ -2,6 +2,8 @@ import 'package:you_book/domain/entities/cash_flow_entry.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:flutter/material.dart';
+import 'package:you_book/presentation/common/app_notice.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
@@ -67,6 +69,98 @@ class _CashFlowFormSheetState extends State<CashFlowFormSheet> {
       });
     }
     final dateFormat = DateFormat('dd/MM/yyyy');
+    final formFields = [
+      Row(
+        children: [
+          Expanded(
+            child: RadioListTile<CashFlowType>(
+              value: CashFlowType.income,
+              groupValue: _type,
+              title: const Text('Entrata'),
+              onChanged:
+                  (value) =>
+                      setState(() => _type = value ?? CashFlowType.income),
+            ),
+          ),
+          Expanded(
+            child: RadioListTile<CashFlowType>(
+              value: CashFlowType.expense,
+              groupValue: _type,
+              title: const Text('Uscita'),
+              onChanged:
+                  (value) =>
+                      setState(() => _type = value ?? CashFlowType.expense),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      TextFormField(
+        controller: _amount,
+        decoration: const InputDecoration(labelText: 'Importo (€)'),
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        validator:
+            (value) =>
+                (double.tryParse(value?.replaceAll(',', '.') ?? '') ?? 0) <= 0
+                    ? 'Importo non valido'
+                    : null,
+      ),
+      const SizedBox(height: 12),
+      TextFormField(
+        controller: _description,
+        decoration: const InputDecoration(labelText: 'Descrizione'),
+        validator:
+            (value) =>
+                value == null || value.trim().isEmpty
+                    ? 'Inserisci una descrizione'
+                    : null,
+      ),
+      const SizedBox(height: 12),
+      TextFormField(
+        controller: _category,
+        decoration: const InputDecoration(labelText: 'Categoria'),
+      ),
+      const SizedBox(height: 12),
+      DropdownButtonFormField<String>(
+        isExpanded: true,
+        value: _staffId,
+        decoration: const InputDecoration(labelText: 'Operatore (opzionale)'),
+        items:
+            staff
+                .map(
+                  (member) => DropdownMenuItem(
+                    value: member.id,
+                    child: Text(member.fullName),
+                  ),
+                )
+                .toList(),
+        onChanged: (value) => setState(() => _staffId = value),
+      ),
+      const SizedBox(height: 12),
+      ListTile(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('Data movimento'),
+        subtitle: Text(dateFormat.format(_date)),
+        trailing: const Icon(Icons.calendar_today_rounded),
+        onTap: _pickDate,
+      ),
+    ];
+
+    if (isAppSheetPhoneLayout(context)) {
+      return AppMobileSheetPageScaffold(
+        title: 'Movimento di cassa',
+        actions: [TextButton(onPressed: _submit, child: const Text('Salva'))],
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: formFields,
+          ),
+        ),
+      );
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Form(
@@ -80,88 +174,7 @@ class _CashFlowFormSheetState extends State<CashFlowFormSheet> {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: RadioListTile<CashFlowType>(
-                    value: CashFlowType.income,
-                    groupValue: _type,
-                    title: const Text('Entrata'),
-                    onChanged:
-                        (value) => setState(
-                          () => _type = value ?? CashFlowType.income,
-                        ),
-                  ),
-                ),
-                Expanded(
-                  child: RadioListTile<CashFlowType>(
-                    value: CashFlowType.expense,
-                    groupValue: _type,
-                    title: const Text('Uscita'),
-                    onChanged:
-                        (value) => setState(
-                          () => _type = value ?? CashFlowType.expense,
-                        ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _amount,
-              decoration: const InputDecoration(labelText: 'Importo (€)'),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              validator:
-                  (value) =>
-                      (double.tryParse(value?.replaceAll(',', '.') ?? '') ??
-                                  0) <=
-                              0
-                          ? 'Importo non valido'
-                          : null,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _description,
-              decoration: const InputDecoration(labelText: 'Descrizione'),
-              validator:
-                  (value) =>
-                      value == null || value.trim().isEmpty
-                          ? 'Inserisci una descrizione'
-                          : null,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _category,
-              decoration: const InputDecoration(labelText: 'Categoria'),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              isExpanded: true,
-              value: _staffId,
-              decoration: const InputDecoration(
-                labelText: 'Operatore (opzionale)',
-              ),
-              items:
-                  staff
-                      .map(
-                        (member) => DropdownMenuItem(
-                          value: member.id,
-                          child: Text(member.fullName),
-                        ),
-                      )
-                      .toList(),
-              onChanged: (value) => setState(() => _staffId = value),
-            ),
-            const SizedBox(height: 12),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Data movimento'),
-              subtitle: Text(dateFormat.format(_date)),
-              trailing: const Icon(Icons.calendar_today_rounded),
-              onTap: _pickDate,
-            ),
+            ...formFields,
             const SizedBox(height: 24),
             Align(
               alignment: Alignment.centerRight,
@@ -195,7 +208,7 @@ class _CashFlowFormSheetState extends State<CashFlowFormSheet> {
       return;
     }
     if (_salonId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text(
             'Nessun salone disponibile. Verifica la configurazione.',

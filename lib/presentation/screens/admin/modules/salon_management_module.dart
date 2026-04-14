@@ -1,58 +1,26 @@
 import 'dart:async';
 
 import 'package:you_book/app/providers.dart';
-import 'package:you_book/data/models/app_user.dart';
-import 'package:you_book/domain/entities/loyalty_settings.dart';
+import 'package:you_book/data/repositories/app_data_state.dart';
+import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/salon_setup_progress.dart';
 import 'package:you_book/domain/entities/user_role.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/screens/admin/forms/salon_create_essential_dialog.dart';
-import 'package:you_book/presentation/screens/admin/forms/salon_equipment_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/salon_profile_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/salon_operations_sheet.dart';
-import 'package:you_book/presentation/screens/admin/forms/salon_rooms_sheet.dart';
-import 'package:you_book/presentation/screens/admin/forms/salon_loyalty_sheet.dart';
-import 'package:you_book/presentation/screens/admin/forms/salon_social_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/salon_client_registration_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/salon_setup_checklist_sheet.dart';
-import 'package:you_book/presentation/screens/admin/modules/questionnaires_module.dart';
+import 'package:you_book/presentation/screens/admin/modules/reports/report_aggregator.dart';
+import 'package:you_book/presentation/screens/admin/modules/reports/report_models.dart';
+import 'package:you_book/presentation/screens/admin/widgets/admin_responsive_helpers.dart';
 import 'package:you_book/services/whatsapp_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
-
-Color _layerColor(ThemeData theme, int depth) {
-  final scheme = theme.colorScheme;
-  switch (depth) {
-    case 0:
-      return scheme.surfaceContainerLowest;
-    case 1:
-      return scheme.surfaceContainerLow;
-    case 2:
-      return scheme.surfaceContainer;
-    case 3:
-      return scheme.surfaceContainerHigh;
-    default:
-      return scheme.surfaceContainerHighest;
-  }
-}
-
-double _baseCardElevation(ThemeData theme) {
-  final brightness = theme.brightness;
-  return theme.cardTheme.elevation ?? (brightness == Brightness.dark ? 6 : 2);
-}
-
-Color _shadowColor(
-  ThemeData theme, {
-  required double lightOpacity,
-  required double darkOpacity,
-}) {
-  final isDark = theme.brightness == Brightness.dark;
-  return Colors.black.withOpacity(isDark ? darkOpacity : lightOpacity);
-}
 
 class SalonManagementModule extends ConsumerWidget {
   const SalonManagementModule({super.key, this.selectedSalonId});
@@ -151,7 +119,7 @@ class SalonManagementModule extends ConsumerWidget {
           ref.read(sessionControllerProvider.notifier).setSalon(fallbackId);
         });
       }
-    } else if (salons.length == 1) {
+    } else {
       effectiveSalonId = salons.first.id;
       if (effectiveSalonId != currentSalonId) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -166,77 +134,11 @@ class SalonManagementModule extends ConsumerWidget {
             ? salons
             : salons.where((salon) => salon.id == effectiveSalonId).toList();
 
-    Widget? salonSelector;
-    if (salons.length > 1) {
-      salonSelector = DropdownButtonHideUnderline(
-        child: DropdownButton<String?>(
-          isExpanded: true,
-          value: effectiveSalonId,
-          hint: const Text('Tutti i saloni'),
-          items: [
-            const DropdownMenuItem<String?>(
-              value: null,
-              child: Text('Tutti i saloni'),
-            ),
-            ...salons.map(
-              (salon) => DropdownMenuItem<String?>(
-                value: salon.id,
-                child: Text(salon.name),
-              ),
-            ),
-          ],
-          onChanged: (value) {
-            ref.read(sessionControllerProvider.notifier).setSalon(value);
-          },
-        ),
-      );
-    }
-
     final screenWidth = MediaQuery.of(context).size.width;
     final isCompactLayout = screenWidth < 720;
     final horizontalPadding = isCompactLayout ? 16.0 : 24.0;
     final topPadding = isCompactLayout ? 16.0 : 24.0;
     final bottomPadding = isCompactLayout ? 24.0 : 32.0;
-
-    final addSalonButton = FilledButton.icon(
-      onPressed: () => _startCreateFlow(context, ref),
-      icon: const Icon(Icons.add_business_rounded),
-      label: const Text('Nuovo salone'),
-    );
-
-    final header =
-        isCompactLayout
-            ? Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                addSalonButton,
-                if (salonSelector != null) ...[
-                  const SizedBox(height: 12),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 420),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: salonSelector,
-                    ),
-                  ),
-                ],
-              ],
-            )
-            : Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                addSalonButton,
-                if (salonSelector != null) ...[
-                  const Spacer(),
-                  Flexible(
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: salonSelector,
-                    ),
-                  ),
-                ],
-              ],
-            );
 
     return ListView(
       padding: EdgeInsets.fromLTRB(
@@ -246,13 +148,63 @@ class SalonManagementModule extends ConsumerWidget {
         bottomPadding,
       ),
       children: [
-        header,
-        SizedBox(height: isCompactLayout ? 16 : 24),
+        _SalonModuleHeader(
+          compact: isCompactLayout,
+          onCreateSalon: () => _startCreateFlow(context, ref),
+        ),
+        SizedBox(height: isCompactLayout ? 18 : 24),
+        _SalonTabsBar(
+          salons: salons,
+          selectedSalonId: effectiveSalonId,
+          onSelected:
+              (salonId) => ref
+                  .read(sessionControllerProvider.notifier)
+                  .setSalon(salonId),
+        ),
+        SizedBox(height: isCompactLayout ? 16 : 20),
         for (final salon in selected) ...[
           _SalonDashboard(salon: salon),
           const SizedBox(height: 32),
         ],
       ],
+    );
+  }
+}
+
+class _SalonModuleHeader extends StatelessWidget {
+  const _SalonModuleHeader({
+    required this.compact,
+    required this.onCreateSalon,
+  });
+
+  final bool compact;
+  final VoidCallback onCreateSalon;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final action = FilledButton.icon(
+      onPressed: onCreateSalon,
+      icon: const Icon(Icons.add_rounded, size: 18),
+      label: const Text('Aggiungi Salone'),
+      style: FilledButton.styleFrom(
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 18 : 22,
+          vertical: compact ? 16 : 18,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        textStyle: theme.textTheme.titleSmall?.copyWith(
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+
+    return AdminResponsiveHeader(
+      title: 'Saloni',
+      subtitle: 'Gestione e configurazione saloni',
+      stackBreakpoint: kAdminStackBreakpoint,
+      trailing: action,
+      trailingFullWidthOnStack: compact,
     );
   }
 }
@@ -283,13 +235,14 @@ class _SalonDashboard extends ConsumerWidget {
             : (salon.setupChecklist.isNotEmpty
                 ? salon.setupChecklist.length
                 : SetupChecklistKeys.defaults.length);
-    final pendingReminder =
-        (progress?.pendingReminder ?? false) &&
-        filteredProgressItems.any(
-          (item) => item.status != SetupChecklistStatus.completed,
-        );
+    final setupSummary = _SalonSetupSummary(
+      completed: completedItems,
+      total: totalItems,
+      highlighted:
+          (progress?.pendingReminder ?? false) || completedItems < totalItems,
+    );
 
-    Future<void> _openChecklist() async {
+    Future<void> openChecklist() async {
       await showDialog<void>(
         context: context,
         barrierDismissible: false,
@@ -297,24 +250,27 @@ class _SalonDashboard extends ConsumerWidget {
       );
     }
 
-    Future<void> _handleProfileEdit() async {
+    Future<void> handleProfileEdit() async {
       final store = ref.read(appDataProvider.notifier);
-      await store.markSalonSetupItemInProgress(
-        salonId: salon.id,
-        itemKey: SetupChecklistKeys.profile,
-      );
+      if (!context.mounted) {
+        return;
+      }
       final updated = await showAppModalSheet<Salon>(
         context: context,
+        includeCloseButton: false,
         builder: (ctx) => SalonProfileSheet(salon: salon),
       );
       if (updated != null) {
-        await store.upsertSalon(updated);
+        final merged = await store.updateSalonProfileSection(
+          salonId: salon.id,
+          source: updated,
+        );
         await store.markSalonSetupItemCompleted(
           salonId: salon.id,
           itemKey: SetupChecklistKeys.profile,
           metadata: {
-            'hasAddress': updated.address.trim().isNotEmpty,
-            'hasDescription': (updated.description ?? '').trim().isNotEmpty,
+            'hasAddress': merged.address.trim().isNotEmpty,
+            'hasDescription': (merged.description ?? '').trim().isNotEmpty,
           },
         );
       }
@@ -323,102 +279,269 @@ class _SalonDashboard extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (pendingReminder) ...[
-          _SetupReminderBanner(
-            completed: completedItems,
-            total: totalItems,
-            onTap: _openChecklist,
-          ),
-          const SizedBox(height: 16),
-        ],
-        _SalonOverviewCard(salon: salon, onEdit: _handleProfileEdit),
-        const SizedBox(height: 16),
-        _SalonOperationsOverviewCard(salon: salon),
-        const SizedBox(height: 16),
         _ResponsiveCardWrap(
           items: [
             _ResponsiveCardItem(
-              span: 2,
-              child: _StripeConnectCard(salon: salon),
+              child: _SalonOverviewCard(
+                salon: salon,
+                onEdit: handleProfileEdit,
+              ),
             ),
+            _ResponsiveCardItem(child: _StripeConnectCard(salon: salon)),
             _ResponsiveCardItem(
-              span: 2,
               child: _WhatsAppSettingsCard(salonId: salon.id),
             ),
-            if (salon.closures.isNotEmpty)
-              _ResponsiveCardItem(
-                child: _ClosuresCard(closures: salon.closures),
-              ),
           ],
+        ),
+        const SizedBox(height: 18),
+        _SalonOperationsOverviewCard(
+          salon: salon,
+          setupSummary: setupSummary,
+          onOpenChecklist: openChecklist,
         ),
       ],
     );
   }
 }
 
-class _SetupReminderBanner extends StatelessWidget {
-  const _SetupReminderBanner({
-    required this.completed,
-    required this.total,
-    required this.onTap,
+class _SalonTabsBar extends StatelessWidget {
+  const _SalonTabsBar({
+    required this.salons,
+    required this.selectedSalonId,
+    required this.onSelected,
   });
 
-  final int completed;
-  final int total;
-  final VoidCallback onTap;
+  final List<Salon> salons;
+  final String? selectedSalonId;
+  final ValueChanged<String> onSelected;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final progressValue = total == 0 ? 0.0 : completed / total;
-
-    return Card(
-      color: theme.colorScheme.primaryContainer,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.flag_outlined, color: theme.colorScheme.primary),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Completa il setup del salone',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                Text('$completed/$total', style: theme.textTheme.titleMedium),
-              ],
-            ),
-            const SizedBox(height: 12),
-            LinearProgressIndicator(
-              value: progressValue.clamp(0.0, 1.0),
-              minHeight: 4,
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Alcune sezioni richiedono ancora configurazione.',
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                TextButton(onPressed: onTap, child: const Text('Completa ora')),
-              ],
-            ),
-          ],
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.8),
         ),
+      ),
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children:
+            salons.map((salon) {
+              final isSelected = selectedSalonId == salon.id;
+              final foreground =
+                  isSelected
+                      ? theme.colorScheme.onPrimary
+                      : theme.colorScheme.onSurface;
+              return InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () => onSelected(salon.id),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color:
+                        isSelected
+                            ? theme.colorScheme.primary
+                            : theme.colorScheme.surfaceContainerLowest,
+                    borderRadius: BorderRadius.circular(14),
+                    border:
+                        isSelected
+                            ? null
+                            : Border.all(
+                              color: theme.colorScheme.outlineVariant,
+                            ),
+                    boxShadow:
+                        isSelected
+                            ? [
+                              BoxShadow(
+                                color: theme.shadowColor.withValues(
+                                  alpha: 0.10,
+                                ),
+                                blurRadius: 18,
+                                offset: const Offset(0, 8),
+                              ),
+                            ]
+                            : null,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.storefront_rounded,
+                        size: 16,
+                        color: foreground,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        salon.name,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: foreground,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
       ),
     );
   }
+}
+
+class _SalonSetupSummary {
+  const _SalonSetupSummary({
+    required this.completed,
+    required this.total,
+    required this.highlighted,
+  });
+
+  final int completed;
+  final int total;
+  final bool highlighted;
+
+  bool get hasRemainingItems => total > 0 && completed < total;
+
+  String get label =>
+      hasRemainingItems
+          ? 'Setup $completed/$total'
+          : 'Configurazione completata';
+}
+
+class _SalonDashboardMetrics {
+  _SalonDashboardMetrics({
+    required this.staffActive,
+    required this.staffTotal,
+    required this.clientsTotal,
+    required this.newClientsThisMonth,
+    required this.appointmentsToday,
+    required this.openDaysConfigured,
+    required this.activeEquipmentQuantity,
+    required this.activeServices,
+    required this.inventoryItems,
+    required this.packages,
+    required this.monthOccupancy,
+    required this.monthOccupancyEstimated,
+    required this.monthRevenue,
+    required this.openingHoursSummary,
+    required this.registrationAccessLabel,
+    required this.registrationExtrasLabel,
+    required this.upcomingClosures,
+  });
+
+  factory _SalonDashboardMetrics.fromData({
+    required Salon salon,
+    required AppDataState data,
+  }) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final monthStart = DateTime(now.year, now.month, 1);
+    final monthEnd = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+    final monthSnapshot = ReportsAggregator.build(
+      data: data,
+      filters: ReportFilters(
+        salonId: salon.id,
+        range: DateTimeRange(start: monthStart, end: monthEnd),
+      ),
+    );
+
+    final salonStaff = data.staff
+        .where((member) => member.salonId == salon.id && !member.isEquipment)
+        .toList(growable: false);
+    final staffActive = salonStaff.where((member) => member.isActive).length;
+    final salonClients = data.clients
+        .where((client) => client.salonId == salon.id)
+        .toList(growable: false);
+    final newClientsThisMonth =
+        salonClients.where((client) {
+          final createdAt = client.createdAt;
+          if (createdAt == null) {
+            return false;
+          }
+          return !createdAt.isBefore(monthStart) &&
+              !createdAt.isAfter(monthEnd);
+        }).length;
+    final appointmentsToday =
+        data.appointments.where((appointment) {
+          if (appointment.salonId != salon.id ||
+              appointment.status == AppointmentStatus.cancelled) {
+            return false;
+          }
+          final start = appointment.start;
+          return start.year == today.year &&
+              start.month == today.month &&
+              start.day == today.day;
+        }).length;
+    final openDaysConfigured =
+        salon.schedule.where((entry) => entry.isOpen).length;
+    final activeEquipmentQuantity = salon.equipment
+        .where((item) => item.status == SalonEquipmentStatus.operational)
+        .fold<int>(0, (sum, item) => sum + item.quantity);
+    final activeServices =
+        data.services
+            .where((service) => service.salonId == salon.id && service.isActive)
+            .length;
+    final inventoryItems =
+        data.inventoryItems.where((item) => item.salonId == salon.id).length;
+    final packages =
+        data.packages.where((pkg) => pkg.salonId == salon.id).length;
+    final openingHoursSummary = _buildOpeningHoursSummary(salon.schedule);
+    final upcomingClosures = salon.closures
+        .where((closure) => !closure.end.isBefore(today))
+        .toList(growable: false)
+      ..sort((left, right) => left.start.compareTo(right.start));
+
+    return _SalonDashboardMetrics(
+      staffActive: staffActive,
+      staffTotal: salonStaff.length,
+      clientsTotal: salonClients.length,
+      newClientsThisMonth: newClientsThisMonth,
+      appointmentsToday: appointmentsToday,
+      openDaysConfigured: openDaysConfigured,
+      activeEquipmentQuantity: activeEquipmentQuantity,
+      activeServices: activeServices,
+      inventoryItems: inventoryItems,
+      packages: packages,
+      monthOccupancy: monthSnapshot.current.occupancy.ratio,
+      monthOccupancyEstimated: monthSnapshot.current.occupancy.estimated,
+      monthRevenue: monthSnapshot.current.totalRevenue,
+      openingHoursSummary: openingHoursSummary,
+      registrationAccessLabel: _registrationAccessLabel(
+        salon.clientRegistration.accessMode,
+      ),
+      registrationExtrasLabel: _registrationExtrasLabel(
+        salon.clientRegistration.extraFields,
+      ),
+      upcomingClosures: upcomingClosures,
+    );
+  }
+
+  final int staffActive;
+  final int staffTotal;
+  final int clientsTotal;
+  final int newClientsThisMonth;
+  final int appointmentsToday;
+  final int openDaysConfigured;
+  final int activeEquipmentQuantity;
+  final int activeServices;
+  final int inventoryItems;
+  final int packages;
+  final double? monthOccupancy;
+  final bool monthOccupancyEstimated;
+  final double monthRevenue;
+  final List<String> openingHoursSummary;
+  final String registrationAccessLabel;
+  final String registrationExtrasLabel;
+  final List<SalonClosure> upcomingClosures;
 }
 
 class _SalonOverviewCard extends StatelessWidget {
@@ -430,879 +553,868 @@ class _SalonOverviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
-    final contactChips = <Widget>[
-      _InfoBadge(icon: Icons.phone, label: salon.phone),
-      _InfoBadge(icon: Icons.email, label: salon.email),
-    ];
-    if (salon.postalCode != null && salon.postalCode!.isNotEmpty) {
-      contactChips.add(
-        _InfoBadge(
-          icon: Icons.local_post_office_rounded,
-          label: 'CAP ${salon.postalCode}',
-        ),
-      );
-    }
-    if (salon.latitude != null && salon.longitude != null) {
-      contactChips.add(
-        _InfoBadge(
-          icon: Icons.location_on_rounded,
-          label:
-              '${salon.latitude!.toStringAsFixed(4)}, ${salon.longitude!.toStringAsFixed(4)}',
-        ),
-      );
-    }
+    final location = [
+      salon.address.trim(),
+      salon.city.trim(),
+    ].where((part) => part.isNotEmpty).join(', ');
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isCompact = constraints.maxWidth < 640;
-        final statusChip = _StatusChip(status: salon.status);
-        final editButton = OutlinedButton.icon(
-          onPressed: onEdit,
-          icon: const Icon(Icons.edit_outlined),
-          label: const Text('Modifica dettagli'),
-        );
-
-        final infoColumn = Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(salon.name, style: textTheme.headlineSmall),
-            const SizedBox(height: 8),
-            Text('${salon.address}, ${salon.city}', style: textTheme.bodyLarge),
-            if (salon.description != null && salon.description!.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Text(salon.description!, style: textTheme.bodyMedium),
-            ],
-          ],
-        );
-
-        final header =
-            isCompact
-                ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    infoColumn,
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [statusChip, editButton],
-                    ),
-                  ],
-                )
-                : Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: infoColumn),
-                    const SizedBox(width: 24),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        statusChip,
-                        const SizedBox(height: 12),
-                        editButton,
-                      ],
-                    ),
-                  ],
-                );
-
-        return Card(
-          clipBehavior: Clip.antiAlias,
-          child: Padding(
-            padding: EdgeInsets.all(isCompact ? 20 : 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                header,
-                SizedBox(height: isCompact ? 16 : 20),
-                Wrap(spacing: 12, runSpacing: 12, children: contactChips),
-                if (salon.bookingLink != null &&
-                    salon.bookingLink!.isNotEmpty) ...[
-                  SizedBox(height: isCompact ? 12 : 16),
-                  Tooltip(
-                    message: salon.bookingLink!,
-                    child: TextButton.icon(
-                      onPressed:
-                          () => launchUrl(
-                            Uri.parse(salon.bookingLink!),
-                            mode: LaunchMode.externalApplication,
-                          ),
-                      icon: const Icon(Icons.link),
-                      label: const Text('Apri pagina prenotazioni'),
-                    ),
+    return _DashboardCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SectionIconBadge(
+                icon: Icons.store_mall_directory_outlined,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Info Salone',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
                   ),
-                ],
-              ],
+                ),
+              ),
+              _StatusChip(status: salon.status),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'Nome',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
-        );
-      },
+          const SizedBox(height: 2),
+          Text(
+            salon.name,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 14),
+          if (location.isNotEmpty) ...[
+            Text(
+              'Indirizzo',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(location, style: theme.textTheme.bodyLarge),
+            const SizedBox(height: 14),
+          ],
+          _InlineMetaRow(
+            icon: Icons.call_outlined,
+            label: salon.phone.isEmpty ? 'Telefono non impostato' : salon.phone,
+          ),
+          const SizedBox(height: 10),
+          _InlineMetaRow(
+            icon: Icons.mail_outline_rounded,
+            label: salon.email.isEmpty ? 'Email non impostata' : salon.email,
+          ),
+          if (salon.bookingLink != null && salon.bookingLink!.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _InlineMetaRow(
+              icon: Icons.link_rounded,
+              label: 'Prenotazioni online attive',
+            ),
+          ],
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: onEdit,
+              icon: const Icon(Icons.edit_outlined, size: 18),
+              label: const Text('Modifica'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
 class _SalonOperationsOverviewCard extends ConsumerWidget {
-  const _SalonOperationsOverviewCard({required this.salon});
+  const _SalonOperationsOverviewCard({
+    required this.salon,
+    required this.setupSummary,
+    this.onOpenChecklist,
+  });
 
   final Salon salon;
+  final _SalonSetupSummary setupSummary;
+  final VoidCallback? onOpenChecklist;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
-    final data = ref.watch(appDataProvider);
-    final staffCount =
-        data.staff.where((member) => member.salonId == salon.id).length;
-    final clientsCount =
-        data.clients.where((client) => client.salonId == salon.id).length;
-    final upcomingCount =
-        data.appointments
-            .where(
-              (appointment) =>
-                  appointment.salonId == salon.id &&
-                  appointment.start.isAfter(DateTime.now()),
-            )
-            .length;
-    final questionnaireTemplates = data.clientQuestionnaireTemplates
-        .where((template) => template.salonId == salon.id)
-        .toList(growable: false);
-    final clientQuestionnaires = data.clientQuestionnaires
-        .where((entry) => entry.salonId == salon.id)
-        .toList(growable: false);
-
-    Future<void> updateSections(SalonDashboardSections newPrefs) async {
-      await ref
-          .read(appDataProvider.notifier)
-          .upsertSalon(salon.copyWith(dashboardSections: newPrefs));
-    }
+    final metrics = _SalonDashboardMetrics.fromData(
+      salon: salon,
+      data: ref.watch(appDataProvider),
+    );
 
     Future<void> editOperationsAsync() async {
       final store = ref.read(appDataProvider.notifier);
       final updated = await showAppModalSheet<Salon>(
         context: context,
+        includeCloseButton: false,
         builder: (ctx) => SalonOperationsSheet(salon: salon),
       );
       if (updated == null) {
         return;
       }
-      await store.upsertSalon(updated);
+      final merged = await store.updateSalonOperationsSection(
+        salonId: salon.id,
+        source: updated,
+      );
       await store.markSalonSetupItemCompleted(
         salonId: salon.id,
         itemKey: SetupChecklistKeys.operations,
         metadata: {
-          'hasSchedule': updated.schedule.any((entry) => entry.isOpen),
-          'status': updated.status.name,
+          'hasSchedule': merged.schedule.any((entry) => entry.isOpen),
+          'status': merged.status.name,
         },
         markRequiredCompleted: true,
       );
-    }
-
-    Future<void> editEquipmentAsync() async {
-      final store = ref.read(appDataProvider.notifier);
-      final updated = await showAppModalSheet<List<SalonEquipment>>(
-        context: context,
-        builder:
-            (ctx) => SalonEquipmentSheet(initialEquipment: salon.equipment),
-      );
-      if (updated == null) {
-        return;
-      }
-      final nextSalon = salon.copyWith(equipment: updated);
-      await store.upsertSalon(nextSalon);
-      await store.markSalonSetupItemCompleted(
-        salonId: salon.id,
-        itemKey: SetupChecklistKeys.equipment,
-        metadata: {'count': updated.length},
-      );
-    }
-
-    Future<void> editRoomsAsync() async {
-      final store = ref.read(appDataProvider.notifier);
-      final updated = await showAppModalSheet<List<SalonRoom>>(
-        context: context,
-        builder: (ctx) => SalonRoomsSheet(initialRooms: salon.rooms),
-      );
-      if (updated == null) {
-        return;
-      }
-      final nextSalon = salon.copyWith(rooms: updated);
-      await store.upsertSalon(nextSalon);
-      await store.markSalonSetupItemCompleted(
-        salonId: salon.id,
-        itemKey: SetupChecklistKeys.rooms,
-        metadata: {'count': updated.length},
-      );
-    }
-
-    Future<void> editSocialAsync() async {
-      final store = ref.read(appDataProvider.notifier);
-      final updated = await showAppModalSheet<Salon>(
-        context: context,
-        builder: (ctx) => SalonSocialSheet(salon: salon),
-      );
-      if (updated == null) {
-        return;
-      }
-      await store.upsertSalon(updated);
-      await store.markSalonSetupItemCompleted(
-        salonId: salon.id,
-        itemKey: SetupChecklistKeys.social,
-        metadata: {'count': updated.socialLinks.length},
-      );
-    }
-
-    Future<void> editLoyaltyAsync() async {
-      final store = ref.read(appDataProvider.notifier);
-      final updated = await showAppModalSheet<Salon>(
-        context: context,
-        builder: (ctx) => SalonLoyaltySheet(salon: salon),
-      );
-      if (updated == null) {
-        return;
-      }
-      await store.upsertSalon(updated);
-      await store.markSalonSetupItemCompleted(
-        salonId: salon.id,
-        itemKey: SetupChecklistKeys.loyalty,
-        metadata: {'enabled': updated.loyaltySettings.enabled},
-      );
-    }
-
-    Future<void> manageQuestionnairesAsync() async {
-      await showAppModalSheet<void>(
-        context: context,
-        desktopMaxWidth: 980,
-        builder: (ctx) {
-          final mediaQuery = MediaQuery.of(ctx);
-          final maxHeight = mediaQuery.size.height * 0.9;
-          return SizedBox(
-            width: double.infinity,
-            height: maxHeight,
-            child: QuestionnairesModule(salonId: salon.id),
-          );
-        },
-      );
-    }
-
-    void onEditOperations() {
-      unawaited(editOperationsAsync());
-    }
-
-    void onEditEquipment() {
-      unawaited(editEquipmentAsync());
-    }
-
-    void onEditRooms() {
-      unawaited(editRoomsAsync());
-    }
-
-    void onEditSocial() {
-      unawaited(editSocialAsync());
-    }
-
-    void onEditLoyalty() {
-      unawaited(editLoyaltyAsync());
-    }
-
-    void onManageQuestionnaires() {
-      unawaited(manageQuestionnairesAsync());
     }
 
     Future<void> editRegistrationAsync() async {
       final store = ref.read(appDataProvider.notifier);
       final updated = await showAppModalSheet<Salon>(
         context: context,
+        includeCloseButton: false,
         builder: (ctx) => SalonClientRegistrationSheet(salon: salon),
       );
       if (updated == null) {
         return;
       }
-      await store.upsertSalon(updated);
-    }
-
-    void onEditRegistration() {
-      unawaited(editRegistrationAsync());
-    }
-
-    Future<void> showSectionsFilter() async {
-      var prefsDraft = salon.dashboardSections;
-      await showAppModalSheet<void>(
-        context: context,
-        builder: (ctx) {
-          return SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-              child: StatefulBuilder(
-                builder: (ctx, setModalState) {
-                  Widget buildToggle({
-                    required String title,
-                    required String subtitle,
-                    required bool value,
-                    required SalonDashboardSections Function(
-                      SalonDashboardSections,
-                    )
-                    updater,
-                  }) {
-                    return SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(title),
-                      subtitle: Text(subtitle),
-                      value: value,
-                      onChanged: (enabled) {
-                        final updated = updater(prefsDraft);
-                        setModalState(() => prefsDraft = updated);
-                        updateSections(updated);
-                      },
-                    );
-                  }
-
-                  return SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.filter_list_rounded, size: 24),
-                            const SizedBox(width: 12),
-                            Text(
-                              'Personalizza card visibili',
-                              style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w600),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        buildToggle(
-                          title: 'KPI giornalieri',
-                          subtitle: 'Staff, clienti e appuntamenti futuri',
-                          value: prefsDraft.showKpis,
-                          updater:
-                              (prefs) =>
-                                  prefs.copyWith(showKpis: !prefs.showKpis),
-                        ),
-                        buildToggle(
-                          title: 'Stato operativo',
-                          subtitle: 'Stato salone, slot orari e overview',
-                          value: prefsDraft.showOperational,
-                          updater:
-                              (prefs) => prefs.copyWith(
-                                showOperational: !prefs.showOperational,
-                              ),
-                        ),
-                        buildToggle(
-                          title: 'Registrazione clienti',
-                          subtitle: 'Accesso e campi richiesti',
-                          value: prefsDraft.showClientRegistration,
-                          updater:
-                              (prefs) => prefs.copyWith(
-                                showClientRegistration:
-                                    !prefs.showClientRegistration,
-                              ),
-                        ),
-                        buildToggle(
-                          title: 'Macchinari',
-                          subtitle: 'Elenco macchinari e stato operativo',
-                          value: prefsDraft.showEquipment,
-                          updater:
-                              (prefs) => prefs.copyWith(
-                                showEquipment: !prefs.showEquipment,
-                              ),
-                        ),
-                        buildToggle(
-                          title: 'Cabine e stanze',
-                          subtitle: 'Disponibilità e capienza',
-                          value: prefsDraft.showRooms,
-                          updater:
-                              (prefs) =>
-                                  prefs.copyWith(showRooms: !prefs.showRooms),
-                        ),
-                        buildToggle(
-                          title: 'Questionari cliente',
-                          subtitle: 'Modelli e schede compilate',
-                          value: prefsDraft.showQuestionnaires,
-                          updater:
-                              (prefs) => prefs.copyWith(
-                                showQuestionnaires: !prefs.showQuestionnaires,
-                              ),
-                        ),
-                        buildToggle(
-                          title: 'Programma fedeltà',
-                          subtitle: 'Regole e configurazione punti',
-                          value: prefsDraft.showLoyalty,
-                          updater:
-                              (prefs) => prefs.copyWith(
-                                showLoyalty: !prefs.showLoyalty,
-                              ),
-                        ),
-                        buildToggle(
-                          title: 'Presenza online e social',
-                          subtitle: 'Canali social collegati',
-                          value: prefsDraft.showSocial,
-                          updater:
-                              (prefs) =>
-                                  prefs.copyWith(showSocial: !prefs.showSocial),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
-          );
-        },
+      await store.updateSalonClientRegistrationSection(
+        salonId: salon.id,
+        source: updated,
       );
     }
 
-    final equipmentChildren =
-        salon.equipment.isEmpty
-            ? [
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Text(
-                  'Nessun macchinario configurato.',
-                  style: textTheme.bodyMedium,
-                ),
-              ),
-            ]
-            : salon.equipment.map((item) {
-              final color = _equipmentStatusColor(context, item.status);
-              return _DataRowTile(
-                leadingIcon: Icons.precision_manufacturing_rounded,
-                leadingColor: color,
-                label: item.name,
-                value: '${item.quantity}x · ${item.status.label}',
-                tooltip: item.notes,
-              );
-            }).toList();
+    final occupancyValue =
+        metrics.monthOccupancy == null
+            ? '—'
+            : '${(metrics.monthOccupancy! * 100).toStringAsFixed(0)}%';
+    final occupancySubtitle =
+        metrics.monthOccupancy == null
+            ? 'capacità non disponibile'
+            : metrics.monthOccupancyEstimated
+            ? 'stima mese corrente'
+            : 'mese corrente';
 
-    final roomsChildren =
-        salon.rooms.isEmpty
-            ? [
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Text(
-                  'Nessuna cabina configurata.',
-                  style: textTheme.bodyMedium,
-                ),
-              ),
-            ]
-            : salon.rooms
-                .map(
-                  (room) => _DataRowTile(
-                    leadingIcon: Icons.meeting_room_rounded,
-                    label: room.name,
-                    value: 'Capienza ${room.capacity}',
-                  ),
-                )
-                .toList();
-    String defaultTemplateName =
-        questionnaireTemplates.isEmpty ? 'Nessun modello' : 'Non impostato';
-    if (questionnaireTemplates.isNotEmpty) {
-      for (final template in questionnaireTemplates) {
-        if (template.isDefault) {
-          defaultTemplateName = template.name;
-          break;
-        }
-      }
-    }
-    final questionnaireChildren =
-        questionnaireTemplates.isEmpty
-            ? [
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Text(
-                  'Nessun questionario configurato.',
-                  style: textTheme.bodyMedium,
-                ),
-              ),
-            ]
-            : [
-              _DataRowTile(
-                leadingIcon: Icons.list_alt_rounded,
-                label: 'Modelli disponibili',
-                value: questionnaireTemplates.length.toString(),
-              ),
-              _DataRowTile(
-                leadingIcon: Icons.assignment_turned_in_rounded,
-                label: 'Questionari compilati',
-                value: clientQuestionnaires.length.toString(),
-              ),
-              _DataRowTile(
-                leadingIcon: Icons.star_rate_rounded,
-                label: 'Modello predefinito',
-                value: defaultTemplateName,
-              ),
-            ];
-
-    final loyaltyChildren =
-        salon.loyaltySettings.enabled
-            ? <Widget>[
-              _DataRowTile(
-                leadingIcon: Icons.verified_outlined,
-                label: 'Stato programma',
-                value: 'Attivo',
-              ),
-              _DataRowTile(
-                leadingIcon: Icons.star_rate_rounded,
-                label: 'Saldo iniziale clienti',
-                value: '${salon.loyaltySettings.initialBalance} pt',
-              ),
-              _DataRowTile(
-                leadingIcon: Icons.trending_up_rounded,
-                label:
-                    'Earning: 1 punto ogni ${salon.loyaltySettings.earning.euroPerPoint.toStringAsFixed(0)} €',
-                value: _loyaltyRoundingLabel(
-                  salon.loyaltySettings.earning.rounding,
-                ),
-              ),
-              _DataRowTile(
-                leadingIcon: Icons.redeem_rounded,
-                label:
-                    'Redemption: ${salon.loyaltySettings.redemption.pointValueEuro.toStringAsFixed(2)} € per punto',
-                value:
-                    'Max ${(salon.loyaltySettings.redemption.maxPercent * 100).toStringAsFixed(0)}%',
-              ),
-              _DataRowTile(
-                leadingIcon: Icons.lightbulb_outline_rounded,
-                label: 'Suggerimento automatico',
-                value:
-                    salon.loyaltySettings.redemption.autoSuggest
-                        ? 'Abilitato'
-                        : 'Disabilitato',
-              ),
-              _DataRowTile(
-                leadingIcon: Icons.event_repeat_rounded,
-                label: 'Reset annuale punti',
-                value:
-                    '${salon.loyaltySettings.expiration.resetDay.toString().padLeft(2, '0')}/${salon.loyaltySettings.expiration.resetMonth.toString().padLeft(2, '0')} (${salon.loyaltySettings.expiration.timezone})',
-              ),
-            ]
-            : <Widget>[
-              _DataRowTile(
-                leadingIcon: Icons.loyalty_rounded,
-                label: 'Stato programma',
-                value: 'Non abilitato',
-              ),
-            ];
-
-    final socialChildren =
-        salon.socialLinks.isEmpty
-            ? [
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Text(
-                  'Nessun canale social collegato.',
-                  style: textTheme.bodyMedium,
-                ),
-              ),
-            ]
-            : <Widget>[
-              _DataRowTile(
-                leadingIcon: Icons.public_rounded,
-                label: 'Canali collegati',
-                value: salon.socialLinks.length.toString(),
-              ),
-              ...salon.socialLinks.entries.map(
-                (entry) => _DataRowTile(
-                  leadingIcon: _socialIconFor(entry.key),
-                  label: entry.key,
-                  value: entry.value,
-                  tooltip: entry.value,
-                ),
-              ),
-            ];
-
-    final prefs = salon.dashboardSections;
-    final sectionWidgets = <Widget>[];
-    final highlightedCardColor = _layerColor(theme, 2);
-    final highlightedShadowColor = _shadowColor(
-      theme,
-      lightOpacity: 0.08,
-      darkOpacity: 0.48,
+    final currencyFormatter = NumberFormat.currency(
+      locale: 'it_IT',
+      symbol: '€',
+      decimalDigits:
+          metrics.monthRevenue == metrics.monthRevenue.roundToDouble() ? 0 : 2,
     );
-    final highlightedElevation = _baseCardElevation(theme) + 2;
 
-    if (prefs.showKpis) {
-      sectionWidgets.add(
-        _SectionBlock(
-          title: 'KPI giornalieri',
-          icon: Icons.analytics_rounded,
-          backgroundColor: highlightedCardColor,
-          shadowColor: highlightedShadowColor,
-          elevation: highlightedElevation,
-          children: [
-            _DataRowTile(
-              leadingIcon: Icons.groups_rounded,
-              label: 'Staff attivo',
-              value: staffCount.toString(),
-            ),
-            _DataRowTile(
-              leadingIcon: Icons.people_alt_rounded,
-              label: 'Clienti associati',
-              value: clientsCount.toString(),
-            ),
-            _DataRowTile(
-              leadingIcon: Icons.event_available_rounded,
-              label: 'Appuntamenti futuri',
-              value: upcomingCount.toString(),
-            ),
-          ],
+    final metricCards = <Widget>[
+      _MetricTile(
+        icon: Icons.groups_2_rounded,
+        label: 'Staff attivo',
+        value: metrics.staffActive.toString(),
+        caption: 'su ${metrics.staffTotal} totali',
+        tone: _MetricTone.highlight,
+      ),
+      _MetricTile(
+        icon: Icons.person_outline_rounded,
+        label: 'Clienti',
+        value: metrics.clientsTotal.toString(),
+        caption:
+            metrics.newClientsThisMonth > 0
+                ? '+${metrics.newClientsThisMonth} questo mese'
+                : 'nessun nuovo cliente',
+        tone:
+            metrics.newClientsThisMonth > 0
+                ? _MetricTone.highlight
+                : _MetricTone.neutral,
+      ),
+      _MetricTile(
+        icon: Icons.calendar_today_rounded,
+        label: 'Appuntamenti',
+        value: metrics.appointmentsToday.toString(),
+        caption: 'oggi',
+      ),
+      _MetricTile(
+        icon: Icons.schedule_rounded,
+        label: 'Slot orari',
+        value: metrics.openDaysConfigured.toString(),
+        caption: 'giorni configurati',
+      ),
+      _MetricTile(
+        icon: Icons.precision_manufacturing_rounded,
+        label: 'Macchinari',
+        value: metrics.activeEquipmentQuantity.toString(),
+        caption: 'attivi',
+      ),
+      _MetricTile(
+        icon: Icons.content_cut_rounded,
+        label: 'Servizi',
+        value: metrics.activeServices.toString(),
+        caption: 'attivi',
+      ),
+      _MetricTile(
+        icon: Icons.inventory_2_outlined,
+        label: 'Prodotti',
+        value: metrics.inventoryItems.toString(),
+        caption: 'a magazzino',
+      ),
+      _MetricTile(
+        icon: Icons.widgets_outlined,
+        label: 'Pacchetti',
+        value: metrics.packages.toString(),
+        caption: 'disponibili',
+      ),
+      _MetricTile(
+        icon: Icons.percent_rounded,
+        label: 'Occupazione',
+        value: occupancyValue,
+        caption: occupancySubtitle,
+        tone: _MetricTone.warm,
+      ),
+      _MetricTile(
+        icon: Icons.euro_rounded,
+        label: 'Fatturato',
+        value: currencyFormatter.format(metrics.monthRevenue),
+        caption: 'questo mese',
+        tone: _MetricTone.highlight,
+      ),
+    ];
+
+    final footerCards = <Widget>[
+      _FooterInfoCard(
+        title: 'Orari di Apertura',
+        icon: Icons.access_time_rounded,
+        lines:
+            metrics.openingHoursSummary.isEmpty
+                ? const ['Nessun orario configurato']
+                : metrics.openingHoursSummary,
+        onEdit: () => unawaited(editOperationsAsync()),
+      ),
+      _FooterInfoCard(
+        title: 'Registrazione Clienti',
+        icon: Icons.how_to_reg_rounded,
+        lines: [
+          'Accesso: ${metrics.registrationAccessLabel}',
+          'Campi: ${metrics.registrationExtrasLabel}',
+        ],
+        onEdit: () => unawaited(editRegistrationAsync()),
+      ),
+      _FooterStatusCard(
+        status: salon.status,
+        onEdit: () => unawaited(editOperationsAsync()),
+      ),
+      if (metrics.upcomingClosures.isNotEmpty)
+        _FooterInfoCard(
+          title: 'Chiusure programmate',
+          icon: Icons.event_busy_rounded,
+          lines: _formatClosureLines(metrics.upcomingClosures),
         ),
-      );
-    }
+    ];
 
-    if (prefs.showOperational) {
-      sectionWidgets.add(
-        _SectionBlock(
-          title: 'Stato operativo',
-          icon: Icons.settings_input_component_rounded,
-          onEdit: onEditOperations,
-          editLabel: 'Gestisci operatività',
-          backgroundColor: highlightedCardColor,
-          shadowColor: highlightedShadowColor,
-          elevation: highlightedElevation,
-          children: [
-            _DataRowTile(
-              leadingIcon: _statusIcon(salon.status),
-              leadingColor: _statusColor(context, salon.status),
-              label: 'Stato salone',
-              value: salon.status.label,
+    return _DashboardCard(
+      borderRadius: 22,
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AdminResponsiveHeader(
+            title: 'Operatività e risorse',
+            subtitle: 'KPI, stato e capacità operative',
+            leading: _SectionIconBadge(
+              icon: Icons.dashboard_customize_rounded,
+              color: theme.colorScheme.primary,
+              soft: true,
             ),
-            _DataRowTile(
-              leadingIcon: Icons.schedule_rounded,
-              label: 'Slot orari configurati',
-              value: salon.schedule.length.toString(),
+            stackBreakpoint: 860,
+            trailingFullWidthOnStack: true,
+            trailing: _SetupProgressPill(
+              summary: setupSummary,
+              onTap: onOpenChecklist,
             ),
-            _DataRowTile(
-              leadingIcon: Icons.precision_manufacturing_rounded,
-              label: 'Macchinari',
-              value: salon.equipment.length.toString(),
-            ),
-            _DataRowTile(
-              leadingIcon: Icons.meeting_room_rounded,
-              label: 'Cabine e stanze',
-              value: salon.rooms.length.toString(),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Client registration settings card
-    String accessLabel;
-    switch (salon.clientRegistration.accessMode) {
-      case ClientRegistrationAccessMode.open:
-        accessLabel = 'Accesso immediato (salone aperto)';
-        break;
-      case ClientRegistrationAccessMode.approval:
-        accessLabel = 'Solo previa approvazione';
-        break;
-    }
-    final extras = salon.clientRegistration.extraFields;
-    String extrasLabel;
-    if (extras.isEmpty) {
-      extrasLabel = 'Nessuno';
-    } else {
-      final names =
-          extras.map((f) {
-            switch (f) {
-              case ClientRegistrationExtraField.address:
-                return 'Città di residenza';
-              case ClientRegistrationExtraField.profession:
-                return 'Professione';
-              case ClientRegistrationExtraField.referralSource:
-                return 'Come ci ha conosciuto';
-              case ClientRegistrationExtraField.notes:
-                return 'Note';
-              case ClientRegistrationExtraField.gender:
-                return 'Sesso';
-            }
-          }).toList();
-      extrasLabel = names.join(', ');
-    }
-
-    if (prefs.showClientRegistration) {
-      sectionWidgets.add(
-        _SectionBlock(
-          title: 'Registrazione clienti',
-          icon: Icons.app_registration_rounded,
-          onEdit: onEditRegistration,
-          editLabel: 'Configura registrazione',
-          backgroundColor: highlightedCardColor,
-          shadowColor: highlightedShadowColor,
-          elevation: highlightedElevation,
-          children: [
-            _DataRowTile(
-              leadingIcon: Icons.rule_folder_rounded,
-              label: 'Modalità di accesso',
-              value: accessLabel,
-            ),
-            _DataRowTile(
-              leadingIcon: Icons.list_alt_rounded,
-              label: 'Campi aggiuntivi richiesti',
-              value: extrasLabel,
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (prefs.showEquipment) {
-      sectionWidgets.add(
-        _SectionBlock(
-          title: 'Macchinari',
-          icon: Icons.precision_manufacturing_rounded,
-          onEdit: onEditEquipment,
-          editLabel: 'Gestisci macchinari',
-          backgroundColor: highlightedCardColor,
-          shadowColor: highlightedShadowColor,
-          elevation: highlightedElevation,
-          children: equipmentChildren,
-        ),
-      );
-    }
-
-    if (prefs.showRooms) {
-      sectionWidgets.add(
-        _SectionBlock(
-          title: 'Cabine e stanze',
-          icon: Icons.meeting_room_rounded,
-          onEdit: onEditRooms,
-          editLabel: 'Gestisci cabine',
-          backgroundColor: highlightedCardColor,
-          shadowColor: highlightedShadowColor,
-          elevation: highlightedElevation,
-          children: roomsChildren,
-        ),
-      );
-    }
-
-    if (prefs.showQuestionnaires) {
-      sectionWidgets.add(
-        _SectionBlock(
-          title: 'Questionari cliente',
-          icon: Icons.assignment_rounded,
-          onEdit: onManageQuestionnaires,
-          editLabel: 'Gestisci questionari',
-          backgroundColor: highlightedCardColor,
-          shadowColor: highlightedShadowColor,
-          elevation: highlightedElevation,
-          children: questionnaireChildren,
-        ),
-      );
-    }
-
-    if (prefs.showLoyalty) {
-      sectionWidgets.add(
-        _SectionBlock(
-          title: 'Programma fedeltà',
-          icon: Icons.loyalty_rounded,
-          onEdit: onEditLoyalty,
-          editLabel: 'Configura fedeltà',
-          backgroundColor: highlightedCardColor,
-          shadowColor: highlightedShadowColor,
-          elevation: highlightedElevation,
-          children: loyaltyChildren,
-        ),
-      );
-    }
-
-    if (prefs.showSocial) {
-      sectionWidgets.add(
-        _SectionBlock(
-          title: 'Presenza online e social',
-          icon: Icons.alternate_email_rounded,
-          onEdit: onEditSocial,
-          editLabel: 'Gestisci social',
-          backgroundColor: highlightedCardColor,
-          shadowColor: highlightedShadowColor,
-          elevation: highlightedElevation,
-          children: socialChildren,
-        ),
-      );
-    }
-
-    const spacing = 20.0;
-
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(28, 28, 28, 32),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  Icons.dashboard_customize_rounded,
-                  size: 32,
-                  color: theme.colorScheme.primary,
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Operatività e risorse',
-                        style: textTheme.headlineSmall,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Visione sintetica su stato, risorse e capacità operative del salone.',
-                        style: textTheme.bodyMedium,
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Filtra sezioni',
-                  onPressed: showSectionsFilter,
-                  icon: const Icon(Icons.filter_list_rounded),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            if (sectionWidgets.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                child: Text(
-                  'Nessuna sezione selezionata. Aggiorna le preferenze del dashboard per mostrare i moduli di interesse.',
-                  style: textTheme.bodyMedium,
-                ),
-              )
-            else
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final maxWidth = constraints.maxWidth;
-                  final columns = _resolveColumnCount(maxWidth);
-                  final itemWidth =
-                      columns == 1
-                          ? maxWidth
-                          : (maxWidth - spacing * (columns - 1)) / columns;
-                  return Wrap(
-                    spacing: spacing,
-                    runSpacing: spacing,
-                    children:
-                        sectionWidgets
-                            .map(
-                              (section) => SizedBox(
-                                width: columns == 1 ? maxWidth : itemWidth,
-                                child: section,
-                              ),
-                            )
-                            .toList(),
-                  );
-                },
-              ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 20),
+          _AdaptiveGrid(
+            minTileWidth: 170,
+            largeColumns: 5,
+            mediumColumns: 3,
+            smallColumns: 2,
+            spacing: 14,
+            children: metricCards,
+          ),
+          const SizedBox(height: 16),
+          _AdaptiveGrid(
+            minTileWidth: 230,
+            largeColumns: 3,
+            mediumColumns: 2,
+            smallColumns: 1,
+            spacing: 14,
+            children: footerCards,
+          ),
+        ],
       ),
     );
   }
+}
+
+class _DashboardCard extends StatelessWidget {
+  const _DashboardCard({
+    required this.child,
+    this.padding = const EdgeInsets.all(20),
+    this.borderRadius = 20,
+  });
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final double borderRadius;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(borderRadius),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.9),
+        ),
+      ),
+      child: Padding(padding: padding, child: child),
+    );
+  }
+}
+
+class _SectionIconBadge extends StatelessWidget {
+  const _SectionIconBadge({
+    required this.icon,
+    required this.color,
+    this.soft = false,
+  });
+
+  final IconData icon;
+  final Color color;
+  final bool soft;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final background =
+        soft
+            ? Color.alphaBlend(
+              color.withValues(alpha: 0.10),
+              theme.colorScheme.surfaceContainerLowest,
+            )
+            : Color.alphaBlend(
+              color.withValues(alpha: 0.14),
+              theme.colorScheme.primaryContainer,
+            );
+    return Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Icon(icon, size: 18, color: color),
+    );
+  }
+}
+
+class _WhatsAppLogoBadge extends StatelessWidget {
+  const _WhatsAppLogoBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 34,
+      height: 34,
+      child: Image.asset(
+        'assets/social_logo/whatsapp.PNG',
+        fit: BoxFit.contain,
+      ),
+    );
+  }
+}
+
+class _InlineMetaRow extends StatelessWidget {
+  const _InlineMetaRow({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: theme.colorScheme.onSurfaceVariant),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurface,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SetupProgressPill extends StatelessWidget {
+  const _SetupProgressPill({required this.summary, this.onTap});
+
+  final _SalonSetupSummary summary;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final accent =
+        summary.highlighted
+            ? theme.colorScheme.primary
+            : theme.colorScheme.onSurfaceVariant;
+    final child = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.check_circle_outline_rounded, size: 16, color: accent),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              summary.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: accent,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (onTap == null) {
+      return child;
+    }
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: child,
+    );
+  }
+}
+
+class _AdaptiveGrid extends StatelessWidget {
+  const _AdaptiveGrid({
+    required this.children,
+    required this.minTileWidth,
+    required this.largeColumns,
+    required this.mediumColumns,
+    required this.smallColumns,
+    this.spacing = 12,
+  });
+
+  final List<Widget> children;
+  final double minTileWidth;
+  final int largeColumns;
+  final int mediumColumns;
+  final int smallColumns;
+  final double spacing;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.maxWidth;
+        final columns =
+            maxWidth >= largeColumns * minTileWidth
+                ? largeColumns
+                : maxWidth >= mediumColumns * minTileWidth
+                ? mediumColumns
+                : maxWidth >= smallColumns * minTileWidth
+                ? smallColumns
+                : 1;
+        final tileWidth =
+            columns == 1
+                ? maxWidth
+                : (maxWidth - spacing * (columns - 1)) / columns;
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children:
+              children
+                  .map((child) => SizedBox(width: tileWidth, child: child))
+                  .toList(),
+        );
+      },
+    );
+  }
+}
+
+enum _MetricTone { neutral, highlight, warm }
+
+class _MetricTile extends StatelessWidget {
+  const _MetricTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.caption,
+    this.tone = _MetricTone.neutral,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final String caption;
+  final _MetricTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    late final Color background;
+    late final Color borderColor;
+    late final Color iconColor;
+    switch (tone) {
+      case _MetricTone.highlight:
+        background = Color.alphaBlend(
+          theme.colorScheme.primary.withValues(alpha: 0.08),
+          theme.colorScheme.surfaceContainerLowest,
+        );
+        borderColor = theme.colorScheme.primary.withValues(alpha: 0.22);
+        iconColor = theme.colorScheme.primary;
+      case _MetricTone.warm:
+        background = Color.alphaBlend(
+          const Color(0xFFE7B95A).withValues(alpha: 0.10),
+          theme.colorScheme.surfaceContainerLowest,
+        );
+        borderColor = const Color(0xFFE7B95A).withValues(alpha: 0.32);
+        iconColor = const Color(0xFFB88315);
+      case _MetricTone.neutral:
+        background = theme.colorScheme.surfaceContainerLowest;
+        borderColor = theme.colorScheme.outlineVariant;
+        iconColor = theme.colorScheme.onSurfaceVariant;
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: iconColor),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            value,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            caption,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FooterInfoCard extends StatelessWidget {
+  const _FooterInfoCard({
+    required this.title,
+    required this.icon,
+    required this.lines,
+    this.onEdit,
+  });
+
+  final String title;
+  final IconData icon;
+  final List<String> lines;
+  final VoidCallback? onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: theme.colorScheme.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (onEdit != null)
+                IconButton(
+                  onPressed: onEdit,
+                  tooltip: 'Modifica',
+                  constraints: const BoxConstraints.tightFor(
+                    width: 32,
+                    height: 32,
+                  ),
+                  padding: EdgeInsets.zero,
+                  icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ...lines.map(
+            (line) => Padding(
+              padding: const EdgeInsets.only(top: 2, bottom: 2),
+              child: Text(
+                line,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FooterStatusCard extends StatelessWidget {
+  const _FooterStatusCard({required this.status, this.onEdit});
+
+  final SalonStatus status;
+  final VoidCallback? onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(
+          _statusColor(context, status).withValues(alpha: 0.08),
+          theme.colorScheme.surfaceContainerLowest,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: _statusColor(context, status).withValues(alpha: 0.20),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.shield_outlined,
+                size: 18,
+                color: _statusColor(context, status),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Stato',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (onEdit != null)
+                IconButton(
+                  onPressed: onEdit,
+                  tooltip: 'Modifica stato',
+                  constraints: const BoxConstraints.tightFor(
+                    width: 32,
+                    height: 32,
+                  ),
+                  padding: EdgeInsets.zero,
+                  icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _StatusChip(status: status),
+        ],
+      ),
+    );
+  }
+}
+
+List<String> _buildOpeningHoursSummary(List<SalonDailySchedule> schedule) {
+  final openEntries =
+      schedule.where((entry) => entry.isOpen).toList()
+        ..sort((left, right) => left.weekday.compareTo(right.weekday));
+  if (openEntries.isEmpty) {
+    return const <String>[];
+  }
+
+  final groups = <List<SalonDailySchedule>>[];
+  for (final entry in openEntries) {
+    if (groups.isEmpty) {
+      groups.add(<SalonDailySchedule>[entry]);
+      continue;
+    }
+    final currentGroup = groups.last;
+    final previous = currentGroup.last;
+    final sameTime =
+        previous.openMinuteOfDay == entry.openMinuteOfDay &&
+        previous.closeMinuteOfDay == entry.closeMinuteOfDay;
+    final consecutiveDay = entry.weekday == previous.weekday + 1;
+    if (sameTime && consecutiveDay) {
+      currentGroup.add(entry);
+    } else {
+      groups.add(<SalonDailySchedule>[entry]);
+    }
+  }
+
+  return groups
+      .map((group) {
+        final first = group.first;
+        final last = group.last;
+        final dayLabel =
+            first.weekday == last.weekday
+                ? _weekdayShortLabel(first.weekday)
+                : '${_weekdayShortLabel(first.weekday)}-${_weekdayShortLabel(last.weekday)}';
+        final openLabel = _formatMinuteOfDay(first.openMinuteOfDay);
+        final closeLabel = _formatMinuteOfDay(first.closeMinuteOfDay);
+        return '$dayLabel $openLabel - $closeLabel';
+      })
+      .toList(growable: false);
+}
+
+String _registrationAccessLabel(ClientRegistrationAccessMode mode) {
+  switch (mode) {
+    case ClientRegistrationAccessMode.open:
+      return 'Accesso immediato';
+    case ClientRegistrationAccessMode.approval:
+      return 'Richiede approvazione';
+  }
+}
+
+String _registrationExtrasLabel(List<ClientRegistrationExtraField> extras) {
+  if (extras.isEmpty) {
+    return 'Nessuno';
+  }
+  return extras
+      .map((extra) {
+        switch (extra) {
+          case ClientRegistrationExtraField.address:
+            return 'Città';
+          case ClientRegistrationExtraField.profession:
+            return 'Professione';
+          case ClientRegistrationExtraField.referralSource:
+            return 'Provenienza';
+          case ClientRegistrationExtraField.notes:
+            return 'Note';
+          case ClientRegistrationExtraField.gender:
+            return 'Sesso';
+        }
+      })
+      .join(', ');
+}
+
+List<String> _formatClosureLines(List<SalonClosure> closures) {
+  final formatter = DateFormat('dd MMM yyyy', 'it');
+  final visible = closures
+      .take(3)
+      .map((closure) {
+        final period =
+            closure.isSingleDay
+                ? formatter.format(closure.start)
+                : '${formatter.format(closure.start)} - ${formatter.format(closure.end)}';
+        if (closure.reason == null || closure.reason!.trim().isEmpty) {
+          return period;
+        }
+        return '$period · ${closure.reason!.trim()}';
+      })
+      .toList(growable: false);
+  final remaining = closures.length - visible.length;
+  if (remaining > 0) {
+    visible.add('+$remaining altre chiusure');
+  }
+  return visible;
+}
+
+String _weekdayShortLabel(int weekday) {
+  switch (weekday) {
+    case DateTime.monday:
+      return 'Lun';
+    case DateTime.tuesday:
+      return 'Mar';
+    case DateTime.wednesday:
+      return 'Mer';
+    case DateTime.thursday:
+      return 'Gio';
+    case DateTime.friday:
+      return 'Ven';
+    case DateTime.saturday:
+      return 'Sab';
+    case DateTime.sunday:
+      return 'Dom';
+    default:
+      return '—';
+  }
+}
+
+String _formatMinuteOfDay(int? minutes) {
+  if (minutes == null) {
+    return '--:--';
+  }
+  final hour = (minutes ~/ 60).toString().padLeft(2, '0');
+  final minute = (minutes % 60).toString().padLeft(2, '0');
+  return '$hour:$minute';
 }
 
 class _ResponsiveCardWrap extends StatelessWidget {
@@ -1327,11 +1439,7 @@ class _ResponsiveCardWrap extends StatelessWidget {
 
         final children =
             items.map((item) {
-              final span = columns == 1 ? 1 : item.span.clamp(1, columns);
-              final width =
-                  columns == 1
-                      ? maxWidth
-                      : columnWidth * span + spacing * (span - 1);
+              final width = columns == 1 ? maxWidth : columnWidth;
               return SizedBox(width: width, child: item.child);
             }).toList();
 
@@ -1342,10 +1450,9 @@ class _ResponsiveCardWrap extends StatelessWidget {
 }
 
 class _ResponsiveCardItem {
-  const _ResponsiveCardItem({required this.child, this.span = 1});
+  const _ResponsiveCardItem({required this.child});
 
   final Widget child;
-  final int span;
 }
 
 int _resolveColumnCount(double maxWidth) {
@@ -1354,203 +1461,42 @@ int _resolveColumnCount(double maxWidth) {
   return 1;
 }
 
-class _SectionBlock extends StatelessWidget {
-  const _SectionBlock({
-    required this.title,
-    required this.icon,
-    required this.children,
-    this.onEdit,
-    this.editLabel,
-    this.backgroundColor,
-    this.shadowColor,
-    this.elevation,
-  });
-
-  final String title;
-  final IconData icon;
-  final List<Widget> children;
-  final VoidCallback? onEdit;
-  final String? editLabel;
-  final Color? backgroundColor;
-  final Color? shadowColor;
-  final double? elevation;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final primaryColor = theme.colorScheme.primary;
-    final effectiveChildren = children.whereType<Widget>().toList();
-    if (effectiveChildren.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    final dividerColor = theme.dividerColor.withOpacity(0.14);
-
-    final content = <Widget>[];
-    for (var i = 0; i < effectiveChildren.length; i++) {
-      content.add(effectiveChildren[i]);
-      if (i < effectiveChildren.length - 1) {
-        content.add(const SizedBox(height: 12));
-        content.add(Divider(height: 1, color: dividerColor));
-        content.add(const SizedBox(height: 12));
-      }
-    }
-
-    final hasCustomColor = backgroundColor != null;
-    final defaultShadow =
-        theme.cardTheme.shadowColor ??
-        Colors.black.withOpacity(
-          theme.brightness == Brightness.dark ? 0.4 : 0.12,
-        );
-    final borderSide = BorderSide(
-      color: theme.colorScheme.outlineVariant.withOpacity(
-        hasCustomColor ? 0.22 : 0.18,
-      ),
-      width: 1.1,
-    );
-    return Card(
-      margin: EdgeInsets.zero,
-      clipBehavior: Clip.antiAlias,
-      color: hasCustomColor ? backgroundColor : null,
-      elevation: elevation ?? 2,
-      shadowColor: shadowColor ?? defaultShadow,
-      surfaceTintColor: hasCustomColor ? Colors.transparent : null,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-        side: borderSide,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Icon(icon, size: 28, color: primaryColor),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 2,
-                  ),
-                ),
-                if (onEdit != null)
-                  TextButton.icon(
-                    onPressed: onEdit,
-                    style: TextButton.styleFrom(foregroundColor: primaryColor),
-                    icon: const Icon(Icons.edit_outlined, size: 26),
-                    label: Text(''),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            ...content,
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _DataRowTile extends StatelessWidget {
-  const _DataRowTile({
-    required this.leadingIcon,
-    required this.label,
-    required this.value,
-    this.leadingColor,
-    this.tooltip,
-  });
-
-  final IconData leadingIcon;
-  final String label;
-  final String value;
-  final Color? leadingColor;
-  final String? tooltip;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final effectiveValue = value.isEmpty ? '—' : value;
-    final valueText = Text(
-      effectiveValue,
-      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-      textAlign: TextAlign.right,
-      overflow: TextOverflow.ellipsis,
-      maxLines: 1,
-    );
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Icon(
-          leadingIcon,
-          size: 26,
-          color: leadingColor ?? theme.colorScheme.primary,
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            label,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Flexible(
-          child:
-              tooltip != null && tooltip!.isNotEmpty
-                  ? Tooltip(
-                    message: tooltip!,
-                    waitDuration: const Duration(milliseconds: 400),
-                    child: valueText,
-                  )
-                  : valueText,
-        ),
-      ],
-    );
-  }
-}
-
 class _InfoBadge extends StatelessWidget {
-  const _InfoBadge({required this.icon, required this.label});
+  const _InfoBadge({required this.icon, required this.label, this.palette});
 
   final IconData icon;
   final String label;
+  final _ChipPalette? palette;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final accentColor = colorScheme.secondary;
-    final background = accentColor.withOpacity(
-      theme.brightness == Brightness.dark ? 0.28 : 0.12,
-    );
-    final borderColor = accentColor.withOpacity(0.22);
+    final resolvedPalette =
+        palette ??
+        const _ChipPalette(
+          foreground: Color(0xFF6B7280),
+          background: Color(0xFFF3F4F6),
+          border: Color(0xFFD9DDE3),
+        );
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: background,
+        color: resolvedPalette.background,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: borderColor),
+        border: Border.all(color: resolvedPalette.border),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 22, color: accentColor),
+          Icon(icon, size: 16, color: resolvedPalette.foreground),
           const SizedBox(width: 8),
           Flexible(
             child: Text(
               label,
-              style: theme.textTheme.bodyLarge?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: colorScheme.onSecondaryContainer,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w500,
+                color: resolvedPalette.foreground,
               ),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
@@ -1612,193 +1558,198 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
             ? 'Pagamenti attivi'
             : 'In attesa di verifica';
 
-    final statusColor =
+    final statusPalette = _stripeChipPalette(
+      context: context,
+      hasAccount: accountId != null,
+      onlinePaymentsEnabled: clientOnlinePaymentsEnabled,
+      readyForPayments: salon.canAcceptOnlinePayments,
+    );
+    final stripeInfoPalette =
         accountId == null
-            ? theme.colorScheme.error
-            : !clientOnlinePaymentsEnabled
-            ? theme.colorScheme.tertiary
-            : salon.canAcceptOnlinePayments
-            ? theme.colorScheme.primary
-            : theme.colorScheme.secondary;
+            ? _softErrorChipPalette(context)
+            : _infoBlueChipPalette(context);
 
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return _DashboardCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _SectionIconBadge(
+                icon: Icons.euro_rounded,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Stripe',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Chip(
+                label: Text(statusText),
+                visualDensity: const VisualDensity(
+                  horizontal: -2,
+                  vertical: -2,
+                ),
+                side: BorderSide(color: statusPalette.border),
+                backgroundColor: statusPalette.background,
+                labelStyle: theme.textTheme.labelSmall?.copyWith(
+                  color: statusPalette.foreground,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'Account ID',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerLowest,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Text(
+              accountId ?? 'Account non collegato',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontFamily: 'monospace',
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerLowest,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
               children: [
-                Text('Stripe', style: theme.textTheme.titleMedium),
-                const SizedBox(width: 12),
-                Chip(
-                  label: Text(statusText),
-                  avatar: Icon(
-                    accountId == null
-                        ? Icons.warning_amber_rounded
-                        : !clientOnlinePaymentsEnabled
-                        ? Icons.pause_circle_filled_rounded
-                        : salon.canAcceptOnlinePayments
-                        ? Icons.verified_rounded
-                        : Icons.pending_actions_rounded,
+                Expanded(
+                  child: Text(
+                    'Pagamenti online',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
-                  backgroundColor: statusColor.withValues(alpha: 0.12),
-                  labelStyle: theme.textTheme.labelSmall?.copyWith(
-                    color: statusColor,
-                  ),
+                ),
+                Switch.adaptive(
+                  value: clientOnlinePaymentsEnabled,
+                  onChanged:
+                      _isUpdatingClientOnlinePayments
+                          ? null
+                          : (enabled) => _handleClientOnlinePaymentsToggle(
+                            context,
+                            enabled,
+                          ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                if (accountId != null)
-                  ActionChip(
-                    avatar: const Icon(Icons.copy, size: 16),
-                    label: Text(accountId),
-                    tooltip: 'Copia ID account',
-                    onPressed: () => _copyToClipboard(context, accountId),
-                  ),
-                ActionChip(
-                  avatar: Icon(
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _InfoBadge(
+                icon:
                     chargesEnabled
-                        ? Icons.check_circle_outline
-                        : Icons.payment_rounded,
-                  ),
-                  label: Text(
-                    chargesEnabled
-                        ? 'Stripe: transazioni abilitate'
-                        : 'Stripe: transazioni disabilitate',
-                  ),
-                  onPressed: null,
-                ),
-                if (accountId != null)
-                  ActionChip(
-                    avatar: Icon(
-                      payoutsEnabled
-                          ? Icons.account_balance_wallet_rounded
-                          : Icons.savings_rounded,
-                    ),
-                    label: Text(
-                      payoutsEnabled
-                          ? 'Bonifici attivi'
-                          : 'Bonifici da abilitare',
-                    ),
-                    onPressed: null,
-                  ),
-                if (accountId != null)
-                  ActionChip(
-                    avatar: Icon(
-                      detailsSubmitted
-                          ? Icons.assignment_turned_in_rounded
-                          : Icons.assignment_late_rounded,
-                    ),
-                    label: Text(
-                      detailsSubmitted
-                          ? 'Dati fiscali completi'
-                          : 'Completa l\'onboarding',
-                    ),
-                    onPressed: null,
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Container(
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerLow,
-                borderRadius: BorderRadius.circular(12),
+                        ? Icons.check_circle_outline_rounded
+                        : Icons.remove_circle_outline_rounded,
+                label: 'Transazioni',
+                palette: stripeInfoPalette,
               ),
-              child: SwitchListTile.adaptive(
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 2,
-                ),
-                value: clientOnlinePaymentsEnabled,
-                onChanged:
-                    _isUpdatingClientOnlinePayments
-                        ? null
-                        : (enabled) =>
-                            _handleClientOnlinePaymentsToggle(context, enabled),
-                title: const Text('Pagamenti online clienti'),
-                subtitle: Text(
-                  clientOnlinePaymentsEnabled
-                      ? 'Abilitati nell\'app clienti (se Stripe è pronto).'
-                      : 'Disabilitati dall\'admin. I clienti non potranno pagare online.',
-                ),
+              _InfoBadge(
+                icon:
+                    payoutsEnabled
+                        ? Icons.check_circle_outline_rounded
+                        : Icons.remove_circle_outline_rounded,
+                label: 'Bonifici',
+                palette: stripeInfoPalette,
               ),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                if (accountId == null)
-                  FilledButton.icon(
-                    onPressed:
-                        _isCreatingAccount
-                            ? null
-                            : () => _handleCreateAccount(context),
-                    icon:
-                        _isCreatingAccount
-                            ? const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                            : const Icon(Icons.link_rounded),
-                    label: Text(
-                      _isCreatingAccount
-                          ? 'Creazione in corso...'
-                          : 'Crea account Stripe Connect',
-                    ),
-                  )
-                else ...[
-                  FilledButton.icon(
-                    onPressed:
-                        _isGeneratingLink
-                            ? null
-                            : () => _handleOnboardingLink(context),
-                    icon:
-                        _isGeneratingLink
-                            ? const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                            : const Icon(Icons.login_rounded),
-                    label: Text(
-                      _isGeneratingLink
-                          ? 'Generazione link...'
-                          : 'Apri onboarding Stripe',
-                    ),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed:
-                        accountId.isEmpty
-                            ? null
-                            : () => _copyToClipboard(context, accountId),
-                    icon: const Icon(Icons.copy_outlined),
-                    label: const Text('Copia ID account'),
-                  ),
-                ],
-                TextButton.icon(
-                  onPressed:
-                      () => launchUrl(
-                        Uri.parse(
-                          'https://support.stripe.com/questions/express-dashboard-overview',
-                        ),
-                        mode: LaunchMode.externalApplication,
+              _InfoBadge(
+                icon:
+                    detailsSubmitted
+                        ? Icons.check_circle_outline_rounded
+                        : Icons.remove_circle_outline_rounded,
+                label: 'Dati fiscali',
+                palette: stripeInfoPalette,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed:
+                  accountId == null
+                      ? (_isCreatingAccount
+                          ? null
+                          : () => _handleCreateAccount(context))
+                      : (_isGeneratingLink
+                          ? null
+                          : () => _handleOnboardingLink(context)),
+              icon:
+                  (accountId == null ? _isCreatingAccount : _isGeneratingLink)
+                      ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : Icon(
+                        accountId == null
+                            ? Icons.add_link_rounded
+                            : Icons.send_rounded,
+                        size: 18,
                       ),
-                  icon: const Icon(Icons.help_outline_rounded),
-                  label: const Text('Guida Stripe Connect'),
+              label: Text(
+                accountId == null
+                    ? (_isCreatingAccount ? 'Creazione...' : 'Configura')
+                    : (_isGeneratingLink ? 'Apertura...' : 'Dashboard'),
+              ),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 15),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
                 ),
-              ],
+              ),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              if (accountId != null)
+                OutlinedButton.icon(
+                  onPressed: () => _copyToClipboard(context, accountId),
+                  icon: const Icon(Icons.copy_outlined, size: 18),
+                  label: const Text('Copia ID'),
+                ),
+              TextButton.icon(
+                onPressed:
+                    () => launchUrl(
+                      Uri.parse(
+                        'https://support.stripe.com/questions/express-dashboard-overview',
+                      ),
+                      mode: LaunchMode.externalApplication,
+                    ),
+                icon: const Icon(Icons.help_outline_rounded, size: 18),
+                label: const Text('Guida'),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -1822,7 +1773,7 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
         businessType: draft.businessType,
       );
       if (!mounted) return;
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(
           content: Text(
             'Account Stripe creato (${draft.isCompany ? 'azienda' : 'persona fisica'}) per ${draft.email}. Completa l\'onboarding.',
@@ -1831,7 +1782,7 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
       );
     } catch (error) {
       if (!mounted) return;
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(
           content: Text('Errore durante la creazione dell\'account: $error'),
         ),
@@ -1847,7 +1798,7 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
     final salon = widget.salon;
     final accountId = salon.stripeAccountId;
     if (accountId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Nessun account Stripe collegato.')),
       );
       return;
@@ -1869,13 +1820,13 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
       );
       if (!mounted) return;
       if (!launched) {
-        messenger.showSnackBar(
+        messenger.showAppSnackBar(
           const SnackBar(content: Text('Impossibile aprire il link Stripe.')),
         );
       }
     } catch (error) {
       if (!mounted) return;
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(
           content: Text('Errore durante la generazione del link: $error'),
         ),
@@ -1900,16 +1851,14 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
     final messenger = ScaffoldMessenger.of(context);
     try {
       final store = ref.read(appDataProvider.notifier);
-      final updatedSalon = salon.copyWith(
-        featureFlags: salon.featureFlags.copyWith(
-          clientOnlinePayments: enabled,
-        ),
+      final updatedFeatureFlags = salon.featureFlags.copyWith(
+        clientOnlinePayments: enabled,
       );
-      await store.upsertSalon(updatedSalon);
+      await store.updateSalonFeatureFlags(salon.id, updatedFeatureFlags);
       if (!mounted) {
         return;
       }
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(
           content: Text(
             enabled
@@ -1922,7 +1871,7 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
       if (!mounted) {
         return;
       }
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(
           content: Text(
             'Impossibile aggiornare i pagamenti online del salone: $error',
@@ -2028,7 +1977,7 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
     final messenger = ScaffoldMessenger.of(context);
     await Clipboard.setData(ClipboardData(text: value));
     if (!mounted) return;
-    messenger.showSnackBar(
+    messenger.showAppSnackBar(
       const SnackBar(content: Text('ID account copiato negli appunti')),
     );
   }
@@ -2045,7 +1994,6 @@ class _WhatsAppSettingsCard extends ConsumerStatefulWidget {
 }
 
 class _WhatsAppSettingsCardState extends ConsumerState<_WhatsAppSettingsCard> {
-  bool _isConnecting = false;
   bool _isDisconnecting = false;
 
   @override
@@ -2062,301 +2010,244 @@ class _WhatsAppSettingsCardState extends ConsumerState<_WhatsAppSettingsCard> {
   Widget _buildConfiguredCard(BuildContext context, WhatsAppConfig? config) {
     final theme = Theme.of(context);
     final isConfigured = config?.isConfigured ?? false;
-    final statusColor =
-        isConfigured ? theme.colorScheme.primary : theme.colorScheme.secondary;
+    final statusPalette = _connectionChipPalette(context, isConfigured);
+    final infoBluePalette = _infoBlueChipPalette(context);
     final updatedAt = config?.updatedAt?.toLocal();
-    final connectedAt = config?.connectedAt?.toLocal();
-    final tokenExpiresAt = config?.tokenExpiresAt?.toLocal();
     final updatedAtLabel =
         updatedAt != null
             ? DateFormat('dd MMM yyyy HH:mm', 'it').format(updatedAt)
             : 'Mai aggiornato';
-    final connectedAtLabel =
-        connectedAt != null
-            ? DateFormat('dd MMM yyyy HH:mm', 'it').format(connectedAt)
-            : 'Non disponibile';
-    final tokenExpiresAtLabel =
-        tokenExpiresAt != null
-            ? DateFormat('dd MMM yyyy HH:mm', 'it').format(tokenExpiresAt)
-            : 'Non disponibile';
     final onboardingStatusLabel = _formatWhatsappOnboardingStatus(
       config?.onboardingStatus,
     );
-    final lastPreviewSendLabel = _formatLastPreviewSendStatus(config);
 
-    final summaryBadges = <Widget>[
-      _InfoBadge(
-        icon: Icons.settings_rounded,
-        label: 'Modalità ${config?.mode ?? '—'}',
-      ),
-      _InfoBadge(icon: Icons.history_rounded, label: 'Agg. $updatedAtLabel'),
-      _InfoBadge(
-        icon: Icons.phone_iphone_rounded,
-        label: config?.displayPhoneNumber ?? 'Numero non collegato',
-      ),
-      _InfoBadge(
-        icon: Icons.sync_rounded,
-        label: 'Onboarding $onboardingStatusLabel',
-      ),
-    ];
-
-    final details = <Widget>[
-      _WhatsAppDetailRow(
-        icon: Icons.link_rounded,
-        label: 'Stato connessione',
-        value: isConfigured ? 'Collegato' : 'Da configurare',
-      ),
-      _WhatsAppDetailRow(
-        icon: Icons.event_available_rounded,
-        label: 'Data collegamento',
-        value: connectedAtLabel,
-      ),
-      _WhatsAppDetailRow(
-        icon: Icons.dns_rounded,
-        label: 'Phone Number ID',
-        value: config?.phoneNumberId ?? '—',
-      ),
-      _WhatsAppDetailRow(
-        icon: Icons.business_rounded,
-        label: 'Business Manager ID',
-        value: _maskSecret(config?.businessId),
-      ),
-      _WhatsAppDetailRow(
-        icon: Icons.apps_rounded,
-        label: 'WABA ID',
-        value: _maskSecret(config?.wabaId),
-      ),
-      _WhatsAppDetailRow(
-        icon: Icons.vpn_key_rounded,
-        label: 'Secret token',
-        value: _maskSecret(config?.tokenSecretId),
-      ),
-      _WhatsAppDetailRow(
-        icon: Icons.lock_outline_rounded,
-        label: 'Verify token',
-        value: _maskSecret(config?.verifyTokenSecretId),
-      ),
-      _WhatsAppDetailRow(
-        icon: Icons.api_rounded,
-        label: 'Graph API version',
-        value: config?.graphApiVersion ?? '—',
-      ),
-      _WhatsAppDetailRow(
-        icon: Icons.schedule_rounded,
-        label: 'Scadenza token (stimata)',
-        value: tokenExpiresAtLabel,
-      ),
-      _WhatsAppDetailRow(
-        icon: Icons.mark_email_read_rounded,
-        label: 'Ultimo test invio',
-        value: lastPreviewSendLabel,
-      ),
-    ];
-
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(
-                    'WhatsApp Business',
-                    style: theme.textTheme.titleMedium,
+    return _DashboardCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const _WhatsAppLogoBadge(),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'WhatsApp',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                Chip(
-                  label: Text(isConfigured ? 'Collegato' : 'Da configurare'),
-                  avatar: Icon(
-                    isConfigured
-                        ? Icons.check_circle_rounded
-                        : Icons.link_off_rounded,
-                    color: statusColor,
-                    size: 18,
-                  ),
-                  backgroundColor: statusColor.withValues(alpha: 0.12),
-                  labelStyle: theme.textTheme.labelSmall?.copyWith(
-                    color: statusColor,
-                  ),
+              ),
+              Chip(
+                label: Text(isConfigured ? 'Collegato' : 'Da configurare'),
+                visualDensity: const VisualDensity(
+                  horizontal: -2,
+                  vertical: -2,
                 ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Wrap(spacing: 12, runSpacing: 12, children: summaryBadges),
-            const SizedBox(height: 16),
-            ...details,
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                FilledButton.icon(
-                  onPressed:
-                      _isConnecting ? null : () => _handleConnect(context),
-                  icon:
-                      _isConnecting
-                          ? const SizedBox(
-                            height: 18,
-                            width: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                          : const Icon(Icons.bolt_rounded),
-                  label: Text(
-                    _isConnecting
-                        ? 'Apertura...'
-                        : isConfigured
-                        ? 'Aggiorna collegamento'
-                        : 'Collega WhatsApp',
-                  ),
+                side: BorderSide(color: statusPalette.border),
+                backgroundColor: statusPalette.background,
+                labelStyle: theme.textTheme.labelSmall?.copyWith(
+                  color: statusPalette.foreground,
+                  fontWeight: FontWeight.w700,
                 ),
-                if (isConfigured)
-                  OutlinedButton.icon(
-                    onPressed:
-                        _isDisconnecting
-                            ? null
-                            : () => _handleDisconnect(context),
-                    icon:
-                        _isDisconnecting
-                            ? const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                            : const Icon(Icons.link_off_rounded),
-                    label: Text(
-                      _isDisconnecting ? 'Disconnessione...' : 'Disconnetti',
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final useTwoColumns = constraints.maxWidth >= 520;
+              final tileWidth =
+                  useTwoColumns
+                      ? (constraints.maxWidth - 10) / 2
+                      : constraints.maxWidth;
+              return Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  SizedBox(
+                    width: tileWidth,
+                    child: _WhatsAppDetailRow(
+                      icon: Icons.phone_iphone_rounded,
+                      label: 'Numero',
+                      value: config?.displayPhoneNumber ?? 'Non collegato',
                     ),
                   ),
+                  SizedBox(
+                    width: tileWidth,
+                    child: _WhatsAppDetailRow(
+                      icon: Icons.settings_rounded,
+                      label: 'Modalità',
+                      value: config?.mode ?? '—',
+                    ),
+                  ),
+                  SizedBox(
+                    width: tileWidth,
+                    child: _WhatsAppDetailRow(
+                      icon: Icons.sync_rounded,
+                      label: 'Stato sync',
+                      value: onboardingStatusLabel,
+                    ),
+                  ),
+                  SizedBox(
+                    width: tileWidth,
+                    child: _WhatsAppDetailRow(
+                      icon: Icons.history_rounded,
+                      label: 'Ultimo aggiornamento',
+                      value: updatedAtLabel,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 14),
+          if (isConfigured)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: infoBluePalette.background,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: infoBluePalette.border),
+              ),
+              child: Text(
+                config?.needsVerification == true
+                    ? 'Numero collegato ma ancora da verificare e registrare.'
+                    : config?.needsReconnect == true
+                    ? 'Connessione legacy disattivata. Apri il modulo WhatsApp e riconnetti con Embedded Signup.'
+                    : 'Sincronizzato e pronto per la gestione dal modulo WhatsApp.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: infoBluePalette.foreground,
+                ),
+              ),
+            ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _openWhatsAppDetails,
+              icon: Icon(
+                isConfigured ? Icons.visibility_outlined : Icons.bolt_rounded,
+                size: 18,
+              ),
+              label: Text(isConfigured ? 'Dettagli' : 'Configura'),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 15),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ),
+          if (isConfigured) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                OutlinedButton.icon(
+                  onPressed:
+                      _isDisconnecting
+                          ? null
+                          : () => _handleDisconnect(context),
+                  icon:
+                      _isDisconnecting
+                          ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                          : const Icon(Icons.link_off_rounded, size: 18),
+                  label: Text(
+                    _isDisconnecting ? 'Disconnessione...' : 'Disconnetti',
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _openWhatsAppDetails,
+                  icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                  label: const Text('Apri modulo'),
+                ),
               ],
             ),
           ],
-        ),
+        ],
       ),
     );
   }
 
   Widget _buildLoadingCard(BuildContext context) {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Row(
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Text(
-                'Caricamento impostazioni WhatsApp...',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
+    return _DashboardCard(
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(strokeWidth: 2.4),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              'Caricamento impostazioni WhatsApp...',
+              style: Theme.of(context).textTheme.bodyMedium,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildErrorCard(BuildContext context, Object error) {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'WhatsApp Business',
-              style: Theme.of(context).textTheme.titleMedium,
+    final theme = Theme.of(context);
+    return _DashboardCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'WhatsApp',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w700,
             ),
-            const SizedBox(height: 12),
-            Text(
-              'Impossibile recuperare la configurazione: $error',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 12),
-            TextButton.icon(
-              onPressed:
-                  () => ref.invalidate(whatsappConfigProvider(widget.salonId)),
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('Riprova'),
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Impossibile recuperare la configurazione: $error',
+            style: theme.textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 12),
+          TextButton.icon(
+            onPressed:
+                () => ref.invalidate(whatsappConfigProvider(widget.salonId)),
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('Riprova'),
+          ),
+        ],
       ),
     );
   }
 
-  Future<void> _handleConnect(BuildContext context) async {
-    setState(() => _isConnecting = true);
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await ref.read(whatsappServiceProvider).openOAuthFlow(widget.salonId);
-      if (!mounted) return;
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Collegamento avviato: completa il flow nel browser.'),
-        ),
-      );
-    } catch (error) {
-      if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(content: Text('Errore durante il collegamento: $error')),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _isConnecting = false);
-      }
-    }
+  void _openWhatsAppDetails() {
+    ref
+        .read(adminDashboardIntentProvider.notifier)
+        .state = const AdminDashboardIntent(moduleId: 'whatsapp');
   }
 
   String _formatWhatsappOnboardingStatus(String? status) {
     switch ((status ?? '').trim().toLowerCase()) {
-      case 'synced':
-      case 'connected':
-        return 'Sincronizzato';
+      case 'ready':
+        return 'Pronto';
+      case 'awaiting_verification':
+        return 'In attesa OTP';
+      case 'registering':
+        return 'Registrazione';
+      case 'reconnect_required':
+        return 'Da ricollegare';
       case 'error':
         return 'Errore';
-      case 'pending':
-      case 'in_progress':
-        return 'In attesa';
+      case 'disconnected':
+        return 'Disconnesso';
       default:
-        return 'N/D';
+        return 'Non configurato';
     }
-  }
-
-  String _formatLastPreviewSendStatus(WhatsAppConfig? config) {
-    if (config == null) {
-      return 'Nessun test';
-    }
-
-    final at = config.lastPreviewSendAt?.toLocal();
-    final atLabel =
-        at != null ? DateFormat('dd MMM HH:mm', 'it').format(at) : null;
-    final status = (config.lastPreviewSendStatus ?? '').trim().toLowerCase();
-
-    if (status == 'success') {
-      final messageId = config.lastPreviewSendMessageId;
-      final base = atLabel != null ? 'OK ($atLabel)' : 'OK';
-      if (messageId != null && messageId.isNotEmpty) {
-        return '$base • ${_maskSecret(messageId)}';
-      }
-      return base;
-    }
-
-    if (status == 'error') {
-      final error = config.lastPreviewSendError;
-      final base = atLabel != null ? 'Errore ($atLabel)' : 'Errore';
-      if (error != null && error.isNotEmpty) {
-        return '$base • $error';
-      }
-      return base;
-    }
-
-    return 'Nessun test';
   }
 
   Future<void> _handleDisconnect(BuildContext context) async {
@@ -2389,12 +2280,12 @@ class _WhatsAppSettingsCardState extends ConsumerState<_WhatsAppSettingsCard> {
     try {
       await ref.read(whatsappServiceProvider).disconnect(widget.salonId);
       if (!mounted) return;
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(content: Text('Account WhatsApp scollegato.')),
       );
     } catch (error) {
       if (!mounted) return;
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(content: Text('Errore durante la disconnessione: $error')),
       );
     } finally {
@@ -2402,50 +2293,6 @@ class _WhatsAppSettingsCardState extends ConsumerState<_WhatsAppSettingsCard> {
         setState(() => _isDisconnecting = false);
       }
     }
-  }
-}
-
-class _ClosuresCard extends StatelessWidget {
-  const _ClosuresCard({required this.closures});
-
-  final List<SalonClosure> closures;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final formatter = DateFormat('dd MMM yyyy', 'it');
-    final sorted =
-        closures.toList()..sort((a, b) => a.start.compareTo(b.start));
-
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Chiusure programmate', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 12),
-            ...sorted.map((closure) {
-              final range =
-                  closure.isSingleDay
-                      ? formatter.format(closure.start)
-                      : '${formatter.format(closure.start)} → ${formatter.format(closure.end)}';
-              return ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.event_busy_rounded),
-                title: Text(range),
-                subtitle:
-                    closure.reason != null && closure.reason!.isNotEmpty
-                        ? Text(closure.reason!)
-                        : null,
-              );
-            }),
-          ],
-        ),
-      ),
-    );
   }
 }
 
@@ -2463,14 +2310,53 @@ class _WhatsAppDetailRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      dense: true,
-      leading: Icon(icon),
-      title: Text(value),
-      subtitle: Text(label, style: theme.textTheme.bodySmall),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
+}
+
+class _ChipPalette {
+  const _ChipPalette({
+    required this.foreground,
+    required this.background,
+    required this.border,
+  });
+
+  final Color foreground;
+  final Color background;
+  final Color border;
 }
 
 class _StatusChip extends StatelessWidget {
@@ -2480,30 +2366,173 @@ class _StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = _statusColor(context, status);
+    final palette = _salonStatusChipPalette(context, status);
     return Chip(
-      avatar: Icon(_statusIcon(status), size: 18, color: color),
+      avatar: Icon(_statusIcon(status), size: 16, color: palette.foreground),
       label: Text(
         status.label,
-        style: TextStyle(color: color, fontWeight: FontWeight.w600),
+        style: TextStyle(
+          color: palette.foreground,
+          fontWeight: FontWeight.w600,
+        ),
       ),
-      side: BorderSide(color: color.withValues(alpha: 0.35)),
-      backgroundColor: color.withValues(alpha: 0.12),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      side: BorderSide(color: palette.border),
+      backgroundColor: palette.background,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
     );
   }
 }
 
 Color _statusColor(BuildContext context, SalonStatus status) {
-  final scheme = Theme.of(context).colorScheme;
+  final palette = _salonStatusChipPalette(context, status);
+  return palette.foreground;
+}
+
+_ChipPalette _salonStatusChipPalette(BuildContext context, SalonStatus status) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
   switch (status) {
     case SalonStatus.active:
-      return scheme.primary;
+      return isDark
+          ? const _ChipPalette(
+            foreground: Color(0xFF86EFAC),
+            background: Color(0xFF10301D),
+            border: Color(0xFF1F6F3D),
+          )
+          : const _ChipPalette(
+            foreground: Color(0xFF22C55E),
+            background: Color(0xFFE4F7EA),
+            border: Color(0xFFB8E8C8),
+          );
     case SalonStatus.suspended:
-      return scheme.tertiary;
+      return isDark
+          ? const _ChipPalette(
+            foreground: Color(0xFFFCD34D),
+            background: Color(0xFF3A2A07),
+            border: Color(0xFF7C5A12),
+          )
+          : const _ChipPalette(
+            foreground: Color(0xFFB88315),
+            background: Color(0xFFFAEFCF),
+            border: Color(0xFFEBCB7B),
+          );
     case SalonStatus.archived:
-      return scheme.outline;
+      return isDark
+          ? const _ChipPalette(
+            foreground: Color(0xFFD1D5DB),
+            background: Color(0xFF262B33),
+            border: Color(0xFF3F4752),
+          )
+          : const _ChipPalette(
+            foreground: Color(0xFF6B7280),
+            background: Color(0xFFF3F4F6),
+            border: Color(0xFFD9DDE3),
+          );
   }
+}
+
+_ChipPalette _connectionChipPalette(BuildContext context, bool connected) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  if (connected) {
+    return isDark
+        ? const _ChipPalette(
+          foreground: Color(0xFF86EFAC),
+          background: Color(0xFF10301D),
+          border: Color(0xFF1F6F3D),
+        )
+        : const _ChipPalette(
+          foreground: Color(0xFF22C55E),
+          background: Color(0xFFE4F7EA),
+          border: Color(0xFFB8E8C8),
+        );
+  }
+  return isDark
+      ? const _ChipPalette(
+        foreground: Color(0xFFD1D5DB),
+        background: Color(0xFF262B33),
+        border: Color(0xFF3F4752),
+      )
+      : const _ChipPalette(
+        foreground: Color(0xFF6B7280),
+        background: Color(0xFFF3F4F6),
+        border: Color(0xFFD9DDE3),
+      );
+}
+
+_ChipPalette _infoBlueChipPalette(BuildContext context) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  return isDark
+      ? const _ChipPalette(
+        foreground: Color(0xFF93C5FD),
+        background: Color(0xFF0E2A47),
+        border: Color(0xFF24507E),
+      )
+      : const _ChipPalette(
+        foreground: Color(0xFF3B82F6),
+        background: Color(0xFFEAF2FF),
+        border: Color(0xFFC9DCFF),
+      );
+}
+
+_ChipPalette _softErrorChipPalette(BuildContext context) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  return isDark
+      ? const _ChipPalette(
+        foreground: Color(0xFFFCA5A5),
+        background: Color(0xFF451315),
+        border: Color(0xFF7F1D1D),
+      )
+      : const _ChipPalette(
+        foreground: Color(0xFFDC2626),
+        background: Color(0xFFFDEAEA),
+        border: Color(0xFFF5C2C2),
+      );
+}
+
+_ChipPalette _stripeChipPalette({
+  required BuildContext context,
+  required bool hasAccount,
+  required bool onlinePaymentsEnabled,
+  required bool readyForPayments,
+}) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  if (!hasAccount) {
+    return isDark
+        ? const _ChipPalette(
+          foreground: Color(0xFFD1D5DB),
+          background: Color(0xFF262B33),
+          border: Color(0xFF3F4752),
+        )
+        : const _ChipPalette(
+          foreground: Color(0xFF6B7280),
+          background: Color(0xFFF3F4F6),
+          border: Color(0xFFD9DDE3),
+        );
+  }
+  if (!onlinePaymentsEnabled || !readyForPayments) {
+    return isDark
+        ? const _ChipPalette(
+          foreground: Color(0xFFFCD34D),
+          background: Color(0xFF3A2A07),
+          border: Color(0xFF7C5A12),
+        )
+        : const _ChipPalette(
+          foreground: Color(0xFFB88315),
+          background: Color(0xFFFAEFCF),
+          border: Color(0xFFEBCB7B),
+        );
+  }
+  return isDark
+      ? const _ChipPalette(
+        foreground: Color(0xFF86EFAC),
+        background: Color(0xFF10301D),
+        border: Color(0xFF1F6F3D),
+      )
+      : const _ChipPalette(
+        foreground: Color(0xFF22C55E),
+        background: Color(0xFFE4F7EA),
+        border: Color(0xFFB8E8C8),
+      );
 }
 
 IconData _statusIcon(SalonStatus status) {
@@ -2514,66 +2543,6 @@ IconData _statusIcon(SalonStatus status) {
       return Icons.pause_circle_filled_rounded;
     case SalonStatus.archived:
       return Icons.inventory_2_rounded;
-  }
-}
-
-Color _equipmentStatusColor(BuildContext context, SalonEquipmentStatus status) {
-  final scheme = Theme.of(context).colorScheme;
-  switch (status) {
-    case SalonEquipmentStatus.operational:
-      return scheme.primary;
-    case SalonEquipmentStatus.maintenance:
-      return scheme.tertiary;
-    case SalonEquipmentStatus.outOfOrder:
-      return scheme.error;
-  }
-}
-
-String _maskSecret(String? value) {
-  if (value == null || value.isEmpty) {
-    return '—';
-  }
-  if (value.length <= 6) {
-    return value;
-  }
-  final suffix = value.substring(value.length - 4);
-  return '•••$suffix';
-}
-
-IconData _socialIconFor(String label) {
-  final normalized = label.toLowerCase();
-  if (normalized.contains('instagram')) {
-    return Icons.camera_alt_rounded;
-  }
-  if (normalized.contains('facebook')) {
-    return Icons.facebook_rounded;
-  }
-  if (normalized.contains('tiktok')) {
-    return Icons.play_circle_filled_rounded;
-  }
-  if (normalized.contains('youtube')) {
-    return Icons.ondemand_video_rounded;
-  }
-  if (normalized.contains('linkedin')) {
-    return Icons.business_center_rounded;
-  }
-  if (normalized.contains('twitter') || normalized.contains('x ')) {
-    return Icons.chat_bubble_outline_rounded;
-  }
-  if (normalized.contains('whatsapp')) {
-    return Icons.chat_rounded;
-  }
-  return Icons.link_rounded;
-}
-
-String _loyaltyRoundingLabel(LoyaltyRoundingMode mode) {
-  switch (mode) {
-    case LoyaltyRoundingMode.floor:
-      return 'Arrotonda per difetto';
-    case LoyaltyRoundingMode.round:
-      return 'Arrotondamento standard';
-    case LoyaltyRoundingMode.ceil:
-      return 'Arrotonda per eccesso';
   }
 }
 

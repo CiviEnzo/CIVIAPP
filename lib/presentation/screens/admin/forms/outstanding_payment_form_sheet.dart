@@ -1,6 +1,8 @@
 import 'package:you_book/domain/entities/sale.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:flutter/material.dart';
+import 'package:you_book/presentation/common/app_notice.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:intl/intl.dart';
 
 class OutstandingPaymentFormSheet extends StatefulWidget {
@@ -68,13 +70,123 @@ class _OutstandingPaymentFormSheetState
             ? 'Residuo disponibile: ${widget.currency.format(widget.outstandingAmount)}'
             : null;
     final staffOptions =
-        widget.staff
-            .where((member) => !member.isEquipment)
-            .toList()
+        widget.staff.where((member) => !member.isEquipment).toList()
           ..sort((a, b) => a.fullName.compareTo(b.fullName));
     final selectedStaffId =
         staffOptions.any((member) => member.id == _staffId) ? _staffId : null;
     final staffName = widget.staffName?.trim();
+    final formFields = [
+      if (widget.subtitle != null) ...[
+        Text(widget.subtitle!, style: theme.textTheme.bodyMedium),
+        const SizedBox(height: 4),
+      ],
+      if (maxDescription != null) ...[
+        Text(maxDescription, style: theme.textTheme.bodySmall),
+        const SizedBox(height: 4),
+      ],
+      if (staffOptions.isNotEmpty) ...[
+        const SizedBox(height: 16),
+        DropdownButtonFormField<String>(
+          isExpanded: true,
+          value: selectedStaffId,
+          decoration: const InputDecoration(labelText: 'Operatore vendita'),
+          items:
+              staffOptions
+                  .map(
+                    (member) => DropdownMenuItem(
+                      value: member.id,
+                      child: Text(member.fullName),
+                    ),
+                  )
+                  .toList(),
+          validator: (value) => value == null ? 'Seleziona l\'operatore' : null,
+          onChanged: (value) => setState(() => _staffId = value),
+        ),
+      ] else if (staffName != null && staffName.isNotEmpty) ...[
+        const SizedBox(height: 12),
+        InputDecorator(
+          decoration: const InputDecoration(labelText: 'Staff vendita'),
+          child: Text(staffName),
+        ),
+      ],
+      const SizedBox(height: 16),
+      TextFormField(
+        controller: _amountController,
+        decoration: const InputDecoration(
+          labelText: 'Importo da incassare (€)',
+        ),
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        validator: (value) {
+          final amount = _parseAmount(value);
+          if (amount == null || amount <= 0) {
+            return 'Inserisci un importo valido';
+          }
+          if (widget.outstandingAmount.isFinite &&
+              widget.outstandingAmount > 0 &&
+              amount - widget.outstandingAmount > 0.009) {
+            return 'Supera il residuo disponibile';
+          }
+          return null;
+        },
+      ),
+      const SizedBox(height: 8),
+      Wrap(
+        spacing: 12,
+        runSpacing: 8,
+        children: [
+          FilledButton.tonal(
+            onPressed:
+                widget.outstandingAmount.isFinite &&
+                        widget.outstandingAmount > 0
+                    ? () => _setAmount(widget.outstandingAmount)
+                    : null,
+            child: const Text('Saldo residuo'),
+          ),
+          TextButton(
+            onPressed: _clearAmount,
+            child: const Text('Pulisci campo'),
+          ),
+        ],
+      ),
+      const SizedBox(height: 16),
+      DropdownButtonFormField<PaymentMethod>(
+        isExpanded: true,
+        value: _method,
+        decoration: const InputDecoration(labelText: 'Metodo di pagamento'),
+        items:
+            PaymentMethod.values
+                .where((method) => method.isManualSelectable)
+                .map(
+                  (method) => DropdownMenuItem(
+                    value: method,
+                    child: Text(_paymentLabel(method)),
+                  ),
+                )
+                .toList(),
+        validator:
+            (value) =>
+                value == null ? 'Seleziona il metodo di pagamento' : null,
+        onChanged: (value) => setState(() => _method = value),
+      ),
+    ];
+
+    if (isAppSheetPhoneLayout(context)) {
+      return AppMobileSheetPageScaffold(
+        title: widget.title,
+        actions: [
+          TextButton(onPressed: _submit, child: const Text('Registra')),
+        ],
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: formFields,
+          ),
+        ),
+      );
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Form(
@@ -84,104 +196,8 @@ class _OutstandingPaymentFormSheetState
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(widget.title, style: theme.textTheme.titleLarge),
-            if (widget.subtitle != null) ...[
-              const SizedBox(height: 4),
-              Text(widget.subtitle!, style: theme.textTheme.bodyMedium),
-            ],
-            if (maxDescription != null) ...[
-              const SizedBox(height: 4),
-              Text(maxDescription, style: theme.textTheme.bodySmall),
-            ],
-            if (staffOptions.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                isExpanded: true,
-                value: selectedStaffId,
-                decoration: const InputDecoration(
-                  labelText: 'Operatore vendita',
-                ),
-                items:
-                    staffOptions
-                        .map(
-                          (member) => DropdownMenuItem(
-                            value: member.id,
-                            child: Text(member.fullName),
-                          ),
-                        )
-                        .toList(),
-                validator:
-                    (value) => value == null ? 'Seleziona l\'operatore' : null,
-                onChanged: (value) => setState(() => _staffId = value),
-              ),
-            ] else if (staffName != null && staffName.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              InputDecorator(
-                decoration: const InputDecoration(labelText: 'Staff vendita'),
-                child: Text(staffName),
-              ),
-            ],
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _amountController,
-              decoration: const InputDecoration(
-                labelText: 'Importo da incassare (€)',
-              ),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              validator: (value) {
-                final amount = _parseAmount(value);
-                if (amount == null || amount <= 0) {
-                  return 'Inserisci un importo valido';
-                }
-                if (widget.outstandingAmount.isFinite &&
-                    widget.outstandingAmount > 0 &&
-                    amount - widget.outstandingAmount > 0.009) {
-                  return 'Supera il residuo disponibile';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 12,
-              runSpacing: 8,
-              children: [
-                FilledButton.tonal(
-                  onPressed:
-                      widget.outstandingAmount.isFinite &&
-                              widget.outstandingAmount > 0
-                          ? () => _setAmount(widget.outstandingAmount)
-                          : null,
-                  child: const Text('Saldo residuo'),
-                ),
-                TextButton(
-                  onPressed: _clearAmount,
-                  child: const Text('Pulisci campo'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<PaymentMethod>(
-              isExpanded: true,
-              value: _method,
-              decoration: const InputDecoration(
-                labelText: 'Metodo di pagamento',
-              ),
-              items:
-                  PaymentMethod.values
-                      .map(
-                        (method) => DropdownMenuItem(
-                          value: method,
-                          child: Text(_paymentLabel(method)),
-                        ),
-                      )
-                      .toList(),
-              validator:
-                  (value) =>
-                      value == null ? 'Seleziona il metodo di pagamento' : null,
-              onChanged: (value) => setState(() => _method = value),
-            ),
+            const SizedBox(height: 4),
+            ...formFields,
             const SizedBox(height: 24),
             Align(
               alignment: Alignment.centerRight,
@@ -216,7 +232,7 @@ class _OutstandingPaymentFormSheetState
       return;
     }
     if (_method == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Seleziona il metodo di pagamento.')),
       );
       return;
@@ -243,18 +259,7 @@ class _OutstandingPaymentFormSheetState
   }
 
   String _paymentLabel(PaymentMethod method) {
-    switch (method) {
-      case PaymentMethod.cash:
-        return 'Contanti';
-      case PaymentMethod.pos:
-        return 'POS';
-      case PaymentMethod.transfer:
-        return 'Bonifico';
-      case PaymentMethod.giftCard:
-        return 'Gift card';
-      case PaymentMethod.posticipated:
-        return 'Posticipato';
-    }
+    return method.label;
   }
 }
 

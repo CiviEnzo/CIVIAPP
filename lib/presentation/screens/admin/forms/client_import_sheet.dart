@@ -97,7 +97,7 @@ class _ClientImportSheetState extends ConsumerState<ClientImportSheet> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Errore durante la lettura del file: $error')),
       );
       setState(() {
@@ -377,7 +377,7 @@ class _ClientImportSheetState extends ConsumerState<ClientImportSheet> {
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Import fallito: $error')));
+      ).showAppSnackBar(SnackBar(content: Text('Import fallito: $error')));
     } finally {
       if (mounted) {
         setState(() {

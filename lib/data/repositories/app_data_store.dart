@@ -51,6 +51,18 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+const Duration _kClientCallableTimeout = Duration(seconds: 12);
+
+class ClientUpsertResult {
+  const ClientUpsertResult({required this.client, this.warningMessage});
+
+  final Client client;
+  final String? warningMessage;
+
+  bool get hasWarning =>
+      warningMessage != null && warningMessage!.trim().isNotEmpty;
+}
+
 class AppDataStore extends StateNotifier<AppDataState> {
   AppDataStore({
     FirebaseFirestore? firestore,
@@ -1947,11 +1959,113 @@ class AppDataStore extends StateNotifier<AppDataState> {
       _syncPublicSalonLocally(salon);
       return;
     }
-    await firestore.collection('salons').doc(salon.id).set(salonToMap(salon));
+    await firestore
+        .collection('salons')
+        .doc(salon.id)
+        .set(
+          salonToMap(salon),
+          // Preserve integration state stored outside the Salon entity
+          // (for example WhatsApp connection metadata on the salon document).
+          SetOptions(merge: true),
+        );
     await _ensureCurrentUserLinkedToSalon(salon.id);
     _upsertLocal(salons: <Salon>[salon]);
     _syncPublicSalonLocally(salon);
     _refreshFeatureFilteredCollections();
+  }
+
+  Future<Salon> updateSalonProfileSection({
+    required String salonId,
+    required Salon source,
+  }) async {
+    return _updateSalonSection(
+      salonId: salonId,
+      fallback: source,
+      update:
+          (current) => current.copyWith(
+            address: source.address,
+            city: source.city,
+            postalCode: source.postalCode,
+            googlePlaceId: source.googlePlaceId,
+            latitude: source.latitude,
+            longitude: source.longitude,
+            description: source.description,
+          ),
+    );
+  }
+
+  Future<Salon> updateSalonOperationsSection({
+    required String salonId,
+    required Salon source,
+  }) async {
+    return _updateSalonSection(
+      salonId: salonId,
+      fallback: source,
+      update:
+          (current) => current.copyWith(
+            status: source.status,
+            isPublished: source.isPublished,
+            schedule: source.schedule,
+            closures: source.closures,
+          ),
+    );
+  }
+
+  Future<Salon> updateSalonEquipmentSection({
+    required String salonId,
+    required List<SalonEquipment> equipment,
+  }) async {
+    return _updateSalonSection(
+      salonId: salonId,
+      update: (current) => current.copyWith(equipment: equipment),
+    );
+  }
+
+  Future<Salon> updateSalonRoomsSection({
+    required String salonId,
+    required List<SalonRoom> rooms,
+  }) async {
+    return _updateSalonSection(
+      salonId: salonId,
+      update: (current) => current.copyWith(rooms: rooms),
+    );
+  }
+
+  Future<Salon> updateSalonLoyaltySection({
+    required String salonId,
+    required Salon source,
+  }) async {
+    return _updateSalonSection(
+      salonId: salonId,
+      fallback: source,
+      update:
+          (current) =>
+              current.copyWith(loyaltySettings: source.loyaltySettings),
+    );
+  }
+
+  Future<Salon> updateSalonSocialSection({
+    required String salonId,
+    required Salon source,
+  }) async {
+    return _updateSalonSection(
+      salonId: salonId,
+      fallback: source,
+      update: (current) => current.copyWith(socialLinks: source.socialLinks),
+    );
+  }
+
+  Future<Salon> updateSalonClientRegistrationSection({
+    required String salonId,
+    required Salon source,
+  }) async {
+    return _updateSalonSection(
+      salonId: salonId,
+      fallback: source,
+      update:
+          (current) =>
+              current.copyWith(clientRegistration: source.clientRegistration),
+    );
   }
 
   Future<AdminSetupProgress> initializeSalonSetupProgress({
@@ -2112,6 +2226,22 @@ class AppDataStore extends StateNotifier<AppDataState> {
       _syncPublicSalonLocally(updatedSalon);
       _refreshFeatureFilteredCollections();
     }
+  }
+
+  Future<Salon> _updateSalonSection({
+    required String salonId,
+    required Salon Function(Salon current) update,
+    Salon? fallback,
+  }) async {
+    final current =
+        state.salons.firstWhereOrNull((salon) => salon.id == salonId) ??
+        fallback;
+    if (current == null) {
+      throw StateError('Salon $salonId not found');
+    }
+    final merged = update(current);
+    await upsertSalon(merged);
+    return merged;
   }
 
   Future<void> deleteSalon(String salonId) async {
@@ -2579,14 +2709,14 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
   }
 
-  Future<void> _ensureClientUser(Client client) async {
+  Future<String?> _ensureClientUser(Client client) async {
     final rawEmail = client.email?.trim();
     if (rawEmail == null || rawEmail.isEmpty) {
-      return;
+      return null;
     }
     final email = rawEmail;
     if (Firebase.apps.isEmpty) {
-      return;
+      return null;
     }
 
     bool shouldSendReset = false;
@@ -2594,17 +2724,35 @@ class AppDataStore extends StateNotifier<AppDataState> {
     try {
       final functions = FirebaseFunctions.instanceFor(region: 'europe-west3');
       final callable = functions.httpsCallable('createClientAccount');
-      final result = await callable.call(<String, dynamic>{
-        'email': email,
-        'salonId': client.salonId,
-        'clientId': client.id,
-        'displayName': client.fullName.trim(),
-      });
+      final result = await callable
+          .call(<String, dynamic>{
+            'email': email,
+            'salonId': client.salonId,
+            'clientId': client.id,
+            'displayName': client.fullName.trim(),
+          })
+          .timeout(_kClientCallableTimeout);
 
       final data = result.data;
       if (data is Map && data['shouldSendPasswordReset'] == true) {
         shouldSendReset = true;
       }
+    } on TimeoutException catch (error, stackTrace) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'AppDataStore',
+          informationCollector:
+              () => [
+                DiagnosticsProperty<String>('Context', 'ensureClientUser'),
+                DiagnosticsProperty<String>('Client ID', client.id),
+              ],
+        ),
+      );
+      return _clientAccountWarningMessage(
+        'Il collegamento con l\'account app sta impiegando troppo tempo.',
+      );
     } on FirebaseFunctionsException catch (error, stackTrace) {
       FlutterError.reportError(
         FlutterErrorDetails(
@@ -2618,12 +2766,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
               ],
         ),
       );
-      if (error.code == 'invalid-argument') {
-        rethrow;
-      }
-      // Per permission denied o altri errori, il cliente resta creato ma
-      // evitiamo di bloccare il flusso lato UI.
-      return;
+      return _clientAccountWarningForFunctionsError(error);
     } catch (error, stackTrace) {
       FlutterError.reportError(
         FlutterErrorDetails(
@@ -2637,25 +2780,33 @@ class AppDataStore extends StateNotifier<AppDataState> {
               ],
         ),
       );
-      return;
+      return _clientAccountWarningMessage(
+        'Non e stato possibile preparare l\'accesso app del cliente.',
+      );
     }
 
     if (!shouldSendReset) {
-      return;
+      return null;
     }
 
     final auth = await _getAdminAuth();
     if (auth == null) {
-      return;
+      return _clientAccountWarningMessage(
+        'Non e stato possibile inviare l\'email di accesso al cliente.',
+      );
     }
     try {
       await auth.sendPasswordResetEmail(email: email);
     } on FirebaseAuthException catch (error) {
       debugPrint('Unable to send reset email to $email: ${error.message}');
+      return _clientAccountWarningMessage(
+        'Non e stato possibile inviare l\'email di accesso al cliente.',
+      );
     }
+    return null;
   }
 
-  Future<void> upsertClient(Client client) async {
+  Future<ClientUpsertResult> upsertClient(Client client) async {
     final prepared = await _ensureClientNumber(client);
     final now = DateTime.now();
     final sanitizedAddress = () {
@@ -2683,13 +2834,14 @@ class AppDataStore extends StateNotifier<AppDataState> {
     final firestore = _firestore;
     if (firestore == null) {
       _upsertLocal(clients: [enriched]);
-      return;
+      return ClientUpsertResult(client: enriched);
     }
     await firestore
         .collection('clients')
         .doc(enriched.id)
         .set(clientToMap(enriched));
-    await _ensureClientUser(enriched);
+    final warningMessage = await _ensureClientUser(enriched);
+    return ClientUpsertResult(client: enriched, warningMessage: warningMessage);
   }
 
   Future<ClientImportResult> bulkImportClients({
@@ -3033,9 +3185,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
       try {
         final functions = FirebaseFunctions.instanceFor(region: 'europe-west3');
         final callable = functions.httpsCallable('assignClientNumber');
-        final response = await callable.call(<String, dynamic>{
-          'salonId': salonId,
-        });
+        final response = await callable
+            .call(<String, dynamic>{'salonId': salonId})
+            .timeout(_kClientCallableTimeout);
         final data = response.data;
         if (data is Map && data['clientNumber'] != null) {
           final value = data['clientNumber'].toString();
@@ -3043,6 +3195,21 @@ class AppDataStore extends StateNotifier<AppDataState> {
             return value;
           }
         }
+      } on TimeoutException catch (error, stackTrace) {
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            exception: error,
+            stack: stackTrace,
+            library: 'AppDataStore',
+            informationCollector:
+                () => [
+                  DiagnosticsProperty<String>(
+                    'Context',
+                    'assignClientNumber callable timeout',
+                  ),
+                ],
+          ),
+        );
       } on FirebaseFunctionsException catch (error, stackTrace) {
         debugPrint(
           'assignClientNumber callable failed: ${error.code} ${error.message}',
@@ -3083,6 +3250,31 @@ class AppDataStore extends StateNotifier<AppDataState> {
       (client) => client.salonId == salonId,
     );
     return nextSequentialClientNumber(relevantClients);
+  }
+
+  String _clientAccountWarningForFunctionsError(
+    FirebaseFunctionsException error,
+  ) {
+    switch (error.code) {
+      case 'permission-denied':
+      case 'unauthenticated':
+        return _clientAccountWarningMessage(
+          'Permessi insufficienti per preparare l\'accesso app del cliente.',
+        );
+      case 'deadline-exceeded':
+      case 'unavailable':
+        return _clientAccountWarningMessage(
+          'Il servizio di accesso cliente non risponde al momento.',
+        );
+      default:
+        return _clientAccountWarningMessage(
+          'Non e stato possibile preparare l\'accesso app del cliente.',
+        );
+    }
+  }
+
+  String _clientAccountWarningMessage(String detail) {
+    return 'Cliente salvato, ma $detail';
   }
 
   Future<void> upsertClientPhoto(ClientPhoto photo) async {

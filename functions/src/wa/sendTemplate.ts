@@ -8,9 +8,24 @@ import { FieldValue, db } from '../utils/firestore';
 import { requireWaSalonAdmin, type WaRequestUserContext } from './authz';
 import { getSalonWaConfig } from './config';
 import { readSecret } from './secrets';
+import {
+  GRAPH_API_VERSION,
+  REGION,
+  WhatsAppHttpError,
+  getSystemUserAccessToken,
+  toHttpError,
+} from './runtime';
 
-const REGION = process.env.WA_REGION ?? 'europe-west1';
-const GRAPH_API_VERSION = process.env.WA_GRAPH_API_VERSION ?? 'v19.0';
+const SEND_TIMEOUT_MS = Number(process.env.WA_SEND_TIMEOUT_MS ?? 10000);
+
+type GraphApiErrorPayload = {
+  error?: {
+    code?: number;
+    message?: string;
+    type?: string;
+    fbtrace_id?: string;
+  };
+};
 
 export interface WhatsAppTemplateComponent {
   type: string;
@@ -119,6 +134,43 @@ function buildTemplatePayload(params: {
   return payload;
 }
 
+function mapSendTemplateError(params: {
+  salonId: string;
+  phoneNumberId: string;
+  error: unknown;
+}): Error | null {
+  if (!axios.isAxiosError(params.error)) {
+    return null;
+  }
+
+  const payload = params.error.response?.data as GraphApiErrorPayload | undefined;
+  const graphError = payload?.error;
+  const code = graphError?.code;
+  const message = String(graphError?.message ?? '');
+
+  if (code === 133010 && message.includes('Account not registered')) {
+    return new Error(
+      `WhatsApp sender account not registered for phoneNumberId ${params.phoneNumberId}. Meta rejected the send with "(#133010) Account not registered". The sender number is not fully activated yet in WhatsApp Manager, or this salon is still configured with an old/unregistered phone number ID. Finish number review/registration in Meta, verify the configured sender number, then retry.`,
+    );
+  }
+
+  return null;
+}
+
+export const __test__ = {
+  mapSendTemplateError,
+  resolveTemplateLanguageCode,
+}
+
+async function resolveSendAccessToken(
+  tokenSecretId: string | undefined,
+): Promise<string> {
+  if (tokenSecretId) {
+    return readSecret(tokenSecretId)
+  }
+  return getSystemUserAccessToken()
+}
+
 export async function sendTemplateMessage(
   input: SendTemplateInput,
 ): Promise<SendTemplateResult> {
@@ -137,9 +189,11 @@ export async function sendTemplateMessage(
   logger.debug('Resolved WhatsApp config for salon', {
     salonId,
     phoneNumberId: config.phoneNumberId,
-    tokenSecretId: config.tokenSecretId,
+    wabaId: config.wabaId,
+    registrationStatus: config.registrationStatus,
+    connectionMethod: config.connectionMethod,
   });
-  const accessToken = await readSecret(config.tokenSecretId);
+  const accessToken = await resolveSendAccessToken(config.tokenSecretId);
   const languageCode = resolveTemplateLanguageCode(input.lang);
 
   const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${config.phoneNumberId}/messages`;
@@ -157,7 +211,7 @@ export async function sendTemplateMessage(
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
       },
-      timeout: Number(process.env.WA_SEND_TIMEOUT_MS ?? 10000),
+      timeout: SEND_TIMEOUT_MS,
     });
 
     const messageId: string | undefined =
@@ -192,23 +246,39 @@ export async function sendTemplateMessage(
     const axiosError = axios.isAxiosError(error) ? error : null;
     const status = axiosError?.response?.status;
     const data = axiosError?.response?.data;
+    const mappedError = mapSendTemplateError({
+      salonId,
+      phoneNumberId: config.phoneNumberId,
+      error,
+    });
 
     logger.error(
       'Failed to send WhatsApp template',
       error instanceof Error ? error : new Error(String(error)),
-      { salonId, to, templateName, languageCode, status, data },
+      {
+        salonId,
+        to,
+        templateName,
+        languageCode,
+        phoneNumberId: config.phoneNumberId,
+        status,
+        data,
+        mappedMessage: mappedError?.message ?? null,
+      },
     );
 
     if (input.outboxMessageId) {
       await createOutboxTrace(salonId, input.outboxMessageId, {
         event: 'graph_api_error',
         languageCode,
+        phoneNumberId: config.phoneNumberId,
         status,
         data,
+        mappedMessage: mappedError?.message ?? null,
       });
     }
 
-    throw error instanceof Error ? error : new Error(String(error));
+    throw mappedError ?? (error instanceof Error ? error : new Error(String(error)));
   }
 }
 
@@ -352,6 +422,7 @@ export const sendWhatsappTemplate = onRequest(
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Unknown error occurred';
+      const httpError = toHttpError(error, message);
       if (input && requestUser) {
         await updateLastPreviewSendStatus({
           salonId: input.salonId,
@@ -360,7 +431,7 @@ export const sendWhatsappTemplate = onRequest(
           user: requestUser,
         });
       }
-      sendError(response, 400, message);
+      sendError(response, httpError.statusCode, httpError.message);
     }
   },
 );

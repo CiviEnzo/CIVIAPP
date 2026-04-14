@@ -211,7 +211,7 @@ class _StaffRoleManagerSheetState extends ConsumerState<StaffRoleManagerSheet> {
     try {
       await ref.read(appDataProvider.notifier).deleteStaffRole(role.id);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(content: Text('Ruolo "${role.name}" eliminato.')),
         );
       }
@@ -235,7 +235,7 @@ class _StaffRoleManagerSheetState extends ConsumerState<StaffRoleManagerSheet> {
     try {
       await ref.read(appDataProvider.notifier).upsertStaffRole(sanitizedRole);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(content: Text('Ruolo "${sanitizedRole.name}" salvato.')),
         );
       }
@@ -406,7 +406,7 @@ class _StaffRoleManagerSheetState extends ConsumerState<StaffRoleManagerSheet> {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       const SnackBar(content: Text('Seleziona un salone per gestire i ruoli.')),
     );
   }
@@ -415,7 +415,7 @@ class _StaffRoleManagerSheetState extends ConsumerState<StaffRoleManagerSheet> {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       const SnackBar(
         content: Text('Solo gli amministratori possono modificare i ruoli.'),
       ),

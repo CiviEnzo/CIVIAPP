@@ -83,158 +83,129 @@ class _StaffOrderSheetState extends ConsumerState<StaffOrderSheet> {
     final canSave = _hasLocalChanges && _orderedStaff.isNotEmpty && !_isSaving;
     final listHeight = (_orderedStaff.length * 68).clamp(220, 480).toDouble();
 
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          24,
-          24,
-          24,
-          24 + MediaQuery.of(context).viewInsets.bottom,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Ordine dello staff',
-                    style: theme.textTheme.titleLarge,
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Chiudi',
-                  onPressed:
-                      _isSaving ? null : () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close_rounded),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (!hasSalonSelection)
-              Card(
-                color: _blendSurfaceTowardsWhite(context, 0.92),
-                elevation: 1.5,
-                shadowColor: Colors.black.withValues(alpha: 0.08),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    'Non è possibile ordinare il team finché non è associato un salone.',
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                ),
-              )
-            else if (_orderedStaff.isEmpty)
-              Card(
-                color: _blendSurfaceTowardsWhite(context, 0.92),
-                elevation: 1.5,
-                shadowColor: Colors.black.withValues(alpha: 0.08),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    'Non ci sono membri dello staff da ordinare per questo salone.',
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                ),
-              )
-            else
-              Card(
-                color: _blendSurfaceTowardsWhite(context, 0.9),
-                elevation: 2,
-                shadowColor: Colors.black.withValues(alpha: 0.08),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: SizedBox(
-                  height: listHeight,
-                  child: ReorderableListView.builder(
-                    buildDefaultDragHandles: false,
-                    itemCount: _orderedStaff.length,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    onReorder: _onReorder,
-                    itemBuilder: (context, index) {
-                      final member = _orderedStaff[index];
-                      final roleName =
-                          rolesById[member.primaryRoleId]?.name ??
-                          'Ruolo non assegnato';
-                      final initials =
-                          member.fullName.isNotEmpty
-                              ? member.fullName
-                                  .trim()
-                                  .split(RegExp(r'\s+'))
-                                  .map(
-                                    (part) => part.characters.firstOrNull ?? '',
-                                  )
-                                  .take(2)
-                                  .join()
-                                  .toUpperCase()
-                              : '?';
-                      return Card(
-                        key: ValueKey(member.id),
-                        color: _blendSurfaceTowardsWhite(context, 0.96),
-                        elevation: 1,
-                        shadowColor: Colors.black.withValues(alpha: 0.06),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
-                          ),
-                          leading: CircleAvatar(child: Text(initials)),
-                          title: Text(member.fullName),
-                          subtitle: Text(roleName),
-                          trailing: ReorderableDragStartListener(
-                            index: index,
-                            child: Icon(
-                              Icons.drag_indicator_rounded,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+    return DialogActionLayout(
+      title: 'Ordine dello staff',
+      scrollBody: false,
+      body: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!hasSalonSelection)
+            Card(
+              color: _blendSurfaceTowardsWhite(context, 0.92),
+              elevation: 1.5,
+              shadowColor: Colors.black.withValues(alpha: 0.08),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'Non è possibile ordinare il team finché non è associato un salone.',
+                  style: theme.textTheme.bodyMedium,
                 ),
               ),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed:
-                      _isSaving ? null : () => Navigator.of(context).pop(),
-                  child: const Text('Annulla'),
+            )
+          else if (_orderedStaff.isEmpty)
+            Card(
+              color: _blendSurfaceTowardsWhite(context, 0.92),
+              elevation: 1.5,
+              shadowColor: Colors.black.withValues(alpha: 0.08),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'Non ci sono membri dello staff da ordinare per questo salone.',
+                  style: theme.textTheme.bodyMedium,
                 ),
-                const SizedBox(width: 12),
-                FilledButton(
-                  onPressed: canSave ? _saveOrder : null,
-                  child:
-                      _isSaving
-                          ? const SizedBox(
-                            height: 16,
-                            width: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                          : const Text('Salva ordine'),
+              ),
+            )
+          else
+            Card(
+              color: _blendSurfaceTowardsWhite(context, 0.9),
+              elevation: 2,
+              shadowColor: Colors.black.withValues(alpha: 0.08),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: SizedBox(
+                height: listHeight,
+                child: ReorderableListView.builder(
+                  buildDefaultDragHandles: false,
+                  itemCount: _orderedStaff.length,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  onReorder: _onReorder,
+                  itemBuilder: (context, index) {
+                    final member = _orderedStaff[index];
+                    final roleName =
+                        rolesById[member.primaryRoleId]?.name ??
+                        'Ruolo non assegnato';
+                    final initials =
+                        member.fullName.isNotEmpty
+                            ? member.fullName
+                                .trim()
+                                .split(RegExp(r'\s+'))
+                                .map(
+                                  (part) => part.characters.firstOrNull ?? '',
+                                )
+                                .take(2)
+                                .join()
+                                .toUpperCase()
+                            : '?';
+                    return Card(
+                      key: ValueKey(member.id),
+                      color: _blendSurfaceTowardsWhite(context, 0.96),
+                      elevation: 1,
+                      shadowColor: Colors.black.withValues(alpha: 0.06),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        leading: CircleAvatar(child: Text(initials)),
+                        title: Text(member.fullName),
+                        subtitle: Text(roleName),
+                        trailing: ReorderableDragStartListener(
+                          index: index,
+                          child: Icon(
+                            Icons.drag_indicator_rounded,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
-              ],
+              ),
             ),
-          ],
-        ),
+        ],
       ),
+      actions: [
+        TextButton(
+          onPressed: _isSaving ? null : () => Navigator.of(context).pop(),
+          child: const Text('Annulla'),
+        ),
+        FilledButton(
+          onPressed: canSave ? _saveOrder : null,
+          child:
+              _isSaving
+                  ? const SizedBox(
+                    height: 16,
+                    width: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                  : const Text('Salva ordine'),
+        ),
+      ],
     );
   }
 
@@ -309,7 +280,7 @@ class _StaffOrderSheetState extends ConsumerState<StaffOrderSheet> {
         return;
       }
       setState(() => _isSaving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Impossibile salvare l\'ordine dello staff. Riprova.'),
         ),

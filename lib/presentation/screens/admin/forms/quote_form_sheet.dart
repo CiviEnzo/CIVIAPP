@@ -259,35 +259,6 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
     );
   }
 
-  Future<void> _onAddService() async {
-    if (widget.services.isEmpty) {
-      _showSnackBar('Non sono disponibili servizi per questo salone.');
-      return;
-    }
-    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
-    final selected = await _pickFromCatalog<Service>(
-      title: 'Scegli un servizio',
-      items: widget.services,
-      labelBuilder: (service) => service.name,
-      subtitleBuilder:
-          (service) =>
-              '${service.category} • ${currency.format(service.price)}',
-    );
-    if (selected == null) {
-      return;
-    }
-    final line = _buildLineDraft(
-      id: _uuid.v4(),
-      type: QuoteItemReferenceType.service,
-      referenceId: selected.id,
-      description: selected.name,
-      quantity: 1,
-      unitPrice: selected.price,
-      catalogLabel: selected.category,
-    );
-    _addLine(line);
-  }
-
   Future<void> _onAddPackage() async {
     if (_packages.isEmpty) {
       _showSnackBar('Non sono disponibili pacchetti per questo salone.');
@@ -333,6 +304,8 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
     }
     final customPackage = await showAppModalSheet<ServicePackage>(
       context: context,
+      includeCloseButton: false,
+      desktopMaxWidth: 1180,
       builder:
           (ctx) => PackageFormSheet(
             salons: salons,
@@ -430,45 +403,12 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
     required String Function(T) labelBuilder,
     String Function(T)? subtitleBuilder,
   }) {
-    return showAppModalSheet<T>(
+    return showAppSelectionSheet<T>(
       context: context,
-      includeCloseButton: false,
-      builder: (ctx) {
-        final theme = Theme.of(ctx);
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                title: Text(title, style: theme.textTheme.titleMedium),
-                trailing: IconButton(
-                  tooltip: 'Chiudi',
-                  icon: const Icon(Icons.close_rounded),
-                  onPressed: () => Navigator.of(ctx).maybePop(),
-                ),
-              ),
-              const Divider(height: 1),
-              Flexible(
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: items.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (ctx, index) {
-                    final item = items[index];
-                    final subtitle =
-                        subtitleBuilder != null ? subtitleBuilder(item) : null;
-                    return ListTile(
-                      title: Text(labelBuilder(item)),
-                      subtitle: subtitle != null ? Text(subtitle) : null,
-                      onTap: () => Navigator.of(ctx).pop(item),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+      title: title,
+      items: items,
+      labelBuilder: labelBuilder,
+      subtitleBuilder: subtitleBuilder,
     );
   }
 
@@ -489,16 +429,155 @@ class _QuoteFormSheetState extends ConsumerState<QuoteFormSheet> {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    context.showAppNotice(message, tone: inferAppNoticeTone(message));
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isPhoneLayout = isAppSheetPhoneLayout(context);
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final currency = _numberFormat;
+
+    if (isPhoneLayout) {
+      return AppMobileSheetPageScaffold(
+        title:
+            widget.initial == null ? 'Nuovo preventivo' : 'Modifica preventivo',
+        subtitle:
+            _quoteNumber.isNotEmpty ? 'Numero preventivo: $_quoteNumber' : null,
+        actions: [
+          TextButton(
+            onPressed: _saving ? null : _submit,
+            child:
+                _saving
+                    ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                    : const Text('Salva'),
+          ),
+        ],
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: [
+              TextFormField(
+                controller: _titleController,
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(
+                  labelText: 'Titolo',
+                  hintText: 'Es. Percorso remise en forme',
+                ),
+                enabled: !_saving,
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.event_rounded),
+                title: Text(
+                  _validUntil == null
+                      ? 'Scadenza preventivo'
+                      : 'Valido fino al '
+                          '${DateFormat('dd/MM/yyyy').format(_validUntil!)}',
+                ),
+                subtitle: const Text(
+                  'Opzionale: definisce la validità economica dell\'offerta.',
+                ),
+                trailing: IconButton(
+                  tooltip: 'Rimuovi data',
+                  onPressed:
+                      _validUntil == null || _saving
+                          ? null
+                          : () => setState(() => _validUntil = null),
+                  icon: const Icon(Icons.clear_rounded),
+                ),
+                onTap: _saving ? null : _pickValidUntil,
+              ),
+              TextFormField(
+                controller: _notesController,
+                enabled: !_saving,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'Note interne',
+                  hintText: 'Dettagli aggiuntivi o accordi con il cliente',
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text('Voci preventivo', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  FilledButton.tonalIcon(
+                    onPressed: _saving ? null : _onAddPackage,
+                    icon: const Icon(Icons.card_giftcard_rounded),
+                    label: const Text('Aggiungi pacchetto'),
+                  ),
+                  FilledButton.tonalIcon(
+                    onPressed: _saving ? null : _onAddCustomPackage,
+                    icon: const Icon(Icons.auto_fix_high_rounded),
+                    label: const Text('Aggiungi Servizi'),
+                  ),
+                  FilledButton.tonalIcon(
+                    onPressed: _saving ? null : _onAddProduct,
+                    icon: const Icon(Icons.inventory_2_rounded),
+                    label: const Text('Aggiungi prodotto'),
+                  ),
+                  FilledButton.tonalIcon(
+                    onPressed: _saving ? null : _onAddManualItem,
+                    icon: const Icon(Icons.add_circle_outline_rounded),
+                    label: const Text('Voce manuale'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (_lines.isEmpty)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      'Aggiungi almeno un elemento per salvare il preventivo.',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ),
+                )
+              else
+                Column(
+                  children: [
+                    for (var i = 0; i < _lines.length; i++) ...[
+                      _buildLineCard(_lines[i], i, currency),
+                      const SizedBox(height: 12),
+                    ],
+                  ],
+                ),
+              const SizedBox(height: 24),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.45,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: theme.colorScheme.outlineVariant),
+                ),
+                child: Text(
+                  'Totale preventivo: ${currency.format(_computeTotal())}',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
+          ),
+        ),
+      );
+    }
 
     return SafeArea(
       child: Padding(

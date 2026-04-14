@@ -2,11 +2,16 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:url_launcher/url_launcher.dart';
+
+import 'whatsapp_embedded_signup_launcher.dart';
+import 'whatsapp_embedded_signup_models.dart';
+import 'whatsapp_embedded_signup_launcher_stub.dart'
+    if (dart.library.html) 'whatsapp_embedded_signup_launcher_web.dart'
+    as embedded_signup_launcher;
 
 const _sendEndpointDefine = String.fromEnvironment(
   'SEND_ENDPOINT',
@@ -31,6 +36,14 @@ class WhatsAppConfig {
     required this.tokenExpiresAt,
     required this.connectedAt,
     required this.onboardingStatus,
+    required this.registrationStatus,
+    required this.connectionMethod,
+    required this.requiresReconnect,
+    required this.registeredAt,
+    required this.lastRegistrationErrorMessage,
+    required this.lastRegistrationErrorAt,
+    required this.lastCodeMethod,
+    required this.lastCodeRequestedAt,
     required this.lastPreviewSendStatus,
     required this.lastPreviewSendMessageId,
     required this.lastPreviewSendError,
@@ -50,16 +63,33 @@ class WhatsAppConfig {
   final DateTime? tokenExpiresAt;
   final DateTime? connectedAt;
   final String? onboardingStatus;
+  final String? registrationStatus;
+  final String? connectionMethod;
+  final bool requiresReconnect;
+  final DateTime? registeredAt;
+  final String? lastRegistrationErrorMessage;
+  final DateTime? lastRegistrationErrorAt;
+  final String? lastCodeMethod;
+  final DateTime? lastCodeRequestedAt;
   final String? lastPreviewSendStatus;
   final String? lastPreviewSendMessageId;
   final String? lastPreviewSendError;
   final DateTime? lastPreviewSendAt;
   final DateTime? updatedAt;
 
+  bool get needsReconnect =>
+      requiresReconnect || (connectionMethod ?? '').trim() == 'legacy_oauth';
+
+  bool get needsVerification =>
+      (onboardingStatus ?? '').trim() == 'awaiting_verification' ||
+      (registrationStatus ?? '').trim() == 'verification_required';
+
   bool get isConfigured =>
       phoneNumberId != null &&
       phoneNumberId!.isNotEmpty &&
-      tokenSecretId != null;
+      !needsReconnect &&
+      (registrationStatus ?? '').trim() == 'registered' &&
+      (onboardingStatus ?? '').trim() == 'ready';
 
   factory WhatsAppConfig.fromMap(
     Map<String, dynamic> map, {
@@ -78,6 +108,71 @@ class WhatsAppConfig {
       return null;
     }
 
+    String inferConnectionMethod() {
+      final configured = (map['connectionMethod'] as String?)?.trim();
+      if (configured == 'embedded_signup' ||
+          configured == 'legacy_oauth' ||
+          configured == 'manual_setup') {
+        return configured!;
+      }
+      final legacyTokenSecret = (map['tokenSecretId'] as String?)?.trim();
+      if (legacyTokenSecret != null && legacyTokenSecret.isNotEmpty) {
+        return 'legacy_oauth';
+      }
+      return 'embedded_signup';
+    }
+
+    bool inferRequiresReconnect(String connectionMethod) {
+      return map['requiresReconnect'] == true ||
+          connectionMethod == 'legacy_oauth';
+    }
+
+    String? inferOnboardingStatus(bool requiresReconnect) {
+      final configured = (map['onboardingStatus'] as String?)?.trim();
+      if (configured != null && configured.isNotEmpty) {
+        return configured;
+      }
+      if (requiresReconnect) {
+        return 'reconnect_required';
+      }
+      final phoneNumberId = (map['phoneNumberId'] as String?)?.trim();
+      if (phoneNumberId != null && phoneNumberId.isNotEmpty) {
+        return 'ready';
+      }
+      return 'disconnected';
+    }
+
+    String? inferRegistrationStatus({
+      required bool requiresReconnect,
+      required String? onboardingStatus,
+    }) {
+      final configured = (map['registrationStatus'] as String?)?.trim();
+      if (configured != null && configured.isNotEmpty) {
+        return configured;
+      }
+      if (requiresReconnect) {
+        return 'error';
+      }
+      if (onboardingStatus == 'awaiting_verification') {
+        return 'verification_required';
+      }
+      final phoneNumberId = (map['phoneNumberId'] as String?)?.trim();
+      if (onboardingStatus == 'ready' &&
+          phoneNumberId != null &&
+          phoneNumberId.isNotEmpty) {
+        return 'registered';
+      }
+      return 'pending';
+    }
+
+    final connectionMethod = inferConnectionMethod();
+    final requiresReconnect = inferRequiresReconnect(connectionMethod);
+    final onboardingStatus = inferOnboardingStatus(requiresReconnect);
+    final registrationStatus = inferRegistrationStatus(
+      requiresReconnect: requiresReconnect,
+      onboardingStatus: onboardingStatus,
+    );
+
     return WhatsAppConfig(
       salonId: salonId,
       mode: (map['mode'] as String?) ?? 'pending',
@@ -90,7 +185,16 @@ class WhatsAppConfig {
       graphApiVersion: map['graphApiVersion'] as String?,
       tokenExpiresAt: parseDate(map['tokenExpiresAt']),
       connectedAt: parseDate(map['connectedAt']),
-      onboardingStatus: map['onboardingStatus'] as String?,
+      onboardingStatus: onboardingStatus,
+      registrationStatus: registrationStatus,
+      connectionMethod: connectionMethod,
+      requiresReconnect: requiresReconnect,
+      registeredAt: parseDate(map['registeredAt']),
+      lastRegistrationErrorMessage:
+          map['lastRegistrationErrorMessage'] as String?,
+      lastRegistrationErrorAt: parseDate(map['lastRegistrationErrorAt']),
+      lastCodeMethod: map['lastCodeMethod'] as String?,
+      lastCodeRequestedAt: parseDate(map['lastCodeRequestedAt']),
       lastPreviewSendStatus: map['lastPreviewSendStatus'] as String?,
       lastPreviewSendMessageId: map['lastPreviewSendMessageId'] as String?,
       lastPreviewSendError: map['lastPreviewSendError'] as String?,
@@ -111,6 +215,14 @@ class WhatsAppConfig {
     DateTime? tokenExpiresAt,
     DateTime? connectedAt,
     String? onboardingStatus,
+    String? registrationStatus,
+    String? connectionMethod,
+    bool? requiresReconnect,
+    DateTime? registeredAt,
+    String? lastRegistrationErrorMessage,
+    DateTime? lastRegistrationErrorAt,
+    String? lastCodeMethod,
+    DateTime? lastCodeRequestedAt,
     String? lastPreviewSendStatus,
     String? lastPreviewSendMessageId,
     String? lastPreviewSendError,
@@ -130,6 +242,16 @@ class WhatsAppConfig {
       tokenExpiresAt: tokenExpiresAt ?? this.tokenExpiresAt,
       connectedAt: connectedAt ?? this.connectedAt,
       onboardingStatus: onboardingStatus ?? this.onboardingStatus,
+      registrationStatus: registrationStatus ?? this.registrationStatus,
+      connectionMethod: connectionMethod ?? this.connectionMethod,
+      requiresReconnect: requiresReconnect ?? this.requiresReconnect,
+      registeredAt: registeredAt ?? this.registeredAt,
+      lastRegistrationErrorMessage:
+          lastRegistrationErrorMessage ?? this.lastRegistrationErrorMessage,
+      lastRegistrationErrorAt:
+          lastRegistrationErrorAt ?? this.lastRegistrationErrorAt,
+      lastCodeMethod: lastCodeMethod ?? this.lastCodeMethod,
+      lastCodeRequestedAt: lastCodeRequestedAt ?? this.lastCodeRequestedAt,
       lastPreviewSendStatus:
           lastPreviewSendStatus ?? this.lastPreviewSendStatus,
       lastPreviewSendMessageId:
@@ -155,6 +277,19 @@ class WhatsAppConfig {
         'tokenExpiresAt': Timestamp.fromDate(tokenExpiresAt!),
       if (connectedAt != null) 'connectedAt': Timestamp.fromDate(connectedAt!),
       if (onboardingStatus != null) 'onboardingStatus': onboardingStatus,
+      if (registrationStatus != null)
+        'registrationStatus': registrationStatus,
+      if (connectionMethod != null) 'connectionMethod': connectionMethod,
+      'requiresReconnect': requiresReconnect,
+      if (registeredAt != null) 'registeredAt': Timestamp.fromDate(registeredAt!),
+      if (lastRegistrationErrorMessage != null)
+        'lastRegistrationErrorMessage': lastRegistrationErrorMessage,
+      if (lastRegistrationErrorAt != null)
+        'lastRegistrationErrorAt':
+            Timestamp.fromDate(lastRegistrationErrorAt!),
+      if (lastCodeMethod != null) 'lastCodeMethod': lastCodeMethod,
+      if (lastCodeRequestedAt != null)
+        'lastCodeRequestedAt': Timestamp.fromDate(lastCodeRequestedAt!),
       if (lastPreviewSendStatus != null)
         'lastPreviewSendStatus': lastPreviewSendStatus,
       if (lastPreviewSendMessageId != null)
@@ -263,13 +398,18 @@ class WhatsAppService {
     http.Client? httpClient,
     FirebaseFirestore? firestore,
     Uri? sendEndpoint,
+    WhatsAppEmbeddedSignupLauncher? embeddedSignupLauncher,
   }) : _client = httpClient ?? http.Client(),
        _firestore = firestore ?? FirebaseFirestore.instance,
-       _sendEndpoint = sendEndpoint ?? _tryResolveEndpoint();
+       _sendEndpoint = sendEndpoint ?? _tryResolveEndpoint(),
+       _embeddedSignupLauncher =
+           embeddedSignupLauncher ??
+           embedded_signup_launcher.createWhatsAppEmbeddedSignupLauncher();
 
   final http.Client _client;
   final FirebaseFirestore _firestore;
   final Uri? _sendEndpoint;
+  final WhatsAppEmbeddedSignupLauncher _embeddedSignupLauncher;
 
   Uri? get sendEndpoint => _sendEndpoint;
 
@@ -391,16 +531,26 @@ class WhatsAppService {
     final doc = _firestore.collection('salons').doc(salonId);
     await doc.update({
       'whatsapp.mode': 'disconnected',
+      'whatsapp.businessId': FieldValue.delete(),
+      'whatsapp.wabaId': FieldValue.delete(),
       'whatsapp.phoneNumberId': FieldValue.delete(),
       'whatsapp.displayPhoneNumber': FieldValue.delete(),
+      'whatsapp.connectionMethod': FieldValue.delete(),
+      'whatsapp.requiresReconnect': false,
       'whatsapp.tokenSecretId': FieldValue.delete(),
       'whatsapp.verifyTokenSecretId': FieldValue.delete(),
       'whatsapp.graphApiVersion': FieldValue.delete(),
       'whatsapp.tokenExpiresAt': FieldValue.delete(),
       'whatsapp.connectedAt': FieldValue.delete(),
-      'whatsapp.onboardingStatus': FieldValue.delete(),
+      'whatsapp.registeredAt': FieldValue.delete(),
+      'whatsapp.registrationStatus': 'pending',
+      'whatsapp.onboardingStatus': 'disconnected',
       'whatsapp.lastOnboardingErrorMessage': FieldValue.delete(),
       'whatsapp.lastOnboardingErrorAt': FieldValue.delete(),
+      'whatsapp.lastRegistrationErrorMessage': FieldValue.delete(),
+      'whatsapp.lastRegistrationErrorAt': FieldValue.delete(),
+      'whatsapp.lastCodeMethod': FieldValue.delete(),
+      'whatsapp.lastCodeRequestedAt': FieldValue.delete(),
       'whatsapp.lastPreviewSendStatus': FieldValue.delete(),
       'whatsapp.lastPreviewSendAt': FieldValue.delete(),
       'whatsapp.lastPreviewSendMessageId': FieldValue.delete(),
@@ -460,44 +610,173 @@ class WhatsAppService {
     );
   }
 
-  Future<Uri> buildOAuthStartUrl(String salonId, {Uri? redirectUri}) async {
-    final functionUri = _resolveFunctionUrl('startWhatsappOAuth');
-    final uri = functionUri.replace(
-      queryParameters: {
-        'salonId': salonId,
-        if (redirectUri != null) 'redirectUri': redirectUri.toString(),
-      },
-    );
-
-    final response = await _authorizedGet(uri, forceRefreshFirst: true);
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-      final authUrl = decoded['authUrl'] as String?;
-      if (authUrl == null) {
-        throw WhatsAppSendException('Risposta OAuth senza authUrl');
-      }
-      return Uri.parse(authUrl);
+  Future<WhatsAppEmbeddedSignupSession> createEmbeddedSignupSession(
+    String salonId,
+  ) async {
+    final functionUri = _resolveFunctionUrl('createWhatsappEmbeddedSignupSession');
+    final response = await _authorizedPostJson(functionUri, <String, dynamic>{
+      'salonId': salonId,
+      if (kIsWeb) 'redirectUri': Uri.base.replace(fragment: '').toString(),
+    }, forceRefreshFirst: true);
+    final body = _decodeJsonBody(response);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw WhatsAppSendException(
+        'Impossibile creare la sessione Embedded Signup (${response.statusCode}): '
+        '${body['error'] ?? response.body}',
+      );
     }
 
-    final decodedBody =
-        response.body.isEmpty
-            ? const <String, dynamic>{}
-            : jsonDecode(response.body);
-    final body =
-        decodedBody is Map<String, dynamic> ? decodedBody : <String, dynamic>{};
+    final sessionId = body['sessionId'] as String?;
+    final sessionToken = body['sessionToken'] as String?;
+    final appId = body['appId'] as String?;
+    final configId = body['configId'] as String?;
+    final graphApiVersion = body['graphApiVersion'] as String?;
+    if (sessionId == null ||
+        sessionToken == null ||
+        appId == null ||
+        configId == null ||
+        graphApiVersion == null) {
+      throw WhatsAppSendException(
+        'Risposta Embedded Signup incompleta dal backend.',
+      );
+    }
 
-    throw WhatsAppSendException(
-      'Impossibile generare URL OAuth (${response.statusCode}): '
-      '${body['error'] ?? response.body}',
+    return WhatsAppEmbeddedSignupSession(
+      salonId: salonId,
+      sessionId: sessionId,
+      sessionToken: sessionToken,
+      appId: appId,
+      configId: configId,
+      graphApiVersion: graphApiVersion,
     );
   }
 
-  Future<void> openOAuthFlow(String salonId) async {
-    final url = await buildOAuthStartUrl(salonId);
-    final launched = await launchUrl(url, mode: LaunchMode.externalApplication);
-    if (!launched) {
-      throw WhatsAppSendException('Impossibile aprire il browser');
+  Future<WhatsAppEmbeddedSignupResult> configureManualSetup({
+    required String salonId,
+    required String accessToken,
+    required String wabaId,
+    required String phoneNumberId,
+    String? businessId,
+    String? displayPhoneNumber,
+    String? pin,
+  }) async {
+    final functionUri = _resolveFunctionUrl('configureWhatsappManualSetup');
+    final response = await _authorizedPostJson(functionUri, <String, dynamic>{
+      'salonId': salonId,
+      'accessToken': accessToken,
+      'wabaId': wabaId,
+      'phoneNumberId': phoneNumberId,
+      if (businessId != null && businessId.trim().isNotEmpty)
+        'businessId': businessId.trim(),
+      if (displayPhoneNumber != null && displayPhoneNumber.trim().isNotEmpty)
+        'displayPhoneNumber': displayPhoneNumber.trim(),
+      if (pin != null && pin.trim().isNotEmpty) 'pin': pin.trim(),
+    }, forceRefreshFirst: true);
+    final body = _decodeJsonBody(response);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw WhatsAppSendException(
+        'Impossibile salvare la configurazione manuale (${response.statusCode}): '
+        '${body['error'] ?? response.body}',
+      );
     }
+    return _parseEmbeddedSignupResult(
+      body,
+      defaultPhase: WhatsAppEmbeddedSignupPhase.ready,
+    );
+  }
+
+  Future<WhatsAppEmbeddedSignupLaunchResult> launchEmbeddedSignup(
+    WhatsAppEmbeddedSignupSession session,
+  ) {
+    return _embeddedSignupLauncher.launch(session);
+  }
+
+  Future<WhatsAppEmbeddedSignupResult> completeEmbeddedSignup({
+    required String salonId,
+    required String sessionId,
+    required String sessionToken,
+    required String code,
+    required String pin,
+    String? businessId,
+    String? wabaId,
+    String? phoneNumberId,
+    String? displayPhoneNumber,
+  }) async {
+    final functionUri = _resolveFunctionUrl('completeWhatsappEmbeddedSignup');
+    final response = await _authorizedPostJson(functionUri, <String, dynamic>{
+      'salonId': salonId,
+      'sessionId': sessionId,
+      'sessionToken': sessionToken,
+      'code': code,
+      'pin': pin,
+      if (businessId != null) 'businessId': businessId,
+      if (wabaId != null) 'wabaId': wabaId,
+      if (phoneNumberId != null) 'phoneNumberId': phoneNumberId,
+      if (displayPhoneNumber != null) 'displayPhoneNumber': displayPhoneNumber,
+    });
+    final body = _decodeJsonBody(response);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw WhatsAppSendException(
+        'Impossibile completare Embedded Signup (${response.statusCode}): '
+        '${body['error'] ?? response.body}',
+      );
+    }
+    return _parseEmbeddedSignupResult(
+      body,
+      defaultPhase: WhatsAppEmbeddedSignupPhase.signupCompleted,
+    );
+  }
+
+  Future<WhatsAppEmbeddedSignupResult> requestPhoneVerificationCode({
+    required String salonId,
+    required WhatsAppVerificationCodeMethod codeMethod,
+    String? sessionId,
+  }) async {
+    final functionUri = _resolveFunctionUrl('requestWhatsappPhoneVerificationCode');
+    final response = await _authorizedPostJson(functionUri, <String, dynamic>{
+      'salonId': salonId,
+      'codeMethod':
+          codeMethod == WhatsAppVerificationCodeMethod.voice ? 'VOICE' : 'SMS',
+      if (sessionId != null) 'sessionId': sessionId,
+      'locale': 'it_IT',
+    });
+    final body = _decodeJsonBody(response);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw WhatsAppSendException(
+        'Impossibile richiedere il codice di verifica (${response.statusCode}): '
+        '${body['error'] ?? response.body}',
+      );
+    }
+    return _parseEmbeddedSignupResult(
+      body,
+      defaultPhase: WhatsAppEmbeddedSignupPhase.awaitingVerification,
+    );
+  }
+
+  Future<WhatsAppEmbeddedSignupResult> confirmPhoneVerificationCode({
+    required String salonId,
+    required String verificationCode,
+    required String pin,
+    String? sessionId,
+  }) async {
+    final functionUri = _resolveFunctionUrl('confirmWhatsappPhoneVerificationCode');
+    final response = await _authorizedPostJson(functionUri, <String, dynamic>{
+      'salonId': salonId,
+      'verificationCode': verificationCode,
+      'pin': pin,
+      if (sessionId != null) 'sessionId': sessionId,
+    });
+    final body = _decodeJsonBody(response);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw WhatsAppSendException(
+        'Impossibile confermare il codice di verifica (${response.statusCode}): '
+        '${body['error'] ?? response.body}',
+      );
+    }
+    return _parseEmbeddedSignupResult(
+      body,
+      defaultPhase: WhatsAppEmbeddedSignupPhase.ready,
+    );
   }
 
   Future<List<MetaWhatsAppTemplate>> listMetaTemplates({
@@ -617,6 +896,59 @@ class WhatsAppService {
       );
     }
     return idToken;
+  }
+
+  Map<String, dynamic> _decodeJsonBody(http.Response response) {
+    final decodedBody =
+        response.body.isEmpty
+            ? const <String, dynamic>{}
+            : jsonDecode(response.body);
+    return decodedBody is Map<String, dynamic>
+        ? decodedBody
+        : <String, dynamic>{};
+  }
+
+  WhatsAppEmbeddedSignupResult _parseEmbeddedSignupResult(
+    Map<String, dynamic> body, {
+    required WhatsAppEmbeddedSignupPhase defaultPhase,
+  }) {
+    final nextStep = (body['nextStep'] as String?)?.trim();
+    final phase = switch (nextStep) {
+      'verification_required' =>
+        WhatsAppEmbeddedSignupPhase.awaitingVerification,
+      'ready' => WhatsAppEmbeddedSignupPhase.ready,
+      _ => defaultPhase,
+    };
+    final codeMethodRaw = (body['codeMethod'] as String?)?.trim().toUpperCase();
+
+    return WhatsAppEmbeddedSignupResult(
+      phase: phase,
+      onboardingStatus:
+          (body['onboardingStatus'] as String?) ??
+          switch (phase) {
+            WhatsAppEmbeddedSignupPhase.awaitingVerification =>
+              'awaiting_verification',
+            WhatsAppEmbeddedSignupPhase.ready => 'ready',
+            _ => 'registering',
+          },
+      registrationStatus:
+          (body['registrationStatus'] as String?) ??
+          switch (phase) {
+            WhatsAppEmbeddedSignupPhase.awaitingVerification =>
+              'verification_required',
+            WhatsAppEmbeddedSignupPhase.ready => 'registered',
+            _ => 'pending',
+          },
+      phoneNumberId: body['phoneNumberId'] as String?,
+      displayPhoneNumber: body['displayPhoneNumber'] as String?,
+      sessionId: body['sessionId'] as String?,
+      codeMethod:
+          codeMethodRaw == 'VOICE'
+              ? WhatsAppVerificationCodeMethod.voice
+              : codeMethodRaw == 'SMS'
+              ? WhatsAppVerificationCodeMethod.sms
+              : null,
+    );
   }
 
   Future<void> _prepareFirestoreAuthSession() async {

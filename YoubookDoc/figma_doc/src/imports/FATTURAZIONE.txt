@@ -1,0 +1,28 @@
+FATTURAZIONE
+
+Obiettivo
+- Consentire l'inserimento di nuovi acconti o del saldo finale direttamente dalla scheda Pagamenti da saldare.
+- Aggiornare in tempo reale la voce "Da incassare" per la vendita selezionata.
+- Registrare ogni movimento nella lista Storico pagamenti, mantenendo la tracciabilita'.
+
+Flusso operativo
+1. L' admin seleziona un record nella sezione Pagamenti da saldare.
+2. Il sistema propone due azioni: aggiungi acconto oppure salda.
+3. Alla conferma:
+   - Viene avviata la chiamata Firebase per registrare il movimento.
+   - In attesa di risposta positiva la UI rimane disabilitata per evitare duplicazioni.
+   - Al termine positivo dell'operazione, il nuovo movimento viene aggiunto allo Storico pagamenti e il valore "Da incassare" viene ricalcolato.
+4. Se l'importo residuo raggiunge zero, il record viene rimosso dalla sezione Pagamenti da saldare.
+
+Requisiti dati
+- Ogni movimento deve salvare: importo, tipo movimento (acconto/saldo), data/ora, operatore, note opzionali.
+- Lo storico conserva gli importi cumulativi per verificare rapidamente il totale incassato.
+- Il valore "Da incassare" viene calcolato come Totale vendita - Somma movimenti confermati.
+
+Scenario di esempio
+- Totale servizio: 200 euro.
+- Acconto iniziale pagato dalla cliente: 50 euro.
+- In Pagamenti da saldare compare un residuo di 150 euro.
+- L'operatore puo' scegliere se inserire un nuovo acconto (es. altri 50 euro) oppure saldare l'intero residuo.
+- Ogni azione genera una voce nello Storico pagamenti.
+- Quando il totale degli acconti raggiunge 200 euro il residuo diventa 0 e la voce sparisce da Pagamenti da saldare.

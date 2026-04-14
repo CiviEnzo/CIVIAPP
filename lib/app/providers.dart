@@ -30,6 +30,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+export 'package:you_book/presentation/common/app_notice.dart';
+export 'package:you_book/data/repositories/app_data_store.dart'
+    show ClientUpsertResult;
+
 final appDataProvider = StateNotifierProvider<AppDataStore, AppDataState>((
   ref,
 ) {
@@ -197,6 +201,32 @@ class AppointmentsModuleIntent {
   final DateTime focusDateTime;
 }
 
+class AppointmentsModuleAppBarState {
+  const AppointmentsModuleAppBarState({required this.rangeLabel});
+
+  final String rangeLabel;
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
+      return true;
+    }
+    return other is AppointmentsModuleAppBarState &&
+        other.rangeLabel == rangeLabel;
+  }
+
+  @override
+  int get hashCode => rangeLabel.hashCode;
+}
+
+enum AppointmentsModuleAppBarCommand {
+  previousRange,
+  nextRange,
+  goToToday,
+  pickDate,
+  openVision,
+}
+
 final clientDashboardIntentProvider = StateProvider<ClientDashboardIntent?>(
   (ref) => null,
 );
@@ -211,6 +241,12 @@ final clientsModuleIntentProvider = StateProvider<ClientsModuleIntent?>(
 
 final appointmentsModuleIntentProvider =
     StateProvider<AppointmentsModuleIntent?>((ref) => null);
+
+final appointmentsModuleAppBarStateProvider =
+    StateProvider<AppointmentsModuleAppBarState?>((ref) => null);
+
+final appointmentsModuleAppBarCommandProvider =
+    StateProvider<AppointmentsModuleAppBarCommand?>((ref) => null);
 
 final clientPhotosProvider = Provider.family<List<ClientPhoto>, String?>((
   ref,

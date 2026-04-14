@@ -23,6 +23,7 @@ class ServiceCategoryZoneSheet extends ConsumerStatefulWidget {
   }) {
     return showAppModalSheet<void>(
       context: context,
+      includeCloseButton: false,
       builder:
           (ctx) =>
               ServiceCategoryZoneSheet(category: category, services: services),
@@ -83,10 +84,13 @@ String _displayZoneLabel(BodyZoneDefinition zone) {
   if (counterpart == null) {
     return zone.label;
   }
-  final normalized = zone.label.replaceAll(
-    RegExp(r'\s+(destra|sinistra)$', caseSensitive: false),
-    '',
-  ).trim();
+  final normalized =
+      zone.label
+          .replaceAll(
+            RegExp(r'\s+(destra|sinistra)$', caseSensitive: false),
+            '',
+          )
+          .trim();
   return '$normalized (dx/sx)';
 }
 
@@ -115,111 +119,79 @@ class _ServiceCategoryZoneSheetState
     );
     final hasServices = _categoryServices.isNotEmpty;
 
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          24,
-          24,
-          24,
-          24 + MediaQuery.of(context).viewInsets.bottom,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.max,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Zone corpo per ${widget.category.name}',
-                        style: textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Associa un servizio della categoria ad ogni zona selezionabile.',
-                        style: textTheme.bodyMedium,
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Chiudi',
-                  onPressed:
-                      _isSaving ? null : () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close_rounded),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            if (!hasServices)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    'Crea almeno un servizio per questa categoria prima di associare le zone.',
-                    style: textTheme.bodyMedium,
-                  ),
-                ),
-              )
-            else
-              Expanded(
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _BodyZoneGroup(
-                        title: 'Fronte',
-                        zones: frontZones,
-                        assignments: _assignments,
-                        services: _categoryServices,
-                        onAssignmentChanged: _setAssignment,
-                      ),
-                      const SizedBox(height: 16),
-                      _BodyZoneGroup(
-                        title: 'Retro',
-                        zones: backZones,
-                        assignments: _assignments,
-                        services: _categoryServices,
-                        onAssignmentChanged: _setAssignment,
-                      ),
-                    ],
-                  ),
+    return DialogActionLayout(
+      title: 'Zone corpo per ${widget.category.name}',
+      subtitle:
+          'Associa un servizio della categoria ad ogni zona selezionabile.',
+      scrollBody: false,
+      body: Column(
+        mainAxisSize: MainAxisSize.max,
+        children: [
+          if (!hasServices)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'Crea almeno un servizio per questa categoria prima di associare le zone.',
+                  style: textTheme.bodyMedium,
                 ),
               ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                TextButton.icon(
-                  onPressed:
-                      _assignments.isEmpty || _isSaving
-                          ? null
-                          : () => setState(() {
-                            _assignments.clear();
-                          }),
-                  icon: const Icon(Icons.clear_all_rounded),
-                  label: const Text('Pulisci associazioni'),
+            )
+          else
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _BodyZoneGroup(
+                      title: 'Fronte',
+                      zones: frontZones,
+                      assignments: _assignments,
+                      services: _categoryServices,
+                      onAssignmentChanged: _setAssignment,
+                    ),
+                    const SizedBox(height: 16),
+                    _BodyZoneGroup(
+                      title: 'Retro',
+                      zones: backZones,
+                      assignments: _assignments,
+                      services: _categoryServices,
+                      onAssignmentChanged: _setAssignment,
+                    ),
+                  ],
                 ),
-                const Spacer(),
-                FilledButton.icon(
-                  onPressed:
-                      hasServices && !_isSaving ? _saveAssignments : null,
-                  icon:
-                      _isSaving
-                          ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                          : const Icon(Icons.save_rounded),
-                  label: Text(_isSaving ? 'Salvataggio...' : 'Salva'),
-                ),
-              ],
+              ),
             ),
-          ],
-        ),
+        ],
       ),
+      footer: Row(
+        children: [
+          TextButton.icon(
+            onPressed:
+                _assignments.isEmpty || _isSaving
+                    ? null
+                    : () => setState(() {
+                      _assignments.clear();
+                    }),
+            icon: const Icon(Icons.clear_all_rounded),
+            label: const Text('Pulisci associazioni'),
+          ),
+          const Spacer(),
+          FilledButton.icon(
+            onPressed: hasServices && !_isSaving ? _saveAssignments : null,
+            icon:
+                _isSaving
+                    ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                    : const Icon(Icons.save_rounded),
+            label: Text(_isSaving ? 'Salvataggio...' : 'Salva'),
+          ),
+        ],
+      ),
+      actions: const [],
     );
   }
 

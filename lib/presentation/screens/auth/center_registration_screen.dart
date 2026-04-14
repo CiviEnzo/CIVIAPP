@@ -69,10 +69,7 @@ class _CenterRegistrationScreenState
                         style: theme.textTheme.bodyMedium,
                       ),
                       const SizedBox(height: 24),
-                      Text(
-                        'Dati centro',
-                        style: theme.textTheme.titleMedium,
-                      ),
+                      Text('Dati centro', style: theme.textTheme.titleMedium),
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _salonNameController,
@@ -190,8 +187,12 @@ class _CenterRegistrationScreenState
                           labelText: 'Password',
                           prefixIcon: const Icon(Icons.lock_outline),
                           suffixIcon: IconButton(
-                            onPressed: () => setState(
-                                () => _isPasswordObscured = !_isPasswordObscured),
+                            onPressed:
+                                () => setState(
+                                  () =>
+                                      _isPasswordObscured =
+                                          !_isPasswordObscured,
+                                ),
                             icon: Icon(
                               _isPasswordObscured
                                   ? Icons.visibility_off
@@ -219,8 +220,11 @@ class _CenterRegistrationScreenState
                           labelText: 'Conferma password',
                           prefixIcon: const Icon(Icons.lock_outline),
                           suffixIcon: IconButton(
-                            onPressed: () => setState(
-                                () => _isConfirmObscured = !_isConfirmObscured),
+                            onPressed:
+                                () => setState(
+                                  () =>
+                                      _isConfirmObscured = !_isConfirmObscured,
+                                ),
                             icon: Icon(
                               _isConfirmObscured
                                   ? Icons.visibility_off
@@ -243,13 +247,16 @@ class _CenterRegistrationScreenState
                       const SizedBox(height: 24),
                       FilledButton(
                         onPressed: _isLoading ? null : _register,
-                        child: _isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Text('Invia richiesta'),
+                        child:
+                            _isLoading
+                                ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                                : const Text('Invia richiesta'),
                       ),
                       const SizedBox(height: 12),
                       TextButton(
@@ -283,7 +290,9 @@ class _CenterRegistrationScreenState
     final password = _passwordController.text;
 
     try {
-      await ref.read(authRepositoryProvider).registerCenterAdmin(
+      await ref
+          .read(authRepositoryProvider)
+          .registerCenterAdmin(
             email: email,
             password: password,
             displayName: adminName,
@@ -304,8 +313,9 @@ class _CenterRegistrationScreenState
       );
     } on Exception catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_friendlyError(error))));
+      ScaffoldMessenger.of(
+        context,
+      ).showAppSnackBar(SnackBar(content: Text(_friendlyError(error))));
     } finally {
       ref.read(centerRegistrationInProgressProvider.notifier).state = false;
       if (mounted) {

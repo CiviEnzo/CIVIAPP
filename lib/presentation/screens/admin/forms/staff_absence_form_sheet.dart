@@ -2,6 +2,8 @@ import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/staff_absence.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:flutter/material.dart';
+import 'package:you_book/presentation/common/app_notice.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
@@ -108,6 +110,118 @@ class _StaffAbsenceFormSheetState extends State<StaffAbsenceFormSheet> {
         widget.staff
             .where((member) => _salonId == null || member.salonId == _salonId)
             .toList();
+    final title = widget.initial == null ? 'Nuova assenza' : 'Modifica assenza';
+    final formFields = <Widget>[
+      DropdownButtonFormField<String>(
+        isExpanded: true,
+        value: _staffId,
+        items:
+            filteredStaff
+                .map(
+                  (member) => DropdownMenuItem(
+                    value: member.id,
+                    child: Text(member.fullName),
+                  ),
+                )
+                .toList(),
+        decoration: const InputDecoration(labelText: 'Operatore'),
+        validator: (value) => value == null ? 'Seleziona un operatore' : null,
+        onChanged: (value) => setState(() => _staffId = value),
+      ),
+      const SizedBox(height: 12),
+      DropdownButtonFormField<StaffAbsenceType>(
+        isExpanded: true,
+        value: _type,
+        items:
+            StaffAbsenceType.values
+                .map(
+                  (type) =>
+                      DropdownMenuItem(value: type, child: Text(type.label)),
+                )
+                .toList(),
+        decoration: const InputDecoration(labelText: 'Motivo'),
+        onChanged: (value) {
+          if (value != null) {
+            setState(() => _type = value);
+          }
+        },
+      ),
+      const SizedBox(height: 12),
+      Row(
+        children: [
+          Expanded(
+            child: _AbsenceSelectionTile(
+              label: 'Dal',
+              value: dateFormat.format(_start),
+              icon: Icons.event_available_rounded,
+              onTap: _pickStart,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _AbsenceSelectionTile(
+              label: 'Al',
+              value: dateFormat.format(_end),
+              icon: Icons.event_busy_rounded,
+              onTap: _pickEnd,
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      SwitchListTile.adaptive(
+        contentPadding: EdgeInsets.zero,
+        value: _isAllDay,
+        title: const Text('Assenza per l\'intera giornata'),
+        subtitle: const Text('Disattiva per impostare un orario specifico'),
+        onChanged: _toggleAllDay,
+      ),
+      if (!_isAllDay) ...[
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _AbsenceSelectionTile(
+                label: 'Ora di inizio',
+                value: timeFormat.format(_start),
+                icon: Icons.schedule_rounded,
+                onTap: _pickStartTime,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _AbsenceSelectionTile(
+                label: 'Ora di fine',
+                value: timeFormat.format(_end),
+                icon: Icons.schedule,
+                onTap: _pickEndTime,
+              ),
+            ),
+          ],
+        ),
+      ],
+      const SizedBox(height: 12),
+      TextFormField(
+        controller: _notes,
+        maxLines: 3,
+        decoration: const InputDecoration(labelText: 'Note (facoltative)'),
+      ),
+    ];
+
+    if (isAppSheetPhoneLayout(context)) {
+      return AppMobileSheetPageScaffold(
+        title: title,
+        actions: [TextButton(onPressed: _submit, child: const Text('Salva'))],
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: formFields,
+          ),
+        ),
+      );
+    }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -117,112 +231,9 @@ class _StaffAbsenceFormSheetState extends State<StaffAbsenceFormSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              widget.initial == null ? 'Nuova assenza' : 'Modifica assenza',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
+            Text(title, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              isExpanded: true,
-              value: _staffId,
-              items:
-                  filteredStaff
-                      .map(
-                        (member) => DropdownMenuItem(
-                          value: member.id,
-                          child: Text(member.fullName),
-                        ),
-                      )
-                      .toList(),
-              decoration: const InputDecoration(labelText: 'Operatore'),
-              validator:
-                  (value) => value == null ? 'Seleziona un operatore' : null,
-              onChanged: (value) => setState(() => _staffId = value),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<StaffAbsenceType>(
-              isExpanded: true,
-              value: _type,
-              items:
-                  StaffAbsenceType.values
-                      .map(
-                        (type) => DropdownMenuItem(
-                          value: type,
-                          child: Text(type.label),
-                        ),
-                      )
-                      .toList(),
-              decoration: const InputDecoration(labelText: 'Motivo'),
-              onChanged: (value) {
-                if (value != null) {
-                  setState(() => _type = value);
-                }
-              },
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _AbsenceSelectionTile(
-                    label: 'Dal',
-                    value: dateFormat.format(_start),
-                    icon: Icons.event_available_rounded,
-                    onTap: _pickStart,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _AbsenceSelectionTile(
-                    label: 'Al',
-                    value: dateFormat.format(_end),
-                    icon: Icons.event_busy_rounded,
-                    onTap: _pickEnd,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: _isAllDay,
-              title: const Text('Assenza per l\'intera giornata'),
-              subtitle: const Text(
-                'Disattiva per impostare un orario specifico',
-              ),
-              onChanged: _toggleAllDay,
-            ),
-            if (!_isAllDay) ...[
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: _AbsenceSelectionTile(
-                      label: 'Ora di inizio',
-                      value: timeFormat.format(_start),
-                      icon: Icons.schedule_rounded,
-                      onTap: _pickStartTime,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _AbsenceSelectionTile(
-                      label: 'Ora di fine',
-                      value: timeFormat.format(_end),
-                      icon: Icons.schedule,
-                      onTap: _pickEndTime,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _notes,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Note (facoltative)',
-              ),
-            ),
+            ...formFields,
             const SizedBox(height: 24),
             Align(
               alignment: Alignment.centerRight,
@@ -421,7 +432,7 @@ class _StaffAbsenceFormSheetState extends State<StaffAbsenceFormSheet> {
     }
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ).showAppSnackBar(SnackBar(content: Text(message)));
   }
 }
 

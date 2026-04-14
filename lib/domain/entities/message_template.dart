@@ -57,24 +57,28 @@ class WhatsAppTemplateConfig {
     this.allowedParams = const <String>[],
     this.bindings,
     this.headerFormat,
+    this.promotionId,
   });
 
   final int schemaVersion;
   final List<String> allowedParams;
   final WhatsAppTemplateBindings? bindings;
   final String? headerFormat;
+  final String? promotionId;
 
   WhatsAppTemplateConfig copyWith({
     int? schemaVersion,
     List<String>? allowedParams,
     WhatsAppTemplateBindings? bindings,
     String? headerFormat,
+    String? promotionId,
   }) {
     return WhatsAppTemplateConfig(
       schemaVersion: schemaVersion ?? this.schemaVersion,
       allowedParams: allowedParams ?? this.allowedParams,
       bindings: bindings ?? this.bindings,
       headerFormat: headerFormat ?? this.headerFormat,
+      promotionId: promotionId ?? this.promotionId,
     );
   }
 }

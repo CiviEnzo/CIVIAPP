@@ -1,6 +1,7 @@
 import 'package:you_book/domain/entities/message_template.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:flutter/material.dart';
+import 'package:you_book/presentation/common/app_notice.dart';
 import 'package:uuid/uuid.dart';
 
 class MessageTemplateFormSheet extends StatefulWidget {
@@ -178,7 +179,7 @@ class _MessageTemplateFormSheetState extends State<MessageTemplateFormSheet> {
       return;
     }
     if (_salonId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text(
             'Nessun salone disponibile. Verifica la configurazione.',

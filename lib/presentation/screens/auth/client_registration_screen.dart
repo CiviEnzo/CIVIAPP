@@ -310,7 +310,7 @@ class _ClientRegistrationScreenState
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(_friendlyError(error))));
+      ).showAppSnackBar(SnackBar(content: Text(_friendlyError(error))));
     } finally {
       ref.read(clientRegistrationInProgressProvider.notifier).state = false;
       if (mounted) {

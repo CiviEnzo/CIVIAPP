@@ -53,13 +53,17 @@ class _SalonSetupChecklistSheetState
     extends ConsumerState<SalonSetupChecklistSheet> {
   bool _isProcessing = false;
 
-  Future<void> _markItemInProgress(String key) async {
+  Future<void> _runProcessing(Future<void> Function() action) async {
+    if (_isProcessing) {
+      return;
+    }
+    setState(() => _isProcessing = true);
     try {
-      await ref
-          .read(appDataProvider.notifier)
-          .markSalonSetupItemInProgress(salonId: widget.salonId, itemKey: key);
-    } catch (_) {
-      // Silently ignore errors to avoid blocking the flow.
+      await action();
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
     }
   }
 
@@ -86,33 +90,105 @@ class _SalonSetupChecklistSheetState
     }
   }
 
-  Future<void> _updateSalon(Salon updated) async {
-    setState(() => _isProcessing = true);
-    try {
-      await ref.read(appDataProvider.notifier).upsertSalon(updated);
-    } finally {
-      if (mounted) {
-        setState(() => _isProcessing = false);
-      }
-    }
-  }
-
   Future<void> _editProfile(BuildContext context, Salon salon) async {
-    await _markItemInProgress(SetupChecklistKeys.profile);
     final updated = await showAppModalSheet<Salon>(
       context: context,
+      includeCloseButton: false,
       builder: (ctx) => SalonProfileSheet(salon: salon),
     );
     if (updated != null) {
-      await _updateSalon(updated);
+      await _runProcessing(() async {
+        final merged = await ref
+            .read(appDataProvider.notifier)
+            .updateSalonProfileSection(
+              salonId: widget.salonId,
+              source: updated,
+            );
+        await _markItemCompleted(
+          SetupChecklistKeys.profile,
+          metadata: {
+            'hasAddress': merged.address.trim().isNotEmpty,
+            'hasDescription': (merged.description ?? '').trim().isNotEmpty,
+          },
+        );
+      });
+    }
+  }
+
+  Future<void> _updateOperations(Salon updated) async {
+    await _runProcessing(() async {
+      final merged = await ref
+          .read(appDataProvider.notifier)
+          .updateSalonOperationsSection(
+            salonId: widget.salonId,
+            source: updated,
+          );
       await _markItemCompleted(
-        SetupChecklistKeys.profile,
+        SetupChecklistKeys.operations,
         metadata: {
-          'hasAddress': updated.address.trim().isNotEmpty,
-          'hasDescription': (updated.description ?? '').trim().isNotEmpty,
+          'hasSchedule': merged.schedule.any((entry) => entry.isOpen),
+          'status': merged.status.name,
+        },
+        markRequiredCompleted: true,
+      );
+    });
+  }
+
+  Future<void> _updateEquipment(List<SalonEquipment> updated) async {
+    await _runProcessing(() async {
+      await ref
+          .read(appDataProvider.notifier)
+          .updateSalonEquipmentSection(
+            salonId: widget.salonId,
+            equipment: updated,
+          );
+      await _markItemCompleted(
+        SetupChecklistKeys.equipment,
+        metadata: {'count': updated.length, 'skipped': updated.isEmpty},
+      );
+    });
+  }
+
+  Future<void> _updateRooms(List<SalonRoom> updated) async {
+    await _runProcessing(() async {
+      await ref
+          .read(appDataProvider.notifier)
+          .updateSalonRoomsSection(salonId: widget.salonId, rooms: updated);
+      await _markItemCompleted(
+        SetupChecklistKeys.rooms,
+        metadata: {'count': updated.length, 'skipped': updated.isEmpty},
+      );
+    });
+  }
+
+  Future<void> _updateLoyalty(Salon updated) async {
+    await _runProcessing(() async {
+      final merged = await ref
+          .read(appDataProvider.notifier)
+          .updateSalonLoyaltySection(salonId: widget.salonId, source: updated);
+      await _markItemCompleted(
+        SetupChecklistKeys.loyalty,
+        metadata: {
+          'enabled': merged.loyaltySettings.enabled,
+          'skipped': !merged.loyaltySettings.enabled,
         },
       );
-    }
+    });
+  }
+
+  Future<void> _updateSocial(Salon updated) async {
+    await _runProcessing(() async {
+      final merged = await ref
+          .read(appDataProvider.notifier)
+          .updateSalonSocialSection(salonId: widget.salonId, source: updated);
+      await _markItemCompleted(
+        SetupChecklistKeys.social,
+        metadata: {
+          'count': merged.socialLinks.length,
+          'skipped': merged.socialLinks.isEmpty,
+        },
+      );
+    });
   }
 
   bool _isItemSkipped(AdminSetupProgress? progress, String key) {
@@ -131,11 +207,7 @@ class _SalonSetupChecklistSheetState
   }
 
   Future<void> _skipItem(String key) async {
-    if (_isProcessing) {
-      return;
-    }
-    setState(() => _isProcessing = true);
-    try {
+    await _runProcessing(() async {
       await ref
           .read(appDataProvider.notifier)
           .markSalonSetupItemCompleted(
@@ -144,11 +216,7 @@ class _SalonSetupChecklistSheetState
             metadata: const {'skipped': true},
             pendingReminder: false,
           );
-    } finally {
-      if (mounted) {
-        setState(() => _isProcessing = false);
-      }
-    }
+    });
   }
 
   Future<void> _confirmSkip(
@@ -183,89 +251,57 @@ class _SalonSetupChecklistSheetState
   }
 
   Future<void> _editOperations(BuildContext context, Salon salon) async {
-    await _markItemInProgress(SetupChecklistKeys.operations);
     final updated = await showAppModalSheet<Salon>(
       context: context,
+      includeCloseButton: false,
       builder: (ctx) => SalonOperationsSheet(salon: salon),
     );
     if (updated != null) {
-      await _updateSalon(updated);
-      await _markItemCompleted(
-        SetupChecklistKeys.operations,
-        metadata: {
-          'hasSchedule': updated.schedule.any((entry) => entry.isOpen),
-          'status': updated.status.name,
-        },
-        markRequiredCompleted: true,
-      );
+      await _updateOperations(updated);
     }
   }
 
   Future<void> _editEquipment(BuildContext context, Salon salon) async {
-    await _markItemInProgress(SetupChecklistKeys.equipment);
     final updated = await showAppModalSheet<List<SalonEquipment>>(
       context: context,
+      includeCloseButton: false,
       builder: (ctx) => SalonEquipmentSheet(initialEquipment: salon.equipment),
     );
     if (updated != null) {
-      final nextSalon = salon.copyWith(equipment: updated);
-      await _updateSalon(nextSalon);
-      await _markItemCompleted(
-        SetupChecklistKeys.equipment,
-        metadata: {'count': updated.length, 'skipped': updated.isEmpty},
-      );
+      await _updateEquipment(updated);
     }
   }
 
   Future<void> _editRooms(BuildContext context, Salon salon) async {
-    await _markItemInProgress(SetupChecklistKeys.rooms);
     final updated = await showAppModalSheet<List<SalonRoom>>(
       context: context,
+      includeCloseButton: false,
       builder: (ctx) => SalonRoomsSheet(initialRooms: salon.rooms),
     );
     if (updated != null) {
-      final nextSalon = salon.copyWith(rooms: updated);
-      await _updateSalon(nextSalon);
-      await _markItemCompleted(
-        SetupChecklistKeys.rooms,
-        metadata: {'count': updated.length, 'skipped': updated.isEmpty},
-      );
+      await _updateRooms(updated);
     }
   }
 
   Future<void> _editLoyalty(BuildContext context, Salon salon) async {
-    await _markItemInProgress(SetupChecklistKeys.loyalty);
     final updated = await showAppModalSheet<Salon>(
       context: context,
+      includeCloseButton: false,
       builder: (ctx) => SalonLoyaltySheet(salon: salon),
     );
     if (updated != null) {
-      await _updateSalon(updated);
-      await _markItemCompleted(
-        SetupChecklistKeys.loyalty,
-        metadata: {
-          'enabled': updated.loyaltySettings.enabled,
-          'skipped': !updated.loyaltySettings.enabled,
-        },
-      );
+      await _updateLoyalty(updated);
     }
   }
 
   Future<void> _editSocial(BuildContext context, Salon salon) async {
-    await _markItemInProgress(SetupChecklistKeys.social);
     final updated = await showAppModalSheet<Salon>(
       context: context,
+      includeCloseButton: false,
       builder: (ctx) => SalonSocialSheet(salon: salon),
     );
     if (updated != null) {
-      await _updateSalon(updated);
-      await _markItemCompleted(
-        SetupChecklistKeys.social,
-        metadata: {
-          'count': updated.socialLinks.length,
-          'skipped': updated.socialLinks.isEmpty,
-        },
-      );
+      await _updateSocial(updated);
     }
   }
 
@@ -333,7 +369,7 @@ class _SalonSetupChecklistSheetState
             decoration: BoxDecoration(
               color: Theme.of(
                 context,
-              ).colorScheme.surfaceVariant.withOpacity(0.45),
+              ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
               borderRadius: BorderRadius.circular(12),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -407,7 +443,7 @@ class _SalonSetupChecklistSheetState
                   ),
                   tileColor: Theme.of(
                     context,
-                  ).colorScheme.surfaceVariant.withOpacity(0.3),
+                  ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
                   leading: Icon(item.icon, color: statusColor),
                   title: Text(item.title),
                   subtitle: Column(

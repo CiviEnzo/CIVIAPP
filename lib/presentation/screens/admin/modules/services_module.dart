@@ -42,18 +42,26 @@ Color _shadowColor(
   required double darkOpacity,
 }) {
   final isDark = theme.brightness == Brightness.dark;
-  return Colors.black.withOpacity(isDark ? darkOpacity : lightOpacity);
+  return Colors.black.withValues(alpha: isDark ? darkOpacity : lightOpacity);
 }
 
-class ServicesModule extends ConsumerWidget {
+class ServicesModule extends ConsumerStatefulWidget {
   const ServicesModule({super.key, this.salonId});
 
   final String? salonId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ServicesModule> createState() => _ServicesModuleState();
+}
+
+class _ServicesModuleState extends ConsumerState<ServicesModule> {
+  bool _showPackages = false;
+
+  @override
+  Widget build(BuildContext context) {
     final data = ref.watch(appDataProvider);
     final session = ref.watch(sessionControllerProvider);
+    final salonId = widget.salonId;
     final salons = data.salons;
     final staffRoles = data.staffRoles;
     final services =
@@ -77,7 +85,7 @@ class ServicesModule extends ConsumerWidget {
     final isAdmin = session.role == UserRole.admin;
     final categoriesAction =
         isAdmin && salons.isNotEmpty
-            ? OutlinedButton.icon(
+            ? OutlinedButton(
               onPressed:
                   () => _openCategoriesManager(
                     context,
@@ -85,8 +93,7 @@ class ServicesModule extends ConsumerWidget {
                     salons: salons,
                     selectedSalonId: salonId ?? session.salonId,
                   ),
-              icon: const Icon(Icons.category_rounded),
-              label: const Text('Categorie'),
+              child: const Text('Categorie'),
             )
             : null;
     final packages =
@@ -102,9 +109,8 @@ class ServicesModule extends ConsumerWidget {
         .toList(growable: false);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-    final accentColor = colorScheme.secondary;
-    final moduleBackground = colorScheme.surfaceContainerLowest;
+    final accentColor = colorScheme.primary;
+    final moduleBackground = colorScheme.surfaceContainerLow;
     final sectionBackground = _layerColor(theme, 1);
     final groupCardBackground = _layerColor(theme, 2);
     final serviceCardBackground = _layerColor(theme, 2);
@@ -124,230 +130,312 @@ class ServicesModule extends ConsumerWidget {
     final serviceShadowColor = mediumShadowColor;
     final packageShadowColor = strongShadowColor;
     final baseElevation = _baseCardElevation(theme);
-    final double tabElevation = baseElevation;
+    final double tabElevation = 0;
     final double sectionElevation = baseElevation;
-    final double groupElevation = baseElevation + 2;
-    final double serviceElevation = baseElevation + (isDark ? 0 : 1);
-    final double packageElevation = baseElevation + (isDark ? 8 : 4);
+    final double groupElevation = 0;
+    final double serviceElevation = 0;
+    final double packageElevation = 0;
+
+    return Container(
+      color: moduleBackground,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _MainModuleToggle(
+            showPackages: _showPackages,
+            onChanged: (showPackages) {
+              setState(() {
+                _showPackages = showPackages;
+              });
+            },
+          ),
+          const SizedBox(height: 14),
+          Expanded(
+            child:
+                _showPackages
+                    ? _buildPackagesPane(
+                      context,
+                      sectionBackground: sectionBackground,
+                      sectionShadowColor: sectionShadowColor,
+                      tabElevation: tabElevation,
+                      packageCardBackground: packageCardBackground,
+                      packageElevation: packageElevation,
+                      packageShadowColor: packageShadowColor,
+                      accentColor: accentColor,
+                      packages: packages,
+                      visiblePackages: visiblePackages,
+                      archivedPackages: archivedPackages,
+                      dataServices: data.services,
+                      salons: salons,
+                      salonId: salonId,
+                    )
+                    : _buildServicesPane(
+                      context,
+                      sectionBackground: sectionBackground,
+                      sectionElevation: sectionElevation,
+                      sectionShadowColor: sectionShadowColor,
+                      groupCardBackground: groupCardBackground,
+                      groupElevation: groupElevation,
+                      groupShadowColor: groupShadowColor,
+                      serviceCardBackground: serviceCardBackground,
+                      serviceElevation: serviceElevation,
+                      serviceShadowColor: serviceShadowColor,
+                      accentColor: accentColor,
+                      activeServices: activeServices,
+                      inactiveServices: inactiveServices,
+                      categoriesAction: categoriesAction,
+                      salons: salons,
+                      staffRoles: staffRoles,
+                      categories: data.serviceCategories,
+                      filteredCategories: filteredCategories,
+                      salonId: salonId,
+                    ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildServicesPane(
+    BuildContext context, {
+    required Color sectionBackground,
+    required double sectionElevation,
+    required Color sectionShadowColor,
+    required Color groupCardBackground,
+    required double groupElevation,
+    required Color groupShadowColor,
+    required Color serviceCardBackground,
+    required double serviceElevation,
+    required Color serviceShadowColor,
+    required Color accentColor,
+    required List<Service> activeServices,
+    required List<Service> inactiveServices,
+    required Widget? categoriesAction,
+    required List<Salon> salons,
+    required List<StaffRole> staffRoles,
+    required List<ServiceCategory> categories,
+    required List<ServiceCategory> filteredCategories,
+    required String? salonId,
+  }) {
+    final tabs = [
+      'Attivi (${activeServices.length})',
+      'Disattivati (${inactiveServices.length})',
+    ];
+    final unselectedColor = Theme.of(
+      context,
+    ).colorScheme.onSurfaceVariant.withValues(alpha: 0.8);
 
     return DefaultTabController(
       length: 2,
-      child: Container(
-        color: moduleBackground,
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _SectionHeader(
-              title: 'Servizi',
-              subtitle: '${activeServices.length} servizi attivi',
-              actionLabel: 'Nuovo servizio',
-              onActionPressed:
-                  () => _openServiceForm(
-                    context,
-                    ref,
-                    salons: salons,
-                    roles: staffRoles,
-                    categories: data.serviceCategories,
-                    defaultSalonId: salonId,
-                  ),
-              secondaryAction: categoriesAction,
-            ),
-            const SizedBox(height: 12),
-            Material(
-              color: sectionBackground,
-              elevation: tabElevation,
-              shadowColor: sectionShadowColor,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: accentColor.withOpacity(0.18)),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: TabBar(
-                labelColor: accentColor,
-                unselectedLabelColor: theme.colorScheme.onSurfaceVariant
-                    .withOpacity(0.7),
-                indicatorColor: accentColor,
-                tabs: [
-                  Tab(text: 'Attivi (${activeServices.length})'),
-                  Tab(text: 'Disattivati (${inactiveServices.length})'),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: TabBarView(
-                children: [
-                  ListView(
-                    padding: EdgeInsets.zero,
-                    children: [
-                      if (activeServices.isEmpty)
-                        Card(
-                          color: sectionBackground,
-                          elevation: sectionElevation,
-                          shadowColor: sectionShadowColor,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: const ListTile(
-                            title: Text('Nessun servizio attivo disponibile'),
-                          ),
-                        )
-                      else
-                        _ServicesList(
-                          services: activeServices,
-                          salons: salons,
-                          categories: filteredCategories,
-                          selectedSalonId: salonId,
-                          groupCardColor: groupCardBackground,
-                          groupCardElevation: groupElevation,
-                          groupShadowColor: groupShadowColor,
-                          serviceCardColor: serviceCardBackground,
-                          serviceCardElevation: serviceElevation,
-                          serviceShadowColor: serviceShadowColor,
-                          onEdit:
-                              (service) => _openServiceForm(
-                                context,
-                                ref,
-                                salons: salons,
-                                roles: staffRoles,
-                                categories: data.serviceCategories,
-                                defaultSalonId: salonId,
-                                existing: service,
-                              ),
-                          onDelete:
-                              (service) =>
-                                  _confirmDeleteService(context, ref, service),
-                          onToggleActive:
-                              (service, next) => _toggleServiceActivation(
-                                context,
-                                ref,
-                                service: service,
-                                isActive: next,
-                              ),
-                        ),
-                      const SizedBox(height: 24),
-                      _SectionHeader(
-                        title: 'Pacchetti',
-                        subtitle: '${packages.length} pacchetti attivi',
-                        actionLabel: 'Nuovo pacchetto',
-                        onActionPressed:
-                            () => _openPackageForm(
-                              context,
-                              ref,
-                              salons: salons,
-                              services: data.services,
-                              defaultSalonId: salonId,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionTopActions(
+            counterLabel: '${activeServices.length} servizi attivi',
+            primaryActionLabel: '+ Nuovo servizio',
+            onPrimaryAction:
+                () => _openServiceForm(
+                  context,
+                  ref,
+                  salons: salons,
+                  roles: staffRoles,
+                  categories: categories,
+                  defaultSalonId: salonId,
+                ),
+            secondaryAction: categoriesAction,
+          ),
+          const SizedBox(height: 10),
+          TabBar(
+            labelColor: accentColor,
+            unselectedLabelColor: unselectedColor,
+            indicatorColor: accentColor,
+            indicatorSize: TabBarIndicatorSize.label,
+            tabs: tabs.map((label) => Tab(text: label)).toList(),
+          ),
+          const Divider(height: 1),
+          const SizedBox(height: 10),
+          Expanded(
+            child: TabBarView(
+              children: [
+                SingleChildScrollView(
+                  child:
+                      activeServices.isEmpty
+                          ? Card(
+                            color: sectionBackground,
+                            elevation: sectionElevation,
+                            shadowColor: sectionShadowColor,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
                             ),
-                      ),
-                      const SizedBox(height: 12),
-                      if (packages.isEmpty)
-                        Card(
-                          color: sectionBackground,
-                          elevation: sectionElevation,
-                          shadowColor: sectionShadowColor,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: const ListTile(
-                            title: Text('Nessun pacchetto configurato'),
-                          ),
-                        )
-                      else
-                        _PackagesSection(
-                          visiblePackages: visiblePackages,
-                          archivedPackages: archivedPackages,
-                          services: data.services,
-                          salons: salons,
-                          selectedSalonId: salonId,
-                          cardColor: packageCardBackground,
-                          cardElevation: packageElevation,
-                          shadowColor: packageShadowColor,
-                          sectionBackground: sectionBackground,
-                          sectionShadowColor: sectionShadowColor,
-                          tabElevation: tabElevation,
-                          accentColor: accentColor,
-                          onEdit:
-                              (pkg) => _openPackageForm(
-                                context,
-                                ref,
-                                salons: salons,
-                                services: data.services,
-                                defaultSalonId: salonId,
-                                existing: pkg,
-                              ),
-                          onDelete:
-                              (pkg) => _confirmDeletePackage(context, ref, pkg),
-                          onToggleVisibility:
-                              (pkg, next) => _togglePackageVisibility(
-                                context,
-                                ref,
-                                package: pkg,
-                                showOnDashboard: next,
-                              ),
-                        ),
-                    ],
-                  ),
-                  ListView(
-                    padding: EdgeInsets.zero,
-                    children: [
-                      if (inactiveServices.isEmpty)
-                        Card(
-                          color: sectionBackground,
-                          elevation: sectionElevation,
-                          shadowColor: sectionShadowColor,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: ListTile(
-                            title: const Text('Nessun servizio disattivato'),
-                            subtitle: const Text(
-                              'Disattiva un servizio attivo per trovarlo qui.',
+                            child: const ListTile(
+                              title: Text('Nessun servizio attivo disponibile'),
                             ),
-                            trailing: const Icon(Icons.info_outline_rounded),
+                          )
+                          : _ServicesList(
+                            services: activeServices,
+                            salons: salons,
+                            categories: filteredCategories,
+                            selectedSalonId: salonId,
+                            groupCardColor: groupCardBackground,
+                            groupCardElevation: groupElevation,
+                            groupShadowColor: groupShadowColor,
+                            serviceCardColor: serviceCardBackground,
+                            serviceCardElevation: serviceElevation,
+                            serviceShadowColor: serviceShadowColor,
+                            onEdit:
+                                (service) => _openServiceForm(
+                                  context,
+                                  ref,
+                                  salons: salons,
+                                  roles: staffRoles,
+                                  categories: categories,
+                                  defaultSalonId: salonId,
+                                  existing: service,
+                                ),
+                            onDelete:
+                                (service) => _confirmDeleteService(
+                                  context,
+                                  ref,
+                                  service,
+                                ),
+                            onToggleActive:
+                                (service, next) => _toggleServiceActivation(
+                                  context,
+                                  ref,
+                                  service: service,
+                                  isActive: next,
+                                ),
                           ),
-                        )
-                      else
-                        _ServicesList(
-                          services: inactiveServices,
-                          salons: salons,
-                          categories: filteredCategories,
-                          selectedSalonId: salonId,
-                          groupCardColor: groupCardBackground,
-                          groupCardElevation: groupElevation,
-                          groupShadowColor: groupShadowColor,
-                          serviceCardColor: serviceCardBackground,
-                          serviceCardElevation: serviceElevation,
-                          serviceShadowColor: serviceShadowColor,
-                          onEdit:
-                              (service) => _openServiceForm(
-                                context,
-                                ref,
-                                salons: salons,
-                                roles: staffRoles,
-                                categories: data.serviceCategories,
-                                defaultSalonId: salonId,
-                                existing: service,
+                ),
+                SingleChildScrollView(
+                  child:
+                      inactiveServices.isEmpty
+                          ? Card(
+                            color: sectionBackground,
+                            elevation: sectionElevation,
+                            shadowColor: sectionShadowColor,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: ListTile(
+                              title: const Text('Nessun servizio disattivato'),
+                              subtitle: const Text(
+                                'Disattiva un servizio attivo per trovarlo qui.',
                               ),
-                          onDelete:
-                              (service) =>
-                                  _confirmDeleteService(context, ref, service),
-                          onToggleActive:
-                              (service, next) => _toggleServiceActivation(
-                                context,
-                                ref,
-                                service: service,
-                                isActive: next,
-                              ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
+                              trailing: const Icon(Icons.info_outline_rounded),
+                            ),
+                          )
+                          : _ServicesList(
+                            services: inactiveServices,
+                            salons: salons,
+                            categories: filteredCategories,
+                            selectedSalonId: salonId,
+                            groupCardColor: groupCardBackground,
+                            groupCardElevation: groupElevation,
+                            groupShadowColor: groupShadowColor,
+                            serviceCardColor: serviceCardBackground,
+                            serviceCardElevation: serviceElevation,
+                            serviceShadowColor: serviceShadowColor,
+                            onEdit:
+                                (service) => _openServiceForm(
+                                  context,
+                                  ref,
+                                  salons: salons,
+                                  roles: staffRoles,
+                                  categories: categories,
+                                  defaultSalonId: salonId,
+                                  existing: service,
+                                ),
+                            onDelete:
+                                (service) => _confirmDeleteService(
+                                  context,
+                                  ref,
+                                  service,
+                                ),
+                            onToggleActive:
+                                (service, next) => _toggleServiceActivation(
+                                  context,
+                                  ref,
+                                  service: service,
+                                  isActive: next,
+                                ),
+                          ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
+    );
+  }
+
+  Widget _buildPackagesPane(
+    BuildContext context, {
+    required Color sectionBackground,
+    required Color sectionShadowColor,
+    required double tabElevation,
+    required Color packageCardBackground,
+    required double packageElevation,
+    required Color packageShadowColor,
+    required Color accentColor,
+    required List<ServicePackage> packages,
+    required List<ServicePackage> visiblePackages,
+    required List<ServicePackage> archivedPackages,
+    required List<Service> dataServices,
+    required List<Salon> salons,
+    required String? salonId,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionTopActions(
+          counterLabel: '${packages.length} pacchetti attivi',
+          primaryActionLabel: '+ Nuovo pacchetto',
+          onPrimaryAction:
+              () => _openPackageForm(
+                context,
+                ref,
+                salons: salons,
+                services: dataServices,
+                defaultSalonId: salonId,
+              ),
+        ),
+        const SizedBox(height: 10),
+        Expanded(
+          child: _PackagesSection(
+            visiblePackages: visiblePackages,
+            archivedPackages: archivedPackages,
+            services: dataServices,
+            salons: salons,
+            selectedSalonId: salonId,
+            cardColor: packageCardBackground,
+            cardElevation: packageElevation,
+            shadowColor: packageShadowColor,
+            sectionBackground: sectionBackground,
+            sectionShadowColor: sectionShadowColor,
+            tabElevation: tabElevation,
+            accentColor: accentColor,
+            onEdit:
+                (pkg) => _openPackageForm(
+                  context,
+                  ref,
+                  salons: salons,
+                  services: dataServices,
+                  defaultSalonId: salonId,
+                  existing: pkg,
+                ),
+            onDelete: (pkg) => _confirmDeletePackage(context, ref, pkg),
+            onToggleVisibility:
+                (pkg, next) => _togglePackageVisibility(
+                  context,
+                  ref,
+                  package: pkg,
+                  showOnDashboard: next,
+                ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -364,7 +452,9 @@ class ServicesModule extends ConsumerWidget {
     }
     final label =
         isActive ? 'Servizio riattivato.' : 'Servizio disattivato e nascosto.';
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(label)));
+    ScaffoldMessenger.of(
+      context,
+    ).showAppSnackBar(SnackBar(content: Text(label)));
   }
 
   Future<void> _togglePackageVisibility(
@@ -382,7 +472,9 @@ class ServicesModule extends ConsumerWidget {
         showOnDashboard
             ? 'Pacchetto visibile nel dashboard cliente.'
             : 'Pacchetto nascosto dal dashboard cliente.';
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(label)));
+    ScaffoldMessenger.of(
+      context,
+    ).showAppSnackBar(SnackBar(content: Text(label)));
   }
 
   Future<void> _confirmDeleteService(
@@ -486,9 +578,9 @@ class ServicesModule extends ConsumerWidget {
     try {
       await ref.read(appDataProvider.notifier).deleteService(service.id);
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('${service.name} eliminato.')));
+        ScaffoldMessenger.of(context).showAppSnackBar(
+          SnackBar(content: Text('${service.name} eliminato.')),
+        );
       }
     } on StateError catch (error) {
       if (!context.mounted) return;
@@ -505,7 +597,7 @@ class ServicesModule extends ConsumerWidget {
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(friendly)));
+      ).showAppSnackBar(SnackBar(content: Text(friendly)));
     }
   }
 
@@ -519,7 +611,7 @@ class ServicesModule extends ConsumerWidget {
     Service? existing,
   }) async {
     if (salons.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Crea un salone prima di configurare i servizi.'),
         ),
@@ -528,6 +620,7 @@ class ServicesModule extends ConsumerWidget {
     }
     final result = await showAppModalSheet<Service>(
       context: context,
+      includeCloseButton: false,
       builder:
           (ctx) => ServiceFormSheet(
             salons: salons,
@@ -549,7 +642,7 @@ class ServicesModule extends ConsumerWidget {
     String? selectedSalonId,
   }) async {
     if (salons.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Crea un salone prima di gestire le categorie.'),
         ),
@@ -573,7 +666,7 @@ class ServicesModule extends ConsumerWidget {
     ServicePackage? existing,
   }) async {
     if (salons.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Crea un salone prima di configurare i pacchetti.'),
         ),
@@ -582,6 +675,8 @@ class ServicesModule extends ConsumerWidget {
     }
     final result = await showAppModalSheet<ServicePackage>(
       context: context,
+      includeCloseButton: false,
+      desktopMaxWidth: 1180,
       builder:
           (ctx) => PackageFormSheet(
             salons: salons,
@@ -629,72 +724,141 @@ class ServicesModule extends ConsumerWidget {
     if (context.mounted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('${package.name} eliminato.')));
+      ).showAppSnackBar(SnackBar(content: Text('${package.name} eliminato.')));
     }
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.title,
-    required this.subtitle,
-    required this.actionLabel,
-    required this.onActionPressed,
+class _MainModuleToggle extends StatelessWidget {
+  const _MainModuleToggle({
+    required this.showPackages,
+    required this.onChanged,
+  });
+
+  final bool showPackages;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final accentColor = theme.colorScheme.primary;
+    final borderColor = theme.colorScheme.outlineVariant;
+    final selectedTextStyle = theme.textTheme.labelLarge?.copyWith(
+      fontWeight: FontWeight.w700,
+      color: theme.colorScheme.onPrimary,
+    );
+    final unselectedTextStyle = theme.textTheme.labelLarge?.copyWith(
+      fontWeight: FontWeight.w600,
+      color: theme.colorScheme.onSurface,
+    );
+
+    Widget buildSegment({
+      required String label,
+      required bool selected,
+      required VoidCallback onTap,
+    }) {
+      return Expanded(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Container(
+            height: 34,
+            decoration: BoxDecoration(
+              color: selected ? accentColor : Colors.transparent,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              label,
+              style: selected ? selectedTextStyle : unselectedTextStyle,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      height: 42,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor),
+      ),
+      child: Row(
+        children: [
+          buildSegment(
+            label: 'Servizi',
+            selected: !showPackages,
+            onTap: () => onChanged(false),
+          ),
+          const SizedBox(width: 6),
+          buildSegment(
+            label: 'Pacchetti',
+            selected: showPackages,
+            onTap: () => onChanged(true),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionTopActions extends StatelessWidget {
+  const _SectionTopActions({
+    required this.counterLabel,
+    required this.primaryActionLabel,
+    required this.onPrimaryAction,
     this.secondaryAction,
   });
 
-  final String title;
-  final String subtitle;
-  final String actionLabel;
-  final VoidCallback onActionPressed;
+  final String counterLabel;
+  final String primaryActionLabel;
+  final VoidCallback onPrimaryAction;
   final Widget? secondaryAction;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final primaryAction = FilledButton.icon(
-      onPressed: onActionPressed,
-      icon: const Icon(Icons.add_rounded),
-      label: Text(actionLabel),
+    final primary = FilledButton(
+      onPressed: onPrimaryAction,
+      child: Text(primaryActionLabel),
     );
     final secondary = secondaryAction;
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isCompact = constraints.maxWidth < 640;
-
-        if (isCompact) {
+        final compact = constraints.maxWidth < 700;
+        if (compact) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: theme.textTheme.titleLarge),
-              const SizedBox(height: 4),
-              Text(subtitle),
-              const SizedBox(height: 12),
+              Text(
+                counterLabel,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [if (secondary != null) secondary, primaryAction],
+                children: [if (secondary != null) secondary, primary],
               ),
             ],
           );
         }
-
         return Row(
           children: [
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: theme.textTheme.titleLarge),
-                  const SizedBox(height: 4),
-                  Text(subtitle),
-                ],
+              child: Text(
+                counterLabel,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
-            if (secondary != null) ...[secondary, const SizedBox(width: 12)],
-            primaryAction,
+            if (secondary != null) ...[secondary, const SizedBox(width: 8)],
+            primary,
           ],
         );
       },
@@ -744,7 +908,6 @@ class _ServicesListState extends State<_ServicesList> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final accentColor = theme.colorScheme.secondary;
     final groups = _buildGroups();
     final groupIds = groups.map((group) => group.id).toSet();
     _expandedGroupIds.retainAll(groupIds);
@@ -762,12 +925,12 @@ class _ServicesListState extends State<_ServicesList> {
         selectedGroupId == null
             ? groups
             : groups.where((group) => group.id == selectedGroupId).toList();
-    final showFilterCard = groups.length > 1;
+    final showFilterCard = groups.isNotEmpty;
 
     final children = <Widget>[];
     if (showFilterCard) {
-      children.add(_buildCategoryFilterCard(context, groups, accentColor));
-      children.add(const SizedBox(height: 12));
+      children.add(_buildCategoryFilterCard(context, groups));
+      children.add(const SizedBox(height: 10));
     }
 
     if (visibleGroups.isEmpty) {
@@ -778,7 +941,7 @@ class _ServicesListState extends State<_ServicesList> {
           shadowColor: widget.groupShadowColor,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: accentColor.withOpacity(0.12)),
+            side: BorderSide(color: theme.colorScheme.outlineVariant),
           ),
           child: const Padding(
             padding: EdgeInsets.all(16),
@@ -817,33 +980,24 @@ class _ServicesListState extends State<_ServicesList> {
               ),
             );
             if (j < group.services.length - 1) {
-              tileChildren.add(const SizedBox(height: 12));
+              tileChildren.add(const Divider(height: 1));
             }
           }
         }
 
         children.add(
-          Card(
-            color: widget.groupCardColor,
-            elevation: widget.groupCardElevation,
-            shadowColor: widget.groupShadowColor,
-            shape: RoundedRectangleBorder(
+          Container(
+            decoration: BoxDecoration(
+              color: widget.groupCardColor,
               borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: accentColor.withOpacity(0.16)),
+              border: Border.all(color: theme.colorScheme.outlineVariant),
             ),
-            clipBehavior: Clip.antiAlias,
             child: Theme(
               data: Theme.of(
                 context,
               ).copyWith(dividerColor: Colors.transparent),
               child: ExpansionTile(
                 key: PageStorageKey(group.id),
-                leading: Icon(
-                  group.category != null
-                      ? Icons.category_rounded
-                      : Icons.label_outline_rounded,
-                  color: accentColor,
-                ),
                 maintainState: true,
                 initiallyExpanded: isExpanded,
                 title: Text(group.title),
@@ -857,14 +1011,14 @@ class _ServicesListState extends State<_ServicesList> {
                   }
                   _scheduleExpandedGroupUpdate(group.id, expanded);
                 },
-                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                childrenPadding: EdgeInsets.zero,
                 children: tileChildren,
               ),
             ),
           ),
         );
         if (i < visibleGroups.length - 1) {
-          children.add(const SizedBox(height: 12));
+          children.add(const SizedBox(height: 10));
         }
       }
     }
@@ -879,13 +1033,12 @@ class _ServicesListState extends State<_ServicesList> {
   Widget _buildCategoryFilterCard(
     BuildContext context,
     List<_ServiceGroup> groups,
-    Color accentColor,
   ) {
     final theme = Theme.of(context);
     final descriptionStyle = theme.textTheme.bodySmall?.copyWith(
       color: theme.colorScheme.onSurfaceVariant,
     );
-    final chips = _buildCategoryFilterChips(context, groups, accentColor);
+    final chips = _buildCategoryFilterChips(context, groups);
 
     return Card(
       color: _layerColor(theme, 1),
@@ -893,20 +1046,14 @@ class _ServicesListState extends State<_ServicesList> {
       shadowColor: widget.groupShadowColor,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: accentColor.withOpacity(0.12)),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Icon(Icons.dashboard_customize_rounded, color: accentColor),
-                const SizedBox(width: 8),
-                Text('Categorie', style: theme.textTheme.titleMedium),
-              ],
-            ),
+            Text('Categorie', style: theme.textTheme.titleMedium),
             const SizedBox(height: 6),
             Text(
               'Seleziona una categoria per filtrare rapidamente l\'elenco.',
@@ -923,29 +1070,20 @@ class _ServicesListState extends State<_ServicesList> {
   List<Widget> _buildCategoryFilterChips(
     BuildContext context,
     List<_ServiceGroup> groups,
-    Color accentColor,
   ) {
     final theme = Theme.of(context);
-    final brightness = theme.brightness;
-    final baseOpacity = brightness == Brightness.dark ? 0.22 : 0.08;
-    final selectedOpacity = brightness == Brightness.dark ? 0.36 : 0.2;
+    final selectedBackground =
+        theme.brightness == Brightness.dark ? Colors.white : Colors.black;
+    final selectedForeground =
+        theme.brightness == Brightness.dark ? Colors.black : Colors.white;
 
-    final entries = <({String? id, String label, int count, IconData icon})>[
-      (
-        id: null,
-        label: 'Tutti i servizi',
-        count: widget.services.length,
-        icon: Icons.grid_view_rounded,
-      ),
+    final entries = <({String? id, String label, int count})>[
+      (id: null, label: 'Tutti i servizi', count: widget.services.length),
       ...groups.map(
         (group) => (
           id: group.id,
           label: group.title,
           count: group.services.length,
-          icon:
-              group.category != null
-                  ? Icons.category_rounded
-                  : Icons.label_outline_rounded,
         ),
       ),
     ];
@@ -958,25 +1096,21 @@ class _ServicesListState extends State<_ServicesList> {
       final label =
           entry.count == 0 ? entry.label : '${entry.label} (${entry.count})';
       final textColor =
-          isSelected
-              ? theme.colorScheme.onSecondaryContainer
-              : theme.colorScheme.onSurface;
+          isSelected ? selectedForeground : theme.colorScheme.onSurface;
 
       return FilterChip(
         selected: isSelected,
         onSelected: (selected) => _handleGroupSelection(entry.id, selected),
         showCheckmark: false,
-        backgroundColor: accentColor.withOpacity(baseOpacity),
-        selectedColor: accentColor.withOpacity(selectedOpacity),
-        side: BorderSide(
-          color: accentColor.withOpacity(isSelected ? 0.5 : 0.18),
-        ),
-        avatar: Icon(entry.icon, size: 18, color: accentColor),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        backgroundColor: theme.colorScheme.surfaceContainerHighest,
+        selectedColor: selectedBackground,
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
+        avatar: null,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         shape: const StadiumBorder(),
         label: Text(
           label,
-          style: theme.textTheme.bodyMedium?.copyWith(
+          style: theme.textTheme.bodySmall?.copyWith(
             color: textColor,
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
           ),
@@ -1122,100 +1256,97 @@ class _ServicesListState extends State<_ServicesList> {
           return match?.name ?? id;
         }).toList();
 
-    final chips = <Widget>[];
-    if (showSalonChip && salon != null) {
-      chips.add(_InfoChip(icon: Icons.storefront_rounded, label: salon.name));
-    }
-    chips.addAll([
-      _InfoChip(icon: Icons.category_rounded, label: service.category),
-      _InfoChip(
-        icon: Icons.timer_rounded,
-        label: 'Totale ${service.totalDuration.inMinutes} min',
-      ),
-      if (service.extraDuration > Duration.zero)
-        _InfoChip(
-          icon: Icons.hourglass_bottom_rounded,
-          label: '+${service.extraDuration.inMinutes} min extra',
-        ),
-      _InfoChip(
-        icon: Icons.euro_rounded,
-        label: currency.format(service.price),
-      ),
-    ]);
-
     final theme = Theme.of(context);
-    final accentColor = theme.colorScheme.secondary;
-    final cardColor =
-        theme.brightness == Brightness.light
-            ? Colors.white
-            : Colors.grey.shade900;
+    final actionColor = theme.colorScheme.onSurfaceVariant;
+    final metaStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+      fontWeight: FontWeight.w600,
+    );
 
-    return Card(
-      color: cardColor,
-      elevation: widget.serviceCardElevation,
-      shadowColor: widget.serviceShadowColor,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: accentColor.withOpacity(0.12)),
-      ),
-      margin: EdgeInsets.zero,
-      child: ListTile(
-        contentPadding: const EdgeInsets.fromLTRB(16, 16, 12, 16),
-        title: Text(service.name),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(service.description ?? 'Nessuna descrizione'),
-            const SizedBox(height: 6),
-            Wrap(spacing: 12, runSpacing: 6, children: chips),
-            if (equipmentNames.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children:
-                    equipmentNames
-                        .map(
-                          (name) => Chip(
-                            avatar: const Icon(
-                              Icons.precision_manufacturing_rounded,
-                              size: 18,
-                            ),
-                            label: Text(name),
-                          ),
-                        )
-                        .toList(),
+    return Container(
+      color: widget.serviceCardColor,
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  service.name,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  service.description ?? 'Nessuna descrizione',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    Text(
+                      '${service.totalDuration.inMinutes} min',
+                      style: metaStyle,
+                    ),
+                    Text(currency.format(service.price), style: metaStyle),
+                    if (showSalonChip && salon != null)
+                      Text(salon.name, style: metaStyle),
+                  ],
+                ),
+                if (equipmentNames.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    equipmentNames.join(' • '),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: 'Modifica servizio',
+                onPressed: () => widget.onEdit(service),
+                icon: Icon(Icons.edit_outlined, color: actionColor, size: 18),
+              ),
+              IconButton(
+                tooltip:
+                    service.isActive
+                        ? 'Disattiva servizio'
+                        : 'Riattiva servizio',
+                onPressed:
+                    () => widget.onToggleActive(service, !service.isActive),
+                icon: Icon(
+                  service.isActive
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                  color: actionColor,
+                  size: 18,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Elimina servizio',
+                onPressed: () => widget.onDelete(service),
+                icon: Icon(
+                  Icons.delete_outline_rounded,
+                  color: Colors.red.shade300,
+                  size: 18,
+                ),
               ),
             ],
-          ],
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              tooltip: 'Modifica servizio',
-              onPressed: () => widget.onEdit(service),
-              icon: Icon(Icons.edit_rounded, color: accentColor),
-            ),
-            IconButton(
-              tooltip:
-                  service.isActive ? 'Disattiva servizio' : 'Riattiva servizio',
-              onPressed:
-                  () => widget.onToggleActive(service, !service.isActive),
-              icon: Icon(
-                service.isActive
-                    ? Icons.visibility_off_rounded
-                    : Icons.visibility_rounded,
-                color: accentColor,
-              ),
-            ),
-            IconButton(
-              tooltip: 'Elimina servizio',
-              onPressed: () => widget.onDelete(service),
-              icon: Icon(Icons.delete_outline_rounded, color: accentColor),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1320,56 +1451,55 @@ class _PackagesSectionState extends State<_PackagesSection>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final unselectedColor = theme.colorScheme.onSurfaceVariant.withOpacity(0.7);
+    final unselectedColor = theme.colorScheme.onSurfaceVariant.withValues(
+      alpha: 0.7,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Material(
-          color: widget.sectionBackground,
-          elevation: widget.tabElevation,
-          shadowColor: widget.sectionShadowColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: widget.accentColor.withOpacity(0.18)),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: TabBar(
-            controller: _controller,
-            labelColor: widget.accentColor,
-            unselectedLabelColor: unselectedColor,
-            indicatorColor: widget.accentColor,
-            tabs: [
-              Tab(text: 'Dashboard cliente (${widget.visiblePackages.length})'),
-              Tab(text: 'Archivio (${widget.archivedPackages.length})'),
-            ],
-          ),
+        TabBar(
+          controller: _controller,
+          isScrollable: true,
+          labelColor: widget.accentColor,
+          unselectedLabelColor: unselectedColor,
+          indicatorColor: widget.accentColor,
+          indicatorSize: TabBarIndicatorSize.label,
+          tabs: [
+            Tab(text: 'Dashboard cliente (${widget.visiblePackages.length})'),
+            Tab(text: 'Archivio (${widget.archivedPackages.length})'),
+          ],
         ),
+        const Divider(height: 1),
         const SizedBox(height: 12),
-        AnimatedBuilder(
-          animation: _controller,
-          builder: (context, _) {
-            final index = _controller.index;
-            final packages =
-                index == 0 ? widget.visiblePackages : widget.archivedPackages;
-            final emptyLabel =
-                index == 0
-                    ? 'Nessun pacchetto è visibile nel dashboard cliente.'
-                    : 'Non ci sono bozze create da "Aggiungi servizi" o pacchetti nascosti.';
-            return _PackagesList(
-              key: ValueKey('packages_tab_$index'),
-              packages: packages,
-              services: widget.services,
-              salons: widget.salons,
-              selectedSalonId: widget.selectedSalonId,
-              onEdit: widget.onEdit,
-              onDelete: widget.onDelete,
-              onToggleVisibility: widget.onToggleVisibility,
-              cardColor: widget.cardColor,
-              cardElevation: widget.cardElevation,
-              shadowColor: widget.shadowColor,
-              emptyLabel: emptyLabel,
-            );
-          },
+        Expanded(
+          child: AnimatedBuilder(
+            animation: _controller,
+            builder: (context, _) {
+              final index = _controller.index;
+              final packages =
+                  index == 0 ? widget.visiblePackages : widget.archivedPackages;
+              final emptyLabel =
+                  index == 0
+                      ? 'Nessun pacchetto è visibile nel dashboard cliente.'
+                      : 'Non ci sono bozze create da "Aggiungi servizi" o pacchetti nascosti.';
+              return SingleChildScrollView(
+                child: _PackagesList(
+                  key: ValueKey('packages_tab_$index'),
+                  packages: packages,
+                  services: widget.services,
+                  salons: widget.salons,
+                  selectedSalonId: widget.selectedSalonId,
+                  onEdit: widget.onEdit,
+                  onDelete: widget.onDelete,
+                  onToggleVisibility: widget.onToggleVisibility,
+                  cardColor: widget.cardColor,
+                  cardElevation: widget.cardElevation,
+                  shadowColor: widget.shadowColor,
+                  emptyLabel: emptyLabel,
+                ),
+              );
+            },
+          ),
         ),
       ],
     );
@@ -1436,7 +1566,7 @@ class _PackagesListState extends State<_PackagesList> {
   Widget build(BuildContext context) {
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
     final theme = Theme.of(context);
-    final accentColor = theme.colorScheme.secondary;
+    final actionColor = theme.colorScheme.onSurfaceVariant;
     final salonsById = {for (final salon in widget.salons) salon.id: salon};
     final salonIdsInPackages =
         widget.packages.map((pkg) => pkg.salonId).toSet();
@@ -1448,7 +1578,6 @@ class _PackagesListState extends State<_PackagesList> {
 
     final filterCard = _buildFilterCard(
       context,
-      accentColor,
       salonsById,
       salonIdsInPackages,
       hasMultipleSalons,
@@ -1472,7 +1601,7 @@ class _PackagesListState extends State<_PackagesList> {
           shadowColor: widget.shadowColor,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: accentColor.withOpacity(0.12)),
+            side: BorderSide(color: theme.colorScheme.outlineVariant),
           ),
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -1529,7 +1658,7 @@ class _PackagesListState extends State<_PackagesList> {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
                           side: BorderSide(
-                            color: accentColor.withOpacity(0.16),
+                            color: theme.colorScheme.outlineVariant,
                           ),
                         ),
                         child: Padding(
@@ -1580,7 +1709,7 @@ class _PackagesListState extends State<_PackagesList> {
                                             ),
                                         icon: Icon(
                                           visibilityIcon,
-                                          color: accentColor,
+                                          color: actionColor,
                                         ),
                                       ),
                                       IconButton(
@@ -1588,7 +1717,7 @@ class _PackagesListState extends State<_PackagesList> {
                                         onPressed: () => widget.onEdit(pkg),
                                         icon: Icon(
                                           Icons.edit_rounded,
-                                          color: accentColor,
+                                          color: actionColor,
                                         ),
                                       ),
                                       IconButton(
@@ -1596,7 +1725,7 @@ class _PackagesListState extends State<_PackagesList> {
                                         onPressed: () => widget.onDelete(pkg),
                                         icon: Icon(
                                           Icons.delete_outline_rounded,
-                                          color: accentColor,
+                                          color: Colors.red.shade300,
                                         ),
                                       ),
                                     ],
@@ -1690,7 +1819,6 @@ class _PackagesListState extends State<_PackagesList> {
 
   Widget? _buildFilterCard(
     BuildContext context,
-    Color accentColor,
     Map<String, Salon> salonsById,
     Set<String> salonIdsInPackages,
     bool hasMultipleSalons,
@@ -1701,17 +1829,12 @@ class _PackagesListState extends State<_PackagesList> {
     }
 
     final theme = Theme.of(context);
-    final brightness = theme.brightness;
-    final baseOpacity = brightness == Brightness.dark ? 0.22 : 0.08;
-    final selectedOpacity = brightness == Brightness.dark ? 0.36 : 0.2;
+    final selectedBackground = theme.colorScheme.surfaceContainerHighest;
+    final selectedForeground = theme.colorScheme.onSurface;
 
     final chips = <Widget>[];
 
-    void addSalonChip({
-      required String? salonId,
-      required String label,
-      required IconData icon,
-    }) {
+    void addSalonChip({required String? salonId, required String label}) {
       final isSelected =
           salonId == null ? _salonFilter == null : _salonFilter == salonId;
       chips.add(
@@ -1727,21 +1850,17 @@ class _PackagesListState extends State<_PackagesList> {
             });
           },
           showCheckmark: false,
-          backgroundColor: accentColor.withOpacity(baseOpacity),
-          selectedColor: accentColor.withOpacity(selectedOpacity),
-          side: BorderSide(
-            color: accentColor.withOpacity(isSelected ? 0.5 : 0.18),
-          ),
-          avatar: Icon(icon, size: 18, color: accentColor),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          backgroundColor: theme.colorScheme.surfaceContainerHighest,
+          selectedColor: selectedBackground,
+          side: BorderSide(color: theme.colorScheme.outlineVariant),
+          avatar: null,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           shape: const StadiumBorder(),
           label: Text(
             label,
-            style: theme.textTheme.bodyMedium?.copyWith(
+            style: theme.textTheme.bodySmall?.copyWith(
               color:
-                  isSelected
-                      ? theme.colorScheme.onSecondaryContainer
-                      : theme.colorScheme.onSurface,
+                  isSelected ? selectedForeground : theme.colorScheme.onSurface,
               fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
             ),
           ),
@@ -1750,11 +1869,7 @@ class _PackagesListState extends State<_PackagesList> {
     }
 
     if (hasMultipleSalons) {
-      addSalonChip(
-        salonId: null,
-        label: 'Tutti i saloni',
-        icon: Icons.grid_view_rounded,
-      );
+      addSalonChip(salonId: null, label: 'Tutti i saloni');
 
       final sortedSalonIds =
           salonIdsInPackages.toList()..sort((a, b) {
@@ -1764,7 +1879,7 @@ class _PackagesListState extends State<_PackagesList> {
           });
       for (final id in sortedSalonIds) {
         final label = salonsById[id]?.name ?? id;
-        addSalonChip(salonId: id, label: label, icon: Icons.storefront_rounded);
+        addSalonChip(salonId: id, label: label);
       }
     }
 
@@ -1779,21 +1894,17 @@ class _PackagesListState extends State<_PackagesList> {
             });
           },
           showCheckmark: false,
-          backgroundColor: accentColor.withOpacity(baseOpacity),
-          selectedColor: accentColor.withOpacity(selectedOpacity),
-          side: BorderSide(
-            color: accentColor.withOpacity(isSelected ? 0.5 : 0.18),
-          ),
-          avatar: Icon(Icons.local_offer_rounded, size: 18, color: accentColor),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          backgroundColor: theme.colorScheme.surfaceContainerHighest,
+          selectedColor: selectedBackground,
+          side: BorderSide(color: theme.colorScheme.outlineVariant),
+          avatar: null,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           shape: const StadiumBorder(),
           label: Text(
             'Solo promozioni',
-            style: theme.textTheme.bodyMedium?.copyWith(
+            style: theme.textTheme.bodySmall?.copyWith(
               color:
-                  isSelected
-                      ? theme.colorScheme.onSecondaryContainer
-                      : theme.colorScheme.onSurface,
+                  isSelected ? selectedForeground : theme.colorScheme.onSurface,
               fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
             ),
           ),
@@ -1807,20 +1918,14 @@ class _PackagesListState extends State<_PackagesList> {
       shadowColor: widget.shadowColor,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: accentColor.withOpacity(0.12)),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Icon(Icons.filter_list_rounded, color: accentColor),
-                const SizedBox(width: 8),
-                Text('Filtri pacchetti', style: theme.textTheme.titleMedium),
-              ],
-            ),
+            Text('Filtri pacchetti', style: theme.textTheme.titleMedium),
             const SizedBox(height: 6),
             Text(
               'Affina l\'elenco per salone o mostra solo le promozioni attive.',
@@ -1870,25 +1975,25 @@ class _PackagesListState extends State<_PackagesList> {
 }
 
 class _InfoChip extends StatelessWidget {
-  const _InfoChip({required this.icon, required this.label});
+  const _InfoChip({this.icon, required this.label});
 
-  final IconData icon;
+  final IconData? icon;
   final String label;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final accentColor = colorScheme.secondary;
     return Chip(
-      backgroundColor: accentColor.withOpacity(
-        theme.brightness == Brightness.dark ? 0.28 : 0.14,
-      ),
-      side: BorderSide(color: accentColor.withOpacity(0.16)),
-      avatar: Icon(icon, size: 18, color: accentColor),
+      backgroundColor: colorScheme.surfaceContainerHighest,
+      side: BorderSide(color: colorScheme.outlineVariant),
+      avatar:
+          icon == null
+              ? null
+              : Icon(icon, size: 14, color: colorScheme.onSurfaceVariant),
       label: Text(
         label,
-        style: TextStyle(color: colorScheme.onSecondaryContainer),
+        style: TextStyle(color: colorScheme.onSurface, fontSize: 12),
       ),
     );
   }
@@ -1921,31 +2026,29 @@ class _PriceInfoChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasDiscount = _hasDiscount;
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final accentColor = colorScheme.secondary;
+    final colorScheme = Theme.of(context).colorScheme;
     final labelStyle = TextStyle(
-      color: colorScheme.onSecondaryContainer,
+      color: colorScheme.onSurface,
       fontWeight: FontWeight.w600,
     );
-    final icon = hasDiscount ? Icons.local_offer_rounded : Icons.euro_rounded;
+    const discountedColor = Color(0xFFF59E0B);
     final Widget label =
         hasDiscount
             ? Text.rich(
               TextSpan(
                 children: [
                   TextSpan(
-                    text: currency.format(package.price),
-                    style: labelStyle,
-                  ),
-                  const TextSpan(text: '  '),
-                  TextSpan(
                     text: currency.format(package.fullPrice),
                     style: TextStyle(
                       decoration: TextDecoration.lineThrough,
                       fontSize: 12,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      color: colorScheme.onSurfaceVariant,
                     ),
+                  ),
+                  const TextSpan(text: '  '),
+                  TextSpan(
+                    text: currency.format(package.price),
+                    style: labelStyle.copyWith(color: discountedColor),
                   ),
                 ],
               ),
@@ -1953,11 +2056,8 @@ class _PriceInfoChip extends StatelessWidget {
             )
             : Text(currency.format(package.price), style: labelStyle);
     return Chip(
-      backgroundColor: accentColor.withOpacity(
-        Theme.of(context).brightness == Brightness.dark ? 0.28 : 0.14,
-      ),
-      side: BorderSide(color: accentColor.withOpacity(0.16)),
-      avatar: Icon(icon, size: 18, color: accentColor),
+      backgroundColor: colorScheme.surfaceContainerHighest,
+      side: BorderSide(color: colorScheme.outlineVariant),
       label: label,
     );
   }

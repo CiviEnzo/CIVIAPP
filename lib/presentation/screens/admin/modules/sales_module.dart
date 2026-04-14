@@ -14,11 +14,13 @@ import 'package:you_book/presentation/screens/admin/modules/client_detail_page.d
 import 'package:you_book/presentation/screens/admin/forms/cash_flow_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/sale_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/modules/sales/sale_helpers.dart';
+import 'package:you_book/presentation/screens/admin/widgets/admin_responsive_helpers.dart';
+import 'package:you_book/widgets/shared/badge/status_badge.dart';
+import 'package:you_book/widgets/shared/states/empty_state.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:uuid/uuid.dart';
 
 class SalesModule extends ConsumerStatefulWidget {
   const SalesModule({super.key, this.salonId});
@@ -47,6 +49,10 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
 
   void _changeDay(int offset) {
     _setSelectedDate(_selectedDate.add(Duration(days: offset)));
+  }
+
+  void _jumpToToday() {
+    _setSelectedDate(DateTime.now());
   }
 
   Future<void> _pickDate(
@@ -158,10 +164,20 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                 : fallbackStartDate);
     final canGoBackward = _selectedDate.isAfter(firstAvailableDate);
     final canGoForward = _selectedDate.isBefore(today);
-    final formattedSelectedDate = DateFormat.yMMMMEEEEd(
+    final isToday = DateUtils.isSameDay(_selectedDate, today);
+    final selectedWeekdayLabel =
+        toBeginningOfSentenceCase(
+          DateFormat.EEEE('it_IT').format(_selectedDate),
+        ) ??
+        DateFormat.EEEE('it_IT').format(_selectedDate);
+    final selectedDateLabel = DateFormat(
+      'd MMMM yyyy',
       'it_IT',
     ).format(_selectedDate);
-    final ticketDateFormat = DateFormat('dd/MM/yyyy HH:mm');
+    final selectedCompactDateLabel = DateFormat(
+      'd MMM yyyy',
+      'it_IT',
+    ).format(_selectedDate);
     final quantityFormat = NumberFormat.decimalPattern('it_IT');
 
     final selectedSales =
@@ -172,7 +188,7 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
             )
             .toList();
     final closedTicketSaleIds =
-        closedTickets.map((ticket) => ticket.saleId).whereNotNull().toSet();
+        closedTickets.map((ticket) => ticket.saleId).nonNulls.toSet();
     final salesWithoutTicket =
         selectedSales
             .where((sale) => !closedTicketSaleIds.contains(sale.id))
@@ -303,70 +319,16 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
       0,
       (total, item) => total + item.amount,
     );
-    final selectedEarnedPoints = selectedSales.fold<int>(
-      0,
-      (sum, sale) => sum + sale.loyalty.resolvedEarnedPoints,
-    );
-    final selectedRedeemedPoints = selectedSales.fold<int>(
-      0,
-      (sum, sale) => sum + sale.loyalty.redeemedPoints,
-    );
 
+    final completedRows = completedEntries.take(50).toList();
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            children: [
-              _SummaryTile(
-                icon: Icons.point_of_sale_rounded,
-                title: 'Ticket Chiusi',
-                value: selectedReceiptsCount.toString(),
-                subtitle: 'Scontrini',
-              ),
-              _SummaryTile(
-                icon: Icons.payments_rounded,
-                title: 'Incasso',
-                value: currency.format(selectedIncome),
-                subtitle: incomeSubtitle,
-              ),
-              _SummaryTile(
-                icon: Icons.card_giftcard_rounded,
-                title: 'Pacchetti venduti',
-                value: currency.format(selectedPackagesSoldAmount),
-                subtitle:
-                    '${quantityFormat.format(selectedPackagesSoldCount)} pacchetti',
-              ),
-              _SummaryTile(
-                icon: Icons.stars_rounded,
-                title: 'Punti netti',
-                value: '${selectedEarnedPoints - selectedRedeemedPoints} pt',
-                subtitle:
-                    'Assegnati: $selectedEarnedPoints • Usati: $selectedRedeemedPoints',
-              ),
-              /*_SummaryTile(
-                icon: Icons.money_off_csred_rounded,
-                title: 'Uscite',
-                value: currency.format(expense),
-                subtitle: 'Spese registrate',
-              ),
-              _SummaryTile(
-                icon: Icons.assessment_rounded,
-                title: 'Margine',
-                value: currency.format(income - expense),
-                subtitle: 'Entrate - Uscite',
-              ),*/
-            ],
-          ),
-          const SizedBox(height: 24),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              FilledButton.icon(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final action = FilledButton.icon(
                 onPressed:
                     () => openSaleForm(
                       context,
@@ -381,364 +343,665 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
                       appointments: appointments,
                       defaultSalonId: salonId,
                     ),
-                icon: const Icon(Icons.point_of_sale_rounded),
-                label: const Text('Registra vendita'),
-              ),
-              /* FilledButton.icon(
-                onPressed:
-                    () => _openCashFlowForm(
-                      context,
-                      ref,
-                      salons: salons,
-                      staff: staff,
-                      defaultSalonId: salonId,
-                    ),
-                icon: const Icon(Icons.attach_money_rounded),
-                label: const Text('Movimento cassa'),
-              ),*/
-            ],
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('Nuova vendita'),
+              );
+              if (constraints.maxWidth < kAdminPhoneBreakpoint) {
+                return SizedBox(width: double.infinity, child: action);
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [const Spacer(), action],
+              );
+            },
           ),
-          const SizedBox(height: 24),
-          Text('Ticket aperti', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 12),
-          if (openTickets.isEmpty)
-            const Card(
-              child: ListTile(title: Text('Nessun ticket da completare')),
-            )
-          else
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: openTickets.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final ticket = openTickets[index];
-                final client = clients.firstWhereOrNull(
-                  (client) => client.id == ticket.clientId,
-                );
-                final clientName = client?.fullName ?? 'Cliente';
-                final staffName =
-                    ticket.staffId == null
-                        ? null
-                        : staff
-                            .firstWhereOrNull(
-                              (member) => member.id == ticket.staffId,
-                            )
-                            ?.fullName;
-                final appointment = appointments.firstWhereOrNull(
-                  (item) => item.id == ticket.appointmentId,
-                );
-                final serviceName = _ticketServiceLabel(
-                  ticket,
-                  appointment,
-                  services,
-                );
-                final fallbackService = services.firstWhereOrNull(
-                  (item) => item.id == ticket.serviceId,
-                );
-                final amount = ticket.expectedTotal ?? fallbackService?.price;
-                final appointmentDate = ticketDateFormat.format(
-                  ticket.appointmentStart,
-                );
-                return Card(
-                  child: ListTile(
-                    onTap:
-                        () => openSaleForm(
-                          context,
-                          ref,
-                          salons: salons,
-                          clients: clients,
-                          staff: staff,
-                          services: services,
-                          packages: packages,
-                          inventory: inventoryItems,
-                          sales: sales,
-                          appointments: appointments,
-                          defaultSalonId: salonId,
-                          ticket: ticket,
-                        ),
-                    leading: CircleAvatar(
-                      backgroundColor:
-                          Theme.of(context).colorScheme.surfaceContainerHighest,
-                      child: Icon(
-                        Icons.receipt_long_rounded,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                    title: Text(clientName),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(serviceName),
-                        const SizedBox(height: 4),
-                        Text(
-                          staffName == null
-                              ? appointmentDate
-                              : '$appointmentDate · $staffName',
-                        ),
-                        if (ticket.notes != null &&
-                            ticket.notes!.isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(ticket.notes!),
-                        ],
-                      ],
-                    ),
-                    trailing:
-                        amount != null
-                            ? Text(
-                              currency.format(amount),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
-                            )
-                            : const Icon(
-                              Icons.arrow_forward_ios_rounded,
-                              size: 16,
-                            ),
+          const SizedBox(height: 16),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns =
+                  constraints.maxWidth >= 1200
+                      ? 4
+                      : constraints.maxWidth >= 760
+                      ? 2
+                      : 1;
+              final tileWidth =
+                  columns == 1
+                      ? constraints.maxWidth
+                      : (constraints.maxWidth - (12 * (columns - 1))) / columns;
+              return Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  _SummaryTile(
+                    icon: Icons.receipt_long_rounded,
+                    title: 'Vendite oggi',
+                    value: selectedReceiptsCount.toString(),
+                    subtitle: 'Scontrini chiusi',
+                    width: tileWidth,
                   ),
-                );
-              },
-            ),
-          const SizedBox(height: 24),
-          Text(
-            'Vendite concluse',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              IconButton(
-                tooltip: 'Giorno precedente',
-                onPressed: canGoBackward ? () => _changeDay(-1) : null,
-                icon: const Icon(Icons.chevron_left_rounded),
-              ),
-              Expanded(
-                child: TextButton(
-                  onPressed:
-                      () => _pickDate(
-                        context,
-                        firstDate: firstAvailableDate,
-                        lastDate: today,
+                  _SummaryTile(
+                    icon: Icons.payments_rounded,
+                    title: 'Incasso oggi',
+                    value: currency.format(selectedIncome),
+                    subtitle: incomeSubtitle,
+                    width: tileWidth,
+                    accentColor: const Color(0xFF22C55E),
+                  ),
+                  _SummaryTile(
+                    icon: Icons.calendar_month_rounded,
+                    title: 'Incasso mese',
+                    value: currency.format(
+                      sales
+                          .where(
+                            (sale) =>
+                                sale.createdAt.year == _selectedDate.year &&
+                                sale.createdAt.month == _selectedDate.month,
+                          )
+                          .fold<double>(0, (sum, sale) => sum + sale.total),
+                    ),
+                    subtitle:
+                        '${quantityFormat.format(selectedPackagesSoldCount)} pacchetti • ${currency.format(selectedPackagesSoldAmount)}',
+                    width: tileWidth,
+                    accentColor: Theme.of(context).colorScheme.primary,
+                  ),
+                  _SummaryTile(
+                    icon: Icons.hourglass_bottom_rounded,
+                    title: 'In attesa',
+                    value: currency.format(
+                      openTickets.fold<double>(
+                        0,
+                        (sum, ticket) => sum + (ticket.expectedTotal ?? 0),
                       ),
-                  child: Text(
-                    formattedSelectedDate,
-                    textAlign: TextAlign.center,
+                    ),
+                    subtitle: '${openTickets.length} ticket aperti',
+                    width: tileWidth,
+                    accentColor: const Color(0xFFF59E0B),
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+              child: AdminResponsiveHeader(
+                title: 'Ticket aperti',
+                trailing: Text(
+                  '${openTickets.length} ticket',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
               ),
-              IconButton(
-                tooltip: 'Giorno successivo',
-                onPressed: canGoForward ? () => _changeDay(1) : null,
-                icon: const Icon(Icons.chevron_right_rounded),
-              ),
-              IconButton(
-                tooltip: 'Seleziona data',
-                onPressed:
-                    () => _pickDate(
-                      context,
-                      firstDate: firstAvailableDate,
-                      lastDate: today,
-                    ),
-                icon: const Icon(Icons.event_rounded),
-              ),
-              IconButton(
-                tooltip: 'Vai a oggi',
-                onPressed:
-                    DateUtils.isSameDay(_selectedDate, today)
-                        ? null
-                        : () => _setSelectedDate(today),
-                icon: const Icon(Icons.today_rounded),
-              ),
-            ],
+            ),
           ),
-          const SizedBox(height: 12),
-          if (completedEntries.isEmpty)
+          if (openTickets.isEmpty)
             const Card(
-              child: ListTile(
-                leading: Icon(Icons.receipt_long_rounded),
-                title: Text('Nessuna vendita conclusa in questa data'),
+              margin: EdgeInsets.only(top: 8),
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: SharedEmptyState(
+                  title: 'Nessun ticket da completare',
+                  description:
+                      'I ticket aperti appariranno qui appena viene registrato un acconto o un pagamento parziale.',
+                  icon: Icons.receipt_long_rounded,
+                ),
               ),
             )
           else
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: completedEntries.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final entry = completedEntries[index];
-                final isCompact = MediaQuery.of(context).size.width < 520.0;
-                final creationLabel = DateFormat(
-                  'dd/MM/yyyy HH:mm',
-                  'it_IT',
-                ).format(entry.date.toLocal());
-                final subtitleLines = <String>[
-                  entry.ticket != null
-                      ? 'Ticket creato il $creationLabel'
-                      : 'Vendita registrata il $creationLabel',
-                ];
-                if (entry.ticket != null) {
-                  subtitleLines.add(entry.serviceName ?? 'Servizio');
-                  subtitleLines.add(
-                    '${ticketDateFormat.format(entry.ticket!.appointmentStart)} · Chiuso ${DateFormat('HH:mm', 'it_IT').format((entry.ticket!.closedAt ?? entry.ticket!.createdAt).toLocal())}',
-                  );
-                  if (entry.staffName != null) {
-                    subtitleLines.add(entry.staffName!);
-                  }
-                } else if (entry.sale != null) {
-                  if (entry.staffName != null) {
-                    subtitleLines.add(entry.staffName!);
-                  }
-                  if (entry.paymentLabel != null) {
-                    subtitleLines.add(entry.paymentLabel!);
-                  }
-                  final outstanding = entry.sale!.outstandingAmount;
-                  if (outstanding > 0) {
-                    subtitleLines.add(
-                      'Residuo ${currency.format(outstanding)}',
+            Card(
+              margin: const EdgeInsets.only(top: 8),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  if (constraints.maxWidth < 760) {
+                    return Column(
+                      key: const ValueKey('sales_open_tickets_mobile_list'),
+                      children:
+                          openTickets.map((ticket) {
+                            final client = clients.firstWhereOrNull(
+                              (item) => item.id == ticket.clientId,
+                            );
+                            final appointment = appointments.firstWhereOrNull(
+                              (item) => item.id == ticket.appointmentId,
+                            );
+                            final serviceName = _ticketServiceLabel(
+                              ticket,
+                              appointment,
+                              services,
+                            );
+                            final staffName =
+                                ticket.staffId == null
+                                    ? null
+                                    : staff
+                                        .firstWhereOrNull(
+                                          (member) =>
+                                              member.id == ticket.staffId,
+                                        )
+                                        ?.fullName;
+                            final appointmentDate = DateFormat(
+                              'dd/MM/yyyy HH:mm',
+                              'it_IT',
+                            ).format(ticket.appointmentStart.toLocal());
+                            final amount = ticket.expectedTotal ?? 0;
+                            return _MobileTicketSummaryCard(
+                              codeLabel: 'N. ticket',
+                              codeValue:
+                                  'TKT-${ticket.id.substring(0, 4).toUpperCase()}',
+                              rows: [
+                                _MobileTicketSummaryRow(
+                                  label: 'Cliente',
+                                  value: client?.fullName ?? 'Cliente',
+                                ),
+                                _MobileTicketSummaryRow(
+                                  label: 'Appuntamento',
+                                  value: appointmentDate,
+                                ),
+                                _MobileTicketSummaryRow(
+                                  label: 'Servizio',
+                                  value: serviceName,
+                                ),
+                                _MobileTicketSummaryRow(
+                                  label: 'Operatore',
+                                  value: staffName ?? 'Non assegnato',
+                                ),
+                                _MobileTicketSummaryRow(
+                                  label: 'Importo',
+                                  value: currency.format(amount),
+                                  valueColor:
+                                      Theme.of(context).colorScheme.primary,
+                                ),
+                                const _MobileTicketSummaryRow(
+                                  label: 'Stato',
+                                  child: StatusBadge(
+                                    status: BadgeStatus.pending,
+                                    label: 'In attesa',
+                                  ),
+                                ),
+                              ],
+                              actions: [
+                                _MobileTicketActionButton(
+                                  tooltip: 'Apri ticket',
+                                  icon: Icons.visibility_outlined,
+                                  onPressed:
+                                      () => openSaleForm(
+                                        context,
+                                        ref,
+                                        salons: salons,
+                                        clients: clients,
+                                        staff: staff,
+                                        services: services,
+                                        packages: packages,
+                                        inventory: inventoryItems,
+                                        sales: sales,
+                                        appointments: appointments,
+                                        defaultSalonId: salonId,
+                                        ticket: ticket,
+                                      ),
+                                ),
+                                _MobileTicketActionButton(
+                                  tooltip: 'Apri scheda cliente',
+                                  icon: Icons.open_in_new_rounded,
+                                  onPressed:
+                                      client == null
+                                          ? null
+                                          : () async =>
+                                              await _openClientBillingTab(
+                                                client.id,
+                                              ),
+                                ),
+                              ],
+                            );
+                          }).toList(),
                     );
                   }
-                  if (entry.sale!.notes != null &&
-                      entry.sale!.notes!.isNotEmpty) {
-                    subtitleLines.add(entry.sale!.notes!);
-                  }
-                }
-                final amountWidget =
-                    entry.amount != null
-                        ? Text(
-                          currency.format(entry.amount!),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                        )
-                        : const Icon(Icons.info_outline_rounded, size: 16);
-
-                return Card(
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(12),
-                    onTap:
-                        entry.ticket != null
-                            ? () => _showClosedTicketDetails(
-                              context: context,
-                              ticket: entry.ticket!,
-                              clients: clients,
-                              services: services,
-                              staff: staff,
-                              sales: sales,
-                              clientId: entry.clientId,
-                              onOpenClientBilling: entry.onOpenClientBilling,
-                            )
-                            : () => _showSaleDetails(
-                              context: context,
-                              sale: entry.sale!,
-                              clientName: entry.clientName,
-                              staffName: entry.staffName,
-                              onOpenClientBilling: entry.onOpenClientBilling,
-                            ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              CircleAvatar(
-                                backgroundColor:
-                                    Theme.of(
-                                      context,
-                                    ).colorScheme.surfaceContainerHighest,
-                                child: Icon(
-                                  entry.ticket != null
-                                      ? Icons.receipt_long_rounded
-                                      : Icons.point_of_sale_rounded,
-                                  color:
-                                      Theme.of(
-                                        context,
-                                      ).colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
+                  return SingleChildScrollView(
+                    key: const ValueKey('sales_open_tickets_table'),
+                    scrollDirection: Axis.horizontal,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minWidth: constraints.maxWidth,
+                      ),
+                      child: DataTable(
+                        headingRowHeight: 48,
+                        dataRowMinHeight: 56,
+                        dataRowMaxHeight: 66,
+                        columns: const [
+                          DataColumn(label: Text('Numero ticket')),
+                          DataColumn(label: Text('Cliente')),
+                          DataColumn(label: Text('Servizio')),
+                          DataColumn(label: Text('Appuntamento')),
+                          DataColumn(label: Text('Importo')),
+                          DataColumn(label: Text('Stato')),
+                          DataColumn(label: Text('Azioni')),
+                        ],
+                        rows:
+                            openTickets.map((ticket) {
+                              final client = clients.firstWhereOrNull(
+                                (item) => item.id == ticket.clientId,
+                              );
+                              final appointment = appointments.firstWhereOrNull(
+                                (item) => item.id == ticket.appointmentId,
+                              );
+                              final serviceName = _ticketServiceLabel(
+                                ticket,
+                                appointment,
+                                services,
+                              );
+                              final staffName =
+                                  ticket.staffId == null
+                                      ? null
+                                      : staff
+                                          .firstWhereOrNull(
+                                            (member) =>
+                                                member.id == ticket.staffId,
+                                          )
+                                          ?.fullName;
+                              final appointmentDate = DateFormat(
+                                'dd/MM/yyyy HH:mm',
+                                'it_IT',
+                              ).format(ticket.appointmentStart.toLocal());
+                              final amount = ticket.expectedTotal ?? 0;
+                              return DataRow(
+                                cells: [
+                                  DataCell(
                                     Text(
-                                      entry.clientName,
-                                      style:
-                                          Theme.of(
-                                            context,
-                                          ).textTheme.titleMedium,
+                                      'TKT-${ticket.id.substring(0, 4).toUpperCase()}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                     ),
-                                    const SizedBox(height: 6),
-                                    ...subtitleLines.map(
-                                      (line) => Padding(
-                                        padding: const EdgeInsets.only(
-                                          bottom: 4,
+                                  ),
+                                  DataCell(Text(client?.fullName ?? 'Cliente')),
+                                  DataCell(
+                                    Text(
+                                      serviceName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  DataCell(
+                                    Text(
+                                      staffName == null
+                                          ? appointmentDate
+                                          : '$appointmentDate • $staffName',
+                                    ),
+                                  ),
+                                  DataCell(
+                                    Text(
+                                      currency.format(amount),
+                                      style: TextStyle(
+                                        color:
+                                            Theme.of(
+                                              context,
+                                            ).colorScheme.primary,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                  const DataCell(
+                                    StatusBadge(
+                                      status: BadgeStatus.pending,
+                                      label: 'In attesa',
+                                    ),
+                                  ),
+                                  DataCell(
+                                    Row(
+                                      children: [
+                                        IconButton(
+                                          tooltip: 'Apri ticket',
+                                          icon: const Icon(
+                                            Icons.visibility_outlined,
+                                          ),
+                                          onPressed:
+                                              () => openSaleForm(
+                                                context,
+                                                ref,
+                                                salons: salons,
+                                                clients: clients,
+                                                staff: staff,
+                                                services: services,
+                                                packages: packages,
+                                                inventory: inventoryItems,
+                                                sales: sales,
+                                                appointments: appointments,
+                                                defaultSalonId: salonId,
+                                                ticket: ticket,
+                                              ),
                                         ),
-                                        child: Text(
-                                          line,
+                                        IconButton(
+                                          tooltip: 'Apri scheda cliente',
+                                          icon: const Icon(
+                                            Icons.open_in_new_rounded,
+                                          ),
+                                          onPressed:
+                                              client == null
+                                                  ? null
+                                                  : () async =>
+                                                      await _openClientBillingTab(
+                                                        client.id,
+                                                      ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              );
+                            }).toList(),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final stackedControls =
+                      constraints.maxWidth < kAdminStackBreakpoint;
+                  final controlsWidth =
+                      stackedControls
+                          ? double.infinity
+                          : (constraints.maxWidth * 0.46)
+                              .clamp(280.0, 420.0)
+                              .toDouble();
+                  return AdminResponsiveHeader(
+                    title: 'Vendite concluse',
+                    stackBreakpoint: kAdminStackBreakpoint,
+                    trailingFullWidthOnStack: true,
+                    trailing: SizedBox(
+                      width: controlsWidth,
+                      child: _SalesDateNavigator(
+                        weekdayLabel: selectedWeekdayLabel,
+                        dateLabel: selectedDateLabel,
+                        compactDateLabel: selectedCompactDateLabel,
+                        isToday: isToday,
+                        onPrevious: canGoBackward ? () => _changeDay(-1) : null,
+                        onNext: canGoForward ? () => _changeDay(1) : null,
+                        onPickDate:
+                            () => _pickDate(
+                              context,
+                              firstDate: firstAvailableDate,
+                              lastDate: today,
+                            ),
+                        onJumpToToday: isToday ? null : _jumpToToday,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          if (completedRows.isEmpty)
+            const Card(
+              margin: EdgeInsets.only(top: 8),
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: SharedEmptyState(
+                  title: 'Nessuna vendita registrata',
+                  description:
+                      'Per questa data non risultano vendite concluse.',
+                  icon: Icons.receipt_long_rounded,
+                ),
+              ),
+            )
+          else
+            Card(
+              margin: const EdgeInsets.only(top: 8),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  if (constraints.maxWidth < 760) {
+                    return Column(
+                      key: const ValueKey('sales_completed_mobile_list'),
+                      children:
+                          completedRows.map((entry) {
+                            final sale = entry.sale;
+                            final ticket = entry.ticket;
+                            final saleCode =
+                                sale != null
+                                    ? (sale.invoiceNumber?.trim().isNotEmpty ??
+                                            false)
+                                        ? sale.invoiceNumber!
+                                        : 'VEN-${sale.createdAt.year}-${sale.id.substring(0, 3).toUpperCase()}'
+                                    : 'TKT-${ticket!.id.substring(0, 4).toUpperCase()}';
+                            final paymentMethod =
+                                sale != null
+                                    ? _paymentMethodLabel(sale.paymentMethod)
+                                    : 'Ticket';
+                            final amount = entry.amount ?? sale?.total ?? 0;
+                            final statusBadge = _statusBadgeForEntry(entry);
+                            return _MobileTicketSummaryCard(
+                              codeLabel: 'N. vendita',
+                              codeValue: saleCode,
+                              rows: [
+                                _MobileTicketSummaryRow(
+                                  label: 'Appuntamento',
+                                  value: DateFormat(
+                                    'dd/MM/yyyy HH:mm',
+                                    'it_IT',
+                                  ).format(entry.date.toLocal()),
+                                ),
+                                if ((entry.serviceName ?? '').trim().isNotEmpty)
+                                  _MobileTicketSummaryRow(
+                                    label: 'Servizio',
+                                    value: entry.serviceName!,
+                                  ),
+                                if ((entry.staffName ?? '').trim().isNotEmpty)
+                                  _MobileTicketSummaryRow(
+                                    label: 'Operatore',
+                                    value: entry.staffName!,
+                                  ),
+                                _MobileTicketSummaryRow(
+                                  label: 'Cliente',
+                                  value: entry.clientName,
+                                ),
+                                _MobileTicketSummaryRow(
+                                  label: 'Importo',
+                                  value: currency.format(amount),
+                                  valueColor:
+                                      Theme.of(context).colorScheme.primary,
+                                ),
+                                _MobileTicketSummaryRow(
+                                  label: 'Metodo',
+                                  value: paymentMethod,
+                                ),
+                                _MobileTicketSummaryRow(
+                                  label: 'Stato',
+                                  child: StatusBadge(
+                                    status: statusBadge.$1,
+                                    label: statusBadge.$2,
+                                  ),
+                                ),
+                              ],
+                              actions: [
+                                _MobileTicketActionButton(
+                                  tooltip: 'Dettaglio',
+                                  icon: Icons.visibility_outlined,
+                                  onPressed: () {
+                                    if (entry.ticket != null) {
+                                      _showClosedTicketDetails(
+                                        context: context,
+                                        ticket: entry.ticket!,
+                                        clients: clients,
+                                        services: services,
+                                        staff: staff,
+                                        sales: sales,
+                                        clientId: entry.clientId,
+                                        onOpenClientBilling:
+                                            entry.onOpenClientBilling,
+                                      );
+                                    } else if (entry.sale != null) {
+                                      _showSaleDetails(
+                                        context: context,
+                                        sale: entry.sale!,
+                                        clientName: entry.clientName,
+                                        staffName: entry.staffName,
+                                        onOpenClientBilling:
+                                            entry.onOpenClientBilling,
+                                      );
+                                    }
+                                  },
+                                ),
+                                _MobileTicketActionButton(
+                                  tooltip: 'Apri scheda cliente',
+                                  icon: Icons.open_in_new_rounded,
+                                  onPressed:
+                                      entry.onOpenClientBilling == null
+                                          ? null
+                                          : () async =>
+                                              await entry
+                                                  .onOpenClientBilling!(),
+                                ),
+                              ],
+                            );
+                          }).toList(),
+                    );
+                  }
+                  return SingleChildScrollView(
+                    key: const ValueKey('sales_completed_table'),
+                    scrollDirection: Axis.horizontal,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minWidth: constraints.maxWidth,
+                      ),
+                      child: DataTable(
+                        headingRowHeight: 48,
+                        dataRowMinHeight: 58,
+                        dataRowMaxHeight: 66,
+                        columns: const [
+                          DataColumn(label: Text('Numero vendita')),
+                          DataColumn(label: Text('Cliente')),
+                          DataColumn(label: Text('Importo')),
+                          DataColumn(label: Text('Metodo')),
+                          DataColumn(label: Text('Stato')),
+                          DataColumn(label: Text('Azioni')),
+                        ],
+                        rows:
+                            completedRows.map((entry) {
+                              final sale = entry.sale;
+                              final ticket = entry.ticket;
+                              final saleCode =
+                                  sale != null
+                                      ? (sale.invoiceNumber
+                                                  ?.trim()
+                                                  .isNotEmpty ??
+                                              false)
+                                          ? sale.invoiceNumber!
+                                          : 'VEN-${sale.createdAt.year}-${sale.id.substring(0, 3).toUpperCase()}'
+                                      : 'TKT-${ticket!.id.substring(0, 4).toUpperCase()}';
+                              final paymentMethod =
+                                  sale != null
+                                      ? _paymentMethodLabel(sale.paymentMethod)
+                                      : 'Ticket';
+                              final amount = entry.amount ?? sale?.total ?? 0;
+                              final statusBadge = _statusBadgeForEntry(entry);
+                              return DataRow(
+                                cells: [
+                                  DataCell(
+                                    Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          saleCode,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                        Text(
+                                          DateFormat(
+                                            'yyyy-MM-dd HH:mm',
+                                            'it_IT',
+                                          ).format(entry.date.toLocal()),
                                           style:
                                               Theme.of(
                                                 context,
                                               ).textTheme.bodySmall,
                                         ),
+                                      ],
+                                    ),
+                                  ),
+                                  DataCell(Text(entry.clientName)),
+                                  DataCell(
+                                    Text(
+                                      currency.format(amount),
+                                      style: TextStyle(
+                                        color:
+                                            Theme.of(
+                                              context,
+                                            ).colorScheme.primary,
+                                        fontWeight: FontWeight.w700,
                                       ),
                                     ),
-                                  ],
-                                ),
-                              ),
-                              if (!isCompact) ...[
-                                const SizedBox(width: 12),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    amountWidget,
-                                    if (entry.onOpenClientBilling != null)
-                                      IconButton(
-                                        padding: EdgeInsets.zero,
-                                        iconSize: 20,
-                                        tooltip: 'Apri scheda fatturazione',
-                                        onPressed: () async {
-                                          await entry.onOpenClientBilling!();
-                                        },
-                                        icon: const Icon(
-                                          Icons.open_in_new_rounded,
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ],
-                            ],
-                          ),
-                          if (isCompact) ...[
-                            const SizedBox(height: 12),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                amountWidget,
-                                if (entry.onOpenClientBilling != null)
-                                  IconButton(
-                                    padding: EdgeInsets.zero,
-                                    iconSize: 20,
-                                    tooltip: 'Apri scheda fatturazione',
-                                    onPressed: () async {
-                                      await entry.onOpenClientBilling!();
-                                    },
-                                    icon: const Icon(Icons.open_in_new_rounded),
                                   ),
-                              ],
-                            ),
-                          ],
-                        ],
+                                  DataCell(Text(paymentMethod)),
+                                  DataCell(
+                                    StatusBadge(
+                                      status: statusBadge.$1,
+                                      label: statusBadge.$2,
+                                    ),
+                                  ),
+                                  DataCell(
+                                    Row(
+                                      children: [
+                                        IconButton(
+                                          tooltip: 'Dettaglio',
+                                          icon: const Icon(
+                                            Icons.visibility_outlined,
+                                          ),
+                                          onPressed: () {
+                                            if (entry.ticket != null) {
+                                              _showClosedTicketDetails(
+                                                context: context,
+                                                ticket: entry.ticket!,
+                                                clients: clients,
+                                                services: services,
+                                                staff: staff,
+                                                sales: sales,
+                                                clientId: entry.clientId,
+                                                onOpenClientBilling:
+                                                    entry.onOpenClientBilling,
+                                              );
+                                            } else if (entry.sale != null) {
+                                              _showSaleDetails(
+                                                context: context,
+                                                sale: entry.sale!,
+                                                clientName: entry.clientName,
+                                                staffName: entry.staffName,
+                                                onOpenClientBilling:
+                                                    entry.onOpenClientBilling,
+                                              );
+                                            }
+                                          },
+                                        ),
+                                        IconButton(
+                                          tooltip: 'Apri scheda cliente',
+                                          icon: const Icon(
+                                            Icons.open_in_new_rounded,
+                                          ),
+                                          onPressed:
+                                              entry.onOpenClientBilling == null
+                                                  ? null
+                                                  : () async =>
+                                                      await entry
+                                                          .onOpenClientBilling!(),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              );
+                            }).toList(),
                       ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           const SizedBox(height: 12),
           /*  if (cashFlow.isEmpty)
@@ -925,6 +1188,24 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
     );
   }
 
+  (BadgeStatus, String) _statusBadgeForEntry(_CompletedEntry entry) {
+    if (entry.ticket != null) {
+      return (BadgeStatus.success, 'Completata');
+    }
+    final sale = entry.sale;
+    if (sale == null) {
+      return (BadgeStatus.info, 'Registrata');
+    }
+    switch (sale.paymentStatus) {
+      case SalePaymentStatus.paid:
+        return (BadgeStatus.success, 'Completata');
+      case SalePaymentStatus.deposit:
+        return (BadgeStatus.pending, 'Acconto');
+      case SalePaymentStatus.posticipated:
+        return (BadgeStatus.pending, 'In attesa');
+    }
+  }
+
   String _ticketServiceLabel(
     PaymentTicket ticket,
     Appointment? appointment,
@@ -953,18 +1234,7 @@ class _SalesModuleState extends ConsumerState<SalesModule> {
 }
 
 String _paymentMethodLabel(PaymentMethod method) {
-  switch (method) {
-    case PaymentMethod.cash:
-      return 'Contanti';
-    case PaymentMethod.pos:
-      return 'POS';
-    case PaymentMethod.transfer:
-      return 'Bonifico';
-    case PaymentMethod.giftCard:
-      return 'Gift card';
-    case PaymentMethod.posticipated:
-      return 'Posticipato';
-  }
+  return method.label;
 }
 
 Future<void> openSaleForm(
@@ -982,7 +1252,7 @@ Future<void> openSaleForm(
   PaymentTicket? ticket,
 }) async {
   if (salons.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       const SnackBar(
         content: Text('Crea un salone prima di registrare vendite.'),
       ),
@@ -1001,6 +1271,8 @@ Future<void> openSaleForm(
           : _initialItemsFromTicket(ticket, appointment, services);
   final sale = await showAppModalSheet<Sale>(
     context: context,
+    includeCloseButton: false,
+    desktopMaxWidth: 1160,
     builder:
         (ctx) => SaleFormSheet(
           salons: salons,
@@ -1132,7 +1404,7 @@ Future<void> _openCashFlowForm(
   String? defaultSalonId,
 }) async {
   if (salons.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       const SnackBar(
         content: Text('Crea un salone prima di gestire la cassa.'),
       ),
@@ -1159,39 +1431,406 @@ class _SummaryTile extends StatelessWidget {
     required this.title,
     required this.value,
     required this.subtitle,
+    this.width = 220,
+    this.accentColor,
   });
 
   final IconData icon;
   final String title;
   final String value;
   final String subtitle;
+  final double width;
+  final Color? accentColor;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 220,
+      width: width,
       child: Card(
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(icon, size: 28),
-              const SizedBox(height: 12),
-              Text(title, style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 6),
+              Icon(
+                icon,
+                size: 22,
+                color: accentColor ?? Theme.of(context).colorScheme.onSurface,
+              ),
+              const SizedBox(height: 10),
               Text(
-                value,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
+                title,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
               const SizedBox(height: 4),
-              Text(subtitle, style: Theme.of(context).textTheme.bodyMedium),
+              Text(
+                value,
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: accentColor,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _SalesDateNavigator extends StatelessWidget {
+  const _SalesDateNavigator({
+    required this.weekdayLabel,
+    required this.dateLabel,
+    required this.compactDateLabel,
+    required this.isToday,
+    required this.onPrevious,
+    required this.onNext,
+    required this.onPickDate,
+    required this.onJumpToToday,
+  });
+
+  final String weekdayLabel;
+  final String dateLabel;
+  final String compactDateLabel;
+  final bool isToday;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+  final VoidCallback onPickDate;
+  final VoidCallback? onJumpToToday;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 340;
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest.withValues(
+              alpha: 0.35,
+            ),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: theme.colorScheme.outlineVariant),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    _SalesDateIconButton(
+                      tooltip: 'Giorno precedente',
+                      icon: Icons.chevron_left_rounded,
+                      onPressed: onPrevious,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: onPickDate,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 6,
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                weekdayLabel,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                isCompact ? compactDateLabel : dateLabel,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  color: theme.colorScheme.primary,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _SalesDateIconButton(
+                      tooltip: 'Giorno successivo',
+                      icon: Icons.chevron_right_rounded,
+                      onPressed: onNext,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    TextButton.icon(
+                      onPressed: onPickDate,
+                      icon: const Icon(Icons.calendar_month_rounded, size: 18),
+                      label: Text(isCompact ? 'Calendario' : 'Seleziona data'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: theme.colorScheme.onSurface,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                      ),
+                    ),
+                    if (isToday)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primary.withValues(
+                            alpha: 0.10,
+                          ),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          'Oggi',
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: theme.colorScheme.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      )
+                    else
+                      FilledButton.tonal(
+                        onPressed: onJumpToToday,
+                        style: FilledButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                        ),
+                        child: const Text('Oggi'),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SalesDateIconButton extends StatelessWidget {
+  const _SalesDateIconButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      style: IconButton.styleFrom(
+        minimumSize: const Size(40, 40),
+        padding: const EdgeInsets.all(8),
+        backgroundColor: theme.colorScheme.surface,
+        foregroundColor: theme.colorScheme.onSurface,
+        disabledForegroundColor: theme.colorScheme.onSurfaceVariant.withValues(
+          alpha: 0.45,
+        ),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
+      ),
+      icon: Icon(icon, size: 20),
+    );
+  }
+}
+
+class _MobileTicketSummaryCard extends StatelessWidget {
+  const _MobileTicketSummaryCard({
+    required this.codeLabel,
+    required this.codeValue,
+    required this.rows,
+    this.actions = const <Widget>[],
+  });
+
+  final String codeLabel;
+  final String codeValue;
+  final List<Widget> rows;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  codeLabel,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Flexible(
+                child: Text(
+                  codeValue,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ...rows,
+          if (actions.isNotEmpty) ...[
+            Divider(
+              height: 24,
+              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.8),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Wrap(spacing: 8, runSpacing: 8, children: actions),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileTicketSummaryRow extends StatelessWidget {
+  const _MobileTicketSummaryRow({
+    required this.label,
+    this.value,
+    this.child,
+    this.valueColor,
+  }) : assert(value != null || child != null);
+
+  final String label;
+  final String? value;
+  final Widget? child;
+  final Color? valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final valueWidget =
+        child ??
+        Text(
+          value!,
+          textAlign: TextAlign.right,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: valueColor,
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 4,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                label,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            flex: 5,
+            child: Align(alignment: Alignment.topRight, child: valueWidget),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileTicketActionButton extends StatelessWidget {
+  const _MobileTicketActionButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      style: IconButton.styleFrom(
+        minimumSize: const Size(40, 40),
+        padding: const EdgeInsets.all(8),
+        backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(
+          alpha: 0.55,
+        ),
+        foregroundColor: theme.colorScheme.onSurface,
+        disabledForegroundColor: theme.colorScheme.onSurfaceVariant.withValues(
+          alpha: 0.45,
+        ),
+      ),
+      icon: Icon(icon, size: 18),
     );
   }
 }
@@ -1256,9 +1895,11 @@ class _ClosedTicketDetailsSheet extends StatelessWidget {
           if (associatedSale != null) ...[
             Text('Vendita collegata', style: theme.textTheme.titleSmall),
             const SizedBox(height: 8),
-            _DetailRow(
-              label: 'Stato pagamento',
-              value: associatedSale.paymentStatus.label,
+            _DetailRowPair(
+              leftLabel: 'Stato pagamento',
+              leftValue: associatedSale.paymentStatus.label,
+              rightLabel: 'Metodo di pagamento',
+              rightValue: _paymentMethodLabel(associatedSale.paymentMethod),
             ),
             _DetailRow(
               label: 'Totale registrato',
@@ -1343,11 +1984,12 @@ class _SaleDetailsSheet extends StatelessWidget {
             _DetailRow(label: 'Operatore', value: staffName!),
           ],
           _DetailRow(label: 'Data', value: dateFormat.format(createdAt)),
-          _DetailRow(
-            label: 'Metodo di pagamento',
-            value: _paymentMethodLabel(sale.paymentMethod),
+          _DetailRowPair(
+            leftLabel: 'Stato pagamento',
+            leftValue: sale.paymentStatus.label,
+            rightLabel: 'Metodo di pagamento',
+            rightValue: _paymentMethodLabel(sale.paymentMethod),
           ),
-          _DetailRow(label: 'Stato pagamento', value: sale.paymentStatus.label),
           _DetailRow(
             label: 'Totale registrato',
             value: currency.format(sale.total),
@@ -1428,6 +2070,46 @@ class _DetailRow extends StatelessWidget {
           if (action == null) Text(value, style: valueStyle) else action!,
         ],
       ),
+    );
+  }
+}
+
+class _DetailRowPair extends StatelessWidget {
+  const _DetailRowPair({
+    required this.leftLabel,
+    required this.leftValue,
+    required this.rightLabel,
+    required this.rightValue,
+  });
+
+  final String leftLabel;
+  final String leftValue;
+  final String rightLabel;
+  final String rightValue;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 560) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _DetailRow(label: leftLabel, value: leftValue),
+              _DetailRow(label: rightLabel, value: rightValue),
+            ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: _DetailRow(label: leftLabel, value: leftValue)),
+            const SizedBox(width: 16),
+            Expanded(child: _DetailRow(label: rightLabel, value: rightValue)),
+          ],
+        );
+      },
     );
   }
 }

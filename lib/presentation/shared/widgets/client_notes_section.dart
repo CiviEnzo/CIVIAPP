@@ -37,8 +37,16 @@ class _ClientNotesSectionState extends ConsumerState<ClientNotesSection> {
     final dateTimeFormat = DateFormat('dd/MM/yyyy HH:mm');
 
     return Card(
+      elevation: 0,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.8),
+        ),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -64,15 +72,17 @@ class _ClientNotesSectionState extends ConsumerState<ClientNotesSection> {
                   onPressed: () => _createNote(context, staff),
                   icon: const Icon(Icons.add_rounded),
                   label: const Text('Aggiungi'),
+                  style: FilledButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 12),
             if (sortedNotes.isEmpty)
-              Text(
-                'Nessuna nota presente.',
-                style: theme.textTheme.bodyMedium,
-              )
+              Text('Nessuna nota presente.', style: theme.textTheme.bodyMedium)
             else
               ListView.separated(
                 shrinkWrap: true,
@@ -101,10 +111,15 @@ class _ClientNotesSectionState extends ConsumerState<ClientNotesSection> {
                             isUpdated: true,
                           );
                   return Container(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(12),
+                      color: theme.colorScheme.surfaceContainerLow,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: theme.colorScheme.outlineVariant.withValues(
+                          alpha: 0.5,
+                        ),
+                      ),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -113,7 +128,10 @@ class _ClientNotesSectionState extends ConsumerState<ClientNotesSection> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(note.text, style: theme.textTheme.bodyMedium),
+                              Text(
+                                note.text,
+                                style: theme.textTheme.bodyMedium,
+                              ),
                               const SizedBox(height: 6),
                               Text(
                                 createdLine,
@@ -136,11 +154,7 @@ class _ClientNotesSectionState extends ConsumerState<ClientNotesSection> {
                                 onPressed:
                                     isSaving || isDeleting
                                         ? null
-                                        : () => _editNote(
-                                          context,
-                                          note,
-                                          staff,
-                                        ),
+                                        : () => _editNote(context, note, staff),
                                 icon: const Icon(Icons.edit_outlined),
                               ),
                               IconButton(
@@ -254,10 +268,7 @@ class _ClientNotesSectionState extends ConsumerState<ClientNotesSection> {
     ClientNote note,
     List<StaffMember> staff,
   ) async {
-    final updatedText = await _promptNoteText(
-      context,
-      initial: note.text,
-    );
+    final updatedText = await _promptNoteText(context, initial: note.text);
     if (updatedText == null) {
       return;
     }
@@ -282,9 +293,7 @@ class _ClientNotesSectionState extends ConsumerState<ClientNotesSection> {
       builder:
           (ctx) => AlertDialog(
             title: const Text('Elimina nota'),
-            content: const Text(
-              'Vuoi eliminare definitivamente questa nota?',
-            ),
+            content: const Text('Vuoi eliminare definitivamente questa nota?'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(false),
@@ -314,7 +323,7 @@ class _ClientNotesSectionState extends ConsumerState<ClientNotesSection> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Impossibile eliminare la nota: $error')),
       );
     } finally {
@@ -335,7 +344,7 @@ class _ClientNotesSectionState extends ConsumerState<ClientNotesSection> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Impossibile salvare la nota: $error')),
       );
     } finally {

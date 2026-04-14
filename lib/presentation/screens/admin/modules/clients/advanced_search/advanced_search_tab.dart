@@ -21,6 +21,7 @@ import 'package:you_book/presentation/screens/admin/modules/client_detail_page.d
 import 'package:you_book/presentation/screens/admin/modules/clients/advanced_search/advanced_search_controller.dart';
 import 'package:you_book/presentation/screens/admin/modules/clients/advanced_search/advanced_search_filters.dart';
 import 'package:you_book/presentation/screens/admin/modules/messages/manual_notification_card.dart';
+import 'package:you_book/presentation/screens/admin/widgets/admin_responsive_helpers.dart';
 
 class AdvancedSearchTab extends ConsumerStatefulWidget {
   const AdvancedSearchTab({
@@ -622,6 +623,7 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                 alignment: WrapAlignment.center,
                 children: [
                   FilledButton.icon(
+                    key: const ValueKey('clients_advanced_search_button'),
                     onPressed:
                         isApplying
                             ? null
@@ -1596,8 +1598,8 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
 
   void _showSnack(String message) {
     ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+      ..hideCurrentAppSnackBar()
+      ..showAppSnackBar(SnackBar(content: Text(message)));
   }
 
   Widget _buildGenderChips(Set<String> selection) {
@@ -2538,59 +2540,82 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
       return const SizedBox.shrink();
     }
 
-    final tableChildren = <Widget>[
-      _buildResultsHeaderRow(context: context, rows: rows),
-      const Divider(height: 1, thickness: 1),
-    ];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final borderRadius = BorderRadius.circular(18);
+        final isCompact = constraints.maxWidth < 900;
+        if (isCompact) {
+          return _buildMobileResultSectionCard(
+            context: context,
+            section: section,
+            rows: rows,
+            currencyFormat: currencyFormat,
+            borderRadius: borderRadius,
+          );
+        }
 
-    for (var i = 0; i < rows.length; i += 1) {
-      tableChildren.add(
-        _buildResultRow(
-          context: context,
-          data: rows[i],
-          currencyFormat: currencyFormat,
-        ),
-      );
-      if (i != rows.length - 1) {
-        tableChildren.add(const Divider(height: 1, thickness: 1));
-      }
-    }
+        final tableChildren = <Widget>[
+          _buildResultsHeaderRow(context: context, rows: rows),
+          const Divider(height: 1, thickness: 1),
+        ];
 
-    final borderRadius = BorderRadius.circular(16);
-    return Card(
-      elevation: 2,
-      margin: EdgeInsets.zero,
-      surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(borderRadius: borderRadius),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (section.title != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Text(
-                section.title!,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
+        for (var i = 0; i < rows.length; i += 1) {
+          tableChildren.add(
+            _buildResultRow(
+              context: context,
+              data: rows[i],
+              currencyFormat: currencyFormat,
+            ),
+          );
+          if (i != rows.length - 1) {
+            tableChildren.add(const Divider(height: 1, thickness: 1));
+          }
+        }
+
+        return Card(
+          key: const ValueKey('clients_advanced_desktop_results'),
+          elevation: 0,
+          margin: EdgeInsets.zero,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: borderRadius,
+            side: BorderSide(color: theme.colorScheme.outlineVariant),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (section.title != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  child: Text(
+                    section.title!,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ClipRRect(
+                borderRadius: BorderRadius.only(
+                  topLeft:
+                      section.title == null
+                          ? borderRadius.topLeft
+                          : Radius.zero,
+                  topRight:
+                      section.title == null
+                          ? borderRadius.topRight
+                          : Radius.zero,
+                  bottomLeft: borderRadius.bottomLeft,
+                  bottomRight: borderRadius.bottomRight,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: tableChildren,
                 ),
               ),
-            ),
-          ClipRRect(
-            borderRadius: BorderRadius.only(
-              topLeft:
-                  section.title == null ? borderRadius.topLeft : Radius.zero,
-              topRight:
-                  section.title == null ? borderRadius.topRight : Radius.zero,
-              bottomLeft: borderRadius.bottomLeft,
-              bottomRight: borderRadius.bottomRight,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: tableChildren,
-            ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -2662,61 +2687,108 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
     required int visibleResults,
   }) {
     final theme = Theme.of(context);
-    return Wrap(
-      spacing: 16,
-      runSpacing: 12,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        Text(
-          'Risultati: $visibleResults / $totalResults',
-          style: theme.textTheme.titleMedium,
+    final resultsLabel =
+        visibleResults == totalResults
+            ? totalResults == 1
+                ? '1 risultato trovato'
+                : '$totalResults risultati trovati'
+            : '$visibleResults di $totalResults risultati';
+    final sortField = DropdownButtonFormField<_SortOption>(
+      value: _sortOption,
+      isExpanded: true,
+      decoration: InputDecoration(
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
         ),
-        DropdownButton<_SortOption>(
-          isExpanded: true,
-          value: _sortOption,
-          onChanged: (value) {
-            if (value == null) return;
-            setState(() => _sortOption = value);
-          },
-          items:
-              _SortOption.values
-                  .map(
-                    (option) => DropdownMenuItem<_SortOption>(
-                      value: option,
-                      child: Text(_sortOptionLabel(option)),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      onChanged: (value) {
+        if (value == null) return;
+        setState(() => _sortOption = value);
+      },
+      items:
+          _SortOption.values
+              .map(
+                (option) => DropdownMenuItem<_SortOption>(
+                  value: option,
+                  child: Text(_sortOptionLabel(option)),
+                ),
+              )
+              .toList(),
+    );
+    final groupChip = FilterChip(
+      avatar: Icon(
+        Icons.group_work_rounded,
+        size: 18,
+        color:
+            _groupByUpcoming
+                ? theme.colorScheme.onSecondary
+                : theme.colorScheme.onSurfaceVariant,
+      ),
+      label: Text(
+        'Raggruppa per appuntamenti',
+        style: TextStyle(
+          color:
+              _groupByUpcoming
+                  ? theme.colorScheme.onSecondary
+                  : theme.colorScheme.onSurface,
+        ),
+      ),
+      selected: _groupByUpcoming,
+      selectedColor: theme.colorScheme.secondary,
+      checkmarkColor: theme.colorScheme.onSecondary,
+      onSelected: (value) => setState(() => _groupByUpcoming = value),
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 720;
+        if (isCompact) {
+          return Column(
+            key: const ValueKey('clients_advanced_results_toolbar_mobile'),
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(resultsLabel, style: theme.textTheme.titleMedium),
+              const SizedBox(height: 12),
+              sortField,
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  groupChip,
+                  if (_bulkSelectedClientIds.isNotEmpty)
+                    Chip(
+                      avatar: const Icon(Icons.check_circle_rounded, size: 18),
+                      label: Text(
+                        '${_bulkSelectedClientIds.length} selezionati',
+                      ),
                     ),
-                  )
-                  .toList(),
-        ),
-        FilterChip(
-          avatar: Icon(
-            Icons.group_work_rounded,
-            size: 18,
-            color:
-                _groupByUpcoming
-                    ? theme.colorScheme.onSecondary
-                    : theme.colorScheme.onSurfaceVariant,
-          ),
-          label: Text(
-            'Raggruppa per appuntamenti',
-            style: TextStyle(
-              color:
-                  _groupByUpcoming
-                      ? theme.colorScheme.onSecondary
-                      : theme.colorScheme.onSurface,
-            ),
-          ),
-          selected: _groupByUpcoming,
-          selectedColor: theme.colorScheme.secondary,
-          checkmarkColor: theme.colorScheme.onSecondary,
-          onSelected: (value) => setState(() => _groupByUpcoming = value),
-        ),
-        if (_bulkSelectedClientIds.isNotEmpty)
-          Chip(
-            avatar: const Icon(Icons.check_circle_rounded, size: 18),
-            label: Text('${_bulkSelectedClientIds.length} selezionati'),
-          ),
-      ],
+                ],
+              ),
+            ],
+          );
+        }
+
+        return Wrap(
+          key: const ValueKey('clients_advanced_results_toolbar_desktop'),
+          spacing: 16,
+          runSpacing: 12,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(resultsLabel, style: theme.textTheme.titleMedium),
+            SizedBox(width: 260, child: sortField),
+            groupChip,
+            if (_bulkSelectedClientIds.isNotEmpty)
+              Chip(
+                avatar: const Icon(Icons.check_circle_rounded, size: 18),
+                label: Text('${_bulkSelectedClientIds.length} selezionati'),
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -2825,6 +2897,290 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                       () async =>
                           _openClientDetail(client, toggleSelection: false),
                   icon: const Icon(Icons.open_in_new_rounded, size: 20),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMobileResultSectionCard({
+    required BuildContext context,
+    required _ResultRowSection section,
+    required List<_ResultRowData> rows,
+    required NumberFormat currencyFormat,
+    required BorderRadius borderRadius,
+  }) {
+    final theme = Theme.of(context);
+    final allSelected =
+        rows.isNotEmpty &&
+        rows.every((row) => _bulkSelectedClientIds.contains(row.client.id));
+    final anySelected =
+        rows.isNotEmpty &&
+        rows.any((row) => _bulkSelectedClientIds.contains(row.client.id));
+    final selectedCount =
+        rows
+            .where((row) => _bulkSelectedClientIds.contains(row.client.id))
+            .length;
+    final checkboxValue =
+        rows.isEmpty
+            ? false
+            : (allSelected ? true : (anySelected ? null : false));
+
+    return Card(
+      key: const ValueKey('clients_advanced_mobile_results'),
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: borderRadius,
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest.withValues(
+                alpha: 0.68,
+              ),
+              borderRadius: BorderRadius.vertical(top: borderRadius.topLeft),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (section.title != null) ...[
+                  Text(
+                    section.title!,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Checkbox(
+                      tristate: true,
+                      value: checkboxValue,
+                      visualDensity: VisualDensity.compact,
+                      onChanged:
+                          rows.isNotEmpty
+                              ? (value) => _toggleBulkSelectionForRows(
+                                rows,
+                                value ?? true,
+                              )
+                              : null,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Seleziona tutti i risultati',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (selectedCount > 0)
+                      Text(
+                        '$selectedCount selezionati',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          for (var i = 0; i < rows.length; i += 1) ...[
+            _buildMobileResultCard(
+              context: context,
+              data: rows[i],
+              currencyFormat: currencyFormat,
+            ),
+            if (i != rows.length - 1)
+              Divider(height: 1, color: theme.colorScheme.outlineVariant),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileResultCard({
+    required BuildContext context,
+    required _ResultRowData data,
+    required NumberFormat currencyFormat,
+  }) {
+    final theme = Theme.of(context);
+    final client = data.client;
+    final isDetailSelected = _selectedClientId == client.id;
+    final isBulkSelected = _bulkSelectedClientIds.contains(client.id);
+    final backgroundColor =
+        isDetailSelected
+            ? const Color(0xFFF6EFD6)
+            : isBulkSelected
+            ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.45)
+            : Colors.transparent;
+    final subtitleLines = <String>[
+      if (client.city?.trim().isNotEmpty == true) client.city!.trim(),
+      if (client.profession?.trim().isNotEmpty == true)
+        client.profession!.trim(),
+    ];
+    final mobileStatusPills = _buildMobileStatusPills(data);
+    final clientNumber = client.clientNumber?.trim();
+    final phone = client.phone.trim();
+    final email = client.email?.trim();
+
+    return Material(
+      color: backgroundColor,
+      child: InkWell(
+        onTap: () async {
+          if (_isBulkSelecting) {
+            _toggleBulkSelection(client.id);
+          } else {
+            await _openClientDetail(client, toggleSelection: true);
+          }
+        },
+        onLongPress: () => _toggleBulkSelection(client.id),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Checkbox(
+                    value: isBulkSelected,
+                    visualDensity: VisualDensity.compact,
+                    onChanged: (_) => _toggleBulkSelection(client.id),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _displayName(client),
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (subtitleLines.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            children: subtitleLines
+                                .map(
+                                  (line) => Text(
+                                    line,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                )
+                                .toList(growable: false),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      if (clientNumber != null && clientNumber.isNotEmpty)
+                        Text(
+                          '#$clientNumber',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: const Color(0xFFD4AD31),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      const SizedBox(height: 8),
+                      IconButton(
+                        tooltip: 'Apri dettaglio',
+                        onPressed:
+                            () async => _openClientDetail(
+                              client,
+                              toggleSelection: false,
+                            ),
+                        style: IconButton.styleFrom(
+                          minimumSize: const Size(40, 40),
+                          padding: const EdgeInsets.all(8),
+                          backgroundColor:
+                              theme.colorScheme.surfaceContainerLow,
+                          foregroundColor: theme.colorScheme.onSurface,
+                          side: BorderSide(
+                            color: theme.colorScheme.outlineVariant,
+                          ),
+                        ),
+                        icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              AdminResponsiveDataRow(
+                label: 'Telefono',
+                value: phone.isNotEmpty ? phone : 'Non disponibile',
+                valueColor: phone.isNotEmpty ? null : theme.colorScheme.error,
+              ),
+              AdminResponsiveDataRow(
+                label: 'Email',
+                value:
+                    email != null && email.isNotEmpty
+                        ? email
+                        : 'Email non disponibile',
+                valueColor:
+                    email != null && email.isNotEmpty
+                        ? null
+                        : theme.colorScheme.error,
+              ),
+              AdminResponsiveDataRow(
+                label: 'Appuntamenti',
+                value: '${data.appointmentsCount}',
+                subtitle:
+                    data.nextAppointment != null
+                        ? _formatUpcomingLabel(data.nextAppointment!)
+                        : null,
+              ),
+              AdminResponsiveDataRow(
+                label: 'Acquisti',
+                value: '${data.purchasesCount}',
+                subtitle:
+                    data.loyaltyPoints > 0
+                        ? 'Punti: ${data.loyaltyPoints}'
+                        : null,
+              ),
+              AdminResponsiveDataRow(
+                label: 'Spesa',
+                value: _formatCurrencySafely(currencyFormat, data.totalSpent),
+                valueColor: const Color(0xFFD4AD31),
+              ),
+              if (data.lastCompleted != null)
+                AdminResponsiveDataRow(
+                  label: 'Ultima seduta',
+                  value: _formatPastLabel(data.lastCompleted!),
+                ),
+              AdminResponsiveDataRow(
+                label: 'Stato',
+                bottomPadding: 0,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: mobileStatusPills,
+                  ),
                 ),
               ),
             ],
@@ -3046,6 +3402,86 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
     return chips;
   }
 
+  List<Widget> _buildMobileStatusPills(_ResultRowData data) {
+    final chips = <Widget>[
+      _buildMobileStatusPill(
+        label: _mobileOnboardingLabel(data.onboardingStatus),
+        tone: switch (data.onboardingStatus) {
+          ClientOnboardingStatus.notSent => ChipTone.warning,
+          ClientOnboardingStatus.invitationSent ||
+          ClientOnboardingStatus.firstLogin => ChipTone.emphasis,
+          ClientOnboardingStatus.onboardingCompleted => ChipTone.success,
+        },
+      ),
+    ];
+    if (data.hasUpcoming) {
+      chips.add(
+        _buildMobileStatusPill(label: 'In agenda', tone: ChipTone.emphasis),
+      );
+    }
+    if (data.hasOutstanding) {
+      chips.add(
+        _buildMobileStatusPill(label: 'Saldo residuo', tone: ChipTone.warning),
+      );
+    }
+    if (data.hasPushToken) {
+      chips.add(
+        _buildMobileStatusPill(label: 'App attiva', tone: ChipTone.neutral),
+      );
+    }
+    return chips;
+  }
+
+  Widget _buildMobileStatusPill({
+    required String label,
+    required ChipTone tone,
+  }) {
+    late final Color background;
+    late final Color foreground;
+    late final Color border;
+
+    switch (tone) {
+      case ChipTone.emphasis:
+        background = const Color(0xFFF8EDD0);
+        foreground = const Color(0xFF8D6A00);
+        border = const Color(0xFFE8C96B);
+        break;
+      case ChipTone.warning:
+        background = const Color(0xFFF8D7D9);
+        foreground = const Color(0xFFAA434B);
+        border = const Color(0xFFE8AAB0);
+        break;
+      case ChipTone.neutral:
+        background = const Color(0xFFF2F2F0);
+        foreground = const Color(0xFF5E5E5A);
+        border = const Color(0xFFD6D6D1);
+        break;
+      case ChipTone.success:
+        background = const Color(0xFFE7F5EA);
+        foreground = const Color(0xFF2F8A52);
+        border = const Color(0xFFA8D9B8);
+        break;
+    }
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: foreground,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildInfoChip({
     required IconData icon,
     required String label,
@@ -3059,6 +3495,10 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
       case ChipTone.emphasis:
         background = colorScheme.primaryContainer;
         foreground = colorScheme.onPrimaryContainer;
+        break;
+      case ChipTone.success:
+        background = const Color(0xFFE7F5EA);
+        foreground = const Color(0xFF2F8A52);
         break;
       case ChipTone.warning:
         background = colorScheme.errorContainer;
@@ -3247,6 +3687,19 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
         return 'Primo accesso';
       case ClientOnboardingStatus.onboardingCompleted:
         return 'Onboarding completato';
+    }
+  }
+
+  String _mobileOnboardingLabel(ClientOnboardingStatus status) {
+    switch (status) {
+      case ClientOnboardingStatus.notSent:
+        return 'Non inviato';
+      case ClientOnboardingStatus.invitationSent:
+        return 'Invitato';
+      case ClientOnboardingStatus.firstLogin:
+        return 'Primo accesso';
+      case ClientOnboardingStatus.onboardingCompleted:
+        return 'Completato';
     }
   }
 
@@ -3475,7 +3928,7 @@ class _RangeButton extends StatelessWidget {
 
 enum _SortOption { name, lastCompleted, totalSpent }
 
-enum ChipTone { neutral, emphasis, warning }
+enum ChipTone { neutral, emphasis, warning, success }
 
 class _ResultRowSection {
   const _ResultRowSection({required this.title, required this.rows});

@@ -672,7 +672,7 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
         _hasUserEditedProfile = false;
         _lastSyncedClient = updatedClient;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Informazioni aggiornate con successo')),
       );
     } catch (error) {
@@ -682,7 +682,7 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
       setState(() {
         _isSavingProfile = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text('Impossibile aggiornare i dati: ${error.toString()}'),
         ),
@@ -702,14 +702,14 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Ti abbiamo inviato un link a $email')),
       );
     } catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text('Invio email non riuscito: ${error.toString()}'),
         ),
@@ -726,7 +726,7 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
   Future<void> _openDeleteAccountPage(BuildContext context) async {
     final configuredUrl = _clientDeleteAccountUrl.trim();
     if (configuredUrl.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text(
             'URL non configurato. Imposta CLIENT_DELETE_ACCOUNT_URL con il link Framer.',
@@ -738,7 +738,7 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
 
     final uri = _parseExternalUri(configuredUrl);
     if (uri == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text(
             'URL pagina eliminazione non valido. Verifica CLIENT_DELETE_ACCOUNT_URL.',
@@ -754,7 +754,7 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
         mode: LaunchMode.externalApplication,
       );
       if (!launched && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('Impossibile aprire la pagina eliminazione account.'),
           ),
@@ -764,7 +764,7 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             'Errore durante l\'apertura della pagina: ${error.toString()}',
@@ -798,7 +798,7 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
     }
     final uid = session.uid;
     if (uid == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Accesso non valido. Riprova.')),
       );
       return;
@@ -885,7 +885,7 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
     } catch (error) {
       closeLoader();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(content: Text('Operazione non riuscita: $error')),
         );
       }
@@ -906,7 +906,7 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
     final user = session.user;
     final salonId = session.salonId;
     if (user == null || salonId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Nessun salone associato all\'account.')),
       );
       return;
@@ -975,7 +975,7 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Operazione non riuscita: ${error.toString()}')),
       );
     } finally {

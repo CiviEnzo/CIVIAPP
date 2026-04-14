@@ -7,6 +7,7 @@ import * as logger from 'firebase-functions/logger';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 
 import { db, serverTimestamp, FieldValue } from '../utils/firestore';
+import { buildWhatsappTemplateComponents } from './whatsapp_templates';
 import { DEFAULT_TIMEZONE, now as nowInTimeZone } from '../utils/time';
 import {
   formatReminderOffsetLabel,
@@ -23,10 +24,41 @@ type ReminderSettingsDoc = ReminderSettingsData;
 interface ClientPreferences {
   id: string;
   firstName?: string;
+  lastName?: string;
+  clientName?: string;
+  phone?: string | null;
   salonId?: string;
   channelPreferences?: {
     push?: boolean;
+    whatsapp?: boolean;
   };
+}
+
+interface BirthdayWhatsappTemplateRecord {
+  id: string;
+  salonId: string;
+  title?: string;
+  body: string;
+  isActive: boolean;
+  channel: string;
+  usage: string;
+  metaTemplateName?: string;
+  metaTemplateLanguage?: string;
+  whatsappConfig?: {
+    headerFormat?: string;
+    bindings?: {
+      body?: string[];
+      header?: string[];
+    };
+  };
+}
+
+interface BirthdayTemplateContext {
+  firstName?: string;
+  lastName?: string;
+  clientName?: string;
+  date?: string;
+  salonName?: string;
 }
 
 const REMINDERS_ENABLED =
@@ -50,6 +82,53 @@ const birthdayDateFormatter = new Intl.DateTimeFormat('it-IT', {
   day: 'numeric',
   timeZone: DEFAULT_TIMEZONE,
 });
+
+function normalizeString(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function normalizeWhatsappRecipient(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const compact = value.replace(/[\s().-]/g, '');
+  if (!compact.length) {
+    return null;
+  }
+  return /^\+?\d+$/.test(compact) ? compact : null;
+}
+
+function mapClientPreferences(
+  clientId: string,
+  data: DocumentData,
+): ClientPreferences {
+  const firstName = normalizeString(data.firstName);
+  const lastName = normalizeString(data.lastName);
+  const fallbackClientName = [firstName, lastName]
+    .filter((part): part is string => Boolean(part))
+    .join(' ');
+  return {
+    id: clientId,
+    firstName,
+    lastName,
+    clientName:
+      normalizeString(data.fullName) ||
+      normalizeString(data.clientName) ||
+      (fallbackClientName.length > 0 ? fallbackClientName : undefined),
+    phone:
+      normalizeWhatsappRecipient(data.phone) ??
+      normalizeWhatsappRecipient(data.mobile) ??
+      normalizeWhatsappRecipient(data.whatsappPhone) ??
+      normalizeWhatsappRecipient(data.phoneNumber) ??
+      null,
+    salonId: normalizeString(data.salonId),
+    channelPreferences: data.channelPreferences as ClientPreferences['channelPreferences'],
+  };
+}
 
 async function fetchReminderSettings(): Promise<ReminderSettingsDoc[]> {
   const snapshot = await db.collection('reminder_settings').get();
@@ -205,14 +284,107 @@ async function getClientPreferences(clientId: string): Promise<ClientPreferences
     return null;
   }
   const data = (doc.data() as DocumentData | undefined) ?? {};
-  const preferences: ClientPreferences = {
-    id: doc.id,
-    firstName: data.firstName as string | undefined,
-    salonId: data.salonId as string | undefined,
-    channelPreferences: data.channelPreferences as ClientPreferences['channelPreferences'],
-  };
+  const preferences = mapClientPreferences(doc.id, data);
   clientCache.set(clientId, preferences);
   return preferences;
+}
+
+async function loadBirthdayWhatsappTemplate(
+  templateId: string,
+): Promise<BirthdayWhatsappTemplateRecord | null> {
+  const snapshot = await db.collection('message_templates').doc(templateId).get();
+  if (!snapshot.exists) {
+    return null;
+  }
+  const data = (snapshot.data() ?? {}) as Record<string, unknown>;
+  const rawWhatsappConfig =
+    data.whatsappConfig && typeof data.whatsappConfig === 'object'
+      ? (data.whatsappConfig as Record<string, unknown>)
+      : undefined;
+  const rawBindings =
+    rawWhatsappConfig?.bindings && typeof rawWhatsappConfig.bindings === 'object'
+      ? (rawWhatsappConfig.bindings as Record<string, unknown>)
+      : undefined;
+  const bodyBindings =
+    rawBindings?.body && Array.isArray(rawBindings.body)
+      ? rawBindings.body
+          .map((item) => (typeof item === 'string' ? item.trim() : ''))
+          .filter((item) => item.length > 0)
+      : undefined;
+  const headerBindings =
+    rawBindings?.header && Array.isArray(rawBindings.header)
+      ? rawBindings.header
+          .map((item) => (typeof item === 'string' ? item.trim() : ''))
+          .filter((item) => item.length > 0)
+      : undefined;
+  const headerFormatRaw = normalizeString(rawWhatsappConfig?.headerFormat);
+
+  return {
+    id: snapshot.id,
+    salonId: normalizeString(data.salonId) ?? '',
+    title: normalizeString(data.title),
+    body: normalizeString(data.body) ?? '',
+    isActive: data.isActive !== false,
+    channel: normalizeString(data.channel) ?? '',
+    usage: normalizeString(data.usage) ?? '',
+    metaTemplateName: normalizeString(data.metaTemplateName),
+    metaTemplateLanguage: normalizeString(data.metaTemplateLanguage),
+    whatsappConfig:
+      (bodyBindings && bodyBindings.length) ||
+      (headerBindings && headerBindings.length) ||
+      headerFormatRaw
+        ? {
+            headerFormat: headerFormatRaw,
+            bindings: {
+              body: bodyBindings,
+              header: headerBindings,
+            },
+          }
+        : undefined,
+  };
+}
+
+const BIRTHDAY_PLACEHOLDER_ALIASES: Record<
+  string,
+  keyof BirthdayTemplateContext
+> = {
+  nome: 'firstName',
+  firstname: 'firstName',
+  first_name: 'firstName',
+  cognome: 'lastName',
+  lastname: 'lastName',
+  last_name: 'lastName',
+  cliente: 'clientName',
+  client: 'clientName',
+  clientname: 'clientName',
+  client_name: 'clientName',
+  salone: 'salonName',
+  salon: 'salonName',
+  salonname: 'salonName',
+  salon_name: 'salonName',
+  data: 'date',
+  date: 'date',
+  giorno: 'date',
+  compleanno: 'date',
+  birthday: 'date',
+};
+
+function normalizePlaceholderKey(raw: string): string {
+  return raw.trim().toLowerCase().replace(/\s+/g, '_');
+}
+
+function resolveBirthdayPlaceholderValue(
+  rawKey: string,
+  context: BirthdayTemplateContext,
+): string {
+  const normalized = normalizePlaceholderKey(rawKey);
+  const mappedKey =
+    BIRTHDAY_PLACEHOLDER_ALIASES[normalized] ??
+    BIRTHDAY_PLACEHOLDER_ALIASES[normalized.replace(/[_-]/g, '')];
+  if (!mappedKey) {
+    return '';
+  }
+  return (context[mappedKey] ?? '').trim();
 }
 
 function buildReminderBody(
@@ -371,17 +543,17 @@ async function processReminderOffsets(settings: ReminderSettingsDoc) {
   }
 }
 
-async function enqueueBirthdayGreeting(
+async function enqueueBirthdayPushGreeting(
   settings: ReminderSettingsDoc,
   client: ClientPreferences,
   targetDate: Date,
+  salonName: string,
+  birthdayLabel: string,
 ) {
   const dateKey = `${targetDate.getFullYear()}${String(targetDate.getMonth() + 1).padStart(2, '0')}${String(
     targetDate.getDate(),
   ).padStart(2, '0')}`;
   const outboxId = `birthday_${settings.salonId}_${client.id}_${dateKey}`;
-  const salonName = await getSalonName(settings.salonId);
-  const birthdayLabel = birthdayDateFormatter.format(targetDate);
   const title = 'Tanti auguri!';
   const body =
     `Buon compleanno${client.firstName != null ? ` ${client.firstName}` : ''}! Passa da ${salonName} entro 14 giorni per un regalo speciale.`;
@@ -426,10 +598,148 @@ async function enqueueBirthdayGreeting(
   }
 }
 
+async function enqueueBirthdayWhatsappGreeting(
+  settings: ReminderSettingsDoc,
+  client: ClientPreferences,
+  targetDate: Date,
+  salonName: string,
+  birthdayLabel: string,
+) {
+  const templateId = normalizeString(settings.birthdayWhatsappTemplateId);
+  if (!templateId) {
+    logger.warn('Skipping birthday WhatsApp: missing template id', {
+      salonId: settings.salonId,
+      clientId: client.id,
+    });
+    return;
+  }
+
+  const recipient = client.phone;
+  if (!recipient) {
+    logger.warn('Skipping birthday WhatsApp: missing client phone', {
+      salonId: settings.salonId,
+      clientId: client.id,
+    });
+    return;
+  }
+
+  const template = await loadBirthdayWhatsappTemplate(templateId);
+  if (
+    template == null ||
+    template.salonId !== settings.salonId ||
+    template.channel !== 'whatsapp' ||
+    template.usage !== 'birthday' ||
+    !template.isActive
+  ) {
+    logger.warn('Skipping birthday WhatsApp: invalid or unavailable template', {
+      salonId: settings.salonId,
+      clientId: client.id,
+      templateId,
+    });
+    return;
+  }
+
+  const templateName = template.metaTemplateName?.trim();
+  if (!templateName) {
+    logger.warn('Skipping birthday WhatsApp: missing Meta template name', {
+      salonId: settings.salonId,
+      clientId: client.id,
+      templateId,
+    });
+    return;
+  }
+
+  const context: BirthdayTemplateContext = {
+    firstName: client.firstName,
+    lastName: client.lastName,
+    clientName: client.clientName,
+    date: birthdayLabel,
+    salonName,
+  };
+  const { components, unresolvedPlaceholders } =
+    buildWhatsappTemplateComponents({
+      body: template.body,
+      bodyPlaceholderOrder: template.whatsappConfig?.bindings?.body,
+      headerBindings: template.whatsappConfig?.bindings?.header,
+      headerFormat: template.whatsappConfig?.headerFormat,
+      resolveValue: (placeholder) =>
+        resolveBirthdayPlaceholderValue(placeholder, context),
+    });
+  if (unresolvedPlaceholders.length > 0) {
+    logger.warn('Skipping birthday WhatsApp: unresolved placeholders', {
+      salonId: settings.salonId,
+      clientId: client.id,
+      templateId,
+      unresolvedPlaceholders,
+    });
+    return;
+  }
+
+  const dateKey = `${targetDate.getFullYear()}${String(targetDate.getMonth() + 1).padStart(2, '0')}${String(
+    targetDate.getDate(),
+  ).padStart(2, '0')}`;
+  const outboxId = `birthday_${settings.salonId}_${client.id}_${dateKey}_wa`;
+  const scheduledAt = new Date();
+
+  try {
+    await messageOutboxCollection.doc(outboxId).create({
+      salonId: settings.salonId,
+      clientId: client.id,
+      templateId: template.id,
+      channel: 'whatsapp',
+      status: 'pending',
+      type: 'birthday_greeting',
+      scheduledAt,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      payload: {
+        type: 'birthday_greeting',
+        to: recipient,
+        templateName,
+        lang: template.metaTemplateLanguage ?? 'it',
+        birthday: birthdayLabel,
+        components,
+      },
+      metadata: {
+        type: 'birthday_greeting',
+        templateId: template.id,
+        templateName,
+      },
+      traces: [],
+    });
+    logger.info('Created birthday WhatsApp greeting', {
+      outboxId,
+      salonId: settings.salonId,
+      clientId: client.id,
+      templateId: template.id,
+    });
+  } catch (error) {
+    if (isAlreadyExistsError(error)) {
+      logger.debug('Birthday WhatsApp message already exists', { outboxId });
+      return;
+    }
+    logger.error(
+      'Failed to create birthday WhatsApp greeting',
+      error instanceof Error ? error : new Error(String(error)),
+      { outboxId },
+    );
+  }
+}
+
 async function processBirthdays(settings: ReminderSettingsDoc) {
   const todayZoned = nowInTimeZone(DEFAULT_TIMEZONE);
   const month = todayZoned.getMonth();
   const day = todayZoned.getDate();
+  const shouldSendPush =
+    settings.birthdayDeliveryMode === 'push' ||
+    settings.birthdayDeliveryMode === 'both';
+  const shouldSendWhatsapp =
+    settings.birthdayDeliveryMode === 'whatsapp' ||
+    settings.birthdayDeliveryMode === 'both';
+
+  if (!shouldSendPush && !shouldSendWhatsapp) {
+    return;
+  }
 
   const snapshot = await db
     .collection('clients')
@@ -439,6 +749,9 @@ async function processBirthdays(settings: ReminderSettingsDoc) {
   if (snapshot.empty) {
     return;
   }
+
+  const salonName = await getSalonName(settings.salonId);
+  const birthdayLabel = birthdayDateFormatter.format(todayZoned);
 
   for (const doc of snapshot.docs) {
     const data = doc.data() ?? {};
@@ -451,19 +764,34 @@ async function processBirthdays(settings: ReminderSettingsDoc) {
       continue;
     }
 
-    const clientPreferences: ClientPreferences = {
-      id: doc.id,
-      firstName: data.firstName as string | undefined,
-      salonId: data.salonId as string | undefined,
-      channelPreferences: data.channelPreferences as ClientPreferences['channelPreferences'],
-    };
+    const clientPreferences = mapClientPreferences(doc.id, data);
 
-    const pushEnabled = clientPreferences.channelPreferences?.push ?? true;
-    if (!pushEnabled) {
-      continue;
+    if (shouldSendPush) {
+      const pushEnabled = clientPreferences.channelPreferences?.push ?? true;
+      if (pushEnabled) {
+        await enqueueBirthdayPushGreeting(
+          settings,
+          clientPreferences,
+          todayZoned,
+          salonName,
+          birthdayLabel,
+        );
+      }
     }
 
-    await enqueueBirthdayGreeting(settings, clientPreferences, todayZoned);
+    if (shouldSendWhatsapp) {
+      const whatsappEnabled =
+        clientPreferences.channelPreferences?.whatsapp ?? false;
+      if (whatsappEnabled) {
+        await enqueueBirthdayWhatsappGreeting(
+          settings,
+          clientPreferences,
+          todayZoned,
+          salonName,
+          birthdayLabel,
+        );
+      }
+    }
   }
 }
 

@@ -59,6 +59,9 @@ class ReminderSettings {
     required this.salonId,
     List<ReminderOffsetConfig>? offsets,
     this.birthdayEnabled = true,
+    this.birthdayDeliveryMode = ReminderDeliveryMode.push,
+    this.birthdayWhatsappTemplateId,
+    this.birthdayWhatsappTemplateName,
     this.lastMinuteNotificationAudience = LastMinuteNotificationAudience.none,
     this.updatedAt,
     this.updatedBy,
@@ -71,6 +74,9 @@ class ReminderSettings {
   final String salonId;
   final List<ReminderOffsetConfig> offsets;
   final bool birthdayEnabled;
+  final ReminderDeliveryMode birthdayDeliveryMode;
+  final String? birthdayWhatsappTemplateId;
+  final String? birthdayWhatsappTemplateName;
   final LastMinuteNotificationAudience lastMinuteNotificationAudience;
   final DateTime? updatedAt;
   final String? updatedBy;
@@ -82,10 +88,21 @@ class ReminderSettings {
       .map((offset) => offset.minutesBefore)
       .toList(growable: false);
 
+  bool get birthdaySendsPush =>
+      birthdayDeliveryMode == ReminderDeliveryMode.push ||
+      birthdayDeliveryMode == ReminderDeliveryMode.both;
+
+  bool get birthdaySendsWhatsapp =>
+      birthdayDeliveryMode == ReminderDeliveryMode.whatsapp ||
+      birthdayDeliveryMode == ReminderDeliveryMode.both;
+
   ReminderSettings copyWith({
     String? salonId,
     List<ReminderOffsetConfig>? offsets,
     bool? birthdayEnabled,
+    ReminderDeliveryMode? birthdayDeliveryMode,
+    String? birthdayWhatsappTemplateId,
+    String? birthdayWhatsappTemplateName,
     LastMinuteNotificationAudience? lastMinuteNotificationAudience,
     DateTime? updatedAt,
     String? updatedBy,
@@ -94,6 +111,11 @@ class ReminderSettings {
       salonId: salonId ?? this.salonId,
       offsets: offsets ?? this.offsets,
       birthdayEnabled: birthdayEnabled ?? this.birthdayEnabled,
+      birthdayDeliveryMode: birthdayDeliveryMode ?? this.birthdayDeliveryMode,
+      birthdayWhatsappTemplateId:
+          birthdayWhatsappTemplateId ?? this.birthdayWhatsappTemplateId,
+      birthdayWhatsappTemplateName:
+          birthdayWhatsappTemplateName ?? this.birthdayWhatsappTemplateName,
       lastMinuteNotificationAudience:
           lastMinuteNotificationAudience ?? this.lastMinuteNotificationAudience,
       updatedAt: updatedAt ?? this.updatedAt,

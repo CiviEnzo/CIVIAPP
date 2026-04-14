@@ -1,10 +1,9 @@
 import 'dart:async';
-import 'dart:typed_data';
-
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/domain/entities/staff_role.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/common/hybrid_image_picker.dart';
 import 'package:collection/collection.dart';
 import 'package:file_selector/file_selector.dart' show XFile;
@@ -458,6 +457,345 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
         _dateOfBirth != null
             ? dateFormatter.format(_dateOfBirth!)
             : 'Seleziona data';
+    final title =
+        widget.initial == null
+            ? 'Nuovo membro dello staff'
+            : 'Modifica membro dello staff';
+
+    if (isAppSheetPhoneLayout(context)) {
+      return AppMobileSheetPageScaffold(
+        title: title,
+        actions: [
+          TextButton(
+            onPressed: _hasRoles ? _submit : null,
+            child: const Text('Salva'),
+          ),
+        ],
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      CircleAvatar(
+                        radius: 40,
+                        backgroundImage:
+                            _avatarUrl != null
+                                ? NetworkImage(_avatarUrl!)
+                                : null,
+                        backgroundColor: theme.colorScheme.primaryContainer,
+                        child:
+                            _avatarUrl == null
+                                ? Text(
+                                  _avatarInitials(),
+                                  style: theme.textTheme.titleLarge?.copyWith(
+                                    color: theme.colorScheme.onPrimaryContainer,
+                                  ),
+                                )
+                                : null,
+                      ),
+                      if (_isUploadingAvatar)
+                        SizedBox(
+                          height: 76,
+                          width: 76,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 3,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              theme.colorScheme.primary,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Wrap(
+                      spacing: 12,
+                      runSpacing: 8,
+                      children: [
+                        FilledButton.icon(
+                          onPressed: _isUploadingAvatar ? null : _pickAvatar,
+                          icon:
+                              _isUploadingAvatar
+                                  ? const SizedBox(
+                                    height: 18,
+                                    width: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                  : const Icon(Icons.upload_rounded),
+                          label: Text(
+                            _avatarUrl == null
+                                ? 'Carica foto'
+                                : 'Sostituisci foto',
+                          ),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed:
+                              (_avatarUrl == null || _isUploadingAvatar)
+                                  ? null
+                                  : _removeAvatar,
+                          icon: const Icon(Icons.delete_outline_rounded),
+                          label: const Text('Rimuovi'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Consigliato: immagine quadrata, massimo 2 MB.',
+                style: theme.textTheme.bodySmall,
+              ),
+              if (_avatarError != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _avatarError!,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _firstNameController,
+                decoration: const InputDecoration(labelText: 'Nome'),
+                textCapitalization: TextCapitalization.words,
+                validator:
+                    (value) =>
+                        value == null || value.trim().isEmpty
+                            ? 'Inserisci il nome'
+                            : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _lastNameController,
+                decoration: const InputDecoration(labelText: 'Cognome'),
+                textCapitalization: TextCapitalization.words,
+                validator:
+                    (value) =>
+                        value == null || value.trim().isEmpty
+                            ? 'Inserisci il cognome'
+                            : null,
+              ),
+              const SizedBox(height: 12),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Macchinario'),
+                subtitle: const Text(
+                  'Usalo per rappresentare apparecchiature o cabine. Verrà escluso dalle vendite e non richiede email.',
+                ),
+                value: _isEquipment,
+                onChanged: (value) {
+                  setState(() {
+                    _isEquipment = value;
+                    if (value) {
+                      if (_lockedEmail == null) {
+                        _emailController.clear();
+                      }
+                      _emailVerifiedOverride = false;
+                    }
+                  });
+                },
+              ),
+              if (!_isEquipment) ...[
+                const SizedBox(height: 12),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Email verificata (admin)'),
+                  subtitle: const Text(
+                    'Consente l\'accesso anche senza conferma via email.',
+                  ),
+                  value: _emailVerifiedOverride,
+                  onChanged: (value) {
+                    setState(() {
+                      _emailVerifiedOverride = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 8),
+                if (_lockedEmail != null) ...[
+                  Text(
+                    'L\'email di accesso non è modificabile. Per cambiarla crea un nuovo account.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                TextFormField(
+                  controller: _emailController,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                  keyboardType: TextInputType.emailAddress,
+                  enabled: _lockedEmail == null,
+                  validator: (value) {
+                    final text = value?.trim() ?? '';
+                    if (text.isNotEmpty && !text.contains('@')) {
+                      return 'Inserisci un\'email valida';
+                    }
+                    return null;
+                  },
+                ),
+              ],
+              const SizedBox(height: 12),
+              if (_hasRoles)
+                FormField<List<String>>(
+                  initialValue: List<String>.from(_selectedRoleIds),
+                  validator:
+                      (value) =>
+                          value == null || value.isEmpty
+                              ? 'Seleziona almeno una mansione'
+                              : null,
+                  builder: (field) {
+                    final errorText = field.errorText;
+                    return InputDecorator(
+                      decoration: InputDecoration(
+                        labelText: 'Mansioni',
+                        border: const OutlineInputBorder(),
+                        errorText: errorText,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
+                      ),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children:
+                            sortedRoles
+                                .map(
+                                  (role) => FilterChip(
+                                    label: Text(role.displayName),
+                                    selected: _selectedRoleIds.contains(
+                                      role.id,
+                                    ),
+                                    onSelected: (selected) {
+                                      setState(() {
+                                        if (selected) {
+                                          if (!_selectedRoleIds.contains(
+                                            role.id,
+                                          )) {
+                                            _selectedRoleIds =
+                                                List<String>.from(
+                                                  _selectedRoleIds,
+                                                )..add(role.id);
+                                          }
+                                        } else {
+                                          _selectedRoleIds =
+                                              _selectedRoleIds
+                                                  .where(
+                                                    (value) => value != role.id,
+                                                  )
+                                                  .toList();
+                                        }
+                                      });
+                                      field.didChange(
+                                        List<String>.from(_selectedRoleIds),
+                                      );
+                                    },
+                                  ),
+                                )
+                                .toList(),
+                      ),
+                    );
+                  },
+                )
+              else
+                Card(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  child: const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      'Nessuna mansione disponibile. Aggiungi un ruolo dallo spazio staff.',
+                    ),
+                  ),
+                ),
+              if (!_isEquipment) ...[
+                const SizedBox(height: 12),
+                GestureDetector(
+                  onTap: _pickDateOfBirth,
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Data di nascita',
+                      border: OutlineInputBorder(),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(dateLabel),
+                        const Icon(Icons.calendar_today_rounded, size: 18),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _phoneController,
+                  decoration: const InputDecoration(labelText: 'Telefono'),
+                  keyboardType: TextInputType.phone,
+                ),
+              ],
+              if (widget.salons.isEmpty) ...[
+                const SizedBox(height: 12),
+                Card(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      'Seleziona un salone dall\'appbar per assegnare il membro dello staff.',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (!_isEquipment) ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _vacationAllowanceController,
+                        decoration: const InputDecoration(
+                          labelText: 'Ferie annue (giorni)',
+                        ),
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _permissionAllowanceController,
+                        decoration: const InputDecoration(
+                          labelText: 'Permessi annui',
+                        ),
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Form(
@@ -466,12 +804,7 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              widget.initial == null
-                  ? 'Nuovo membro dello staff'
-                  : 'Modifica membro dello staff',
-              style: theme.textTheme.titleLarge,
-            ),
+            Text(title, style: theme.textTheme.titleLarge),
             const SizedBox(height: 16),
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
@@ -799,7 +1132,7 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
       return;
     }
     if (!_hasRoles) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Aggiungi una mansione prima di salvare.'),
         ),
@@ -808,13 +1141,13 @@ class _StaffFormSheetState extends ConsumerState<StaffFormSheet> {
     }
     final normalizedRoles = _normalizeRoleIds(_selectedRoleIds);
     if (normalizedRoles.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Seleziona almeno una mansione.')),
       );
       return;
     }
     if (_salonId == null || _salonId!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Specifica un salone di riferimento')),
       );
       return;

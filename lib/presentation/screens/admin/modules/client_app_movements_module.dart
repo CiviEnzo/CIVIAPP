@@ -15,6 +15,7 @@ import 'package:you_book/domain/entities/sale.dart';
 import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/presentation/screens/admin/modules/client_detail_page.dart';
+import 'package:you_book/presentation/screens/admin/widgets/admin_responsive_helpers.dart';
 
 class ClientAppMovementsModule extends ConsumerStatefulWidget {
   const ClientAppMovementsModule({super.key, this.salonId});
@@ -458,23 +459,6 @@ class _ClientAppMovementsModuleState
             ),
           );
         }
-        final previousStatus = _statusLabel(
-          movement.metadata['previousStatus'] ?? movement.metadata['oldStatus'],
-        );
-        final nextStatus = _statusLabel(
-          movement.metadata['newStatus'] ?? movement.metadata['status'],
-        );
-        if (previousStatus != null &&
-            nextStatus != null &&
-            previousStatus != nextStatus) {
-          details.add(
-            _MovementDetail(
-              icon: Icons.flag_rounded,
-              label: '$previousStatus → $nextStatus',
-            ),
-          );
-        }
-
         final previousStart = _parseDateTime(
           movement.metadata['previousStart'] ??
               movement.metadata['oldStart'] ??
@@ -970,18 +954,7 @@ class _ClientAppMovementsModuleState
   }
 
   String _paymentMethodLabel(PaymentMethod method) {
-    switch (method) {
-      case PaymentMethod.cash:
-        return 'Contanti';
-      case PaymentMethod.pos:
-        return 'POS';
-      case PaymentMethod.transfer:
-        return 'Bonifico';
-      case PaymentMethod.giftCard:
-        return 'Gift card';
-      case PaymentMethod.posticipated:
-        return 'Posticipato';
-    }
+    return method.label;
   }
 }
 
@@ -1001,6 +974,7 @@ class _DaySection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final dateLabel = _ClientAppMovementsModuleState._dateHeaderFormat.format(
       day,
     );
@@ -1012,12 +986,34 @@ class _DaySection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text(
-              dateLabel,
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
+            padding: const EdgeInsets.only(top: 8, bottom: 10),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    dateLabel,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Divider(
+                    height: 1,
+                    color: scheme.outlineVariant.withValues(alpha: 0.55),
+                  ),
+                ),
+              ],
             ),
           ),
           ...sorted.map(
@@ -1089,35 +1085,75 @@ class _MovementCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final icon = _iconForType(entry.type);
     final color = _colorForType(entry.type, theme);
+    final timeLabel = _ClientAppMovementsModuleState._timeFormat.format(
+      entry.timestamp,
+    );
+
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 6),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.8)),
+      ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: color.withOpacity(0.12),
-                  foregroundColor: color,
-                  child: Icon(icon, size: 22),
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: color.withValues(alpha: 0.12),
+                  ),
+                  child: Icon(icon, size: 21, color: color),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildTitle(context),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: _buildTitle(context)),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: scheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              timeLabel,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                       if (entry.subtitle != null) ...[
                         const SizedBox(height: 8),
                         Text(
                           entry.subtitle!,
-                          style: theme.textTheme.bodyMedium,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
                         ),
                       ],
                     ],
@@ -1135,20 +1171,22 @@ class _MovementCard extends StatelessWidget {
                         .map(
                           (detail) =>
                               detail.agendaTarget != null && onAgendaTap != null
-                                  ? ActionChip(
-                                    avatar: Icon(detail.icon, size: 16),
-                                    label: Text(detail.label),
-                                    labelStyle: theme.textTheme.labelLarge
-                                        ?.copyWith(
-                                          decoration: TextDecoration.underline,
-                                        ),
-                                    onPressed: () {
+                                  ? InkWell(
+                                    borderRadius: BorderRadius.circular(999),
+                                    onTap: () {
                                       onAgendaTap?.call(detail.agendaTarget!);
                                     },
+                                    child: _DetailPill(
+                                      icon: detail.icon,
+                                      label: detail.label,
+                                      color: scheme.primary,
+                                      highlighted: true,
+                                    ),
                                   )
-                                  : Chip(
-                                    avatar: Icon(detail.icon, size: 16),
-                                    label: Text(detail.label),
+                                  : _DetailPill(
+                                    icon: detail.icon,
+                                    label: detail.label,
+                                    color: scheme.onSurfaceVariant,
                                   ),
                         )
                         .toList(),
@@ -1197,6 +1235,50 @@ class _MovementCard extends StatelessWidget {
       case ClientAppMovementType.lastMinutePurchase:
         return scheme.surfaceTint;
     }
+  }
+}
+
+class _DetailPill extends StatelessWidget {
+  const _DetailPill({
+    required this.icon,
+    required this.label,
+    required this.color,
+    this.highlighted = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final background =
+        highlighted
+            ? color.withValues(alpha: 0.12)
+            : theme.colorScheme.surfaceContainerHighest;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -1320,10 +1402,85 @@ class _FiltersBarState extends State<_FiltersBar> {
       initialDateRange: initialRange,
       locale: const Locale('it'),
       saveText: 'Applica',
+      builder: (context, child) {
+        return Theme(
+          data: _buildRangePickerTheme(context),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
     );
     if (picked != null) {
       widget.onRangeChanged(picked);
     }
+  }
+
+  ThemeData _buildRangePickerTheme(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    const accent = Color(0xFFD4AD31);
+    const accentInk = Color(0xFF161616);
+    final rangeFill = accent.withValues(alpha: 0.18);
+    final overlay = accent.withValues(alpha: 0.10);
+
+    Color? resolveDayForeground(Set<WidgetState> states) {
+      if (states.contains(WidgetState.disabled)) {
+        return scheme.onSurfaceVariant.withValues(alpha: 0.38);
+      }
+      if (states.contains(WidgetState.selected)) {
+        return accentInk;
+      }
+      return scheme.onSurface;
+    }
+
+    Color? resolveDayBackground(Set<WidgetState> states) {
+      if (states.contains(WidgetState.selected)) {
+        return accent;
+      }
+      return null;
+    }
+
+    return theme.copyWith(
+      colorScheme: scheme.copyWith(
+        primary: accent,
+        onPrimary: accentInk,
+        secondaryContainer: rangeFill,
+        onSecondaryContainer: scheme.onSurface,
+        surface: scheme.surface,
+        onSurface: scheme.onSurface,
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: scheme.onSurface,
+          textStyle: theme.textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      datePickerTheme: theme.datePickerTheme.copyWith(
+        backgroundColor: scheme.surface,
+        surfaceTintColor: Colors.transparent,
+        headerBackgroundColor: scheme.surface,
+        headerForegroundColor: scheme.onSurface,
+        dividerColor: scheme.outlineVariant,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        dayForegroundColor: WidgetStateProperty.resolveWith(
+          resolveDayForeground,
+        ),
+        dayBackgroundColor: WidgetStateProperty.resolveWith(
+          resolveDayBackground,
+        ),
+        dayOverlayColor: WidgetStatePropertyAll(overlay),
+        todayForegroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return accentInk;
+          }
+          return accent;
+        }),
+        todayBorder: BorderSide(color: accent.withValues(alpha: 0.75)),
+        rangeSelectionBackgroundColor: rangeFill,
+        rangeSelectionOverlayColor: WidgetStatePropertyAll(overlay),
+      ),
+    );
   }
 
   @override
@@ -1334,96 +1491,330 @@ class _FiltersBarState extends State<_FiltersBar> {
         '${DateFormat('dd/MM/yy').format(widget.range.start)} → ${DateFormat('dd/MM/yy').format(widget.range.end)}';
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final stackTopControls = constraints.maxWidth < 420;
+          final rangeControl = _MovementRangeButton(
+            label: rangeLabel,
+            onPressed: () => _pickRange(context),
+          );
+          final searchField = _MovementSearchField(
+            controller: widget.searchController,
+          );
+          return Column(
+            key: const ValueKey('client_app_movements_filters_bar'),
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: scheme.primary,
-                  foregroundColor: scheme.onPrimary,
+              if (stackTopControls) ...[
+                rangeControl,
+                const SizedBox(height: 10),
+                searchField,
+              ] else
+                Row(
+                  children: [
+                    Expanded(flex: 7, child: rangeControl),
+                    const SizedBox(width: 12),
+                    Expanded(flex: 5, child: searchField),
+                  ],
                 ),
-                onPressed: () => _pickRange(context),
-                icon: const Icon(Icons.calendar_month_rounded, size: 18),
-                label: Text(rangeLabel),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextField(
-                  controller: widget.searchController,
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.search_rounded),
-                    suffixIcon:
-                        widget.searchController.text.isEmpty
-                            ? null
-                            : IconButton(
-                              onPressed: widget.searchController.clear,
-                              icon: const Icon(Icons.clear_rounded),
-                            ),
-                    hintText: 'Cerca per cliente o descrizione',
+              const SizedBox(height: 12),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest.withValues(alpha: 0.28),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: scheme.outlineVariant),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 6,
                   ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              IconButton(
-                tooltip: 'Scorri filtri a sinistra',
-                onPressed: _canScrollLeft ? () => _scrollTypesBy(-220) : null,
-                icon: const Icon(Icons.chevron_left_rounded),
-              ),
-              Expanded(
-                child: SingleChildScrollView(
-                  controller: _typesScrollController,
-                  scrollDirection: Axis.horizontal,
                   child: Row(
-                    children:
-                        ClientAppMovementType.values.map((type) {
-                          final isSelected = widget.selectedTypes.contains(
-                            type,
-                          );
-                          final count = widget.counts[type] ?? 0;
-                          final label =
-                              count > 0 ? '${type.label} ($count)' : type.label;
-                          final scheme = Theme.of(context).colorScheme;
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: FilterChip(
-                              selected: isSelected,
-                              backgroundColor: scheme.surfaceContainerHighest,
-                              selectedColor: scheme.secondary,
-                              checkmarkColor: scheme.onSecondary,
-                              labelStyle: TextStyle(
-                                color:
-                                    isSelected
-                                        ? scheme.onSecondary
-                                        : scheme.onSurface,
-                              ),
-                              label: Text(label),
-                              onSelected:
-                                  (value) => widget.onToggleType(type, value),
-                            ),
-                          );
-                        }).toList(),
+                    children: [
+                      _MovementScrollButton(
+                        tooltip: 'Scorri filtri a sinistra',
+                        icon: Icons.chevron_left_rounded,
+                        enabled: _canScrollLeft,
+                        onPressed:
+                            _canScrollLeft ? () => _scrollTypesBy(-220) : null,
+                      ),
+                      Expanded(
+                        child: SizedBox(
+                          height: 48,
+                          child: ListView.separated(
+                            controller: _typesScrollController,
+                            scrollDirection: Axis.horizontal,
+                            padding: const EdgeInsets.symmetric(horizontal: 2),
+                            itemCount: ClientAppMovementType.values.length,
+                            separatorBuilder:
+                                (context, index) => const SizedBox(width: 8),
+                            itemBuilder: (context, index) {
+                              final type = ClientAppMovementType.values[index];
+                              final isSelected = widget.selectedTypes.contains(
+                                type,
+                              );
+                              final count = widget.counts[type] ?? 0;
+                              return _MovementTypePill(
+                                label: type.label,
+                                count: count,
+                                selected: isSelected,
+                                onSelected:
+                                    (value) => widget.onToggleType(type, value),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      _MovementScrollButton(
+                        tooltip: 'Scorri filtri a destra',
+                        icon: Icons.chevron_right_rounded,
+                        enabled: _canScrollRight,
+                        onPressed:
+                            _canScrollRight ? () => _scrollTypesBy(220) : null,
+                      ),
+                    ],
                   ),
                 ),
               ),
-              IconButton(
-                tooltip: 'Scorri filtri a destra',
-                onPressed: _canScrollRight ? () => _scrollTypesBy(220) : null,
-                icon: const Icon(Icons.chevron_right_rounded),
+              Divider(
+                height: 24,
+                thickness: 1,
+                color: theme.colorScheme.surfaceVariant,
               ),
             ],
-          ),
-          Divider(
-            height: 24,
-            thickness: 1,
-            color: theme.colorScheme.surfaceVariant,
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _MovementRangeButton extends StatelessWidget {
+  const _MovementRangeButton({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFD4AD31),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x1F000000),
+            blurRadius: 10,
+            offset: Offset(0, 4),
           ),
         ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onPressed,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            child: Row(
+              children: [
+                const Icon(Icons.calendar_month_rounded, size: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: const Color(0xFF161616),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Icon(Icons.unfold_more_rounded, size: 18),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MovementSearchField extends StatelessWidget {
+  const _MovementSearchField({required this.controller});
+
+  final TextEditingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isCompact = MediaQuery.sizeOf(context).width < kAdminPhoneBreakpoint;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: TextField(
+        controller: controller,
+        decoration: InputDecoration(
+          border: InputBorder.none,
+          contentPadding: EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: isCompact ? 14 : 16,
+          ),
+          prefixIcon: const Icon(Icons.search_rounded),
+          suffixIcon:
+              controller.text.isEmpty
+                  ? null
+                  : IconButton(
+                    onPressed: controller.clear,
+                    icon: const Icon(Icons.clear_rounded),
+                  ),
+          hintText: isCompact ? 'Cerca…' : 'Cerca per cliente o descrizione',
+        ),
+      ),
+    );
+  }
+}
+
+class _MovementScrollButton extends StatelessWidget {
+  const _MovementScrollButton({
+    required this.tooltip,
+    required this.icon,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      style: IconButton.styleFrom(
+        minimumSize: const Size(38, 38),
+        padding: const EdgeInsets.all(8),
+        backgroundColor:
+            enabled
+                ? theme.colorScheme.surface
+                : theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.2,
+                ),
+        foregroundColor:
+            enabled
+                ? theme.colorScheme.onSurface
+                : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+        side: BorderSide(
+          color:
+              enabled
+                  ? theme.colorScheme.outlineVariant
+                  : theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+        ),
+      ),
+      icon: Icon(icon, size: 20),
+    );
+  }
+}
+
+class _MovementTypePill extends StatelessWidget {
+  const _MovementTypePill({
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final String label;
+  final int count;
+  final bool selected;
+  final ValueChanged<bool> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final backgroundColor =
+        selected ? const Color(0xFF111111) : theme.colorScheme.surface;
+    final foregroundColor =
+        selected ? Colors.white : theme.colorScheme.onSurface;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: () => onSelected(!selected),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color:
+                  selected
+                      ? const Color(0xFF111111)
+                      : theme.colorScheme.outlineVariant,
+            ),
+            boxShadow:
+                selected
+                    ? const [
+                      BoxShadow(
+                        color: Color(0x26000000),
+                        blurRadius: 10,
+                        offset: Offset(0, 4),
+                      ),
+                    ]
+                    : null,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (selected) ...[
+                const Icon(Icons.check_rounded, size: 16, color: Colors.white),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                label,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: foregroundColor,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (count > 0) ...[
+                const SizedBox(width: 8),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color:
+                        selected
+                            ? Colors.white.withValues(alpha: 0.14)
+                            : theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    child: Text(
+                      '$count',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: foregroundColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1510,26 +1901,4 @@ DateTime? _parseDateTime(dynamic value) {
     ).toLocal();
   }
   return null;
-}
-
-String? _statusLabel(dynamic value) {
-  if (value == null) {
-    return null;
-  }
-  final normalized = value.toString().trim();
-  if (normalized.isEmpty) {
-    return null;
-  }
-  switch (normalized) {
-    case 'scheduled':
-      return 'Programmato';
-    case 'completed':
-      return 'Completato';
-    case 'cancelled':
-      return 'Annullato';
-    case 'noShow':
-      return 'No show';
-    default:
-      return normalized;
-  }
 }

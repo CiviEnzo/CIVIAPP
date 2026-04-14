@@ -1,0 +1,21 @@
+
+Vendite & Cassa
+
+Aggiorniamo l'inserimento di una nuova vendita
+
+    Registra una vendita
+
+    - Seleziona il cliente a cui intestare la vendita (obbligatorio).
+    - Inserisci uno o più servizi/pacchetti; aggiorna quantità e prezzi se necessario.
+        - Applica uno sconto percentuale o in valore oppure imposta manualmente l'importo finale.
+        
+        - Scegli il metodo di pagamento e specifica eventuali dettagli (es. numero ricevuta).
+        - Aggiungi e gestisci stato di pagamento [Acconto, Saldato]
+        - Verifica o modifica data e ora della vendita; predefinito è l'orario corrente.
+    - Associa il membro dello staff che ha concluso la vendita.
+        - Aggiungi note interne o informazioni per la ricevuta.
+        - Conferma per registrare e generare i movimenti di cassa.
+        
+
+
+

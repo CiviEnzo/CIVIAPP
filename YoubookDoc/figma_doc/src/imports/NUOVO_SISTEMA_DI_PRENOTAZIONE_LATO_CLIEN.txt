@@ -1,0 +1,76 @@
+NUOVO SISTEMA DI PRENOTAZIONE LATO CLIENTE
+
+Obiettivo
+- Semplificare la prenotazione singola e multipla, riducendo i passaggi ridondanti.
+- Rendere chiaro quali servizi, operatori e tempi sono coinvolti prima della conferma.
+- Permettere l'aggiunta di piu' servizi nello stesso appuntamento senza perdere il contesto.
+
+Principi guida UX
+- Nessuna categoria preselezionata; il cliente parte da una scelta consapevole.
+- Ogni step mostra solo le opzioni rilevanti basate sulle scelte precedenti.
+- Sempre visibile un indicatore di progresso (Step 1 di 4, Step 2 di 4, ...).
+- Possibilita' di tornare allo step precedente senza perdere le scelte gia' effettuate.
+
+Flusso di prenotazione (iterazione singola)
+1. Selezione categoria
+   - Schermata: lista di categorie con nome, icona e descrizione breve.
+   - Interazioni: tap singolo per selezionare, tap su gia' selezionato per deselezionare.
+   - Validazioni: pulsante "Continua" abilitato solo dopo una selezione.
+   - Extra: campo di ricerca per filtrare categorie (opzionale, se >6 categorie).
+
+2. Selezione servizi e giorno
+   - Lista dei servizi filtrata per categoria scelta, con durata, prezzo, descrizione sintetica.
+   - Selezione multipla consentita per servizi della stessa categoria; highlight dei servizi selezionati.
+   - Per ciascun servizio selezionato, mostrare badge con durata complessiva e eventuali note (es. "Richiede macchinario X").
+   - Calendario a vista mensile per scegliere la data (solo giorno). Mostrare indicatori di disponibilita' generale (es. puntini verdi/gialli).
+   - CTA "Conferma servizi e giorno" attiva solo con almeno un servizio e una data.
+
+3. Disponibilita' operatori
+   - Default: elenco fasce orarie disponibili per la data scelta, aggregate per combinazione di servizi.
+   - Vista timeline: per ogni slot mostrare orario di inizio, durata totale, operatori disponibili e prezzo totale.
+   - Filtro opzionale per operatore: drop-down o chips con foto/nome; se selezionato, ricalcolare la timeline solo per quell'operatore.
+   - Indicatori di stato: slot completo, slot parziale (richiede adattamento), slot non disponibile.
+   - Se non ci sono disponibilita' per la data selezionata, mostrare box informativo + selezione rapida dei prossimi tre giorni con disponibilita'.
+   - CTA "Scegli orario" per confermare lo slot preferito.
+
+4. Riepilogo dell'iterazione
+   - Riepilogo compatto: categoria, servizi, operatore, data e fascia oraria, durata totale, prezzo.
+   - Pulsante principale: "Vai al riepilogo finale".
+   - Pulsante secondario: "Aggiungi un altro servizio" (riapre il flow dalla selezione categoria mantenendo in memoria quanto gia' scelto).
+
+Gestione della prenotazione multipla
+- Il cliente puo' ripetere l'intero flow per aggiungere servizi di altre categorie.
+- Ogni nuova iterazione vincola la scelta della data a quella gia' selezionata (si prenota tutto nello stesso giorno). Se serve un giorno diverso, mostrare un avviso e offrire "Crea una nuova prenotazione".
+- All'aggiunta di un nuovo servizio, rigenerare le disponibilita' per tutti i servizi confermati, verificando che le fasce orarie selezionate non vadano in conflitto.
+- Visualizzare nel carrello un elenco di slot selezionati con opzioni per modificare o rimuovere singoli servizi.
+
+Riepilogo finale e conferma
+- Schermata dedicata con:
+  - Lista servizi selezionati con categoria, operatore, durata, orario.
+  - Totale prezzo e eventuali promozioni/codici sconto.
+  - Dati cliente (precompilati) e note per l'operatore.
+  - Sezione consenso (privacy, confirm policy di cancellazione).
+- CTA primaria "Conferma prenotazione"; CTA secondaria "Torna alle disponibilita'".
+- Dopo la conferma, mostrare schermata di successo con opzioni "Aggiungi al calendario", "Vedi prenotazione" e "Prenota un nuovo servizio".
+
+Logiche e regole di business
+- Durata totale: somma delle durate dei servizi selezionati. Se alcuni possono essere eseguiti in parallelo, indicare regola di sovrapposizione nel backend.
+- Compatibilita' operatori: filtrare operatori che coprono tutti i servizi selezionati; in caso contrario, suggerire di dividere la prenotazione in due.
+- Buffer: considerare eventuali tempi di setup/cleanup tra servizi consecutivi.
+- Pagamenti: se e' prevista una caparra, includere la scelta (es. "Paga ora" vs "Paga in sede").
+
+Edge case e fallback
+- Nessun servizio abilitato per categoria: mostrare messaggio e pulsante "Scegli un'altra categoria".
+- Nessuna disponibilita': oltre ai giorni futuri gia' suggeriti, consentire "Richiedi chiamata" o "Inserisci in lista d'attesa".
+- Cambio data dopo avere selezionato operatori: richiedere conferma chiara per evitare inconsistenze.
+- Timeout sessione: salvare in locale lo stato della prenotazione per riprendere successivamente.
+
+Metriche da monitorare
+- Drop-off per step (soprattutto tra selezione servizi e disponibilita').
+- Tempo medio per completare la prenotazione multipla.
+- Utilizzo del filtro per operatore e percentuale di prenotazioni con operatore specifico.
+
+Attivita' successive
+- Validare wireframe per ciascuno step.
+- Allineare API per: elenco categorie, servizi per categoria, disponibilita' operatori (con filtro), creazione prenotazione multipla.
+- Definire test utente con scenari singolo servizio, multi servizio e assenza disponibilita'.

@@ -36,7 +36,6 @@ import 'package:you_book/presentation/screens/admin/modules/appointments/appoint
 import 'package:you_book/presentation/screens/admin/modules/client_detail_page.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments/express_slot_sheet.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_save_utils.dart';
-import 'package:you_book/presentation/screens/admin/modules/sales_module.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:collection/collection.dart';
@@ -51,6 +50,22 @@ enum _AppointmentDisplayMode { calendar, list }
 enum _WeekLayoutMode { detailed, compact, operators }
 
 enum _SlotAction { appointment, express, copyFromClipboard }
+
+class _AgendaSlotActionOption<T> {
+  const _AgendaSlotActionOption({
+    required this.value,
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    this.iconColor,
+  });
+
+  final T value;
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final Color? iconColor;
+}
 
 class AppointmentsModule extends ConsumerStatefulWidget {
   const AppointmentsModule({super.key, this.salonId});
@@ -149,10 +164,30 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   };
   DateTime? _calendarScrollTarget;
   int _calendarScrollRequestId = 0;
+  int _rangeTransitionDirection = 0;
   bool _isAgendaPreferencesReady = false;
   SharedPreferences? _agendaPreferences;
   ProviderSubscription<AppointmentsModuleIntent?>? _intentSubscription;
+  ProviderSubscription<AppointmentsModuleAppBarCommand?>?
+  _appBarCommandSubscription;
   DateTime? _pendingFocusAfterPreferences;
+
+  void _setRangeTransitionDirection(int direction) {
+    _rangeTransitionDirection =
+        direction == 0 ? 0 : (direction.isNegative ? -1 : 1);
+  }
+
+  void _setRangeTransitionDirectionFromDates(DateTime previous, DateTime next) {
+    final normalizedPrevious = DateUtils.dateOnly(previous);
+    final normalizedNext = DateUtils.dateOnly(next);
+    if (normalizedNext.isAfter(normalizedPrevious)) {
+      _rangeTransitionDirection = 1;
+    } else if (normalizedNext.isBefore(normalizedPrevious)) {
+      _rangeTransitionDirection = -1;
+    } else {
+      _rangeTransitionDirection = 0;
+    }
+  }
 
   String? get _effectiveSalonId {
     final explicit = widget.salonId?.trim();
@@ -289,6 +324,16 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         ref.read(appointmentsModuleIntentProvider.notifier).state = null;
       },
     );
+    _appBarCommandSubscription = ref.listenManual<
+      AppointmentsModuleAppBarCommand?
+    >(appointmentsModuleAppBarCommandProvider, (previous, next) {
+      final command = next;
+      if (command == null) {
+        return;
+      }
+      _handleAppBarCommand(command);
+      ref.read(appointmentsModuleAppBarCommandProvider.notifier).state = null;
+    });
     final now = DateTime.now();
     _anchorDate = DateTime(now.year, now.month, now.day);
     final initialIntent = ref.read(appointmentsModuleIntentProvider);
@@ -305,6 +350,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   @override
   void dispose() {
     _intentSubscription?.close();
+    _appBarCommandSubscription?.close();
     super.dispose();
   }
 
@@ -315,6 +361,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     }
     final targetDay = DateTime(target.year, target.month, target.day);
     setState(() {
+      _rangeTransitionDirection = 0;
       _mode = _AppointmentDisplayMode.calendar;
       _scope = AppointmentCalendarScope.day;
       _calendarSlotMinutes = _resolveSlotMinutes(
@@ -349,6 +396,58 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       }
       _applyIntent(AppointmentsModuleIntent(focusDateTime: pending));
     });
+  }
+
+  List<StaffMember> _agendaStaffMembers(AppDataState data) {
+    return data.staff
+        .where(
+          (member) =>
+              widget.salonId == null || member.salonId == widget.salonId,
+        )
+        .sortedByDisplayOrder();
+  }
+
+  void _publishAppBarState(String rangeLabel) {
+    final nextState = AppointmentsModuleAppBarState(rangeLabel: rangeLabel);
+    final currentState = ref.read(appointmentsModuleAppBarStateProvider);
+    if (currentState == nextState) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      final notifier = ref.read(appointmentsModuleAppBarStateProvider.notifier);
+      if (notifier.state != nextState) {
+        notifier.state = nextState;
+      }
+    });
+  }
+
+  Future<void> _handleAppBarCommand(
+    AppointmentsModuleAppBarCommand command,
+  ) async {
+    switch (command) {
+      case AppointmentsModuleAppBarCommand.previousRange:
+        _shiftAnchor(-1);
+        return;
+      case AppointmentsModuleAppBarCommand.nextRange:
+        _shiftAnchor(1);
+        return;
+      case AppointmentsModuleAppBarCommand.goToToday:
+        _goToToday();
+        return;
+      case AppointmentsModuleAppBarCommand.pickDate:
+        await _pickDate();
+        return;
+      case AppointmentsModuleAppBarCommand.openVision:
+        final staff = _agendaStaffMembers(ref.read(appDataProvider));
+        if (!mounted) {
+          return;
+        }
+        await _openAgendaVisionDialog(context, staff: staff);
+        return;
+    }
   }
 
   Future<SharedPreferences> _ensureAgendaPreferences() async {
@@ -473,6 +572,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
           staffChanged ||
           weekdaysChanged) {
         setState(() {
+          _rangeTransitionDirection = 0;
           _mode = nextMode;
           _scope = nextScope;
           _calendarSlotMinutes = nextSlotMinutes;
@@ -847,7 +947,10 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                           selected: {_mode},
                           onSelectionChanged: (selection) {
                             final newMode = selection.first;
-                            setState(() => _mode = newMode);
+                            setState(() {
+                              _rangeTransitionDirection = 0;
+                              _mode = newMode;
+                            });
                             unawaited(_persistAgendaPreferences());
                             refresh();
                           },
@@ -1022,7 +1125,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     }
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ).showAppSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _addChecklistItem(DateTime day, String label) async {
@@ -1354,13 +1457,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     final salons = data.salons;
     final salonsById = {for (final salon in salons) salon.id: salon};
     final clients = data.clients;
-    final staffMembers =
-        data.staff
-            .where(
-              (member) =>
-                  widget.salonId == null || member.salonId == widget.salonId,
-            )
-            .sortedByDisplayOrder();
+    final staffMembers = _agendaStaffMembers(data);
     final services = data.services;
     final selectedSalon =
         widget.salonId != null
@@ -1599,185 +1696,209 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
 
     final roomsById = _buildRoomsIndex(salons, widget.salonId);
     final rangeLabel = _buildRangeLabel(rangeStart, baseRangeEnd, _scope);
+    _publishAppBarState(rangeLabel);
     final staffSelectionKey = _staffSelectionKey(selectedStaffIds);
     final theme = Theme.of(context);
-    final moduleBackground = theme.colorScheme.surfaceContainerLowest;
+    final moduleBackground =
+        theme.brightness == Brightness.dark
+            ? theme.colorScheme.surfaceContainerLowest
+            : const Color.fromARGB(78, 228, 225, 202);
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final isCompact = constraints.maxWidth < 720;
-        final content = Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: _buildToolbar(
-                context,
-                salons: salons,
-                clients: clients,
-                staff: staffMembers,
-                services: services,
-                rangeLabel: rangeLabel,
-                selectedSalon: selectedSalon,
-                showVisionButton: !isCompact,
-              ),
-            ),
-            const Divider(height: 1),
-            Expanded(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 250),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                child:
-                    _mode == _AppointmentDisplayMode.calendar
-                        ? AppointmentCalendarView(
-                          key: ValueKey(
-                            'calendar-${_scope.name}-${_weekLayoutMode.name}-$staffSelectionKey-${rangeStart.toIso8601String()}',
-                          ),
-                          anchorDate: rangeStart,
-                          scope: _scope,
-                          weekLayout:
-                              _scope == AppointmentCalendarScope.week
-                                  ? weekLayout
-                                  : AppointmentWeekLayoutMode.detailed,
-                          extraDetailedDay: extraDetailedDay,
-                          appointments: filteredAppointments,
-                          allAppointments: allAppointmentsWithPlaceholders,
-                          lastMinutePlaceholders: expressPlaceholders,
-                          lastMinuteSlots: lastMinuteSlotsInRange,
-                          staff: visibleStaff,
-                          clients: clients,
-                          clientsWithOutstandingPayments:
-                              clientsWithOutstandingPayments,
-                          services: services,
-                          serviceCategories: data.serviceCategories,
-                          shifts: filteredShifts,
-                          absences: filteredAbsences,
-                          roles: data.staffRoles,
-                          schedule: selectedSalon?.schedule,
-                          roomsById: roomsById,
-                          salonsById: salonsById,
-                          selectedSalonId: effectiveSalonId,
-                          visibleWeekdays: _visibleWeekdays,
-                          lockedAppointmentReasons: lockedAppointmentReasons,
-                          anomalies: anomalies,
-                          statusColor:
-                              (status) => _colorForStatus(context, status),
-                          dayChecklists: dayChecklists,
-                          onTapLastMinuteSlot:
-                              (slot) => _onTapLastMinuteSlot(
-                                context,
-                                slot,
-                                salons: salons,
-                                staff: staffMembers,
-                                services: services,
-                              ),
-                          onReschedule:
-                              _isRescheduling ? (_) async {} : _onReschedule,
-                          onEdit:
-                              (appointment) => _handleEditAppointment(
-                                context,
-                                appointment,
-                                salons: salons,
-                                clients: clients,
-                                staff: staffMembers,
-                                services: services,
-                              ),
-                          onCreate:
-                              (selection) => _onSlotSelected(
-                                context,
-                                selection,
-                                salons,
-                                clients,
-                                staffMembers,
-                                services,
-                              ),
-                          onCreateShift:
-                              (staffMember, day) => _openShiftForm(
-                                context,
-                                salons: salons,
-                                staff: staffMembers,
-                                defaultSalonId: staffMember.salonId,
-                                defaultStaffId: staffMember.id,
-                                defaultDay: day,
-                              ),
-                          onEditShift:
-                              (shift) => _openShiftForm(
-                                context,
-                                salons: salons,
-                                staff: staffMembers,
-                                initial: shift,
-                              ),
-                          onDeleteShift:
-                              (shift) => _confirmDeleteShift(context, shift),
-                          onCreateAbsence:
-                              (staffMember, day) => _openAbsenceForm(
-                                context,
-                                salons: salons,
-                                staff: staffMembers,
-                                defaultSalonId: staffMember.salonId,
-                                defaultStaffId: staffMember.id,
-                                defaultDay: day,
-                              ),
-                          onEditAbsence:
-                              (absence) => _openAbsenceForm(
-                                context,
-                                salons: salons,
-                                staff: staffMembers,
-                                initial: absence,
-                              ),
-                          onDeleteAbsence:
-                              (absence) =>
-                                  _confirmDeleteAbsence(context, absence),
-                          slotMinutes: _calendarSlotMinutes,
-                          scrollToDate: _calendarScrollTarget,
-                          scrollToDateRequestId: _calendarScrollRequestId,
-                          onAddChecklistItem:
-                              _checklistEditingEnabled
-                                  ? _addChecklistItem
-                                  : null,
-                          onToggleChecklistItem:
-                              _checklistEditingEnabled
-                                  ? _toggleChecklistItem
-                                  : null,
-                          onRenameChecklistItem:
-                              _checklistEditingEnabled
-                                  ? _renameChecklistItem
-                                  : null,
-                          onDeleteChecklistItem:
-                              _checklistEditingEnabled
-                                  ? _deleteChecklistItem
-                                  : null,
-                          onJumpToNextWeek:
-                              _scope == AppointmentCalendarScope.week
-                                  ? () => _shiftAnchor(1)
-                                  : null,
-                        )
-                        : _ListAppointmentsView(
-                          key: ValueKey(
-                            'list-${_scope.name}-$staffSelectionKey-${rangeStart.toIso8601String()}',
-                          ),
-                          appointments: filteredAppointments,
-                          lastMinutePlaceholders: expressPlaceholders,
-                          data: data,
-                          rangeStart: rangeStart,
-                          rangeEnd: rangeEnd,
-                          lockedReasons: lockedAppointmentReasons,
-                          anomalies: anomalies,
-                          attentionAppointments: attentionAppointments,
-                          onEdit:
-                              (appointment) => _handleEditAppointment(
-                                context,
-                                appointment,
-                                salons: salons,
-                                clients: clients,
-                                staff: staffMembers,
-                                services: services,
-                              ),
-                        ),
-              ),
-            ),
-          ],
+        final Widget contentChild =
+            _mode == _AppointmentDisplayMode.calendar
+                ? AppointmentCalendarView(
+                  key: ValueKey(
+                    'calendar-${_scope.name}-${_weekLayoutMode.name}-$staffSelectionKey-${rangeStart.toIso8601String()}',
+                  ),
+                  anchorDate: rangeStart,
+                  scope: _scope,
+                  weekLayout:
+                      _scope == AppointmentCalendarScope.week
+                          ? weekLayout
+                          : AppointmentWeekLayoutMode.detailed,
+                  extraDetailedDay: extraDetailedDay,
+                  appointments: filteredAppointments,
+                  allAppointments: allAppointmentsWithPlaceholders,
+                  lastMinutePlaceholders: expressPlaceholders,
+                  lastMinuteSlots: lastMinuteSlotsInRange,
+                  staff: visibleStaff,
+                  clients: clients,
+                  clientsWithOutstandingPayments:
+                      clientsWithOutstandingPayments,
+                  services: services,
+                  serviceCategories: data.serviceCategories,
+                  shifts: filteredShifts,
+                  absences: filteredAbsences,
+                  roles: data.staffRoles,
+                  schedule: selectedSalon?.schedule,
+                  roomsById: roomsById,
+                  salonsById: salonsById,
+                  selectedSalonId: effectiveSalonId,
+                  visibleWeekdays: _visibleWeekdays,
+                  lockedAppointmentReasons: lockedAppointmentReasons,
+                  anomalies: anomalies,
+                  statusColor: (status) => _colorForStatus(context, status),
+                  dayChecklists: dayChecklists,
+                  onTapLastMinuteSlot:
+                      (slot) => _onTapLastMinuteSlot(
+                        context,
+                        slot,
+                        salons: salons,
+                        staff: staffMembers,
+                        services: services,
+                      ),
+                  onReschedule: _isRescheduling ? (_) async {} : _onReschedule,
+                  onEdit:
+                      (appointment) => _handleEditAppointment(
+                        context,
+                        appointment,
+                        salons: salons,
+                        clients: clients,
+                        staff: staffMembers,
+                        services: services,
+                      ),
+                  onCreate:
+                      (selection) => _onSlotSelected(
+                        context,
+                        selection,
+                        salons,
+                        clients,
+                        staffMembers,
+                        services,
+                      ),
+                  onCreateShift:
+                      (staffMember, day) => _openShiftForm(
+                        context,
+                        salons: salons,
+                        staff: staffMembers,
+                        defaultSalonId: staffMember.salonId,
+                        defaultStaffId: staffMember.id,
+                        defaultDay: day,
+                      ),
+                  onEditShift:
+                      (shift) => _openShiftForm(
+                        context,
+                        salons: salons,
+                        staff: staffMembers,
+                        initial: shift,
+                      ),
+                  onDeleteShift: (shift) => _confirmDeleteShift(context, shift),
+                  onCreateAbsence:
+                      (staffMember, day) => _openAbsenceForm(
+                        context,
+                        salons: salons,
+                        staff: staffMembers,
+                        defaultSalonId: staffMember.salonId,
+                        defaultStaffId: staffMember.id,
+                        defaultDay: day,
+                      ),
+                  onEditAbsence:
+                      (absence) => _openAbsenceForm(
+                        context,
+                        salons: salons,
+                        staff: staffMembers,
+                        initial: absence,
+                      ),
+                  onDeleteAbsence:
+                      (absence) => _confirmDeleteAbsence(context, absence),
+                  slotMinutes: _calendarSlotMinutes,
+                  scrollToDate: _calendarScrollTarget,
+                  scrollToDateRequestId: _calendarScrollRequestId,
+                  onAddChecklistItem:
+                      _checklistEditingEnabled ? _addChecklistItem : null,
+                  onToggleChecklistItem:
+                      _checklistEditingEnabled ? _toggleChecklistItem : null,
+                  onRenameChecklistItem:
+                      _checklistEditingEnabled ? _renameChecklistItem : null,
+                  onDeleteChecklistItem:
+                      _checklistEditingEnabled ? _deleteChecklistItem : null,
+                  onJumpToNextWeek:
+                      _scope == AppointmentCalendarScope.week
+                          ? () => _shiftAnchor(1)
+                          : null,
+                )
+                : _ListAppointmentsView(
+                  key: ValueKey(
+                    'list-${_scope.name}-$staffSelectionKey-${rangeStart.toIso8601String()}',
+                  ),
+                  appointments: filteredAppointments,
+                  lastMinutePlaceholders: expressPlaceholders,
+                  data: data,
+                  rangeStart: rangeStart,
+                  rangeEnd: rangeEnd,
+                  lockedReasons: lockedAppointmentReasons,
+                  anomalies: anomalies,
+                  attentionAppointments: attentionAppointments,
+                  onEdit:
+                      (appointment) => _handleEditAppointment(
+                        context,
+                        appointment,
+                        salons: salons,
+                        clients: clients,
+                        staff: staffMembers,
+                        services: services,
+                      ),
+                );
+        final Key? currentContentKey = contentChild.key;
+        final int transitionDirection = _rangeTransitionDirection;
+        final content = ClipRect(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 360),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInOutCubic,
+            layoutBuilder: (currentChild, previousChildren) {
+              return Stack(
+                alignment: Alignment.topLeft,
+                children: [
+                  ...previousChildren,
+                  if (currentChild != null) currentChild,
+                ],
+              );
+            },
+            transitionBuilder: (child, animation) {
+              if (transitionDirection == 0 || currentContentKey == null) {
+                return FadeTransition(opacity: animation, child: child);
+              }
+              final bool isIncoming = child.key == currentContentKey;
+              const slideDistance = 0.09;
+              final beginOffset =
+                  isIncoming
+                      ? Offset(transitionDirection * slideDistance, 0)
+                      : Offset.zero;
+              final endOffset =
+                  isIncoming
+                      ? Offset.zero
+                      : Offset(-transitionDirection * slideDistance, 0);
+              final positionAnimation = CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeInOutCubicEmphasized,
+                reverseCurve: Curves.easeInOutCubic,
+              );
+              final opacityAnimation = CurvedAnimation(
+                parent: animation,
+                curve: const Interval(0.08, 1, curve: Curves.easeOutCubic),
+                reverseCurve: const Interval(
+                  0,
+                  0.92,
+                  curve: Curves.easeInCubic,
+                ),
+              );
+              return FadeTransition(
+                opacity: opacityAnimation,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: beginOffset,
+                    end: endOffset,
+                  ).animate(positionAnimation),
+                  child: child,
+                ),
+              );
+            },
+            child: contentChild,
+          ),
         );
 
         return ColoredBox(
@@ -1791,7 +1912,6 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                   bottom: 16,
                   child: _buildCompactFab(
                     context: context,
-                    staff: staffMembers,
                     anchorDate: rangeStart,
                     dayChecklists: dayChecklists,
                     salonId: effectiveSalonId,
@@ -1804,98 +1924,19 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     );
   }
 
-  Widget _buildToolbar(
-    BuildContext context, {
-    required List<Salon> salons,
-    required List<Client> clients,
-    required List<StaffMember> staff,
-    required List<Service> services,
-    required String rangeLabel,
-    Salon? selectedSalon,
-    bool showVisionButton = true,
-  }) {
-    const compactDensity = VisualDensity(horizontal: -2, vertical: -2);
-    final tonalButtonStyle = FilledButton.styleFrom(
-      visualDensity: compactDensity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      minimumSize: const Size(0, 40),
-    );
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isCompact = constraints.maxWidth < 720;
-        if (isCompact) {
-          return _MobileAgendaToolbar(
-            label: rangeLabel,
-            onPrevious: () => _shiftAnchor(-1),
-            onNext: () => _shiftAnchor(1),
-            onToday: _goToToday,
-            onPickDate: () => _pickDate(),
-          );
-        }
-
-        final visionButton =
-            showVisionButton
-                ? FilledButton.tonalIcon(
-                  style: tonalButtonStyle,
-                  onPressed:
-                      () => _openAgendaVisionDialog(context, staff: staff),
-                  icon: const Icon(Icons.tune_rounded),
-                  label: const Text('Visione agenda'),
-                )
-                : null;
-        final todayButton = FilledButton.tonal(
-          style: tonalButtonStyle,
-          onPressed: _goToToday,
-          child: const Text('Oggi'),
-        );
-        final goToDateButton = FilledButton.tonalIcon(
-          style: tonalButtonStyle,
-          onPressed: () => _pickDate(),
-          icon: const Icon(Icons.event_available_rounded),
-          label: const Text('Vai a data'),
-        );
-        final rangeNavigator = _RangeNavigator(
-          label: rangeLabel,
-          onPrevious: () => _shiftAnchor(-1),
-          onNext: () => _shiftAnchor(1),
-        );
-        final centerControls = Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            todayButton,
-            const SizedBox(width: 12),
-            rangeNavigator,
-            const SizedBox(width: 12),
-            goToDateButton,
-          ],
-        );
-
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            if (visionButton != null) ...[
-              visionButton,
-              const SizedBox(width: 16),
-            ],
-            Expanded(
-              child: Align(alignment: Alignment.center, child: centerControls),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   Widget _buildCompactFab({
     required BuildContext context,
-    required List<StaffMember> staff,
     required DateTime anchorDate,
     required Map<DateTime, AppointmentDayChecklist> dayChecklists,
     required String? salonId,
   }) {
     final normalizedDay = DateUtils.dateOnly(anchorDate);
     final dayChecklist = dayChecklists[normalizedDay];
+    final theme = Theme.of(context);
+    final isCurrentDay = DateUtils.isSameDay(
+      normalizedDay,
+      DateUtils.dateOnly(DateTime.now()),
+    );
     final checklistTotal = dayChecklist?.items.length ?? 0;
     final checklistCompleted =
         dayChecklist?.items.where((item) => item.isCompleted).length ?? 0;
@@ -1903,6 +1944,48 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     if (checklistPending < 0) {
       checklistPending = 0;
     }
+    final checklistMenuLabel =
+        checklistTotal == 0
+            ? 'Checklist vuota'
+            : checklistPending == 0
+            ? 'Checklist completata'
+            : isCurrentDay
+            ? 'Checklist da completare'
+            : 'Checklist';
+    final checklistMenuIcon =
+        checklistTotal == 0
+            ? Icons.playlist_add_rounded
+            : checklistPending == 0
+            ? Icons.task_alt_rounded
+            : isCurrentDay
+            ? Icons.pending_actions_rounded
+            : Icons.checklist_rounded;
+    final checklistMenuColor =
+        checklistTotal == 0
+            ? theme.colorScheme.onSurfaceVariant
+            : checklistPending == 0
+            ? theme.colorScheme.primary
+            : isCurrentDay
+            ? theme.colorScheme.error
+            : theme.colorScheme.onSurfaceVariant;
+    final checklistMenuBadgeLabel =
+        checklistTotal == 0
+            ? '0'
+            : checklistPending == 0
+            ? 'OK'
+            : '$checklistPending';
+    final checklistMenuBadgeBackground =
+        checklistTotal == 0
+            ? theme.colorScheme.surfaceContainerHighest
+            : checklistPending == 0
+            ? theme.colorScheme.primaryContainer
+            : theme.colorScheme.errorContainer;
+    final checklistMenuBadgeForeground =
+        checklistTotal == 0
+            ? theme.colorScheme.onSurfaceVariant
+            : checklistPending == 0
+            ? theme.colorScheme.onPrimaryContainer
+            : theme.colorScheme.onErrorContainer;
     final onAddChecklist = _checklistEditingEnabled ? _addChecklistItem : null;
     final onToggleChecklist =
         _checklistEditingEnabled ? _toggleChecklistItem : null;
@@ -1917,10 +2000,6 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
             onToggleChecklist != null ||
             onRenameChecklist != null ||
             onDeleteChecklist != null);
-    final checklistLabel =
-        checklistPending > 0
-            ? 'Checklist ($checklistPending da fare)'
-            : 'Checklist';
 
     return SafeArea(
       child: MenuAnchor(
@@ -1934,18 +2013,11 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                 controller.open();
               }
             },
-            tooltip: 'Visione rapida agenda',
+            tooltip: 'Azioni agenda',
             child: const Icon(Icons.tune_rounded),
           );
         },
         menuChildren: [
-          MenuItemButton(
-            leadingIcon: const Icon(Icons.visibility_rounded),
-            onPressed: () async {
-              await _openAgendaVisionDialog(context, staff: staff);
-            },
-            child: const Text('Visione'),
-          ),
           MenuItemButton(
             leadingIcon: const Icon(Icons.schedule_rounded),
             trailingIcon:
@@ -1961,7 +2033,22 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
           ),
           if (showChecklistItem)
             MenuItemButton(
-              leadingIcon: const Icon(Icons.checklist_rounded),
+              leadingIcon: Icon(checklistMenuIcon, color: checklistMenuColor),
+              trailingIcon: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: checklistMenuBadgeBackground,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  checklistMenuBadgeLabel,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: checklistMenuBadgeForeground,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ),
               onPressed: () async {
                 await _showChecklistDialog(
                   context: context,
@@ -1974,11 +2061,12 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                   onDelete: onDeleteChecklist,
                 );
               },
-              child: Text(checklistLabel),
+              child: Text(checklistMenuLabel),
             ),
           MenuItemButton(
             leadingIcon: const Icon(Icons.people_alt_rounded),
             onPressed: () async {
+              final staff = _agendaStaffMembers(ref.read(appDataProvider));
               await _openStaffFilterSheet(staff, _selectedStaffIds);
             },
             child: const Text('Filtra staff'),
@@ -1997,6 +2085,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       locale: const Locale('it', 'IT'),
     );
     if (picked != null) {
+      final previousAnchor = _anchorDate;
       setState(() {
         if (_scope == AppointmentCalendarScope.week) {
           _anchorDate = _startOfWeek(picked);
@@ -2007,6 +2096,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                   ? desired
                   : _findNextVisibleDay(desired, 1);
         }
+        _setRangeTransitionDirectionFromDates(previousAnchor, _anchorDate);
       });
     }
   }
@@ -2016,6 +2106,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       return;
     }
     setState(() {
+      _rangeTransitionDirection = 0;
       _scope = scope;
       _calendarSlotMinutes = _resolveSlotMinutes(
         scope: _scope,
@@ -2036,6 +2127,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       return;
     }
     setState(() {
+      _rangeTransitionDirection = 0;
       _weekLayoutMode = layout;
       _calendarSlotMinutes = _resolveSlotMinutes(
         scope: _scope,
@@ -2087,6 +2179,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   void _shiftAnchor(int direction) {
     final deltaDays = _scope == AppointmentCalendarScope.day ? 1 : 7;
     setState(() {
+      _setRangeTransitionDirection(direction);
       if (_scope == AppointmentCalendarScope.day) {
         var candidate = _anchorDate.add(Duration(days: direction));
         candidate = _findNextVisibleDay(candidate, direction);
@@ -2099,6 +2192,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
 
   void _goToToday() {
     final now = DateTime.now();
+    final previousAnchor = _anchorDate;
     setState(() {
       final today = DateTime(now.year, now.month, now.day);
       final weekStart = _startOfWeek(today);
@@ -2109,6 +2203,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
           _scope == AppointmentCalendarScope.week
               ? weekStart
               : _findNextVisibleDay(today, 1);
+      _setRangeTransitionDirectionFromDates(previousAnchor, _anchorDate);
       if (shouldRequestScroll) {
         _calendarScrollTarget = today;
         _calendarScrollRequestId++;
@@ -2305,50 +2400,40 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
 
     final clipboard = ref.read(appointmentClipboardProvider);
 
-    final slotAction = await showAppModalSheet<_SlotAction>(
-      context: context,
-      barrierDismissible: true,
-      builder: (modalContext) {
-        final tiles = <Widget>[
-          ListTile(
-            leading: const Icon(Icons.event_available_rounded),
-            title: const Text('Crea appuntamento standard'),
-            onTap:
-                () => Navigator.of(modalContext).pop(_SlotAction.appointment),
-          ),
-        ];
-        if (clipboard != null) {
-          final title = _clipboardActionTitle(clipboard, clients: clients);
-          final subtitle = _clipboardActionSubtitle(
-            clipboard,
-            services: services,
-          );
-          tiles.add(
-            ListTile(
-              leading: const Icon(Icons.content_paste_go_rounded),
-              title: Text(title),
-              subtitle: subtitle != null ? Text(subtitle) : null,
-              onTap:
-                  () => Navigator.of(
-                    modalContext,
-                  ).pop(_SlotAction.copyFromClipboard),
-            ),
-          );
-        }
-        tiles.add(
-          ListTile(
-            leading: const Icon(Icons.flash_on_rounded),
-            title: const Text('Crea slot express last-minute'),
-            onTap: () => Navigator.of(modalContext).pop(_SlotAction.express),
-          ),
-        );
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [...tiles, const SizedBox(height: 12)],
-          ),
-        );
-      },
+    final theme = Theme.of(context);
+    final slotOptions = <_AgendaSlotActionOption<_SlotAction>>[
+      _AgendaSlotActionOption<_SlotAction>(
+        value: _SlotAction.appointment,
+        icon: Icons.event_available_rounded,
+        title: 'Crea appuntamento standard',
+        iconColor: theme.colorScheme.primary,
+      ),
+    ];
+    if (clipboard != null) {
+      final title = _clipboardActionTitle(clipboard, clients: clients);
+      final subtitle = _clipboardActionSubtitle(clipboard, services: services);
+      slotOptions.add(
+        _AgendaSlotActionOption<_SlotAction>(
+          value: _SlotAction.copyFromClipboard,
+          icon: Icons.content_paste_go_rounded,
+          title: title,
+          subtitle: subtitle,
+          iconColor: theme.colorScheme.primary,
+        ),
+      );
+    }
+    slotOptions.add(
+      _AgendaSlotActionOption<_SlotAction>(
+        value: _SlotAction.express,
+        icon: Icons.flash_on_rounded,
+        title: 'Crea slot express last-minute',
+        iconColor: theme.colorScheme.primary,
+      ),
+    );
+
+    final slotAction = await _showAgendaSlotActionSheet<_SlotAction>(
+      context,
+      options: slotOptions,
     );
 
     if (!mounted) {
@@ -2360,7 +2445,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
 
     if (slotAction == _SlotAction.appointment) {
       _openAppointmentForm(
-        context,
+        this.context,
         salons: salons,
         clients: clients,
         staff: staff,
@@ -2375,7 +2460,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
 
     if (slotAction == _SlotAction.copyFromClipboard) {
       await _createAppointmentFromClipboard(
-        context,
+        this.context,
         selection: selection,
         salons: salons,
         clients: clients,
@@ -2386,7 +2471,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     }
 
     await _openExpressSlotSheet(
-      context,
+      this.context,
       selection: selection,
       salons: salons,
       staff: staff,
@@ -2454,7 +2539,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         .whereType<Service>()
         .toList(growable: false);
     if (staffMember == null) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(
           content: Text(
             'Impossibile copiare l\'appuntamento: operatore non valido.',
@@ -2470,7 +2555,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       return !staffMember.roleIds.any(service.staffRoles.contains);
     });
     if (incompatibleService != null) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(
           content: Text(
             'L\'operatore selezionato non può erogare '
@@ -2482,7 +2567,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     }
     final duration = template.duration;
     if (duration <= Duration.zero) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(content: Text('Durata appuntamento non valida.')),
       );
       return;
@@ -2535,7 +2620,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       end: computedEnd,
     );
     if (hasInsufficientSpace) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(
           content: Text(
             'La durata del trattamento supera lo slot selezionato. '
@@ -2554,6 +2639,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       start: selection.start,
       end: computedEnd,
       status: AppointmentStatus.scheduled,
+      notes: null,
     );
     final saved = await validateAndSaveAppointment(
       context: context,
@@ -2565,7 +2651,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     if (!saved || !mounted) {
       return;
     }
-    messenger.showSnackBar(
+    messenger.showAppSnackBar(
       const SnackBar(
         content: Text('Appuntamento copiato sullo slot selezionato.'),
       ),
@@ -2611,35 +2697,30 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     required List<StaffMember> staff,
     required List<Service> services,
   }) async {
-    final action = await showAppModalSheet<String>(
-      context: context,
-      builder: (modalContext) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.edit_rounded),
-                title: const Text('Modifica slot last-minute'),
-                onTap: () => Navigator.of(modalContext).pop('edit'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.delete_outline_rounded),
-                title: const Text('Elimina slot last-minute'),
-                onTap: () => Navigator.of(modalContext).pop('delete'),
-              ),
-              const SizedBox(height: 12),
-            ],
-          ),
-        );
-      },
+    final theme = Theme.of(context);
+    final action = await _showAgendaSlotActionSheet<String>(
+      context,
+      options: <_AgendaSlotActionOption<String>>[
+        _AgendaSlotActionOption<String>(
+          value: 'edit',
+          icon: Icons.edit_rounded,
+          title: 'Modifica slot last-minute',
+          iconColor: theme.colorScheme.primary,
+        ),
+        _AgendaSlotActionOption<String>(
+          value: 'delete',
+          icon: Icons.delete_outline_rounded,
+          title: 'Elimina slot last-minute',
+          iconColor: theme.colorScheme.error,
+        ),
+      ],
     );
     if (!mounted || action == null) {
       return;
     }
     if (action == 'delete') {
       final shouldDelete = await showDialog<bool>(
-        context: context,
+        context: this.context,
         builder: (dialogContext) {
           final when = DateFormat(
             'dd/MM/yyyy HH:mm',
@@ -2664,7 +2745,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       if (shouldDelete == true) {
         await ref.read(appDataProvider.notifier).deleteLastMinuteSlot(slot.id);
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(this.context).showAppSnackBar(
           const SnackBar(content: Text('Slot last-minute rimosso.')),
         );
       }
@@ -2672,7 +2753,6 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     }
 
     // Edit flow
-    final salon = salons.firstWhereOrNull((s) => s.id == slot.salonId);
     final servicesForSalon = services
         .where((service) => service.salonId == slot.salonId && service.isActive)
         .sortedBy((service) => service.name.toLowerCase());
@@ -2682,7 +2762,6 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
               (member) => member.salonId == slot.salonId && member.isActive,
             )
             .sortedByDisplayOrder();
-    final rooms = salon?.rooms ?? const <SalonRoom>[];
     final data = ref.read(appDataProvider);
     final reminderSettings = data.reminderSettings.firstWhereOrNull(
       (settings) => settings.salonId == slot.salonId,
@@ -2693,7 +2772,8 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         .toList(growable: false);
 
     final result = await showAppModalSheet<ExpressSlotSheetResult>(
-      context: context,
+      context: this.context,
+      desktopMaxWidth: 1120,
       builder: (sheetContext) {
         return ExpressSlotSheet(
           salonId: slot.salonId,
@@ -2701,7 +2781,6 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
           initialEnd: slot.end,
           services: servicesForSalon,
           staff: staffForSalon,
-          rooms: rooms,
           initialStaffId: slot.operatorId,
           initialSlot: slot,
           clients: clientsForSalon,
@@ -2717,12 +2796,12 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     try {
       await ref.read(appDataProvider.notifier).upsertLastMinuteSlot(updated);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(this.context).showAppSnackBar(
         const SnackBar(content: Text('Slot last-minute aggiornato.')),
       );
       if (notification != null && mounted) {
         await _dispatchLastMinuteNotification(
-          context: context,
+          context: this.context,
           slot: updated,
           notification: notification,
         );
@@ -2730,9 +2809,29 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     } on StateError catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+        this.context,
+      ).showAppSnackBar(SnackBar(content: Text(error.message)));
     }
+  }
+
+  Future<T?> _showAgendaSlotActionSheet<T>(
+    BuildContext context, {
+    required List<_AgendaSlotActionOption<T>> options,
+  }) {
+    final theme = Theme.of(context);
+    final borderColor = theme.colorScheme.primary.withValues(
+      alpha: theme.brightness == Brightness.dark ? 0.82 : 0.64,
+    );
+    return showAppModalSheet<T>(
+      context: context,
+      barrierDismissible: true,
+      includeCloseButton: false,
+      compactWrapContent: true,
+      phonePresentation: AppMobileSheetPresentation.bottomSheet,
+      compactAlignment: Alignment.center,
+      borderSide: BorderSide(color: borderColor, width: 1.15),
+      builder: (_) => _AgendaSlotActionSheet<T>(options: options),
+    );
   }
 
   Future<void> _dispatchLastMinuteNotification({
@@ -2758,19 +2857,19 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       if (result.skippedCount > 0) {
         buffer.write(', ${result.skippedCount} esclusi');
       }
-      messenger.showSnackBar(SnackBar(content: Text(buffer.toString())));
+      messenger.showAppSnackBar(SnackBar(content: Text(buffer.toString())));
     } on FirebaseFunctionsException catch (error) {
       if (!mounted) {
         return;
       }
       final message =
           error.message ?? 'Invio notifica non riuscito: ${error.code}';
-      messenger.showSnackBar(SnackBar(content: Text(message)));
+      messenger.showAppSnackBar(SnackBar(content: Text(message)));
     } catch (error) {
       if (!mounted) {
         return;
       }
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(content: Text('Invio notifica non riuscito: $error')),
       );
     }
@@ -2787,7 +2886,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   }) async {
     if (salons.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text(
             'Aggiungi almeno un salone prima di pianificare turni.',
@@ -2818,7 +2917,9 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         result.isSeries
             ? '${result.shifts.length} turni salvati a partire dal ${_dayLabel.format(anchor)}.'
             : 'Turno salvato per ${_dayLabel.format(anchor)}.';
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(label)));
+    ScaffoldMessenger.of(
+      context,
+    ).showAppSnackBar(SnackBar(content: Text(label)));
   }
 
   Future<void> _openAbsenceForm(
@@ -2832,7 +2933,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   }) async {
     if (salons.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Crea prima un salone per registrare assenze.'),
         ),
@@ -2868,7 +2969,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     }
     await ref.read(appDataProvider.notifier).upsertStaffAbsence(result);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(
         content: Text(
           initial == null ? 'Assenza registrata.' : 'Assenza aggiornata.',
@@ -2912,7 +3013,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         '${_dayLabel.format(absence.start)} ${_timeLabel.format(absence.start)}';
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text('Assenza eliminata ($label).')));
+    ).showAppSnackBar(SnackBar(content: Text('Assenza eliminata ($label).')));
   }
 
   Future<void> _confirmDeleteShift(BuildContext context, Shift shift) async {
@@ -2943,7 +3044,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(
         content: Text(
           'Turno eliminato (${_dayLabel.format(shift.start)} ${_timeLabel.format(shift.start)}).',
@@ -2966,7 +3067,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         (salons.isNotEmpty ? salons.first.id : null);
     if (resolvedSalonId == null) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Seleziona un salone per creare slot last-minute.'),
         ),
@@ -2996,10 +3097,9 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
               (member) => member.salonId == resolvedSalonId && member.isActive,
             )
             .sortedByDisplayOrder();
-    final rooms = salon?.rooms ?? const <SalonRoom>[];
-
     final result = await showAppModalSheet<ExpressSlotSheetResult>(
       context: context,
+      desktopMaxWidth: 1120,
       builder: (sheetContext) {
         return ExpressSlotSheet(
           salonId: resolvedSalonId,
@@ -3007,7 +3107,6 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
           initialEnd: selection.end,
           services: servicesForSalon,
           staff: staffForSalon,
-          rooms: rooms,
           initialStaffId: selection.staffId,
           clients: clientsForSalon,
           reminderSettings: reminderSettings,
@@ -3029,14 +3128,14 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+      ).showAppSnackBar(SnackBar(content: Text(error.message)));
       return;
     }
     if (!mounted) {
       return;
     }
     final featureEnabled = salon?.featureFlags.clientLastMinute ?? false;
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(
         content: Text(
           featureEnabled
@@ -3142,7 +3241,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     if (hasStaffConflict) {
       if (mounted) {
         setState(() => _isRescheduling = false);
-        messenger.showSnackBar(
+        messenger.showAppSnackBar(
           const SnackBar(
             content: Text(
               'Impossibile spostare: operatore già occupato in quel periodo',
@@ -3162,7 +3261,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     if (hasClientConflict) {
       if (mounted) {
         setState(() => _isRescheduling = false);
-        messenger.showSnackBar(
+        messenger.showAppSnackBar(
           const SnackBar(
             content: Text(
               'Impossibile spostare: il cliente ha già un appuntamento in quel periodo',
@@ -3187,7 +3286,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     if (serviceWindows.isEmpty) {
       if (mounted) {
         setState(() => _isRescheduling = false);
-        messenger.showSnackBar(
+        messenger.showAppSnackBar(
           const SnackBar(content: Text('Servizio non valido.')),
         );
       }
@@ -3223,7 +3322,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                 ? 'Macchinario non disponibile per questo orario.'
                 : 'Macchinario non disponibile per questo orario: $equipmentLabel.';
         setState(() => _isRescheduling = false);
-        messenger.showSnackBar(
+        messenger.showAppSnackBar(
           SnackBar(content: Text('$message Scegli un altro slot.')),
         );
       }
@@ -3238,16 +3337,16 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         'dd MMM HH:mm',
         'it_IT',
       ).format(request.newStart);
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(content: Text('Appuntamento spostato a $label.')),
       );
     } on StateError catch (error) {
       if (mounted) {
-        messenger.showSnackBar(SnackBar(content: Text(error.message)));
+        messenger.showAppSnackBar(SnackBar(content: Text(error.message)));
       }
     } catch (error) {
       if (mounted) {
-        messenger.showSnackBar(
+        messenger.showAppSnackBar(
           SnackBar(content: Text('Errore durante lo spostamento: $error')),
         );
       }
@@ -3289,13 +3388,16 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       'EEEE dd MMMM yyyy HH:mm',
       'it_IT',
     ).format(appointment.end);
+    final isReadOnlyStatusDialog =
+        appointment.status == AppointmentStatus.completed ||
+        appointment.status == AppointmentStatus.noShow;
 
     return showDialog<void>(
       context: context,
       builder: (dialogContext) {
         final theme = Theme.of(dialogContext);
-        final body = <Widget>[
-          _buildAppointmentDetailRow(
+        final body = <_AppointmentDetailItem>[
+          _AppointmentDetailItem(
             'Cliente',
             client != null
                 ? TextButton.icon(
@@ -3320,7 +3422,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                 )
                 : const Text('Cliente'),
           ),
-          _buildAppointmentDetailRow(
+          _AppointmentDetailItem(
             'Servizi',
             Text(
               appointmentServices.isNotEmpty
@@ -3330,21 +3432,135 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                   : 'Servizio',
             ),
           ),
-          _buildAppointmentDetailRow(
+          _AppointmentDetailItem(
             'Operatore',
             Text(staffMember?.fullName ?? 'Staff'),
           ),
-          if (salon != null)
-            _buildAppointmentDetailRow('Salone', Text(salon.name)),
-          _buildAppointmentDetailRow('Inizio', Text(dateLabel)),
-          _buildAppointmentDetailRow('Fine', Text(endLabel)),
-          _buildAppointmentDetailRow(
-            'Stato',
-            Text(_statusLabel(appointment.status)),
-          ),
+          if (isReadOnlyStatusDialog)
+            _AppointmentDetailItem(
+              'Stato',
+              _buildAppointmentStatusValue(dialogContext, appointment.status),
+            )
+          else if (salon != null)
+            _AppointmentDetailItem('Salone', Text(salon.name)),
+          _AppointmentDetailItem('Inizio', Text(dateLabel)),
+          _AppointmentDetailItem('Fine', Text(endLabel)),
+          if (!isReadOnlyStatusDialog)
+            _AppointmentDetailItem(
+              'Stato',
+              Text(_statusLabel(appointment.status)),
+            ),
           if (appointment.notes != null && appointment.notes!.isNotEmpty)
-            _buildAppointmentDetailRow('Note', Text(appointment.notes!)),
+            _AppointmentDetailItem(
+              'Note',
+              Text(appointment.notes!),
+              fullWidth: true,
+            ),
         ];
+
+        if (isReadOnlyStatusDialog) {
+          final maxDialogHeight =
+              MediaQuery.sizeOf(dialogContext).height * 0.82;
+          return Dialog(
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 32,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(28),
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: 720,
+                maxHeight: maxDialogHeight,
+              ),
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 22, 24, 18),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Dettagli appuntamento',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.check_circle_rounded,
+                              color: theme.colorScheme.tertiary,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                infoMessage ??
+                                    (appointment.status ==
+                                            AppointmentStatus.completed
+                                        ? 'Appuntamento completato: non è possibile modificarlo.'
+                                        : 'Appuntamento segnato come no show: non è possibile modificarlo.'),
+                                style: theme.textTheme.bodyLarge,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final bool useSingleColumn =
+                              constraints.maxWidth < 560;
+                          final double itemWidth =
+                              useSingleColumn
+                                  ? constraints.maxWidth
+                                  : (constraints.maxWidth - 12) / 2;
+                          return Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: [
+                              for (final item in body)
+                                SizedBox(
+                                  width:
+                                      item.fullWidth || useSingleColumn
+                                          ? constraints.maxWidth
+                                          : itemWidth,
+                                  child: _buildAppointmentDetailsCard(
+                                    dialogContext,
+                                    item.label,
+                                    item.value,
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 18),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: () => Navigator.of(dialogContext).pop(),
+                          child: const Text('Chiudi'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
 
         return AlertDialog(
           title: const Text('Dettagli appuntamento'),
@@ -3364,7 +3580,8 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                     child: Text(infoMessage, style: theme.textTheme.bodyMedium),
                   ),
                 ],
-                ...body,
+                for (final item in body)
+                  _buildAppointmentDetailRow(item.label, item.value),
               ],
             ),
           ),
@@ -3413,6 +3630,64 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     );
   }
 
+  Widget _buildAppointmentDetailsCard(
+    BuildContext context,
+    String label,
+    Widget value,
+  ) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          DefaultTextStyle.merge(
+            style: theme.textTheme.titleMedium?.copyWith(height: 1.3),
+            child: value,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAppointmentStatusValue(
+    BuildContext context,
+    AppointmentStatus status,
+  ) {
+    final theme = Theme.of(context);
+    final color = _colorForStatus(context, status);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(_statusIcon(status), size: 18, color: color),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(
+            _statusLabel(status),
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   String _statusLabel(AppointmentStatus status) {
     switch (status) {
       case AppointmentStatus.scheduled:
@@ -3423,6 +3698,19 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         return 'Annullato';
       case AppointmentStatus.noShow:
         return 'No show';
+    }
+  }
+
+  IconData _statusIcon(AppointmentStatus status) {
+    switch (status) {
+      case AppointmentStatus.scheduled:
+        return Icons.event_available_rounded;
+      case AppointmentStatus.completed:
+        return Icons.check_circle_rounded;
+      case AppointmentStatus.cancelled:
+        return Icons.close_rounded;
+      case AppointmentStatus.noShow:
+        return Icons.person_off_rounded;
     }
   }
 
@@ -3461,7 +3749,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         if (!mounted) {
           return;
         }
-        messenger.showSnackBar(
+        messenger.showAppSnackBar(
           const SnackBar(
             content: Text(
               'Impossibile aprire il dettaglio appuntamento. Riprova.',
@@ -3569,7 +3857,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     final endInclusive = end.subtract(const Duration(days: 1));
     final startLabel = _weekStartLabel.format(start);
     final endLabel = _weekStartLabel.format(endInclusive);
-    return 'Settimana $startLabel → $endLabel';
+    return '$startLabel → $endLabel';
   }
 
   static bool _dateRangesOverlap(
@@ -3613,43 +3901,13 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       if (isLocked) {
         continue;
       }
-      final issues = <AppointmentAnomalyType>{};
-
-      final staffShifts = shiftsByStaff[appointment.staffId] ?? const [];
-      final coveringShift = staffShifts.firstWhereOrNull(
-        (shift) =>
-            !shift.start.isAfter(appointment.start) &&
-            !shift.end.isBefore(appointment.end),
+      final issues = calculateAppointmentAnomalies(
+        appointment: appointment,
+        shifts: shiftsByStaff[appointment.staffId] ?? const <Shift>[],
+        absences:
+            absencesByStaff[appointment.staffId] ?? const <StaffAbsence>[],
+        now: now,
       );
-      if (coveringShift == null) {
-        issues.add(AppointmentAnomalyType.noShift);
-      } else if (_overlapsBreak(appointment, coveringShift)) {
-        issues
-          ..add(AppointmentAnomalyType.breakOverlap)
-          ..add(AppointmentAnomalyType.noShift);
-      }
-
-      final staffAbsences = absencesByStaff[appointment.staffId] ?? const [];
-      final hasAbsenceOverlap = staffAbsences.any(
-        (absence) => _rangesOverlap(
-          appointment.start,
-          appointment.end,
-          absence.start,
-          absence.end,
-        ),
-      );
-      if (hasAbsenceOverlap) {
-        issues
-          ..add(AppointmentAnomalyType.absenceOverlap)
-          ..add(AppointmentAnomalyType.noShift);
-      }
-
-      final hasOutdatedStatus =
-          appointment.end.isBefore(now) &&
-          appointment.status == AppointmentStatus.scheduled;
-      if (hasOutdatedStatus) {
-        issues.add(AppointmentAnomalyType.outdatedStatus);
-      }
 
       if (issues.isNotEmpty) {
         result[appointment.id] = issues;
@@ -3657,29 +3915,6 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     }
 
     return result;
-  }
-
-  static bool _overlapsBreak(Appointment appointment, Shift shift) {
-    final breakStart = shift.breakStart;
-    final breakEnd = shift.breakEnd;
-    if (breakStart == null || breakEnd == null) {
-      return false;
-    }
-    return _rangesOverlap(
-      appointment.start,
-      appointment.end,
-      breakStart,
-      breakEnd,
-    );
-  }
-
-  static bool _rangesOverlap(
-    DateTime start,
-    DateTime end,
-    DateTime otherStart,
-    DateTime otherEnd,
-  ) {
-    return _dateRangesOverlap(start, end, otherStart, otherEnd);
   }
 
   String? _modificationRestrictionReason(
@@ -3718,172 +3953,16 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   }
 }
 
-class _MobileAgendaToolbar extends StatelessWidget {
-  const _MobileAgendaToolbar({
-    required this.label,
-    required this.onPrevious,
-    required this.onNext,
-    required this.onToday,
-    required this.onPickDate,
+class _AppointmentDetailItem {
+  const _AppointmentDetailItem(
+    this.label,
+    this.value, {
+    this.fullWidth = false,
   });
 
   final String label;
-  final VoidCallback onPrevious;
-  final VoidCallback onNext;
-  final VoidCallback onToday;
-  final VoidCallback onPickDate;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    const dense = VisualDensity(horizontal: -2, vertical: -2);
-
-    return Row(
-      children: [
-        IconButton(
-          tooltip: 'Periodo precedente',
-          onPressed: onPrevious,
-          visualDensity: dense,
-          icon: const Icon(Icons.chevron_left_rounded),
-        ),
-        Expanded(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Wrap(
-                alignment: WrapAlignment.center,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 8,
-                runSpacing: 4,
-                children: [
-                  FilledButton.tonal(
-                    style: FilledButton.styleFrom(
-                      visualDensity: dense,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      minimumSize: const Size(0, 36),
-                    ),
-                    onPressed: onToday,
-                    child: const Text('Oggi'),
-                  ),
-                  IconButton(
-                    tooltip: 'Vai a data',
-                    onPressed: onPickDate,
-                    visualDensity: dense,
-                    style: IconButton.styleFrom(
-                      backgroundColor: colorScheme.surfaceVariant,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    icon: const Icon(Icons.event_available_rounded),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        IconButton(
-          tooltip: 'Periodo successivo',
-          onPressed: onNext,
-          visualDensity: dense,
-          icon: const Icon(Icons.chevron_right_rounded),
-        ),
-      ],
-    );
-  }
-}
-
-class _RangeNavigator extends StatelessWidget {
-  const _RangeNavigator({
-    required this.label,
-    required this.onPrevious,
-    required this.onNext,
-  });
-
-  final String label;
-  final VoidCallback onPrevious;
-  final VoidCallback onNext;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              tooltip: 'Periodo precedente',
-              onPressed: onPrevious,
-              style: IconButton.styleFrom(
-                backgroundColor: colorScheme.onPrimaryContainer.withOpacity(
-                  0.08,
-                ),
-                foregroundColor: colorScheme.onPrimaryContainer,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                minimumSize: const Size(40, 40),
-                visualDensity: const VisualDensity(
-                  horizontal: -1,
-                  vertical: -1,
-                ),
-              ),
-              icon: const Icon(Icons.chevron_left_rounded),
-            ),
-            const SizedBox(width: 20),
-            Text(
-              label,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: colorScheme.onPrimaryContainer,
-              ),
-            ),
-            const SizedBox(width: 20),
-            IconButton(
-              tooltip: 'Periodo successivo',
-              onPressed: onNext,
-              style: IconButton.styleFrom(
-                backgroundColor: colorScheme.onPrimaryContainer.withOpacity(
-                  0.08,
-                ),
-                foregroundColor: colorScheme.onPrimaryContainer,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                minimumSize: const Size(40, 40),
-                visualDensity: const VisualDensity(
-                  horizontal: -1,
-                  vertical: -1,
-                ),
-              ),
-              icon: const Icon(Icons.chevron_right_rounded),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  final Widget value;
+  final bool fullWidth;
 }
 
 class _ListAppointmentsView extends StatelessWidget {
@@ -3987,7 +4066,11 @@ class _ListAppointmentsView extends StatelessWidget {
                           ? 'Attenzione: ${attentionReasons.join(', ')}'
                           : null;
                   final subtitleLines = <String>[
-                    _buildSubtitle(appointment, data),
+                    _buildSubtitle(
+                      appointment,
+                      data,
+                      isPlaceholder: isPlaceholder,
+                    ),
                   ];
                   if (attentionLine != null) {
                     subtitleLines.add(attentionLine);
@@ -3998,6 +4081,24 @@ class _ListAppointmentsView extends StatelessWidget {
                   }
                   final theme = Theme.of(context);
                   final needsAttention = hasIssues || isCancelled;
+                  final subtitleText = subtitleLines.join('\n');
+                  final tileColor =
+                      needsAttention
+                          ? theme.colorScheme.errorContainer.withValues(
+                            alpha: 0.28,
+                          )
+                          : null;
+                  final tileShape =
+                      needsAttention
+                          ? RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            side: BorderSide(
+                              color: theme.colorScheme.error.withValues(
+                                alpha: 0.38,
+                              ),
+                            ),
+                          )
+                          : null;
                   final iconData =
                       needsAttention
                           ? hasIssues
@@ -4031,13 +4132,9 @@ class _ListAppointmentsView extends StatelessWidget {
                         isPlaceholder: isPlaceholder,
                       ),
                     ),
-                    subtitle: Text(
-                      _buildSubtitle(
-                        appointment,
-                        data,
-                        isPlaceholder: isPlaceholder,
-                      ),
-                    ),
+                    subtitle: Text(subtitleText),
+                    tileColor: tileColor,
+                    shape: tileShape,
                     trailing: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.end,
@@ -4172,6 +4269,9 @@ class _AttentionAppointmentsCard extends StatelessWidget {
                     lockedReasons[appointment.id]!,
                 ].where((line) => line.trim().isNotEmpty).toList();
             final subtitleText = subtitleLines.join('\n');
+            final tileColor = theme.colorScheme.errorContainer.withValues(
+              alpha: 0.26,
+            );
             return ListTile(
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
@@ -4180,6 +4280,13 @@ class _AttentionAppointmentsCard extends StatelessWidget {
               leading: Icon(leadingIcon, color: leadingColor),
               title: Text(_ListAppointmentsView._buildTitle(appointment, data)),
               subtitle: Text(subtitleText),
+              tileColor: tileColor,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+                side: BorderSide(
+                  color: theme.colorScheme.error.withValues(alpha: 0.34),
+                ),
+              ),
               trailing: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.end,
@@ -4240,7 +4347,7 @@ Future<void> _openForm(
 }) async {
   final messenger = ScaffoldMessenger.of(context);
   if (salons.isEmpty) {
-    messenger.showSnackBar(
+    messenger.showAppSnackBar(
       const SnackBar(
         content: Text('Crea un salone prima di pianificare appuntamenti.'),
       ),
@@ -4251,6 +4358,7 @@ Future<void> _openForm(
   final result = await showAppModalSheet<AppointmentFormResult>(
     context: context,
     includeCloseButton: false,
+    desktopMaxWidth: 1160,
     builder:
         (ctx) => AppointmentSaleFlowSheet(
           salons: salons,
@@ -4272,6 +4380,7 @@ Future<void> _openForm(
   if (result.action == AppointmentFormAction.copy) {
     final copiedAppointment = result.appointment.copyWith(
       status: AppointmentStatus.scheduled,
+      notes: null,
     );
     ref
         .read(appointmentClipboardProvider.notifier)
@@ -4279,7 +4388,7 @@ Future<void> _openForm(
       appointment: copiedAppointment,
       copiedAt: DateTime.now(),
     );
-    messenger.showSnackBar(
+    messenger.showAppSnackBar(
       const SnackBar(
         content: Text('Appuntamento copiato. Seleziona uno slot libero.'),
       ),
@@ -4288,6 +4397,115 @@ Future<void> _openForm(
   }
   if (result.action == AppointmentFormAction.delete) {
     return;
+  }
+}
+
+class _AgendaSlotActionSheet<T> extends StatelessWidget {
+  const _AgendaSlotActionSheet({required this.options});
+
+  final List<_AgendaSlotActionOption<T>> options;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final actionBackground =
+        theme.brightness == Brightness.dark
+            ? scheme.primaryContainer.withValues(alpha: 0.18)
+            : scheme.primaryContainer.withValues(alpha: 0.32);
+    final actionBorder = scheme.primary.withValues(
+      alpha: theme.brightness == Brightness.dark ? 0.20 : 0.12,
+    );
+    final iconBackground = scheme.primary.withValues(
+      alpha: theme.brightness == Brightness.dark ? 0.18 : 0.10,
+    );
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Align(
+              alignment: Alignment.centerRight,
+              child: IconButton(
+                tooltip: 'Chiudi',
+                visualDensity: VisualDensity.compact,
+                splashRadius: 20,
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ),
+            const SizedBox(height: 4),
+            for (var index = 0; index < options.length; index++) ...[
+              Material(
+                color: actionBackground,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  side: BorderSide(color: actionBorder),
+                ),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(18),
+                  onTap: () => Navigator.of(context).pop(options[index].value),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: iconBackground,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(10),
+                            child: Icon(
+                              options[index].icon,
+                              color: options[index].iconColor,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                options[index].title,
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: -0.2,
+                                ),
+                              ),
+                              if (options[index].subtitle != null) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  options[index].subtitle!,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: scheme.onSurfaceVariant,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              if (index != options.length - 1) const SizedBox(height: 10),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 }
 

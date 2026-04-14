@@ -1,5 +1,6 @@
 import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:flutter/material.dart';
+import 'package:you_book/presentation/common/app_notice.dart';
 import 'package:uuid/uuid.dart';
 
 class ClientQuestionnaireTemplateFormSheet extends StatefulWidget {
@@ -61,6 +62,7 @@ class _ClientQuestionnaireTemplateFormSheetState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
     return SafeArea(
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -514,7 +516,7 @@ class _ClientQuestionnaireTemplateFormSheetState
     if (validationError != null) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(validationError)));
+      ).showAppSnackBar(SnackBar(content: Text(validationError)));
       return;
     }
 

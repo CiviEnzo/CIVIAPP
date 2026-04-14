@@ -155,7 +155,7 @@ class QuestionnairesModule extends ConsumerWidget {
     if (!context.mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       const SnackBar(content: Text('Questionario salvato con successo.')),
     );
   }
@@ -187,7 +187,7 @@ class QuestionnairesModule extends ConsumerWidget {
     }
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('Modifiche salvate.')));
+    ).showAppSnackBar(const SnackBar(content: Text('Modifiche salvate.')));
   }
 
   Future<void> _importTemplate(
@@ -213,9 +213,9 @@ class QuestionnairesModule extends ConsumerWidget {
       if (!context.mounted) {
         return;
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('"${template.name}" importato.')));
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        SnackBar(content: Text('"${template.name}" importato.')),
+      );
     } catch (error, stackTrace) {
       FlutterError.reportError(
         FlutterErrorDetails(exception: error, stack: stackTrace),
@@ -225,7 +225,7 @@ class QuestionnairesModule extends ConsumerWidget {
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Import non riuscito: $error')));
+      ).showAppSnackBar(SnackBar(content: Text('Import non riuscito: $error')));
     }
   }
 
@@ -247,7 +247,7 @@ class QuestionnairesModule extends ConsumerWidget {
     if (!context.mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(
         content: Text('"${template.name}" impostato come modello predefinito.'),
       ),
@@ -270,7 +270,7 @@ class QuestionnairesModule extends ConsumerWidget {
     if (!context.mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(content: Text('Copia di "${source.name}" creata.')),
     );
   }
@@ -285,7 +285,7 @@ class QuestionnairesModule extends ConsumerWidget {
     String? initialTemplateId,
   }) async {
     if (templates.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text(
             'Nessun template abilitato alla compilazione cliente disponibile.',
@@ -295,7 +295,7 @@ class QuestionnairesModule extends ConsumerWidget {
       return;
     }
     if (clients.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Nessun cliente disponibile nel salone.')),
       );
       return;
@@ -315,7 +315,7 @@ class QuestionnairesModule extends ConsumerWidget {
     }
 
     if (request.clientIds.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Seleziona almeno un cliente.')),
       );
       return;
@@ -325,7 +325,7 @@ class QuestionnairesModule extends ConsumerWidget {
       (item) => item.id == request.templateId,
     );
     if (template == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Template selezionato non trovato.')),
       );
       return;
@@ -336,7 +336,7 @@ class QuestionnairesModule extends ConsumerWidget {
         .whereType<Client>()
         .toList(growable: false);
     if (requestedClients.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Nessun cliente valido selezionato.')),
       );
       return;
@@ -386,7 +386,7 @@ class QuestionnairesModule extends ConsumerWidget {
       return;
     }
     if (createdCount == 0 && skippedDuplicates > 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             'Nessuna nuova assegnazione creata: $skippedDuplicates gia aperte per "${template.name}".',
@@ -404,7 +404,7 @@ class QuestionnairesModule extends ConsumerWidget {
             : '$createdCount clienti';
     final skippedLabel =
         skippedDuplicates > 0 ? ' ($skippedDuplicates gia aperte saltate)' : '';
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(
         content: Text(
           'Questionario "${template.name}" assegnato a $targetLabel$skippedLabel.',
@@ -481,7 +481,7 @@ class QuestionnairesModule extends ConsumerWidget {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(content: Text('Questionario "${template.name}" eliminato.')),
     );
   }
@@ -532,7 +532,7 @@ class QuestionnairesModule extends ConsumerWidget {
             : 'Operazione non riuscita: $error';
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ).showAppSnackBar(SnackBar(content: Text(message)));
   }
 
   ClientQuestionnaireTemplate _cloneTemplate(
@@ -1613,7 +1613,7 @@ class _ImportTemplateDialogState extends State<_ImportTemplateDialog> {
                 onPressed: () async {
                   final data = await Clipboard.getData(Clipboard.kTextPlain);
                   if (data?.text == null) {
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    ScaffoldMessenger.of(context).showAppSnackBar(
                       const SnackBar(
                         content: Text('Nessun testo negli appunti.'),
                       ),
@@ -1638,7 +1638,7 @@ class _ImportTemplateDialogState extends State<_ImportTemplateDialog> {
           onPressed: () {
             final raw = _controller.text.trim();
             if (raw.isEmpty) {
-              ScaffoldMessenger.of(context).showSnackBar(
+              ScaffoldMessenger.of(context).showAppSnackBar(
                 const SnackBar(content: Text('Inserisci un JSON valido.')),
               );
               return;

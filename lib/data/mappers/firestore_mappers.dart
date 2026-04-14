@@ -170,7 +170,7 @@ Salon salonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
 }
 
 Map<String, dynamic> salonToMap(Salon salon) {
-  final map = {
+  final map = <String, dynamic>{
     'name': salon.name,
     'address': salon.address,
     'city': salon.city,
@@ -247,9 +247,7 @@ Map<String, dynamic> salonToMap(Salon salon) {
   map['clientRegistration'] = _clientRegistrationToMap(
     salon.clientRegistration,
   );
-  if (salon.stripeAccountId != null) {
-    map['stripeAccountId'] = salon.stripeAccountId;
-  }
+  map['stripeAccountId'] = salon.stripeAccountId;
   map['stripeAccount'] = {
     'chargesEnabled': salon.stripeAccount.chargesEnabled,
     'payoutsEnabled': salon.stripeAccount.payoutsEnabled,
@@ -2565,6 +2563,7 @@ WhatsAppTemplateConfig? _parseWhatsAppTemplateConfig(Object? raw) {
   final schemaVersionRaw = rawMap['schemaVersion'];
   final schemaVersion = schemaVersionRaw is num ? schemaVersionRaw.toInt() : 2;
   final headerFormat = _trimToNull(rawMap['headerFormat']);
+  final promotionId = _trimToNull(rawMap['promotionId']);
   final allowedParams = _normalizeStringList(rawMap['allowedParams']);
 
   WhatsAppTemplateBindings? bindings;
@@ -2623,6 +2622,7 @@ WhatsAppTemplateConfig? _parseWhatsAppTemplateConfig(Object? raw) {
     allowedParams: List<String>.unmodifiable(allowedParams),
     bindings: bindings,
     headerFormat: headerFormat,
+    promotionId: promotionId,
   );
 }
 
@@ -2673,6 +2673,8 @@ Map<String, dynamic>? _whatsappTemplateConfigToMap(
     if (allowedParams.isNotEmpty) 'allowedParams': allowedParams,
     if (config.headerFormat != null && config.headerFormat!.trim().isNotEmpty)
       'headerFormat': config.headerFormat!.trim(),
+    if (config.promotionId != null && config.promotionId!.trim().isNotEmpty)
+      'promotionId': config.promotionId!.trim(),
     if (bindingsMap.isNotEmpty) 'bindings': bindingsMap,
   };
 }
@@ -2885,6 +2887,12 @@ ReminderSettings reminderSettingsFromDoc(
     salonId: resolvedSalonId,
     offsets: offsets,
     birthdayEnabled: data['birthdayEnabled'] as bool? ?? true,
+    birthdayDeliveryMode: _reminderDeliveryModeFromString(
+      data['birthdayDeliveryMode'] as String?,
+    ),
+    birthdayWhatsappTemplateId: data['birthdayWhatsappTemplateId'] as String?,
+    birthdayWhatsappTemplateName:
+        data['birthdayWhatsappTemplateName'] as String?,
     lastMinuteNotificationAudience: audience,
     updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
     updatedBy: data['updatedBy'] as String?,
@@ -2914,6 +2922,12 @@ Map<String, dynamic> reminderSettingsToMap(ReminderSettings settings) {
     'offsets': offsets,
     'appointmentOffsetsMinutes': settings.activeOffsetsMinutes,
     'birthdayEnabled': settings.birthdayEnabled,
+    if (settings.birthdayDeliveryMode != ReminderDeliveryMode.push)
+      'birthdayDeliveryMode': settings.birthdayDeliveryMode.name,
+    if (settings.birthdayWhatsappTemplateId != null)
+      'birthdayWhatsappTemplateId': settings.birthdayWhatsappTemplateId,
+    if (settings.birthdayWhatsappTemplateName != null)
+      'birthdayWhatsappTemplateName': settings.birthdayWhatsappTemplateName,
     'lastMinuteNotificationAudience': _lastMinuteAudienceToString(
       settings.lastMinuteNotificationAudience,
     ),
