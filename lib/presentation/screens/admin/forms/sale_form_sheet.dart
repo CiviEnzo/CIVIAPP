@@ -11,8 +11,9 @@ import 'package:you_book/domain/loyalty/loyalty_calculator.dart';
 import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
-import 'package:you_book/presentation/screens/admin/forms/package_form_sheet.dart';
+import 'package:you_book/presentation/screens/admin/forms/client_search_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/client_search_utils.dart';
+import 'package:you_book/presentation/screens/admin/forms/package_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/modules/client_detail_page.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
@@ -23,9 +24,68 @@ import 'package:uuid/uuid.dart';
 @visibleForTesting
 const saleFormLoyaltyRedeemFieldKey = Key('saleForm.loyaltyRedeemField');
 
+enum _AdditionalSaleItemAction { manualItem, customPackage }
+
 enum _ClientSearchMode { general, number }
 
-enum ReviewAmountEmphasis { normal, secondary, primary }
+Color _blendSaleSurface(Color surface, Color tint, double alpha) {
+  return Color.alphaBlend(tint.withValues(alpha: alpha), surface);
+}
+
+class _SaleFormPalette {
+  const _SaleFormPalette({
+    required this.panelBg,
+    required this.elevatedPanelBg,
+    required this.inputBg,
+    required this.denseInputBg,
+    required this.reviewCardBg,
+    required this.border,
+    required this.success,
+    required this.successBg,
+    required this.danger,
+  });
+
+  factory _SaleFormPalette.fromTheme(ThemeData theme) {
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    return _SaleFormPalette(
+      panelBg: isDark ? scheme.surfaceContainerLow : const Color(0xFFF6F5F2),
+      elevatedPanelBg:
+          isDark
+              ? scheme.surfaceContainer
+              : Colors.white.withValues(alpha: 0.9),
+      inputBg:
+          isDark
+              ? scheme.surfaceContainerHigh
+              : Colors.white.withValues(alpha: 0.92),
+      denseInputBg:
+          isDark
+              ? scheme.surfaceContainerHighest
+              : Colors.white.withValues(alpha: 0.86),
+      reviewCardBg: isDark ? scheme.surfaceContainerLow : Colors.white,
+      border:
+          isDark
+              ? scheme.outlineVariant.withValues(alpha: 0.88)
+              : scheme.outlineVariant,
+      success: isDark ? scheme.tertiary : const Color(0xFF22C55E),
+      successBg:
+          isDark
+              ? scheme.tertiaryContainer.withValues(alpha: 0.28)
+              : const Color(0x1A22C55E),
+      danger: scheme.error,
+    );
+  }
+
+  final Color panelBg;
+  final Color elevatedPanelBg;
+  final Color inputBg;
+  final Color denseInputBg;
+  final Color reviewCardBg;
+  final Color border;
+  final Color success;
+  final Color successBg;
+  final Color danger;
+}
 
 class SaleFormSheet extends StatefulWidget {
   const SaleFormSheet({
@@ -50,6 +110,7 @@ class SaleFormSheet extends StatefulWidget {
     this.initialStaffId,
     this.initialSaleId,
     this.lockServiceOperator = false,
+    this.showSheetHeader = true,
     this.onSaved,
     this.onSkipTicket,
   });
@@ -74,6 +135,7 @@ class SaleFormSheet extends StatefulWidget {
   final String? initialStaffId;
   final String? initialSaleId;
   final bool lockServiceOperator;
+  final bool showSheetHeader;
   final void Function(Sale sale)? onSaved;
   final VoidCallback? onSkipTicket;
 
@@ -84,10 +146,12 @@ class SaleFormSheet extends StatefulWidget {
 class _SaleFormSheetState extends State<SaleFormSheet> {
   static const _associateSalonHint =
       'Collega la vendita a un salone selezionando un cliente o un membro dello staff.';
+  static const _reviewAccentColor = Color(0xFFD4AF37);
   final _formKey = GlobalKey<FormState>();
   final _clientFieldKey = GlobalKey<FormFieldState<String>>();
   final _uuid = const Uuid();
   final List<_SaleLineDraft> _lines = [];
+  final ScrollController _sheetScrollController = ScrollController();
   final TextEditingController _clientSearchController = TextEditingController();
   final TextEditingController _clientNumberSearchController =
       TextEditingController();
@@ -125,13 +189,60 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   double _loyaltyEligibleAmount = 0;
   bool _updatingRedeemController = false;
 
-  Iterable<StaffMember> get _operatorStaff =>
+  Iterable<StaffMember> get _serviceProviders => widget.staff;
+
+  Iterable<StaffMember> get _recorderStaff =>
       widget.staff.where((member) => !member.isEquipment);
 
-  StaffMember? get _selectedServiceOperator =>
+  StaffMember? get _selectedServiceProvider =>
       _staffId == null
           ? null
           : widget.staff.firstWhereOrNull((member) => member.id == _staffId);
+
+  bool _matchesSalon(StaffMember member, {String? salonId}) {
+    final targetSalonId = salonId ?? _salonId;
+    if (targetSalonId == null || targetSalonId.isEmpty) {
+      return true;
+    }
+    return member.salonId == targetSalonId;
+  }
+
+  bool _isSelectableServiceProviderId(String? staffId, {String? salonId}) {
+    if (staffId == null || staffId.isEmpty) {
+      return false;
+    }
+    return _serviceProviders.any(
+      (member) =>
+          member.id == staffId && _matchesSalon(member, salonId: salonId),
+    );
+  }
+
+  bool _isSelectableRecorderId(String? staffId, {String? salonId}) {
+    if (staffId == null || staffId.isEmpty) {
+      return false;
+    }
+    return _recorderStaff.any(
+      (member) =>
+          member.id == staffId && _matchesSalon(member, salonId: salonId),
+    );
+  }
+
+  String? _resolvedRecorderStaffId({String? salonId}) {
+    if (_isSelectableRecorderId(_recorderStaffId, salonId: salonId)) {
+      return _recorderStaffId;
+    }
+    if (_isSelectableRecorderId(_staffId, salonId: salonId)) {
+      return _staffId;
+    }
+    return null;
+  }
+
+  String _staffOptionLabel(StaffMember member) {
+    if (member.isEquipment) {
+      return '${member.fullName} (Macchinario)';
+    }
+    return member.fullName;
+  }
 
   @override
   void initState() {
@@ -166,15 +277,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       }
     }
 
-    if (_staffId != null) {
-      final allowedOperators =
-          widget.lockServiceOperator ? widget.staff : _operatorStaff;
-      final matchesSalon = allowedOperators.any(
-        (member) => member.id == _staffId && member.salonId == _salonId,
-      );
-      if (!matchesSalon) {
-        _staffId = null;
-      }
+    if (!_isSelectableServiceProviderId(_staffId, salonId: _salonId)) {
+      _staffId = null;
     }
 
     final existingSale =
@@ -185,7 +289,10 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
             : null;
     final existingRecorderId = existingSale?.metadata['recordedByStaffId'];
     if (existingRecorderId is String && existingRecorderId.isNotEmpty) {
-      _recorderStaffId = existingRecorderId;
+      _recorderStaffId =
+          _isSelectableRecorderId(existingRecorderId, salonId: _salonId)
+              ? existingRecorderId
+              : null;
     } else {
       _recorderStaffId = null;
     }
@@ -228,11 +335,15 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     double total,
   ) {
     final theme = Theme.of(context);
+    final palette = _SaleFormPalette.fromTheme(theme);
     final colorScheme = theme.colorScheme;
-    final requiresPayment = total > 0.009;
     final canProceed = _lines.isNotEmpty;
-    final buttonLabel =
-        _isPaymentStep || !requiresPayment ? 'Salva' : 'Conferma';
+    final onCancel =
+        _isPaymentStep
+            ? _exitPaymentStep
+            : (widget.onSkipTicket ?? () => Navigator.of(context).maybePop());
+    final cancelLabel = _isPaymentStep ? 'Indietro' : 'Annulla';
+    final buttonLabel = _isPaymentStep ? 'Salva vendita' : 'Conferma vendita';
     final VoidCallback? onPressed =
         canProceed
             ? () {
@@ -240,321 +351,93 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                 _submit();
                 return;
               }
-              if (requiresPayment) {
-                _continueToPaymentStep();
-                return;
-              }
-              _submit(skipReview: true);
+              _continueToPaymentStep();
             }
             : null;
-    return Align(
-      alignment: Alignment.bottomCenter,
-      child: Material(
-        elevation: 8,
-        color: colorScheme.surface,
-        shadowColor: colorScheme.primary.withAlpha((0.25 * 255).round()),
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-            child: Row(
-              children: [
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Totale da pagare',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      currency.format(total),
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: colorScheme.onSurface,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Wrap(
-                    alignment: WrapAlignment.end,
-                    spacing: 12,
-                    runSpacing: 8,
-                    children: [
-                      if (widget.onSkipTicket != null)
-                        OutlinedButton(
-                          onPressed: widget.onSkipTicket,
-                          child: const Text('Non gestire ora il ticket'),
-                        ),
-                      if (_isPaymentStep)
-                        OutlinedButton(
-                          onPressed: _exitPaymentStep,
-                          child: const Text('Indietro'),
-                        ),
-                      FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: colorScheme.primary,
-                          foregroundColor: colorScheme.onPrimary,
-                        ),
-                        onPressed: onPressed,
-                        child: Text(buttonLabel),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  List<Widget> _buildEditingContent({
-    required ThemeData theme,
-    required DateFormat dateFormat,
-    required NumberFormat currency,
-    required List<Client> filteredClients,
-    required List<StaffMember> staff,
-    required double subtotal,
-    required double manualDiscount,
-    required double loyaltyDiscount,
-    required double total,
-    required Salon? salon,
-    required Client? client,
-  }) {
-    return [
-      LayoutBuilder(
-        builder: (context, constraints) {
-          final isCompact = constraints.maxWidth < 640;
-          final title = Text(
-            'Registra una vendita',
-            style: theme.textTheme.titleLarge,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          );
-          final staffPicker =
-              widget.lockServiceOperator
-                  ? _buildReadOnlyServiceOperatorField()
-                  : DropdownButtonFormField<String>(
-                    isExpanded: true,
-                    value: _staffId,
-                    decoration: const InputDecoration(
-                      labelText: 'Operatore',
-                      floatingLabelBehavior: FloatingLabelBehavior.always,
-                    ),
-                    items:
-                        staff
-                            .map(
-                              (member) => DropdownMenuItem(
-                                value: member.id,
-                                child: Text(member.fullName),
-                              ),
-                            )
-                            .toList(),
-                    onChanged: _onStaffChanged,
-                  );
-
-          if (isCompact) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [title, const SizedBox(height: 12), staffPicker],
-            );
-          }
-
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(child: title),
-              const SizedBox(width: 16),
-              SizedBox(width: 280, child: staffPicker),
-            ],
-          );
-        },
-      ),
-      const SizedBox(height: 12),
-      ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 320),
-        child: _buildDateTimeField(dateFormat),
-      ),
-      const SizedBox(height: 8),
-      _buildSectionHeader(
-        icon: Icons.store_outlined,
-        title: 'Cliente',
-        subtitle:
-            'Cerca il cliente e collega l\'operatore per associare il salone automaticamente',
-      ),
-      const SizedBox(height: 4),
-      _buildClientSelector(filteredClients),
-      const SizedBox(height: 6),
-      _buildSectionHeader(
-        icon: Icons.receipt_long,
-        title: 'Elementi vendita',
-        subtitle: 'Aggiungi servizi, pacchetti o prodotti',
-      ),
-      const SizedBox(height: 4),
-      _buildSaleLinesSection(theme, currency),
-      const SizedBox(height: 4),
-      if (_serviceCoverageDetails.isNotEmpty) ...[
-        _buildPackageCoverageSummary(theme),
-        const SizedBox(height: 4),
-      ],
-      Wrap(
-        spacing: 12,
-        runSpacing: 8,
-        children: [
-          FilledButton.tonalIcon(
-            onPressed: _onAddPackage,
-            icon: const Icon(Icons.card_giftcard_rounded),
-            label: const Text('Aggiungi pacchetto'),
-          ),
-          FilledButton.tonalIcon(
-            onPressed: _onAddCustomPackage,
-            icon: const Icon(Icons.auto_fix_high_rounded),
-            label: const Text('Aggiungi Servizi'),
-          ),
-          FilledButton.tonalIcon(
-            onPressed: _onAddInventoryItem,
-            icon: const Icon(Icons.inventory_2_rounded),
-            label: const Text('Aggiungi prodotto'),
-          ),
-          FilledButton.tonal(
-            onPressed: _onAddManualItem,
-            child: const Icon(Icons.add_circle_outline),
-          ),
-        ],
-      ),
-      const SizedBox(height: 24),
-      _buildSectionHeader(
-        icon: Icons.loyalty,
-        title: 'Programma fedeltà',
-        subtitle: 'Gestisci punti e riscatto prima del totale',
-        isExpandable: true,
-        isExpanded: _isLoyaltyExpanded,
-        onTap: () {
-          setState(() {
-            _isLoyaltyExpanded = !_isLoyaltyExpanded;
-          });
-        },
-      ),
-      if (_isLoyaltyExpanded) ...[
-        const SizedBox(height: 12),
-        _buildLoyaltySection(currency, salon, client),
-      ],
-      const SizedBox(height: 24),
-    ];
-  }
-
-  List<Widget> _buildReviewContent({
-    required ThemeData theme,
-    required DateFormat dateFormat,
-    required NumberFormat currency,
-    required double subtotal,
-    required double manualDiscount,
-    required double loyaltyDiscount,
-    required double total,
-    required Salon? salon,
-    required Client? client,
-    required List<StaffMember> staff,
-  }) {
-    return [
-      Row(
-        children: [
-          Expanded(
-            child: Text('Riepilogo vendita', style: theme.textTheme.titleLarge),
-          ),
-        ],
-      ),
-      const SizedBox(height: 12),
-      _buildReviewMainSection(
-        theme: theme,
-        dateFormat: dateFormat,
-        currency: currency,
-        subtotal: subtotal,
-        manualDiscount: manualDiscount,
-        loyaltyDiscount: loyaltyDiscount,
-        total: total,
-        salon: salon,
-        client: client,
-        staff: staff,
-      ),
-    ];
-  }
-
-  Widget _buildReviewMainSection({
-    required ThemeData theme,
-    required DateFormat dateFormat,
-    required NumberFormat currency,
-    required double subtotal,
-    required double manualDiscount,
-    required double loyaltyDiscount,
-    required double total,
-    required Salon? salon,
-    required Client? client,
-    required List<StaffMember> staff,
-  }) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 900;
-        final summaryCard = _buildReviewSummaryCard(
-          theme: theme,
-          dateFormat: dateFormat,
-          currency: currency,
-          subtotal: subtotal,
-          manualDiscount: manualDiscount,
-          loyaltyDiscount: loyaltyDiscount,
-          total: total,
-          salon: salon,
-          client: client,
-        );
-        final coverageSummary = _buildPackageCoverageSummary(theme);
-        final paymentSection = _buildPaymentSection(
-          theme: theme,
-          currency: currency,
-          total: total,
-          staff: staff,
-        );
-        final summaryStack = Column(
+        final isCompact = constraints.maxWidth < 720;
+        final totalBlock = Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            summaryCard,
-            if (coverageSummary is! SizedBox) ...[
-              const SizedBox(height: 12),
-              coverageSummary,
-            ],
+            Text(
+              'TOTALE DA PAGARE',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.7,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              currency.format(total),
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color:
+                    _isPaymentStep ? _reviewAccentColor : colorScheme.primary,
+              ),
+            ),
           ],
         );
-        if (!isWide) {
+        final cancelButton = OutlinedButton(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: colorScheme.onSurface,
+            backgroundColor: palette.inputBg,
+            side: BorderSide(color: colorScheme.outline),
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+          ),
+          onPressed: onCancel,
+          child: Text(cancelLabel),
+        );
+        final confirmButton = FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor:
+                _isPaymentStep ? _reviewAccentColor : colorScheme.primary,
+            foregroundColor:
+                _isPaymentStep
+                    ? theme.colorScheme.onPrimary
+                    : colorScheme.onPrimary,
+            padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 16),
+          ),
+          onPressed: onPressed,
+          child: Text(buttonLabel),
+        );
+        if (isCompact) {
           return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              summaryStack,
-              const SizedBox(height: 24),
-              paymentSection,
+              totalBlock,
+              const SizedBox(height: 14),
+              cancelButton,
+              const SizedBox(height: 8),
+              confirmButton,
             ],
           );
         }
         return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(child: summaryStack),
-            const SizedBox(width: 24),
-            Expanded(child: paymentSection),
+            totalBlock,
+            const SizedBox(width: 16),
+            Expanded(
+              child: Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 12,
+                runSpacing: 8,
+                children: [cancelButton, confirmButton],
+              ),
+            ),
           ],
         );
       },
     );
   }
 
-  Widget _buildReviewSummaryCard({
+  List<Widget> _buildEditingContent({
     required ThemeData theme,
-    required DateFormat dateFormat,
     required NumberFormat currency,
+    required List<Client> filteredClients,
+    required List<StaffMember> serviceProviders,
     required double subtotal,
     required double manualDiscount,
     required double loyaltyDiscount,
@@ -562,204 +445,837 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     required Salon? salon,
     required Client? client,
   }) {
-    final staffName = _selectedServiceOperator?.fullName ?? 'Non assegnato';
-    final salonName = salon?.name ?? 'Non associato';
-    final clientName = () {
-      if (client == null) {
-        return 'Non selezionato';
-      }
-      final buffer = StringBuffer(client.fullName);
-      if (client.clientNumber != null && client.clientNumber!.isNotEmpty) {
-        buffer.write(' · N° ${client.clientNumber}');
-      }
-      return buffer.toString();
-    }();
-    final note = _notesController.text.trim();
-    final manualBase = subtotal - manualDiscount;
+    final saleLabel =
+        widget.initialSaleId == null ? 'Nuova vendita' : 'Modifica vendita';
+    return [
+      _buildEditingHeroBanner(
+        theme: theme,
+        saleLabel: saleLabel,
+        serviceProviders: serviceProviders,
+      ),
+      const SizedBox(height: 18),
+      _buildEditingMainLayout(
+        theme: theme,
+        currency: currency,
+        filteredClients: filteredClients,
+        subtotal: subtotal,
+        manualDiscount: manualDiscount,
+        loyaltyDiscount: loyaltyDiscount,
+        total: total,
+        salon: salon,
+        client: client,
+      ),
+    ];
+  }
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
+  Widget _buildEditingHeroBanner({
+    required ThemeData theme,
+    required String saleLabel,
+    required List<StaffMember> serviceProviders,
+  }) {
+    final colorScheme = theme.colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.65)),
+        gradient: LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [
+            theme.brightness == Brightness.dark
+                ? _blendSaleSurface(
+                  colorScheme.surfaceContainerHigh,
+                  colorScheme.primary,
+                  0.18,
+                )
+                : colorScheme.primaryContainer.withValues(alpha: 0.8),
+            colorScheme.surface,
+          ],
+        ),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isCompact = constraints.maxWidth < 780;
+          final details = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                saleLabel,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          );
+          final operatorField = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'EROGATO DA',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: colorScheme.primary,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.7,
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: isCompact ? double.infinity : 300,
+                child: _buildServiceProviderPicker(
+                  serviceProviders,
+                  dense: true,
+                ),
+              ),
+            ],
+          );
+
+          if (isCompact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [details, const SizedBox(height: 16), operatorField],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: details),
+              const SizedBox(width: 20),
+              operatorField,
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildMobileTotalSummaryCard(
+    BuildContext context,
+    NumberFormat currency,
+    double total,
+  ) {
+    final theme = Theme.of(context);
+    final highlightColor =
+        _isPaymentStep ? _reviewAccentColor : theme.colorScheme.primary;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Totale da pagare',
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            currency.format(total),
+            style: theme.textTheme.headlineSmall?.copyWith(
+              color: highlightColor,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          if (!_isPaymentStep) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Verifica cliente, righe e sconti prima di passare alla conferma.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEditingMainLayout({
+    required ThemeData theme,
+    required NumberFormat currency,
+    required List<Client> filteredClients,
+    required double subtotal,
+    required double manualDiscount,
+    required double loyaltyDiscount,
+    required double total,
+    required Salon? salon,
+    required Client? client,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 980;
+        final showLoyaltyContent = _isLoyaltyExpanded;
+        final leftColumn = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final wrapSpacing = 12.0;
-                final tileWidth = math.max(
-                  (constraints.maxWidth - wrapSpacing) / 2,
-                  constraints.maxWidth * 0.45,
-                );
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      alignment: WrapAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Dettagli principali',
-                          style: theme.textTheme.titleMedium,
-                        ),
-                        _buildReviewInfoTile(
-                          theme: theme,
-                          label: 'Data',
-                          value: dateFormat.format(_date),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: wrapSpacing,
-                      runSpacing: 8,
-                      alignment: WrapAlignment.spaceBetween,
-                      children: [
-                        SizedBox(
-                          width: tileWidth,
-                          child: _buildReviewInfoTile(
-                            theme: theme,
-                            label: 'Cliente',
-                            value: clientName,
-                          ),
-                        ),
-                        SizedBox(
-                          width: tileWidth,
-                          child: _buildReviewInfoTile(
-                            theme: theme,
-                            label: 'Operatore',
-                            value: staffName,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                );
-              },
+            _buildFormSectionCard(
+              theme: theme,
+              icon: Icons.people_alt_outlined,
+              title: 'Cliente',
+              child: _buildClientSelector(filteredClients),
             ),
+            const SizedBox(height: 16),
+            _buildFormSectionCard(
+              theme: theme,
+              icon: Icons.loyalty_rounded,
+              title: 'Programma fedeltà',
+              trailing: Icon(
+                showLoyaltyContent
+                    ? Icons.expand_less_rounded
+                    : Icons.expand_more_rounded,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              onTap: () {
+                setState(() {
+                  _isLoyaltyExpanded = !_isLoyaltyExpanded;
+                });
+              },
+              child:
+                  showLoyaltyContent
+                      ? _buildLoyaltySection(currency, salon, client)
+                      : const SizedBox.shrink(),
+            ),
+          ],
+        );
+        final rightColumn = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildFormSectionCard(
+              theme: theme,
+              icon: Icons.shopping_cart_checkout_rounded,
+              title: 'Elementi vendita',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_lines.isEmpty)
+                    _buildMutedInfoContainer(
+                      theme,
+                      'Aggiungi un pacchetto, un servizio, un prodotto o una voce manuale.',
+                    )
+                  else
+                    _buildSaleLinesSection(theme, currency),
+                  if (_serviceCoverageDetails.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _buildPackageCoverageSummary(theme),
+                  ],
+                  const SizedBox(height: 16),
+                  _buildAddLineActions(theme),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildCheckoutSummaryCard(
+              theme: theme,
+              currency: currency,
+              subtotal: subtotal,
+              manualDiscount: manualDiscount,
+              loyaltyDiscount: loyaltyDiscount,
+              total: total,
+            ),
+          ],
+        );
 
-            Text('Elementi', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 8),
-            if (_lines.isEmpty)
-              Text(
-                'Nessun elemento aggiunto.',
-                style: theme.textTheme.bodyMedium,
-              )
-            else ...[
-              for (var i = 0; i < _lines.length; i++) ...[
-                _buildReviewLineSummary(
-                  theme: theme,
-                  currency: currency,
-                  line: _lines[i],
-                  index: i,
-                ),
-                if (i != _lines.length - 1)
-                  const Divider(height: 16, thickness: 1),
-              ],
-            ],
-            if (subtotal > 0) ...[
-              const SizedBox(height: 16),
-              Divider(color: theme.colorScheme.outlineVariant),
-              const SizedBox(height: 12),
-              _buildReviewAmountRow(
-                theme: theme,
-                label: 'Subtotale',
-                value: currency.format(subtotal),
+        if (!isWide) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [leftColumn, const SizedBox(height: 16), rightColumn],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(flex: 11, child: leftColumn),
+            const SizedBox(width: 16),
+            Expanded(flex: 10, child: rightColumn),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildFormSectionCard({
+    required ThemeData theme,
+    required IconData icon,
+    required String title,
+    required Widget child,
+    Widget? trailing,
+    VoidCallback? onTap,
+  }) {
+    final palette = _SaleFormPalette.fromTheme(theme);
+    final colorScheme = theme.colorScheme;
+    final header = Row(
+      children: [
+        _buildSectionIconBadge(theme, icon),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            title,
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        if (trailing != null) trailing,
+      ],
+    );
+    final headerWidget =
+        onTap == null
+            ? header
+            : InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: header,
               ),
-              if (manualDiscount > 0) ...[
-                const SizedBox(height: 4),
-                _buildReviewAmountRow(
+            );
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: palette.panelBg,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.9),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          headerWidget,
+          if (child is! SizedBox) ...[const SizedBox(height: 16), child],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionIconBadge(ThemeData theme, IconData icon) {
+    return Container(
+      width: 30,
+      height: 30,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primary,
+        shape: BoxShape.circle,
+      ),
+      child: Icon(icon, size: 16, color: theme.colorScheme.onPrimary),
+    );
+  }
+
+  Widget _buildAddLineActions(ThemeData theme) {
+    final actions = [
+      (
+        icon: Icons.inventory_2_outlined,
+        label: 'Pacchetto',
+        onPressed: _onAddPackage,
+      ),
+      (icon: Icons.build_outlined, label: 'Servizio', onPressed: _onAddService),
+      (
+        icon: Icons.shopping_bag_outlined,
+        label: 'Prodotto',
+        onPressed: _onAddInventoryItem,
+      ),
+      (
+        icon: Icons.add_rounded,
+        label: 'Altro',
+        onPressed: _showAdditionalItemOptions,
+      ),
+    ];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final spacing = 10.0;
+        final columns = constraints.maxWidth < 260 ? 1 : 2;
+        final buttonWidth =
+            columns == 1
+                ? constraints.maxWidth
+                : (constraints.maxWidth - spacing) / 2;
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            for (final action in actions)
+              SizedBox(
+                width: buttonWidth,
+                child: _buildAddLineActionButton(
                   theme: theme,
-                  label: 'Adeguamento manuale',
-                  value: '-${currency.format(manualDiscount)}',
+                  icon: action.icon,
+                  label: action.label,
+                  onPressed: action.onPressed,
                 ),
-                const SizedBox(height: 4),
-                _buildReviewAmountRow(
-                  theme: theme,
-                  label: 'Totale dopo adeguamento',
-                  value: currency.format(manualBase),
-                  emphasis: ReviewAmountEmphasis.secondary,
-                ),
-              ],
-              if (loyaltyDiscount > 0) ...[
-                const SizedBox(height: 4),
-                _buildReviewAmountRow(
-                  theme: theme,
-                  label: 'Riscatto punti',
-                  value: '-${currency.format(loyaltyDiscount)}',
-                ),
-              ],
-              const SizedBox(height: 8),
-              _buildReviewAmountRow(
-                theme: theme,
-                label: 'Totale da pagare',
-                value: currency.format(total),
-                emphasis: ReviewAmountEmphasis.primary,
               ),
-            ],
-            if (note.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Text('Note', style: theme.textTheme.titleSmall),
-              const SizedBox(height: 4),
-              Text(note, style: theme.textTheme.bodyMedium),
-            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildAddLineActionButton({
+    required ThemeData theme,
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      height: 46,
+      child: FilledButton(
+        style: FilledButton.styleFrom(
+          elevation: 0,
+          shadowColor: Colors.transparent,
+          backgroundColor: theme.colorScheme.primary,
+          foregroundColor: theme.colorScheme.onPrimary,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          textStyle: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: theme.colorScheme.onPrimary,
+          ),
+        ),
+        onPressed: onPressed,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.max,
+          children: [
+            Icon(icon, size: 18),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildReviewInfoTile({
+  Widget _buildCheckoutSummaryCard({
     required ThemeData theme,
-    required String label,
-    required String value,
+    required NumberFormat currency,
+    required double subtotal,
+    required double manualDiscount,
+    required double loyaltyDiscount,
+    required double total,
+    String title = 'Riepilogo',
   }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+    final colorScheme = theme.colorScheme;
+    final manualBase = subtotal - manualDiscount;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.8)),
+        gradient: LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [
+            colorScheme.primaryContainer.withValues(alpha: 0.46),
+            colorScheme.surface.withValues(alpha: 0.98),
+          ],
+        ),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+          Row(
+            children: [
+              _buildSectionIconBadge(theme, Icons.euro_rounded),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 2),
-          Text(value, style: theme.textTheme.bodyMedium),
+          const SizedBox(height: 18),
+          _buildSummaryAmountRow(
+            theme: theme,
+            label: 'Subtotale',
+            value: currency.format(subtotal),
+          ),
+          if (manualDiscount > 0) ...[
+            const SizedBox(height: 8),
+            _buildSummaryAmountRow(
+              theme: theme,
+              label: 'Adeguamento manuale',
+              value: '-${currency.format(manualDiscount)}',
+            ),
+            const SizedBox(height: 8),
+            _buildSummaryAmountRow(
+              theme: theme,
+              label: 'Totale dopo adeguamento',
+              value: currency.format(manualBase),
+            ),
+          ],
+          if (loyaltyDiscount > 0) ...[
+            const SizedBox(height: 8),
+            _buildSummaryAmountRow(
+              theme: theme,
+              label: 'Sconto fedeltà',
+              value: '-${currency.format(loyaltyDiscount)}',
+            ),
+          ],
+          const SizedBox(height: 14),
+          Divider(color: colorScheme.primary.withValues(alpha: 0.55)),
+          const SizedBox(height: 14),
+          _buildSummaryAmountRow(
+            theme: theme,
+            label: 'TOTALE DA PAGARE',
+            value: currency.format(total),
+            highlighted: true,
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildReviewAmountRow({
+  Widget _buildSummaryAmountRow({
     required ThemeData theme,
     required String label,
     required String value,
-    ReviewAmountEmphasis emphasis = ReviewAmountEmphasis.normal,
+    bool highlighted = false,
   }) {
-    final labelStyle = theme.textTheme.bodyMedium?.copyWith(
-      color: theme.colorScheme.onSurfaceVariant,
-    );
-    final valueStyle = switch (emphasis) {
-      ReviewAmountEmphasis.primary => theme.textTheme.titleMedium?.copyWith(
-        fontWeight: FontWeight.w700,
-      ),
-      ReviewAmountEmphasis.secondary => theme.textTheme.bodyMedium?.copyWith(
-        fontWeight: FontWeight.w600,
-      ),
-      ReviewAmountEmphasis.normal => theme.textTheme.bodyMedium?.copyWith(
-        fontWeight: FontWeight.w500,
-      ),
-    };
+    final colorScheme = theme.colorScheme;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: labelStyle),
-        Text(value, style: valueStyle),
+        Expanded(
+          child: Text(
+            label,
+            style:
+                highlighted
+                    ? theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    )
+                    : theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          value,
+          textAlign: TextAlign.end,
+          style:
+              highlighted
+                  ? theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: colorScheme.primary,
+                  )
+                  : theme.textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+        ),
       ],
+    );
+  }
+
+  List<Widget> _buildReviewContent({
+    required ThemeData theme,
+    required NumberFormat currency,
+    required double subtotal,
+    required double manualDiscount,
+    required double loyaltyDiscount,
+    required double total,
+    required Client? client,
+    required StaffMember? serviceProvider,
+    required List<StaffMember> recorderStaff,
+  }) {
+    return [
+      _buildReviewOverviewCard(
+        theme: theme,
+        currency: currency,
+        subtotal: subtotal,
+        manualDiscount: manualDiscount,
+        loyaltyDiscount: loyaltyDiscount,
+        total: total,
+        client: client,
+        serviceProvider: serviceProvider,
+      ),
+      const SizedBox(height: 16),
+      Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: _buildPaymentSection(
+            theme: theme,
+            currency: currency,
+            total: total,
+            recorderStaff: recorderStaff,
+          ),
+        ),
+      ),
+    ];
+  }
+
+  Widget _buildReviewOverviewCard({
+    required ThemeData theme,
+    required NumberFormat currency,
+    required double subtotal,
+    required double manualDiscount,
+    required double loyaltyDiscount,
+    required double total,
+    required Client? client,
+    required StaffMember? serviceProvider,
+  }) {
+    final serviceProviderLabel =
+        serviceProvider == null ? null : _staffOptionLabel(serviceProvider);
+    return _buildReviewCard(
+      theme: theme,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _buildSectionIconBadge(theme, Icons.receipt_long_rounded),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Riepilogo vendita',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (client != null || serviceProviderLabel != null) ...[
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (client != null)
+                  _buildReviewInfoPill(
+                    theme,
+                    icon: Icons.person_outline_rounded,
+                    label: client.fullName,
+                  ),
+                if (client != null && client.phone.trim().isNotEmpty)
+                  _buildReviewInfoPill(
+                    theme,
+                    icon: Icons.phone_rounded,
+                    label: client.phone.trim(),
+                  ),
+                if (serviceProviderLabel != null)
+                  _buildReviewInfoPill(
+                    theme,
+                    icon: Icons.badge_outlined,
+                    label: serviceProviderLabel,
+                  ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 18),
+          Text(
+            'Elementi',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 12),
+          for (var i = 0; i < _lines.length; i++) ...[
+            _buildReviewLineRow(
+              theme: theme,
+              currency: currency,
+              line: _lines[i],
+              index: i,
+            ),
+            if (i < _lines.length - 1) ...[
+              const SizedBox(height: 12),
+              Divider(color: theme.colorScheme.outlineVariant),
+              const SizedBox(height: 12),
+            ],
+          ],
+          const SizedBox(height: 18),
+          Divider(color: theme.colorScheme.outlineVariant),
+          const SizedBox(height: 14),
+          _buildSummaryAmountRow(
+            theme: theme,
+            label: 'Subtotale',
+            value: currency.format(subtotal),
+          ),
+          if (manualDiscount > 0) ...[
+            const SizedBox(height: 8),
+            _buildSummaryAmountRow(
+              theme: theme,
+              label: 'Adeguamento manuale',
+              value: '-${currency.format(manualDiscount)}',
+            ),
+            const SizedBox(height: 8),
+            _buildSummaryAmountRow(
+              theme: theme,
+              label: 'Totale dopo adeguamento',
+              value: currency.format(subtotal - manualDiscount),
+            ),
+          ],
+          if (loyaltyDiscount > 0) ...[
+            const SizedBox(height: 8),
+            _buildSummaryAmountRow(
+              theme: theme,
+              label: 'Sconto fedeltà',
+              value: '-${currency.format(loyaltyDiscount)}',
+            ),
+          ],
+          const SizedBox(height: 14),
+          Divider(color: theme.colorScheme.outlineVariant),
+          const SizedBox(height: 14),
+          _buildSummaryAmountRow(
+            theme: theme,
+            label: 'TOTALE DA PAGARE',
+            value: currency.format(total),
+            highlighted: true,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReviewLineRow({
+    required ThemeData theme,
+    required NumberFormat currency,
+    required _SaleLineDraft line,
+    required int index,
+  }) {
+    final quantity = line.quantityController.text.trim();
+    final unitPrice = _parseAmount(line.priceController.text) ?? 0;
+    final pills = <Widget>[
+      _buildReviewInfoPill(
+        theme,
+        icon: Icons.tag_rounded,
+        label: '$quantity x ${currency.format(unitPrice)}',
+      ),
+    ];
+    final catalogLabel = line.catalogLabel?.trim();
+    if (catalogLabel != null && catalogLabel.isNotEmpty) {
+      pills.add(
+        _buildReviewInfoPill(
+          theme,
+          icon: Icons.layers_outlined,
+          label: catalogLabel,
+        ),
+      );
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _lineDisplayLabel(line, index),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(spacing: 8, runSpacing: 8, children: pills),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          currency.format(_lineTotal(line)),
+          textAlign: TextAlign.end,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+            color: theme.colorScheme.primary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildReviewInfoPill(
+    ThemeData theme, {
+    required IconData icon,
+    required String label,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReviewCard({required ThemeData theme, required Widget child}) {
+    final palette = _SaleFormPalette.fromTheme(theme);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: palette.reviewCardBg,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: palette.border),
+      ),
+      child: child,
+    );
+  }
+
+  InputDecoration _reviewFieldDecoration({
+    required ThemeData theme,
+    required String label,
+    bool accent = false,
+  }) {
+    final palette = _SaleFormPalette.fromTheme(theme);
+    final borderColor = accent ? _reviewAccentColor : palette.border;
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(16),
+      borderSide: BorderSide(color: borderColor),
+    );
+    return InputDecoration(
+      labelText: label.toUpperCase(),
+      labelStyle: theme.textTheme.labelMedium?.copyWith(
+        color: _reviewAccentColor,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.8,
+      ),
+      floatingLabelStyle: theme.textTheme.labelMedium?.copyWith(
+        color: _reviewAccentColor,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.8,
+      ),
+      filled: true,
+      fillColor: palette.inputBg,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      enabledBorder: border,
+      border: border,
+      focusedBorder: border.copyWith(
+        borderSide: BorderSide(
+          color: accent ? _reviewAccentColor : theme.colorScheme.primary,
+          width: 1.2,
+        ),
+      ),
     );
   }
 
@@ -767,216 +1283,208 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     required ThemeData theme,
     required NumberFormat currency,
     required double total,
-    required List<StaffMember> staff,
+    required List<StaffMember> recorderStaff,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionHeader(
-          icon: Icons.credit_card,
-          title: 'Pagamenti',
-          subtitle: 'Definisci metodo, stato e incassi',
-        ),
-        const SizedBox(height: 12),
-        if (total <= 0.009) ...[
-          Text(
-            'Il totale è pari a 0 €, nessun pagamento è richiesto. '
-            'La vendita sarà registrata come saldata senza movimenti.',
-            style: theme.textTheme.bodyMedium,
+    final resolvedRecorderId = _resolvedRecorderStaffId();
+    final requiresPayment = total > 0.009;
+    final recorderValue =
+        resolvedRecorderId != null &&
+                recorderStaff.any((member) => member.id == resolvedRecorderId)
+            ? resolvedRecorderId
+            : null;
+    return _buildReviewCard(
+      theme: theme,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: const BoxDecoration(
+                  color: _reviewAccentColor,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.credit_card_rounded,
+                  size: 16,
+                  color: theme.colorScheme.onPrimary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'Pagamenti',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
           ),
-        ] else ...[
-          DropdownButtonFormField<SalePaymentStatus>(
-            isExpanded: true,
-            value: _paymentStatus,
-            decoration: const InputDecoration(labelText: 'Stato pagamento'),
-            items:
-                SalePaymentStatus.values
-                    .map(
-                      (status) => DropdownMenuItem(
-                        value: status,
-                        child: Text(status.label),
-                      ),
-                    )
-                    .toList(),
-            validator:
-                (value) =>
-                    value == null ? 'Seleziona lo stato del pagamento' : null,
-            onChanged: (value) {
-              setState(() {
-                _paymentStatus = value;
-                if (value == SalePaymentStatus.posticipated) {
-                  _payment = PaymentMethod.posticipated;
-                } else if (_payment == PaymentMethod.posticipated) {
-                  _payment = null;
-                }
-              });
-              if (value != SalePaymentStatus.deposit) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (!mounted) {
-                    return;
-                  }
-                  _setPaidAmountText('');
-                });
-              }
-            },
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<PaymentMethod>(
-            isExpanded: true,
-            value:
-                _paymentStatus == SalePaymentStatus.posticipated
-                    ? PaymentMethod.posticipated
-                    : _payment,
-            decoration: const InputDecoration(labelText: 'Metodo di pagamento'),
-            items:
-                (_paymentStatus == SalePaymentStatus.posticipated
-                        ? const [PaymentMethod.posticipated]
-                        : PaymentMethod.values.where(
-                          (method) => method != PaymentMethod.posticipated,
-                        ))
-                    .map(
-                      (method) => DropdownMenuItem(
-                        value: method,
-                        child: Text(_paymentLabel(method)),
-                      ),
-                    )
-                    .toList(),
-            validator: (value) {
-              if (_paymentStatus == SalePaymentStatus.posticipated) {
-                return null;
-              }
-              return value == null ? 'Seleziona il metodo di pagamento' : null;
-            },
-            onChanged:
-                _paymentStatus == SalePaymentStatus.posticipated
-                    ? null
-                    : (value) => setState(() => _payment = value),
-          ),
-          if (_paymentStatus == SalePaymentStatus.posticipated) ...[
-            const SizedBox(height: 8),
+          const SizedBox(height: 18),
+          if (!requiresPayment) ...[
             Text(
-              'Pagamento posticipato: registriamo un acconto di 0 € e potrai incassare in seguito.',
+              'Il totale è pari a 0 €. La vendita sarà registrata come saldata senza movimenti di cassa.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
-          ],
-          if (_paymentStatus == SalePaymentStatus.deposit) ...[
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _paidAmountController,
-              decoration: const InputDecoration(
-                labelText: 'Importo incassato (€)',
+          ] else ...[
+            DropdownButtonFormField<SalePaymentStatus>(
+              isExpanded: true,
+              initialValue: _paymentStatus,
+              decoration: _reviewFieldDecoration(
+                theme: theme,
+                label: 'Stato pagamento',
               ),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              validator: (value) {
-                if (_paymentStatus != SalePaymentStatus.deposit) {
-                  return null;
+              items:
+                  SalePaymentStatus.values
+                      .map(
+                        (status) => DropdownMenuItem(
+                          value: status,
+                          child: Text(status.label),
+                        ),
+                      )
+                      .toList(),
+              validator:
+                  (value) =>
+                      value == null ? 'Seleziona lo stato del pagamento' : null,
+              onChanged: (value) {
+                setState(() {
+                  _paymentStatus = value;
+                  if (value == SalePaymentStatus.posticipated) {
+                    _payment = PaymentMethod.posticipated;
+                  } else if (_payment == PaymentMethod.posticipated) {
+                    _payment = null;
+                  }
+                });
+                if (value != SalePaymentStatus.deposit) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) {
+                      return;
+                    }
+                    _setPaidAmountText('');
+                  });
                 }
-                final amount = _parseAmount(value);
-                if (amount == null || amount <= 0) {
-                  return 'Inserisci un importo valido';
-                }
-                if (amount > total + 0.01) {
-                  return 'L\'acconto supera il totale';
-                }
-                return null;
               },
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<PaymentMethod>(
+              isExpanded: true,
+              initialValue:
+                  _paymentStatus == SalePaymentStatus.posticipated
+                      ? PaymentMethod.posticipated
+                      : _payment,
+              decoration: _reviewFieldDecoration(
+                theme: theme,
+                label: 'Metodo di pagamento',
+              ),
+              items:
+                  (_paymentStatus == SalePaymentStatus.posticipated
+                          ? const [PaymentMethod.posticipated]
+                          : PaymentMethod.values.where(
+                            (method) =>
+                                method != PaymentMethod.posticipated &&
+                                method.isManualSelectable,
+                          ))
+                      .map(
+                        (method) => DropdownMenuItem(
+                          value: method,
+                          child: Text(_paymentLabel(method)),
+                        ),
+                      )
+                      .toList(),
+              validator: (value) {
+                if (_paymentStatus == SalePaymentStatus.posticipated) {
+                  return null;
+                }
+                return value == null
+                    ? 'Seleziona il metodo di pagamento'
+                    : null;
+              },
+              onChanged:
+                  _paymentStatus == SalePaymentStatus.posticipated
+                      ? null
+                      : (value) => setState(() => _payment = value),
+            ),
+            if (_paymentStatus == SalePaymentStatus.posticipated) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Pagamento posticipato: registriamo un acconto di 0 € e potrai incassare in seguito.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            if (_paymentStatus == SalePaymentStatus.deposit) ...[
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _paidAmountController,
+                decoration: _reviewFieldDecoration(
+                  theme: theme,
+                  label: 'Importo incassato (€)',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                validator: (value) {
+                  if (_paymentStatus != SalePaymentStatus.deposit) {
+                    return null;
+                  }
+                  final amount = _parseAmount(value);
+                  if (amount == null || amount <= 0) {
+                    return 'Inserisci un importo valido';
+                  }
+                  if (amount > total + 0.01) {
+                    return 'L\'acconto supera il totale';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Residuo da incassare: ${currency.format(_remainingBalance(total))}',
+                style: theme.textTheme.bodyMedium,
+              ),
+            ],
+          ],
+          const SizedBox(height: 12),
+          if (recorderStaff.isEmpty) ...[
             Text(
-              'Residuo da incassare: ${currency.format(_remainingBalance(total))}',
-              style: theme.textTheme.bodyMedium,
+              'Nessun operatore disponibile per registrare la vendita in questo salone.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.error,
+              ),
+            ),
+          ] else ...[
+            DropdownButtonFormField<String>(
+              isExpanded: true,
+              initialValue: recorderValue,
+              decoration: _reviewFieldDecoration(
+                theme: theme,
+                label: 'Registrato da',
+                accent: true,
+              ),
+              items:
+                  recorderStaff
+                      .map(
+                        (member) => DropdownMenuItem(
+                          value: member.id,
+                          child: Text(member.fullName),
+                        ),
+                      )
+                      .toList(),
+              validator:
+                  (value) =>
+                      value == null
+                          ? 'Seleziona l\'operatore che registra la vendita'
+                          : null,
+              onChanged: (value) => setState(() => _recorderStaffId = value),
             ),
           ],
         ],
-        if (staff.isNotEmpty) ...[
-          const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            isExpanded: true,
-            value:
-                staff.any((member) => member.id == _recorderStaffId)
-                    ? _recorderStaffId
-                    : null,
-            decoration: const InputDecoration(labelText: 'Registrato da'),
-            items:
-                staff
-                    .map(
-                      (member) => DropdownMenuItem(
-                        value: member.id,
-                        child: Text(member.fullName),
-                      ),
-                    )
-                    .toList(),
-            validator:
-                (value) =>
-                    value == null
-                        ? 'Seleziona l\'operatore che registra la vendita'
-                        : null,
-            onChanged: (value) => setState(() => _recorderStaffId = value),
-          ),
-        ],
-        const SizedBox(height: 24),
-      ],
+      ),
     );
-  }
-
-  Widget _buildReviewLineSummary({
-    required ThemeData theme,
-    required NumberFormat currency,
-    required _SaleLineDraft line,
-    required int index,
-  }) {
-    final description = () {
-      final text = line.descriptionController.text.trim();
-      return text.isEmpty ? 'Voce ${index + 1}' : text;
-    }();
-    final catalog = line.catalogLabel;
-    final quantity = _parseAmount(line.quantityController.text) ?? 0;
-    final unitPrice = _parseAmount(line.priceController.text) ?? 0;
-    final total = _lineTotal(line);
-    final quantityText = _formatQuantity(quantity);
-    final priceText = currency.format(unitPrice);
-    final typeLabel = _lineTypeLabel(line.referenceType);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (catalog != null && catalog.isNotEmpty) ...[
-          Text(catalog, style: theme.textTheme.bodySmall),
-          const SizedBox(height: 2),
-        ],
-        Text(
-          description,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          '$typeLabel • $quantityText × $priceText',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          currency.format(total),
-          style: theme.textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-  }
-
-  String _formatQuantity(double value) {
-    if (value == value.roundToDouble()) {
-      return value.toStringAsFixed(0);
-    }
-    return value.toStringAsFixed(2);
   }
 
   @override
@@ -991,6 +1499,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     _loyaltyRedeemController.dispose();
     _invoiceController.dispose();
     _notesController.dispose();
+    _sheetScrollController.dispose();
     _clientSearchController.dispose();
     _clientNumberSearchController.dispose();
     _clientSearchFocusNode.dispose();
@@ -1001,8 +1510,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isPhoneLayout = isAppSheetPhoneLayout(context);
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
-    final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
     final subtotal = _computeSubtotal();
     final manualDiscount = _currentManualDiscount(subtotal);
     final baseTotal = _currentTotal(subtotal, manualDiscount);
@@ -1022,8 +1531,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
           }
           return a.fullName.compareTo(b.fullName);
         });
-    final staff =
-        _operatorStaff.toList()..sort((a, b) {
+    final serviceProviders =
+        _serviceProviders.toList()..sort((a, b) {
           final aMatches = a.salonId == _salonId;
           final bMatches = b.salonId == _salonId;
           if (aMatches != bMatches) {
@@ -1031,125 +1540,184 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
           }
           return a.fullName.compareTo(b.fullName);
         });
-
-    final safeBottom = MediaQuery.of(context).viewPadding.bottom;
-    final scrollBottomPadding = 120 + safeBottom;
-
-    return Material(
-      color: Colors.transparent,
-      child: Stack(
-        children: [
-          Padding(
-            padding: EdgeInsets.only(bottom: scrollBottomPadding),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.only(
-                left: 24,
-                right: 24,
-                bottom: 24,
-                top: 24,
-              ),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children:
-                      _isPaymentStep
-                          ? _buildReviewContent(
-                            theme: theme,
-                            dateFormat: dateFormat,
-                            currency: currency,
-                            subtotal: subtotal,
-                            manualDiscount: manualDiscount,
-                            loyaltyDiscount: loyaltyDiscount,
-                            total: total,
-                            salon: salon,
-                            client: currentClient,
-                            staff: staff,
-                          )
-                          : _buildEditingContent(
-                            theme: theme,
-                            dateFormat: dateFormat,
-                            currency: currency,
-                            filteredClients: filteredClients,
-                            staff: staff,
-                            subtotal: subtotal,
-                            manualDiscount: manualDiscount,
-                            loyaltyDiscount: loyaltyDiscount,
-                            total: total,
-                            salon: salon,
-                            client: currentClient,
-                          ),
+    final recorderStaff =
+        _recorderStaff.toList()..sort((a, b) {
+          final aMatches = a.salonId == _salonId;
+          final bMatches = b.salonId == _salonId;
+          if (aMatches != bMatches) {
+            return aMatches ? -1 : 1;
+          }
+          return a.fullName.compareTo(b.fullName);
+        });
+    final isReviewStep = _isPaymentStep;
+    final sheetContent = Form(
+      key: _formKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children:
+            isReviewStep
+                ? _buildReviewContent(
+                  theme: theme,
+                  currency: currency,
+                  subtotal: subtotal,
+                  manualDiscount: manualDiscount,
+                  loyaltyDiscount: loyaltyDiscount,
+                  total: total,
+                  client: currentClient,
+                  serviceProvider: _selectedServiceProvider,
+                  recorderStaff: recorderStaff,
+                )
+                : _buildEditingContent(
+                  theme: theme,
+                  currency: currency,
+                  filteredClients: filteredClients,
+                  serviceProviders: serviceProviders,
+                  subtotal: subtotal,
+                  manualDiscount: manualDiscount,
+                  loyaltyDiscount: loyaltyDiscount,
+                  total: total,
+                  salon: salon,
+                  client: currentClient,
                 ),
-              ),
-            ),
-          ),
-          _buildBottomSummaryBar(context, currency, total),
-        ],
       ),
     );
-  }
 
-  Widget _buildSectionHeader({
-    required IconData icon,
-    required String title,
-    String? subtitle,
-    VoidCallback? onTap,
-    bool isExpandable = false,
-    bool isExpanded = false,
-  }) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final textTheme = theme.textTheme;
-    final borderRadius = BorderRadius.circular(12);
-    final content = Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest,
-        borderRadius: borderRadius,
-      ),
-      child: Row(
-        crossAxisAlignment:
-            subtitle == null
-                ? CrossAxisAlignment.center
-                : CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: colorScheme.onSurfaceVariant),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+    if (isPhoneLayout && widget.showSheetHeader) {
+      final leadingMode =
+          _isPaymentStep
+              ? AppMobileSheetLeadingMode.back
+              : AppMobileSheetLeadingMode.close;
+      final primaryActionLabel = _isPaymentStep ? 'Salva' : 'Avanti';
+      final canProceed = _lines.isNotEmpty;
+      final bodyContent =
+          isReviewStep
+              ? Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 640),
+                  child: sheetContent,
                 ),
-              ],
-            ),
+              )
+              : sheetContent;
+
+      return AppMobileSheetPageScaffold(
+        title: _isPaymentStep ? 'Conferma vendita' : 'Registra una vendita',
+        subtitle: _salonId == null ? null : _currentSalon?.name,
+        leadingMode: leadingMode,
+        onLeadingPressed:
+            _isPaymentStep
+                ? _exitPaymentStep
+                : (widget.onSkipTicket ??
+                    () => Navigator.of(context).maybePop()),
+        actions: [
+          TextButton(
+            onPressed:
+                canProceed
+                    ? () {
+                      if (_isPaymentStep) {
+                        _submit();
+                        return;
+                      }
+                      _continueToPaymentStep();
+                    }
+                    : null,
+            child: Text(primaryActionLabel),
           ),
-          if (isExpandable)
-            Icon(
-              isExpanded
-                  ? Icons.expand_less_rounded
-                  : Icons.expand_more_rounded,
-              color: colorScheme.onSurfaceVariant,
-            ),
         ],
-      ),
-    );
-    if (onTap != null) {
-      return Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: borderRadius,
-          onTap: onTap,
-          child: content,
+        body: ListView(
+          controller: _sheetScrollController,
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding:
+              isReviewStep
+                  ? const EdgeInsets.fromLTRB(16, 20, 16, 24)
+                  : const EdgeInsets.fromLTRB(16, 24, 16, 24),
+          children: [
+            bodyContent,
+            const SizedBox(height: 20),
+            _buildMobileTotalSummaryCard(context, currency, total),
+          ],
         ),
       );
     }
-    return content;
+
+    if (isPhoneLayout) {
+      final inlineSummary = Container(
+        padding: const EdgeInsets.only(top: 16),
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: theme.colorScheme.outlineVariant),
+          ),
+        ),
+        child: _buildBottomSummaryBar(context, currency, total),
+      );
+
+      return ColoredBox(
+        color: theme.colorScheme.surface,
+        child: ListView(
+          controller: _sheetScrollController,
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding:
+              isReviewStep
+                  ? const EdgeInsets.fromLTRB(16, 20, 16, 24)
+                  : const EdgeInsets.fromLTRB(16, 24, 16, 24),
+          children: [
+            if (isReviewStep)
+              Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 640),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      sheetContent,
+                      const SizedBox(height: 20),
+                      inlineSummary,
+                    ],
+                  ),
+                ),
+              )
+            else
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  sheetContent,
+                  const SizedBox(height: 20),
+                  inlineSummary,
+                ],
+              ),
+          ],
+        ),
+      );
+    }
+
+    return AppSheetScaffold(
+      title:
+          widget.showSheetHeader
+              ? (_isPaymentStep ? 'Conferma vendita' : 'Registra una vendita')
+              : null,
+      onClose: widget.showSheetHeader ? widget.onSkipTicket : null,
+      bodyPadding: EdgeInsets.zero,
+      footerPadding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
+      scrollBody: false,
+      body: SingleChildScrollView(
+        controller: _sheetScrollController,
+        padding:
+            isReviewStep
+                ? const EdgeInsets.fromLTRB(24, 20, 24, 20)
+                : const EdgeInsets.fromLTRB(24, 24, 24, 24),
+        child:
+            isReviewStep
+                ? Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 640),
+                    child: sheetContent,
+                  ),
+                )
+                : sheetContent,
+      ),
+      footer: _buildBottomSummaryBar(context, currency, total),
+    );
   }
 
   Widget _buildClientSelector(List<Client> clients) {
@@ -1158,215 +1726,424 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       validator: (_) => _clientId == null ? 'Seleziona un cliente' : null,
       builder: (state) {
         final selectedClient = _currentClient;
-        if (selectedClient != null) {
-          if (_clientSearchController.text != selectedClient.fullName) {
-            _clientSearchController.text = selectedClient.fullName;
-          }
-          final number = selectedClient.clientNumber ?? '';
-          if (_clientNumberSearchController.text != number) {
-            _clientNumberSearchController.text = number;
-          }
-        }
-        final hasSelection = selectedClient != null;
-        final suggestions =
-            hasSelection ? const <Client>[] : _clientSuggestions;
         final theme = Theme.of(context);
-        final clientNumberText = selectedClient?.clientNumber ?? '';
-        final clientField =
-            hasSelection
-                ? InputDecorator(
-                  decoration: InputDecoration(
-                    labelText: 'Cliente',
-                    floatingLabelBehavior: FloatingLabelBehavior.always,
-                    errorText: state.errorText,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 12,
-                    ),
-                  ),
-                  isEmpty: false,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              selectedClient.fullName,
-                              style: theme.textTheme.bodyLarge,
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Vai al cliente',
-                            icon: const Icon(Icons.open_in_new_rounded),
-                            onPressed: () async {
-                              await _openSelectedClient();
-                            },
-                          ),
-                          const SizedBox(width: 6),
-                          IconButton(
-                            tooltip: 'Rimuovi cliente',
-                            icon: const Icon(Icons.close_rounded),
-                            onPressed: _clearClientSelection,
-                          ),
-                        ],
-                      ),
-                      if (selectedClient.phone?.trim().isNotEmpty ?? false)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.phone,
-                                size: 16,
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                              const SizedBox(width: 6),
-                              Flexible(
-                                child: Text(
-                                  selectedClient.phone!.trim(),
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: theme.textTheme.bodySmall?.color
-                                        ?.withOpacity(0.75),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-                )
-                : TextField(
-                  controller: _clientSearchController,
-                  focusNode: _clientSearchFocusNode,
-                  decoration: InputDecoration(
-                    labelText: 'Cliente',
-                    floatingLabelBehavior: FloatingLabelBehavior.always,
-                    hintText: 'Nome, cognome, telefono o email',
-                    errorText: state.errorText,
-                    suffixIcon:
-                        _clientSearchController.text.isEmpty
-                            ? const Icon(Icons.search_rounded, size: 20)
-                            : IconButton(
-                              tooltip: 'Pulisci ricerca',
-                              icon: const Icon(Icons.clear_rounded),
-                              onPressed: _clearClientSearch,
-                            ),
-                  ),
-                  keyboardType: TextInputType.text,
-                  textInputAction: TextInputAction.search,
-                  onChanged:
-                      (value) => _onClientSearchChanged(
-                        value,
-                        clients,
-                        _ClientSearchMode.general,
-                      ),
-                );
-
-        final clientNumberField =
-            hasSelection
-                ? InputDecorator(
-                  decoration: const InputDecoration(
-                    labelText: 'Numero cliente',
-                    floatingLabelBehavior: FloatingLabelBehavior.always,
-                    isDense: true,
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 12,
-                    ),
-                  ),
-                  child: SizedBox(
-                    height: 48,
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        clientNumberText.isNotEmpty
-                            ? clientNumberText
-                            : 'Numero non disponibile',
-                        style:
-                            theme.textTheme.bodyLarge ??
-                            theme.textTheme.bodyMedium,
-                      ),
-                    ),
-                  ),
-                )
-                : TextField(
-                  controller: _clientNumberSearchController,
-                  focusNode: _clientNumberSearchFocusNode,
-                  decoration: InputDecoration(
-                    labelText: 'Numero cliente',
-                    floatingLabelBehavior: FloatingLabelBehavior.always,
-                    hintText: 'Numero cliente',
-                    suffixIcon:
-                        _clientNumberSearchController.text.isEmpty
-                            ? const Icon(Icons.search_rounded, size: 20)
-                            : IconButton(
-                              tooltip: 'Pulisci ricerca',
-                              icon: const Icon(Icons.clear_rounded),
-                              onPressed: _clearClientNumberSearch,
-                            ),
-                  ),
-                  keyboardType: TextInputType.number,
-                  textInputAction: TextInputAction.search,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  onChanged:
-                      (value) => _onClientSearchChanged(
-                        value,
-                        clients,
-                        _ClientSearchMode.number,
-                      ),
-                );
-
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            final isNarrow = constraints.maxWidth < 640;
-            final clientFields =
-                isNarrow
-                    ? Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        clientField,
-                        const SizedBox(height: 12),
-                        clientNumberField,
-                      ],
-                    )
-                    : Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(child: clientField),
-                        const SizedBox(width: 12),
-                        SizedBox(width: 220, child: clientNumberField),
-                      ],
-                    );
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                clientFields,
-                if (!hasSelection) ...[
-                  const SizedBox(height: 8),
-                  _buildClientSuggestions(suggestions),
-                ],
-              ],
-            );
-          },
+        if (_usesDesktopInlineClientSearch(context)) {
+          return _buildDesktopClientSelector(
+            theme,
+            clients: clients,
+            selectedClient: selectedClient,
+            errorText: state.errorText,
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (selectedClient == null)
+              _buildEmptyClientSelectionCard(
+                theme,
+                clients: clients,
+                errorText: state.errorText,
+              )
+            else
+              _buildSelectedClientCard(
+                theme,
+                selectedClient,
+                errorText: state.errorText,
+                clients: clients,
+              ),
+          ],
         );
       },
     );
   }
 
-  Widget _buildClientSuggestions(List<Client> suggestions) {
+  Widget _buildSaleLinesSection(ThemeData theme, NumberFormat currency) {
+    return Column(
+      children: [
+        for (var i = 0; i < _lines.length; i++) ...[
+          _buildLineCard(_lines[i], i, currency),
+          if (i < _lines.length - 1) const SizedBox(height: 2),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildLineCard(_SaleLineDraft line, int index, NumberFormat currency) {
+    final theme = Theme.of(context);
+    final palette = _SaleFormPalette.fromTheme(theme);
+    final lineTotal = _lineTotal(line);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      decoration: BoxDecoration(
+        color: palette.elevatedPanelBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: palette.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                _lineTypeIcon(line.referenceType),
+                size: 18,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _lineDisplayLabel(line, index),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Rimuovi voce',
+                onPressed: () => _removeLine(line.id),
+                icon: Icon(Icons.delete_outline_rounded, color: palette.danger),
+              ),
+            ],
+          ),
+          if (line.catalogLabel != null && line.catalogLabel!.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Text(
+                line.catalogLabel!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildFieldCaption(
+                      theme,
+                      'Quantità',
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(height: 6),
+                    TextFormField(
+                      controller: line.quantityController,
+                      decoration: _buildModalFieldDecoration(theme),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      validator: (value) {
+                        final quantity = _parseAmount(value);
+                        if (quantity == null || quantity <= 0) {
+                          return 'Quantità non valida';
+                        }
+                        return null;
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildFieldCaption(
+                      theme,
+                      'Prezzo unitario (€)',
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(height: 6),
+                    TextFormField(
+                      controller: line.priceController,
+                      decoration: _buildModalFieldDecoration(theme),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      validator: (value) {
+                        final price = _parseAmount(value);
+                        if (price == null || price < 0) {
+                          return 'Prezzo non valido';
+                        }
+                        return null;
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildFieldCaption(
+                theme,
+                'Totale riga',
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              Text(
+                currency.format(lineTotal),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Salon? get _currentSalon =>
+      widget.salons.firstWhereOrNull((salon) => salon.id == _salonId);
+
+  Client? get _currentClient =>
+      widget.clients.firstWhereOrNull((client) => client.id == _clientId);
+
+  Future<void> _pickClient(List<Client> clients) async {
+    FocusScope.of(context).unfocus();
+    final selectedClient = await showClientSearchSheet(
+      context: context,
+      clients: clients,
+      activeSalonId: _salonId,
+      selectedClientId: _clientId,
+    );
+    if (!mounted || selectedClient == null) {
+      return;
+    }
+    _applyClientSelection(selectedClient);
+  }
+
+  bool _usesDesktopInlineClientSearch(BuildContext context) {
+    return MediaQuery.sizeOf(context).width >= 1024;
+  }
+
+  Widget _buildDesktopClientSelector(
+    ThemeData theme, {
+    required List<Client> clients,
+    required Client? selectedClient,
+    String? errorText,
+  }) {
+    final hasSelection = selectedClient != null;
+    final suggestions = _clientSuggestions;
+    final clientNumberText = selectedClient?.clientNumber?.trim() ?? '';
+    final clientField =
+        hasSelection
+            ? InputDecorator(
+              decoration: InputDecoration(
+                labelText: 'Cliente',
+                floatingLabelBehavior: FloatingLabelBehavior.always,
+                errorText: errorText,
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+              ),
+              isEmpty: false,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          selectedClient.fullName,
+                          style: theme.textTheme.bodyLarge,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Vai al cliente',
+                        icon: const Icon(Icons.open_in_new_rounded),
+                        onPressed: _openSelectedClient,
+                      ),
+                      const SizedBox(width: 6),
+                      IconButton(
+                        tooltip: 'Rimuovi cliente',
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: _clearClientSelection,
+                      ),
+                    ],
+                  ),
+                  if (selectedClient.phone.trim().isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.phone,
+                            size: 16,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              selectedClient.phone.trim(),
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            )
+            : TextField(
+              controller: _clientSearchController,
+              focusNode: _clientSearchFocusNode,
+              decoration: InputDecoration(
+                labelText: 'Cliente',
+                floatingLabelBehavior: FloatingLabelBehavior.always,
+                hintText: 'Nome, cognome, telefono o email',
+                errorText: errorText,
+                suffixIcon:
+                    _clientSearchController.text.isEmpty
+                        ? const Icon(Icons.search_rounded, size: 20)
+                        : IconButton(
+                          tooltip: 'Pulisci ricerca',
+                          icon: const Icon(Icons.clear_rounded),
+                          onPressed: _clearClientSearch,
+                        ),
+              ),
+              keyboardType: TextInputType.text,
+              textInputAction: TextInputAction.search,
+              onChanged:
+                  (value) => _onClientSearchChanged(
+                    value,
+                    clients,
+                    _ClientSearchMode.general,
+                  ),
+            );
+
+    final clientNumberField =
+        hasSelection
+            ? InputDecorator(
+              decoration: const InputDecoration(
+                labelText: 'Numero cliente',
+                floatingLabelBehavior: FloatingLabelBehavior.always,
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+              ),
+              child: SizedBox(
+                height: 48,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    clientNumberText.isNotEmpty
+                        ? clientNumberText
+                        : 'Numero non disponibile',
+                    style:
+                        theme.textTheme.bodyLarge ?? theme.textTheme.bodyMedium,
+                  ),
+                ),
+              ),
+            )
+            : TextField(
+              controller: _clientNumberSearchController,
+              focusNode: _clientNumberSearchFocusNode,
+              decoration: InputDecoration(
+                labelText: 'Numero cliente',
+                floatingLabelBehavior: FloatingLabelBehavior.always,
+                hintText: 'Numero cliente',
+                suffixIcon:
+                    _clientNumberSearchController.text.isEmpty
+                        ? const Icon(Icons.search_rounded, size: 20)
+                        : IconButton(
+                          tooltip: 'Pulisci ricerca',
+                          icon: const Icon(Icons.clear_rounded),
+                          onPressed: _clearClientNumberSearch,
+                        ),
+              ),
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.search,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              onChanged:
+                  (value) => _onClientSearchChanged(
+                    value,
+                    clients,
+                    _ClientSearchMode.number,
+                  ),
+            );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 640;
+        final clientFields =
+            isNarrow
+                ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    clientField,
+                    const SizedBox(height: 12),
+                    clientNumberField,
+                  ],
+                )
+                : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: clientField),
+                    const SizedBox(width: 12),
+                    SizedBox(width: 220, child: clientNumberField),
+                  ],
+                );
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            clientFields,
+            if (!hasSelection) ...[
+              const SizedBox(height: 8),
+              _buildDesktopClientSuggestions(suggestions),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildDesktopClientSuggestions(List<Client> suggestions) {
+    final theme = Theme.of(context);
+    final isClientNumberMode = _clientSearchMode == _ClientSearchMode.number;
     final query =
-        _clientSearchMode == _ClientSearchMode.number
+        isClientNumberMode
             ? _clientNumberSearchController.text.trim()
             : _clientSearchController.text.trim();
     if (query.isEmpty) {
       return const SizedBox.shrink();
     }
-    final theme = Theme.of(context);
+    if (ClientSearchUtils.hasShortQueryForMode(
+      query: query,
+      isClientNumber: isClientNumberMode,
+    )) {
+      return Card(
+        margin: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          child: Text(
+            ClientSearchUtils.minSearchCriteriaMessage,
+            style: theme.textTheme.bodyMedium,
+          ),
+        ),
+      );
+    }
     if (suggestions.isEmpty) {
       return Card(
         margin: EdgeInsets.zero,
@@ -1388,7 +2165,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         mainAxisSize: MainAxisSize.min,
         children: [
           for (var i = 0; i < suggestions.length; i++) ...[
-            _buildClientSuggestionTile(suggestions[i]),
+            _buildDesktopClientSuggestionTile(suggestions[i]),
             if (i != suggestions.length - 1)
               const Divider(height: 1, thickness: 1),
           ],
@@ -1397,299 +2174,473 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     );
   }
 
-  Widget _buildClientSuggestionTile(Client client) {
-    final initials = _clientInitial(client);
-    final subtitle = _buildClientSubtitle(client);
+  Widget _buildDesktopClientSuggestionTile(Client client) {
+    final subtitle = _buildDesktopClientSubtitle(client);
     return ListTile(
       onTap: () => _handleClientSuggestionTap(client),
-      leading: CircleAvatar(child: Text(initials)),
+      leading: CircleAvatar(child: Text(_initialForClient(client))),
       title: Text(client.fullName),
       subtitle: subtitle.isNotEmpty ? Text(subtitle) : null,
       trailing: const Icon(Icons.chevron_right_rounded),
     );
   }
 
-  String _buildClientSubtitle(Client client) {
+  String _buildDesktopClientSubtitle(Client client) {
     final parts = <String>[];
     if (client.clientNumber != null && client.clientNumber!.isNotEmpty) {
       parts.add('N° ${client.clientNumber}');
     }
-    if (client.phone.isNotEmpty) {
-      parts.add(client.phone);
+    if (client.phone.trim().isNotEmpty) {
+      parts.add(client.phone.trim());
     }
-    if (client.email != null && client.email!.isNotEmpty) {
-      parts.add(client.email!);
+    if (client.email != null && client.email!.trim().isNotEmpty) {
+      parts.add(client.email!.trim());
     }
     return parts.join(' · ');
   }
 
-  String _clientInitial(Client client) {
+  Widget _buildEmptyClientSelectionCard(
+    ThemeData theme, {
+    required List<Client> clients,
+    String? errorText,
+  }) {
+    final palette = _SaleFormPalette.fromTheme(theme);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+      decoration: BoxDecoration(
+        color: palette.elevatedPanelBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: errorText != null ? palette.danger : palette.border,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Nessun cliente selezionato',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Apri la ricerca dedicata per trovare rapidamente il cliente giusto per nome, telefono, email o numero cliente.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 14),
+          FilledButton.icon(
+            onPressed: () => _pickClient(clients),
+            icon: const Icon(Icons.person_search_rounded),
+            label: const Text('Seleziona cliente'),
+          ),
+          if (errorText != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              errorText,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.error,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSelectedClientCard(
+    ThemeData theme,
+    Client selectedClient, {
+    required List<Client> clients,
+    String? errorText,
+  }) {
+    final palette = _SaleFormPalette.fromTheme(theme);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+      decoration: BoxDecoration(
+        color: palette.elevatedPanelBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: errorText != null ? palette.danger : palette.success,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                backgroundColor: palette.successBg,
+                foregroundColor: palette.success,
+                child: Text(_initialForClient(selectedClient)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          selectedClient.fullName,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (selectedClient.clientNumber != null &&
+                            selectedClient.clientNumber!.isNotEmpty)
+                          _buildClientPill(
+                            theme,
+                            'N° ${selectedClient.clientNumber}',
+                          ),
+                      ],
+                    ),
+                    if (selectedClient.phone.trim().isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.phone,
+                            size: 14,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              selectedClient.phone.trim(),
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    if (selectedClient.email != null &&
+                        selectedClient.email!.trim().isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          selectedClient.email!.trim(),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () => _pickClient(clients),
+                icon: const Icon(Icons.swap_horiz_rounded),
+                label: const Text('Cambia'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _openSelectedClient,
+                icon: const Icon(Icons.open_in_new_rounded),
+                label: const Text('Apri cliente'),
+              ),
+              TextButton.icon(
+                onPressed: _clearClientSelection,
+                icon: const Icon(Icons.close_rounded),
+                label: const Text('Rimuovi'),
+                style: TextButton.styleFrom(foregroundColor: palette.danger),
+              ),
+            ],
+          ),
+          if (errorText != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              errorText,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.error,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildClientPill(ThemeData theme, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: theme.colorScheme.primary,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  String _initialForClient(Client client) {
     final trimmed = client.fullName.trim();
     if (trimmed.isEmpty) {
       return '?';
     }
-    final codePoint = trimmed.runes.first;
-    return String.fromCharCode(codePoint).toUpperCase();
+    return String.fromCharCode(trimmed.runes.first).toUpperCase();
   }
 
-  Widget _buildDateTimeField(DateFormat dateFormat) {
-    final theme = Theme.of(context);
-    return Text(dateFormat.format(_date), style: theme.textTheme.bodyMedium);
+  void _clearClientSearch() {
+    if (_clientSearchController.text.isEmpty) {
+      return;
+    }
+    _clientSearchController.clear();
+    setState(() {
+      _clientSearchMode = _ClientSearchMode.general;
+      _clientSuggestions = const <Client>[];
+    });
+    FocusScope.of(context).requestFocus(_clientSearchFocusNode);
   }
 
-  Widget _buildSaleLinesSection(ThemeData theme, NumberFormat currency) {
-    return Column(
-      children: [
-        for (var i = 0; i < _lines.length; i++) ...[
-          _buildLineCard(_lines[i], i, currency),
-          if (i < _lines.length - 1) const SizedBox(height: 2),
-        ],
-      ],
+  void _clearClientNumberSearch() {
+    if (_clientNumberSearchController.text.isEmpty) {
+      return;
+    }
+    _clientNumberSearchController.clear();
+    setState(() {
+      _clientSearchMode = _ClientSearchMode.general;
+      _clientSuggestions = const <Client>[];
+    });
+    FocusScope.of(context).requestFocus(_clientNumberSearchFocusNode);
+  }
+
+  void _onClientSearchChanged(
+    String value,
+    List<Client> clients,
+    _ClientSearchMode mode,
+  ) {
+    final query = value.trim();
+    final isClientNumberMode = mode == _ClientSearchMode.number;
+    if (!ClientSearchUtils.hasSearchableQueryForMode(
+      query: query,
+      isClientNumber: isClientNumberMode,
+    )) {
+      setState(() {
+        _clientSearchMode = mode;
+        _clientSuggestions = const <Client>[];
+      });
+      return;
+    }
+
+    final filtered = ClientSearchUtils.rankedClients(
+      clients: clients,
+      generalQuery: mode == _ClientSearchMode.general ? query : '',
+      clientNumberQuery: mode == _ClientSearchMode.number ? query : '',
+      activeSalonId: _salonId,
+      exactNumberMatch: mode == _ClientSearchMode.number,
+      limit: 8,
     );
+
+    setState(() {
+      _clientSearchMode = mode;
+      _clientSuggestions = filtered;
+    });
   }
 
-  Widget _buildLineCard(_SaleLineDraft line, int index, NumberFormat currency) {
-    final theme = Theme.of(context);
-    final lineTotal = _lineTotal(line);
-    final typeLabel = _lineTypeLabel(line.referenceType);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 1),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '$typeLabel • ${_lineDisplayLabel(line, index)}',
-                    style: theme.textTheme.titleMedium,
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Rimuovi voce',
-                  onPressed: () => _removeLine(line.id),
-                  icon: const Icon(Icons.delete_outline_rounded),
-                ),
-              ],
-            ),
-            if (line.catalogLabel != null && line.catalogLabel!.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text(
-                  line.catalogLabel!,
-                  style: theme.textTheme.bodyMedium,
-                ),
-              ),
-
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: line.quantityController,
-                    decoration: const InputDecoration(labelText: 'Quantità'),
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    validator: (value) {
-                      final quantity = _parseAmount(value);
-                      if (quantity == null || quantity <= 0) {
-                        return 'Quantità non valida';
-                      }
-                      return null;
-                    },
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextFormField(
-                    controller: line.priceController,
-                    decoration: const InputDecoration(
-                      labelText: 'Prezzo unitario (€)',
-                    ),
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    validator: (value) {
-                      final price = _parseAmount(value);
-                      if (price == null || price < 0) {
-                        return 'Prezzo non valido';
-                      }
-                      return null;
-                    },
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                'Totale riga: ${currency.format(lineTotal)}',
-                style: theme.textTheme.bodyMedium,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  void _handleClientSuggestionTap(Client client) {
+    FocusScope.of(context).unfocus();
+    _applyClientSelection(client);
   }
 
-  Widget _buildSummarySection(
-    NumberFormat currency,
-    double subtotal,
-    double manualDiscount,
-    double loyaltyDiscount,
-    double total, {
-    bool editable = true,
+  Widget _buildServiceProviderPicker(
+    List<StaffMember> serviceProviders, {
+    bool dense = false,
   }) {
     final theme = Theme.of(context);
-    final manualBase = subtotal - manualDiscount;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Subtotale'),
-                Text(currency.format(subtotal)),
-              ],
-            ),
-            if (manualDiscount > 0) ...[
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Adeguamento manuale',
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                  Text(
-                    '-${currency.format(manualDiscount)}',
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                ],
+    final palette = _SaleFormPalette.fromTheme(theme);
+    final decoration =
+        dense
+            ? _buildModalFieldDecoration(
+              theme,
+              hintText: 'Seleziona operatore',
+              fillColor: palette.denseInputBg,
+            )
+            : const InputDecoration(
+              labelText: 'Erogato da',
+              floatingLabelBehavior: FloatingLabelBehavior.always,
+            );
+    if (widget.lockServiceOperator) {
+      return _buildReadOnlyServiceOperatorField(dense: dense);
+    }
+    return DropdownButtonFormField<String>(
+      isExpanded: true,
+      initialValue: _staffId,
+      decoration: decoration,
+      items:
+          serviceProviders
+              .map(
+                (member) => DropdownMenuItem(
+                  value: member.id,
+                  child: Text(_staffOptionLabel(member)),
+                ),
+              )
+              .toList(),
+      onChanged: _onServiceProviderChanged,
+    );
+  }
+
+  Widget _buildReadOnlyServiceOperatorField({bool dense = false}) {
+    final theme = Theme.of(context);
+    final palette = _SaleFormPalette.fromTheme(theme);
+    final operator = _selectedServiceProvider;
+    final label =
+        operator == null ? 'Non assegnato' : _staffOptionLabel(operator);
+    return InputDecorator(
+      decoration:
+          dense
+              ? _buildModalFieldDecoration(
+                theme,
+                fillColor: palette.denseInputBg,
+              )
+              : const InputDecoration(
+                labelText: 'Erogato da',
+                floatingLabelBehavior: FloatingLabelBehavior.always,
               ),
-            ],
-            if (loyaltyDiscount > 0) ...[
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Riscatto punti', style: theme.textTheme.bodyMedium),
-                  Text(
-                    '-${currency.format(loyaltyDiscount)}',
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                ],
-              ),
-            ],
-            const SizedBox(height: 12),
-            if (editable) ...[
-              TextFormField(
-                controller: _manualTotalController,
-                decoration: const InputDecoration(
-                  labelText: 'Totale vendita (€)',
-                  helperText:
-                      'Modifica l\'importo per impostare manualmente il totale prima dei punti fedeltà.',
-                ),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                validator: (value) {
-                  if (_lines.isEmpty) {
-                    return null;
-                  }
-                  final manual = _parseAmount(value);
-                  if (manual == null) {
-                    return 'Inserisci un importo valido';
-                  }
-                  if (manual < 0.01) {
-                    return 'Il totale deve essere positivo';
-                  }
-                  final currentSubtotal = _computeSubtotal();
-                  if (manual > currentSubtotal + 0.01) {
-                    return 'Non può superare il subtotale';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-            ] else ...[
-              Text(
-                'Totale vendita impostato',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                currency.format(manualBase),
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Totale prima dei punti',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                Text(currency.format(manualBase)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Totale dopo i punti',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  currency.format(total),
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ],
+      child: Text(label),
+    );
+  }
+
+  Widget _buildMutedInfoContainer(ThemeData theme, String message) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(
+          alpha: 0.75,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Text(
+        message,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
         ),
       ),
     );
   }
 
-  Salon? get _currentSalon =>
-      widget.salons.firstWhereOrNull((salon) => salon.id == _salonId);
-
-  Client? get _currentClient =>
-      widget.clients.firstWhereOrNull((client) => client.id == _clientId);
-
-  Widget _buildReadOnlyServiceOperatorField() {
-    final operator = _selectedServiceOperator;
-    final label =
-        operator == null
-            ? 'Non assegnato'
-            : operator.isEquipment
-            ? '${operator.fullName} (Macchinario)'
-            : operator.fullName;
-    return InputDecorator(
-      decoration: const InputDecoration(
-        labelText: 'Operatore',
-        floatingLabelBehavior: FloatingLabelBehavior.always,
+  Widget _buildMetricTile({
+    required ThemeData theme,
+    required String label,
+    required String value,
+    Color? borderColor,
+    Color? backgroundColor,
+    Color? labelColor,
+    Color? valueColor,
+  }) {
+    final colorScheme = theme.colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color:
+            backgroundColor ??
+            colorScheme.surfaceContainerHighest.withValues(alpha: 0.65),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor ?? colorScheme.outlineVariant),
       ),
-      child: Text(label),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label.toUpperCase(),
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: labelColor ?? colorScheme.primary,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.6,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: valueColor ?? colorScheme.onSurface,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFieldCaption(ThemeData theme, String label, {Color? color}) {
+    return Text(
+      label.toUpperCase(),
+      style: theme.textTheme.labelMedium?.copyWith(
+        color: color ?? theme.colorScheme.primary,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.7,
+      ),
+    );
+  }
+
+  InputDecoration _buildModalFieldDecoration(
+    ThemeData theme, {
+    String? hintText,
+    String? errorText,
+    Widget? prefixIcon,
+    Widget? suffixIcon,
+    String? prefixText,
+    Color? borderColor,
+    Color? fillColor,
+  }) {
+    final palette = _SaleFormPalette.fromTheme(theme);
+    final baseBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: BorderSide(color: borderColor ?? palette.border),
+    );
+    return InputDecoration(
+      hintText: hintText,
+      errorText: errorText,
+      isDense: true,
+      filled: true,
+      fillColor: fillColor ?? palette.inputBg,
+      prefixIcon: prefixIcon,
+      suffixIcon: suffixIcon,
+      prefixText: prefixText,
+      prefixStyle: theme.textTheme.bodyLarge?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+        fontWeight: FontWeight.w700,
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: baseBorder,
+      enabledBorder: baseBorder,
+      focusedBorder: baseBorder.copyWith(
+        borderSide: BorderSide(
+          color: borderColor ?? theme.colorScheme.primary,
+          width: 1.2,
+        ),
+      ),
+      errorBorder: baseBorder.copyWith(
+        borderSide: BorderSide(color: theme.colorScheme.error),
+      ),
+      focusedErrorBorder: baseBorder.copyWith(
+        borderSide: BorderSide(color: theme.colorScheme.error, width: 1.2),
+      ),
     );
   }
 
@@ -1699,14 +2650,10 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     Client? client,
   ) {
     final theme = Theme.of(context);
+    final palette = _SaleFormPalette.fromTheme(theme);
 
     Widget buildInfo(String message) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Text(message, style: theme.textTheme.bodyMedium),
-        ),
-      );
+      return _buildMutedInfoContainer(theme, message);
     }
 
     if (salon == null) {
@@ -1743,67 +2690,110 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
             ? 'Aggiungi righe valide o riduci gli sconti manuali per abilitare il riscatto.'
             : 'Nessun punto utilizzabile per questa vendita.';
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Programma fedeltà', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Saldo cliente'),
-                Text('$availablePoints pt'),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Utilizzabili ora'),
-                Text('$_maxRedeemablePoints pt'),
-              ],
-            ),
-            if (_loyaltyEligibleAmount > 0) ...[
-              const SizedBox(height: 6),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Importo eleggibile'),
-                  Text(currency.format(_loyaltyEligibleAmount)),
-                ],
+    final accentGreen = palette.success;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final isCompact = constraints.maxWidth < 420;
+            final tiles = [
+              Expanded(
+                child: _buildMetricTile(
+                  theme: theme,
+                  label: 'Saldo cliente',
+                  value: '$availablePoints pt',
+                ),
               ),
-            ],
-            const SizedBox(height: 12),
-            TextFormField(
-              key: saleFormLoyaltyRedeemFieldKey,
-              controller: _loyaltyRedeemController,
-              enabled: canRedeem,
-              decoration: InputDecoration(
-                labelText: 'Punti da utilizzare',
-                helperText: helperText,
+              Expanded(
+                child: _buildMetricTile(
+                  theme: theme,
+                  label: 'Utilizzabili ora',
+                  value: '$_maxRedeemablePoints pt',
+                ),
               ),
-              keyboardType: const TextInputType.numberWithOptions(
-                signed: false,
-                decimal: false,
-              ),
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              onChanged: _onRedeemPointsChanged,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Sconto fedeltà: ${currency.format(_loyaltySummary.redeemedValue)}',
-              style: theme.textTheme.bodyMedium,
-            ),
-            Text(
-              'Punti in accredito (previsti): ${_loyaltySummary.requestedEarnPoints}',
-              style: theme.textTheme.bodySmall,
-            ),
-          ],
+            ];
+            if (isCompact) {
+              return Column(
+                children: [tiles[0], const SizedBox(height: 12), tiles[1]],
+              );
+            }
+            return Row(
+              children: [tiles[0], const SizedBox(width: 12), tiles[1]],
+            );
+          },
         ),
-      ),
+        const SizedBox(height: 12),
+        _buildMetricTile(
+          theme: theme,
+          label: 'Importo eleggibile',
+          value: currency.format(_loyaltyEligibleAmount),
+          borderColor: theme.colorScheme.primary.withValues(alpha: 0.8),
+          backgroundColor: theme.colorScheme.primaryContainer.withValues(
+            alpha: 0.4,
+          ),
+        ),
+        const SizedBox(height: 12),
+        _buildFieldCaption(theme, 'Punti da utilizzare'),
+        const SizedBox(height: 8),
+        TextFormField(
+          key: saleFormLoyaltyRedeemFieldKey,
+          controller: _loyaltyRedeemController,
+          enabled: canRedeem,
+          decoration: _buildModalFieldDecoration(theme, hintText: '0'),
+          keyboardType: const TextInputType.numberWithOptions(
+            signed: false,
+            decimal: false,
+          ),
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          onChanged: _onRedeemPointsChanged,
+        ),
+        const SizedBox(height: 6),
+        Text(
+          helperText,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 12),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final isCompact = constraints.maxWidth < 420;
+            final discountTile = Expanded(
+              child: _buildMetricTile(
+                theme: theme,
+                label: 'Sconto fedeltà',
+                value: '-${currency.format(_loyaltySummary.redeemedValue)}',
+                borderColor: accentGreen.withValues(alpha: 0.85),
+                backgroundColor: accentGreen.withValues(alpha: 0.12),
+                labelColor: accentGreen,
+                valueColor: accentGreen,
+              ),
+            );
+            final earnTile = Expanded(
+              child: _buildMetricTile(
+                theme: theme,
+                label: 'Punti in accredito',
+                value: '+${_loyaltySummary.requestedEarnPoints} pt',
+                borderColor: theme.colorScheme.primary.withValues(alpha: 0.85),
+                backgroundColor: theme.colorScheme.primaryContainer.withValues(
+                  alpha: 0.3,
+                ),
+                valueColor: theme.colorScheme.onSurface,
+              ),
+            );
+            if (isCompact) {
+              return Column(
+                children: [discountTile, const SizedBox(height: 12), earnTile],
+              );
+            }
+            return Row(
+              children: [discountTile, const SizedBox(width: 12), earnTile],
+            );
+          },
+        ),
+      ],
     );
   }
 
@@ -1994,11 +2984,6 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     _lineCachedPrices.clear();
   }
 
-  void _handleClientSuggestionTap(Client client) {
-    FocusScope.of(context).unfocus();
-    _applyClientSelection(client);
-  }
-
   void _applyClientSelection(Client client) {
     final newSalonId = client.salonId;
     final salonChanged = newSalonId.isNotEmpty && newSalonId != _salonId;
@@ -2011,6 +2996,9 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       if (salonChanged) {
         _salonId = newSalonId;
         _staffId = null;
+        if (!_isSelectableRecorderId(_recorderStaffId, salonId: newSalonId)) {
+          _recorderStaffId = null;
+        }
         _resetLines();
       }
     });
@@ -2029,7 +3017,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   }
 
   void _clearClientSelection() {
-    if (_clientId == null && _clientSearchController.text.isEmpty) {
+    if (_clientId == null) {
       return;
     }
     setState(() {
@@ -2041,66 +3029,15 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       _isPaymentStep = false;
     });
     _clientFieldKey.currentState?.didChange(null);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-      FocusScope.of(context).requestFocus(_clientSearchFocusNode);
-    });
     _recalculateLoyalty(autoSuggest: true);
-  }
-
-  void _clearClientSearch() {
-    if (_clientSearchController.text.isEmpty && _clientSuggestions.isEmpty) {
-      return;
-    }
-    _clientSearchController.clear();
-    setState(() {
-      _clientSearchMode = _ClientSearchMode.general;
-      _clientSuggestions = const <Client>[];
-    });
-    FocusScope.of(context).requestFocus(_clientSearchFocusNode);
-  }
-
-  void _clearClientNumberSearch() {
-    if (_clientNumberSearchController.text.isEmpty &&
-        _clientSuggestions.isEmpty) {
-      return;
-    }
-    _clientNumberSearchController.clear();
-    setState(() {
-      _clientSearchMode = _ClientSearchMode.general;
-      _clientSuggestions = const <Client>[];
-    });
-    FocusScope.of(context).requestFocus(_clientNumberSearchFocusNode);
-  }
-
-  void _onClientSearchChanged(
-    String value,
-    List<Client> clients,
-    _ClientSearchMode mode,
-  ) {
-    final query = value.trim();
-    if (query.isEmpty) {
-      setState(() {
-        _clientSearchMode = mode;
-        _clientSuggestions = const <Client>[];
+    if (_usesDesktopInlineClientSearch(context)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        FocusScope.of(context).requestFocus(_clientSearchFocusNode);
       });
-      return;
     }
-
-    final filtered = ClientSearchUtils.filterClients(
-      clients: clients,
-      generalQuery: mode == _ClientSearchMode.general ? query : '',
-      clientNumberQuery: mode == _ClientSearchMode.number ? query : '',
-      exactNumberMatch: mode == _ClientSearchMode.number,
-    )..sort((a, b) => a.lastName.compareTo(b.lastName));
-
-    setState(() {
-      _clientSearchMode = mode;
-      _clientSuggestions =
-          filtered.length > 8 ? filtered.sublist(0, 8) : filtered;
-    });
   }
 
   Future<void> _openSelectedClient() async {
@@ -2126,14 +3063,16 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     );
   }
 
-  void _onStaffChanged(String? staffId) {
+  void _onServiceProviderChanged(String? staffId) {
     if (staffId == _staffId) {
       return;
     }
     final selectedStaff =
         staffId == null
             ? null
-            : _operatorStaff.firstWhereOrNull((member) => member.id == staffId);
+            : _serviceProviders.firstWhereOrNull(
+              (member) => member.id == staffId,
+            );
     final newSalonId = selectedStaff?.salonId;
     final salonChanged =
         newSalonId != null && newSalonId.isNotEmpty && newSalonId != _salonId;
@@ -2141,6 +3080,9 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       _staffId = staffId;
       if (salonChanged) {
         _salonId = newSalonId;
+        if (!_isSelectableRecorderId(_recorderStaffId, salonId: newSalonId)) {
+          _recorderStaffId = null;
+        }
         if (_clientId != null) {
           final currentClient = widget.clients.firstWhereOrNull(
             (client) => client.id == _clientId,
@@ -2148,6 +3090,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
           if (currentClient?.salonId != newSalonId) {
             _clientId = null;
             _clientSearchController.clear();
+            _clientNumberSearchController.clear();
+            _clientSearchMode = _ClientSearchMode.general;
             _clientSuggestions = const <Client>[];
             _clientFieldKey.currentState?.didChange(null);
           }
@@ -2273,6 +3217,64 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     _registerLine(line);
   }
 
+  Future<void> _showAdditionalItemOptions() async {
+    final action = await showAppModalSheet<_AdditionalSaleItemAction>(
+      context: context,
+      includeCloseButton: false,
+      desktopMaxWidth: 420,
+      builder: (ctx) {
+        return DialogActionLayout(
+          title: 'Aggiungi elemento',
+          scrollBody: false,
+          bodyPadding: EdgeInsets.zero,
+          body: SizedBox(
+            width: double.infinity,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.add_circle_outline_rounded),
+                  title: const Text('Voce manuale'),
+                  subtitle: const Text(
+                    'Inserisci quantita e prezzo liberamente',
+                  ),
+                  onTap:
+                      () => Navigator.of(
+                        ctx,
+                      ).pop(_AdditionalSaleItemAction.manualItem),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.auto_fix_high_rounded),
+                  title: const Text('Pacchetto personalizzato'),
+                  subtitle: const Text(
+                    'Crea un pacchetto partendo dai servizi',
+                  ),
+                  onTap:
+                      () => Navigator.of(
+                        ctx,
+                      ).pop(_AdditionalSaleItemAction.customPackage),
+                ),
+              ],
+            ),
+          ),
+          actions: const [],
+        );
+      },
+    );
+    if (!mounted || action == null) {
+      return;
+    }
+    switch (action) {
+      case _AdditionalSaleItemAction.manualItem:
+        _onAddManualItem();
+        break;
+      case _AdditionalSaleItemAction.customPackage:
+        await _onAddCustomPackage();
+        break;
+    }
+  }
+
   Future<void> _onAddCustomPackage() async {
     final salonId = _salonId;
     if (salonId == null) {
@@ -2300,6 +3302,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
 
     final customPackage = await showAppModalSheet<ServicePackage>(
       context: context,
+      includeCloseButton: false,
+      desktopMaxWidth: 1180,
       builder:
           (ctx) => PackageFormSheet(
             salons: salons,
@@ -2346,37 +3350,12 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     required String Function(T) labelBuilder,
     String Function(T)? subtitleBuilder,
   }) {
-    return showAppModalSheet<T>(
+    return showAppSelectionSheet<T>(
       context: context,
-      builder: (ctx) {
-        return SafeArea(
-          child: ListView.separated(
-            shrinkWrap: true,
-            itemCount: items.length + 1,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (ctx, index) {
-              if (index == 0) {
-                return ListTile(
-                  title: Text(
-                    title,
-                    style: Theme.of(ctx).textTheme.titleMedium,
-                  ),
-                );
-              }
-              final item = items[index - 1];
-              final subtitle = subtitleBuilder?.call(item);
-              return ListTile(
-                title: Text(labelBuilder(item)),
-                subtitle:
-                    subtitle == null || subtitle.isEmpty
-                        ? null
-                        : Text(subtitle),
-                onTap: () => Navigator.of(ctx).pop(item),
-              );
-            },
-          ),
-        );
-      },
+      title: title,
+      items: items,
+      labelBuilder: labelBuilder,
+      subtitleBuilder: subtitleBuilder,
     );
   }
 
@@ -2855,6 +3834,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     setState(() {
       _isPaymentStep = true;
     });
+    _jumpToSheetTop();
   }
 
   void _exitPaymentStep() {
@@ -2865,10 +3845,20 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     setState(() {
       _isPaymentStep = false;
     });
+    _jumpToSheetTop();
   }
 
-  void _submit({bool skipReview = false}) {
-    if (!_isPaymentStep && !skipReview) {
+  void _jumpToSheetTop() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_sheetScrollController.hasClients) {
+        return;
+      }
+      _sheetScrollController.jumpTo(0);
+    });
+  }
+
+  void _submit() {
+    if (!_isPaymentStep) {
       _continueToPaymentStep();
       return;
     }
@@ -2937,9 +3927,9 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         }
       }
     } else {
-      paymentMethod = _payment ?? PaymentMethod.pos;
+      paymentMethod = PaymentMethod.imp0;
       paymentStatus = SalePaymentStatus.paid;
-      paidAmount = total;
+      paidAmount = 0;
     }
 
     final adjustedItems = _applyPackagePayments(
@@ -2950,13 +3940,13 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     );
 
     final staffId = _staffId;
-    final recordedStaffId = _recorderStaffId ?? staffId;
+    final recordedStaffId = _resolvedRecorderStaffId();
     if (recordedStaffId == null) {
       _showSnackBar('Seleziona l\'operatore che registra la vendita.');
       return;
     }
     final recordedByName =
-        _operatorStaff
+        _recorderStaff
             .firstWhereOrNull((member) => member.id == recordedStaffId)
             ?.fullName;
     final paymentMovements = <SalePaymentMovement>[];
@@ -3111,14 +4101,14 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     return double.tryParse(sanitized);
   }
 
-  String _lineTypeLabel(SaleReferenceType type) {
+  IconData _lineTypeIcon(SaleReferenceType type) {
     switch (type) {
       case SaleReferenceType.service:
-        return 'Servizio';
+        return Icons.content_cut_rounded;
       case SaleReferenceType.package:
-        return 'Pacchetto';
+        return Icons.widgets_outlined;
       case SaleReferenceType.product:
-        return 'Prodotto';
+        return Icons.shopping_bag_outlined;
     }
   }
 
@@ -3126,16 +4116,26 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     if (_serviceCoverageDetails.isEmpty) {
       return const SizedBox.shrink();
     }
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Copertura pacchetti', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 8),
-            for (final entry in _serviceCoverageDetails.entries)
-              Row(
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.26),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: theme.colorScheme.primary.withValues(alpha: 0.28),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Copertura pacchetti', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 8),
+          for (final entry in _serviceCoverageDetails.entries)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(
                     Icons.check_circle_outline,
@@ -3151,8 +4151,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                   ),
                 ],
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }
@@ -3252,7 +4252,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     required Map<String, int> usedSessions,
   }) {
     final serviceId = serviceItem.referenceId;
-    if (serviceId == null || serviceId.isEmpty) {
+    if (serviceId.isEmpty) {
       return false;
     }
     var remaining = serviceItem.quantity.round();
@@ -3313,27 +4313,14 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   }
 
   String _paymentLabel(PaymentMethod method) {
-    switch (method) {
-      case PaymentMethod.cash:
-        return 'Contanti';
-      case PaymentMethod.pos:
-        return 'POS';
-      case PaymentMethod.transfer:
-        return 'Bonifico';
-      case PaymentMethod.giftCard:
-        return 'Gift card';
-      case PaymentMethod.posticipated:
-        return 'Posticipato';
-    }
+    return method.label;
   }
 
   void _showSnackBar(String message) {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    context.showAppNotice(message, tone: inferAppNoticeTone(message));
   }
 }
 

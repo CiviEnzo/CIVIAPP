@@ -1,0 +1,201 @@
+{
+  "version": "1.0.0",
+  "generatedAt": "2026-03-03T00:00:00.000Z",
+  "project": "YouBook Design System",
+  "framework": "Flutter",
+  "components": [
+    {
+      "id": "agenda-001",
+      "figmaName": "Admin Appointment Card",
+      "figmaPath": "Admin/Agenda/AppointmentCard/Grid/Default",
+      "flutterWidget": "AdminAppointmentCard",
+      "flutterFile": "lib/widgets/admin/agenda/appointment_card.dart",
+      "priority": "P0",
+      "complexity": "Medium",
+      "props": [
+        "String id",
+        "String serviceName",
+        "String clientName",
+        "String staffName",
+        "DateTime startTime",
+        "DateTime endTime",
+        "AppointmentStatus status",
+        "VoidCallback? onTap",
+        "VoidCallback? onEdit",
+        "VoidCallback? onCancel"
+      ],
+      "dependencies": ["StatusBadge", "Avatar"],
+      "documentation": "https://youbook-docs.dev/components/admin-appointment-card"
+    },
+    {
+      "id": "agenda-002",
+      "figmaName": "Staff Appointment Card",
+      "figmaPath": "Staff/Agenda/AppointmentCard/Compact/Default",
+      "flutterWidget": "StaffAppointmentCard",
+      "flutterFile": "lib/widgets/staff/agenda/appointment_card.dart",
+      "priority": "P0",
+      "complexity": "Medium",
+      "props": [
+        "String id",
+        "String serviceName",
+        "String clientName",
+        "DateTime startTime",
+        "int duration",
+        "AppointmentStatus status",
+        "VoidCallback? onTap",
+        "bool isCompact"
+      ],
+      "dependencies": ["StatusBadge", "ClientAvatar"]
+    },
+    {
+      "id": "agenda-003",
+      "figmaName": "Client Appointment Card",
+      "figmaPath": "Client/Agenda/AppointmentCard/Full/Default",
+      "flutterWidget": "ClientAppointmentCard",
+      "flutterFile": "lib/widgets/client/agenda/appointment_card.dart",
+      "priority": "P0",
+      "complexity": "Complex",
+      "props": [
+        "String id",
+        "String serviceName",
+        "String staffName",
+        "DateTime date",
+        "String time",
+        "int duration",
+        "double price",
+        "AppointmentStatus status",
+        "VoidCallback? onModify",
+        "VoidCallback? onCancel",
+        "VoidCallback? onRebook",
+        "bool isHistory"
+      ],
+      "dependencies": ["StatusBadge", "IconButton", "PriceLabel"]
+    },
+    {
+      "id": "kpi-001",
+      "figmaName": "Admin KPI Card",
+      "figmaPath": "Admin/Dashboard/KPI/Card/Default",
+      "flutterWidget": "KPICard",
+      "flutterFile": "lib/widgets/shared/dashboard/kpi_card.dart",
+      "priority": "P0",
+      "complexity": "Simple",
+      "props": [
+        "String label",
+        "String value",
+        "IconData icon",
+        "Color color",
+        "Trend? trend",
+        "VoidCallback? onTap"
+      ],
+      "dependencies": ["TrendIndicator"]
+    },
+    {
+      "id": "drawer-001",
+      "figmaName": "Client Drawer Item",
+      "figmaPath": "Client/Dashboard/DrawerItem/Default",
+      "flutterWidget": "DrawerMenuItem",
+      "flutterFile": "lib/widgets/client/drawer/drawer_menu_item.dart",
+      "priority": "P1",
+      "complexity": "Simple",
+      "props": [
+        "IconData icon",
+        "String label",
+        "String? badge",
+        "VoidCallback onTap",
+        "bool isActive"
+      ],
+      "dependencies": ["Badge"]
+    },
+    {
+      "id": "quote-001",
+      "figmaName": "Client Quote Card",
+      "figmaPath": "Client/Quotes/QuoteCard/List/Pending",
+      "flutterWidget": "QuoteCard",
+      "flutterFile": "lib/widgets/client/quotes/quote_card.dart",
+      "priority": "P1",
+      "complexity": "Medium",
+      "props": [
+        "String id",
+        "String name",
+        "List<String> services",
+        "double total",
+        "QuoteStatus status",
+        "DateTime date",
+        "VoidCallback? onTap",
+        "VoidCallback? onPay"
+      ],
+      "dependencies": ["StatusBadge", "ServiceList", "PriceLabel"]
+    },
+    {
+      "id": "payment-001",
+      "figmaName": "Client Stripe Payment Form",
+      "figmaPath": "Client/Payment/StripeForm/Default",
+      "flutterWidget": "StripePaymentForm",
+      "flutterFile": "lib/widgets/client/payment/stripe_payment_form.dart",
+      "priority": "P1",
+      "complexity": "Complex",
+      "props": [
+        "double amount",
+        "Future<void> Function(PaymentData) onSubmit",
+        "VoidCallback? onCancel"
+      ],
+      "dependencies": ["TextFormField", "StripeSDK", "LoadingButton"]
+    },
+    {
+      "id": "notification-001",
+      "figmaName": "Client Notification Card",
+      "figmaPath": "Client/Notifications/NotificationCard/List/Unread",
+      "flutterWidget": "NotificationCard",
+      "flutterFile": "lib/widgets/client/notifications/notification_card.dart",
+      "priority": "P1",
+      "complexity": "Simple",
+      "props": [
+        "String id",
+        "NotificationType type",
+        "String title",
+        "String message",
+        "String time",
+        "bool isRead",
+        "VoidCallback? onTap",
+        "VoidCallback? onMarkRead"
+      ],
+      "dependencies": ["ReadIndicator"]
+    },
+    {
+      "id": "shared-001",
+      "figmaName": "Status Badge",
+      "figmaPath": "Shared/Badge/Status/Chip/Default",
+      "flutterWidget": "StatusBadge",
+      "flutterFile": "lib/widgets/shared/badge/status_badge.dart",
+      "priority": "P2",
+      "complexity": "Simple",
+      "props": [
+        "BadgeStatus status",
+        "String label",
+        "BadgeSize size"
+      ],
+      "dependencies": []
+    }
+  ],
+  "enums": {
+    "AppointmentStatus": ["pending", "confirmed", "completed", "cancelled", "noShow"],
+    "InvoiceStatus": ["paid", "pending", "overdue", "cancelled"],
+    "QuoteStatus": ["pending", "expired", "accepted", "rejected"],
+    "PackageStatus": ["active", "expired", "used"],
+    "RequestStatus": ["pending", "approved", "rejected"],
+    "TimeOffType": ["vacation", "sick", "personal", "other"],
+    "NotificationType": ["appointment", "promo", "loyalty", "system"],
+    "BadgeStatus": ["success", "pending", "cancelled", "info", "active", "inactive"],
+    "BadgeSize": ["sm", "md"]
+  },
+  "colorSystem": {
+    "primary": "#D4AF37",
+    "primaryForeground": "#000000",
+    "background": "#FFFFFF",
+    "foreground": "#000000",
+    "success": "#22C55E",
+    "warning": "#EAB308",
+    "error": "#EF4444",
+    "info": "#3B82F6"
+  }
+}

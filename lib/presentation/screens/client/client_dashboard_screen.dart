@@ -605,7 +605,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
             }
             final content = body.isEmpty ? title : '$title\n$body';
             // ignore: use_build_context_synchronously
-            ScaffoldMessenger.of(context).showSnackBar(
+            ScaffoldMessenger.of(context).showAppSnackBar(
               SnackBar(
                 content: Text(content),
                 behavior: SnackBarBehavior.floating,
@@ -651,7 +651,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     );
 
     if (slot == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Questo slot last-minute non è più disponibile.'),
         ),
@@ -661,7 +661,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
 
     final featureEnabled = salon?.featureFlags.clientLastMinute ?? false;
     if (!featureEnabled) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text(
             'Le offerte last-minute non sono più disponibili per questo salone.',
@@ -673,7 +673,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
 
     final now = DateTime.now();
     if (!slot.isActiveAt(now)) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text(
             'Lo slot last-minute è scaduto o è già stato prenotato.',
@@ -717,7 +717,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       return;
     }
     final confirmationFormat = DateFormat('dd MMMM yyyy HH:mm', 'it_IT');
-    ScaffoldMessenger.of(targetContext).showSnackBar(
+    ScaffoldMessenger.of(targetContext).showAppSnackBar(
       SnackBar(
         content: Text(
           'Appuntamento prenotato per '
@@ -745,7 +745,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       return;
     }
     final format = DateFormat('dd MMMM yyyy HH:mm', 'it_IT');
-    ScaffoldMessenger.of(targetContext).showSnackBar(
+    ScaffoldMessenger.of(targetContext).showAppSnackBar(
       SnackBar(
         content: Text(
           'Appuntamento aggiornato al ${format.format(updated.start)}.',
@@ -776,7 +776,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
           );
       if (!mounted) return;
       final targetContext = overrideContext ?? context;
-      ScaffoldMessenger.of(targetContext).showSnackBar(
+      ScaffoldMessenger.of(targetContext).showAppSnackBar(
         SnackBar(
           content: Text('Appuntamento del $appointmentLabel annullato.'),
         ),
@@ -786,11 +786,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       final targetContext = overrideContext ?? context;
       ScaffoldMessenger.of(
         targetContext,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+      ).showAppSnackBar(SnackBar(content: Text(error.message)));
     } catch (_) {
       if (!mounted) return;
       final targetContext = overrideContext ?? context;
-      ScaffoldMessenger.of(targetContext).showSnackBar(
+      ScaffoldMessenger.of(targetContext).showAppSnackBar(
         SnackBar(
           content: const Text('Errore durante l\'annullamento. Riprova.'),
         ),
@@ -911,7 +911,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       if (!mounted) {
         return;
       }
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(
           content: Text('Appuntamento del $appointmentLabel eliminato.'),
         ),
@@ -926,13 +926,13 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
               : (error.message?.isNotEmpty == true
                   ? error.message!
                   : 'Errore durante l\'eliminazione. Riprova.');
-      messenger.showSnackBar(SnackBar(content: Text(message)));
+      messenger.showAppSnackBar(SnackBar(content: Text(message)));
     } on StateError catch (error) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+      messenger.showAppSnackBar(SnackBar(content: Text(error.message)));
     } catch (error) {
       if (!mounted) return;
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(content: Text('Errore durante l\'eliminazione: $error')),
       );
     }
@@ -989,7 +989,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     final messenger = ScaffoldMessenger.of(targetContext);
     final cta = promotion.cta;
     if (cta == null || !cta.enabled) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(
           content: Text('Azione non disponibile per questa promozione.'),
         ),
@@ -998,7 +998,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     }
     final ctaUrl = cta.url;
     if (ctaUrl == null || ctaUrl.trim().isEmpty) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(
           content: Text('Nessun link disponibile per questa promozione.'),
         ),
@@ -1007,7 +1007,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     }
     final uri = _parsePromotionCtaUri(ctaUrl);
     if (uri == null) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(content: Text('Link promozione non valido.')),
       );
       return;
@@ -1106,7 +1106,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
         error == null
             ? 'Link dell\'offerta copiato negli appunti.'
             : 'Non riesco ad aprire il link, ma l\'ho copiato negli appunti.';
-    messenger.showSnackBar(SnackBar(content: Text(message)));
+    messenger.showAppSnackBar(SnackBar(content: Text(message)));
   }
 
   void _trackPromotionView(Promotion promotion) {
@@ -1124,7 +1124,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
   }
 
   void _showPurchasesDisabledSnackBar(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       const SnackBar(
         content: Text(
           'Acquisti online temporaneamente disattivati nell\'app clienti.',
@@ -1214,8 +1214,8 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       return;
     }
     final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
+    messenger.hideCurrentAppSnackBar();
+    messenger.showAppSnackBar(
       SnackBar(
         content: Text('$itemName aggiunto al carrello'),
         action: SnackBarAction(
@@ -1237,10 +1237,6 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     BuildContext? overrideContext,
   }) async {
     final targetContext = overrideContext ?? context;
-    if (slot.requiresImmediatePayment && !_isClientPurchaseEnabled()) {
-      _showPurchasesDisabledSnackBar(targetContext);
-      return;
-    }
     final service = services.firstWhereOrNull(
       (service) => service.id == slot.serviceId,
     );
@@ -1251,21 +1247,35 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
               : 'Contatta il salone per completare la prenotazione di questo last-minute.';
       ScaffoldMessenger.of(
         targetContext,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ).showAppSnackBar(SnackBar(content: Text(message)));
       return;
     }
+
+    final onlineCheckoutAvailable =
+        _isClientPurchaseEnabled() && salon.canAcceptOnlinePayments;
+    final effectivePaymentMode =
+        slot.paymentMode == LastMinutePaymentMode.online &&
+                !onlineCheckoutAvailable
+            ? LastMinutePaymentMode.onSite
+            : slot.paymentMode;
+    final isOnSiteFallbackForDisabledOnlinePayments =
+        slot.paymentMode == LastMinutePaymentMode.online &&
+        effectivePaymentMode == LastMinutePaymentMode.onSite;
 
     final confirmed = await _showLastMinuteSummary(
       context: targetContext,
       slot: slot,
       service: service,
+      paymentMode: effectivePaymentMode,
+      isOnSiteFallbackForDisabledOnlinePayments:
+          isOnSiteFallbackForDisabledOnlinePayments,
     );
     if (!mounted || !confirmed) {
       return;
     }
 
     final success =
-        slot.requiresImmediatePayment
+        effectivePaymentMode == LastMinutePaymentMode.online
             ? await _checkoutLastMinuteSlot(
               context: targetContext,
               client: client,
@@ -1290,6 +1300,8 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     required BuildContext context,
     required LastMinuteSlot slot,
     Service? service,
+    required LastMinutePaymentMode paymentMode,
+    bool isOnSiteFallbackForDisabledOnlinePayments = false,
   }) async {
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
     final dateLabel = DateFormat('EEEE d MMMM', 'it_IT').format(slot.start);
@@ -1308,11 +1320,10 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
             : countdownDiff.inHours >= 1
             ? '${countdownDiff.inHours}h ${countdownDiff.inMinutes.remainder(60).toString().padLeft(2, '0')}m'
             : '${countdownDiff.inMinutes} min';
-    final paymentMode = slot.paymentMode;
     final paymentDescription =
         paymentMode == LastMinutePaymentMode.online
             ? 'Pagamento online immediato con Stripe'
-            : 'Pagamento in salone il giorno dell\'appuntamento';
+            : 'Pagamento in centro il giorno dell\'appuntamento';
     final IconData ctaIcon =
         paymentMode == LastMinutePaymentMode.online
             ? Icons.lock_rounded
@@ -1320,7 +1331,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     final String ctaLabel =
         paymentMode == LastMinutePaymentMode.online
             ? 'Paga ora'
-            : 'Prenota ora';
+            : 'Paga in centro';
 
     final result = await showModalBottomSheet<bool>(
       context: context,
@@ -1443,6 +1454,13 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
                             label: 'Pagamento',
                             value: paymentDescription,
                           ),
+                          if (isOnSiteFallbackForDisabledOnlinePayments)
+                            detailCard(
+                              icon: Icons.info_outline_rounded,
+                              label: 'Nota',
+                              value:
+                                  'Il pagamento online non è disponibile per questo salone. Puoi comunque confermare il last-minute e pagare in centro.',
+                            ),
                           const SizedBox(height: 12),
 
                           const SizedBox(height: 24),
@@ -1516,7 +1534,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
                         if (paymentMode == LastMinutePaymentMode.onSite) ...[
                           const SizedBox(height: 8),
                           Text(
-                            'Non ti addebitiamo nulla ora: pagherai in salone al termine del servizio.',
+                            'Non ti addebitiamo nulla ora: pagherai in centro al termine del servizio.',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: scheme.onSurfaceVariant,
                               height: 1.3,
@@ -1547,7 +1565,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     final messenger = ScaffoldMessenger.of(context);
     final stripeAccountId = salon.stripeAccountId;
     if (stripeAccountId == null) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(
           content: Text('Pagamento non disponibile per questo salone.'),
         ),
@@ -1608,7 +1626,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       success = true;
       if (mounted) {
         final startLabel = DateFormat('HH:mm', 'it_IT').format(slot.start);
-        messenger.showSnackBar(
+        messenger.showAppSnackBar(
           SnackBar(
             content: Text(
               'Pagamento completato! Ti aspettiamo alle $startLabel.',
@@ -1618,11 +1636,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       }
     } on StripePaymentsException catch (error) {
       if (mounted) {
-        messenger.showSnackBar(SnackBar(content: Text(error.message)));
+        messenger.showAppSnackBar(SnackBar(content: Text(error.message)));
       }
     } on Exception catch (error) {
       if (mounted) {
-        messenger.showSnackBar(
+        messenger.showAppSnackBar(
           SnackBar(
             content: Text('Pagamento non riuscito: ${error.toString()}'),
           ),
@@ -1686,7 +1704,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       return true;
     } on StateError catch (error) {
       if (mounted) {
-        messenger.showSnackBar(
+        messenger.showAppSnackBar(
           SnackBar(
             content: Text(
               'Pagamento riuscito ma prenotazione non completata: ${error.message}',
@@ -1696,7 +1714,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       }
     } catch (error) {
       if (mounted) {
-        messenger.showSnackBar(
+        messenger.showAppSnackBar(
           SnackBar(
             content: Text(
               'Pagamento riuscito ma prenotazione non completata. ${error.toString()}',
@@ -1725,7 +1743,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       );
       if (mounted) {
         final startLabel = DateFormat('HH:mm', 'it_IT').format(slot.start);
-        messenger.showSnackBar(
+        messenger.showAppSnackBar(
           SnackBar(
             content: Text(
               'Prenotazione confermata! Presentati alle $startLabel e paga direttamente in salone.',
@@ -1736,11 +1754,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       return true;
     } on StateError catch (error) {
       if (mounted) {
-        messenger.showSnackBar(SnackBar(content: Text(error.message)));
+        messenger.showAppSnackBar(SnackBar(content: Text(error.message)));
       }
     } catch (error) {
       if (mounted) {
-        messenger.showSnackBar(
+        messenger.showAppSnackBar(
           SnackBar(content: Text('Prenotazione non riuscita: $error')),
         );
       }
@@ -1764,7 +1782,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       return;
     }
     if (quote.status != QuoteStatus.sent) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(
           content: Text(
             'Il preventivo deve essere inviato dal salone prima di poter essere accettato.',
@@ -1774,7 +1792,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       return;
     }
     if (quote.isExpired) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(
           content: Text(
             'Questo preventivo è scaduto. Richiedi al salone una nuova offerta.',
@@ -1784,7 +1802,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       return;
     }
     if (quote.total <= 0) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(
           content: Text(
             'Il totale del preventivo non è valido per il pagamento online.',
@@ -1794,16 +1812,18 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       return;
     }
     if (!salon.canAcceptOnlinePayments) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(
-          content: Text('Il salone non ha ancora attivato i pagamenti online.'),
+          content: Text(
+            'Il salone ha disattivato o non ha ancora attivato i pagamenti online.',
+          ),
         ),
       );
       return;
     }
     final stripeAccountId = salon.stripeAccountId;
     if (stripeAccountId == null || stripeAccountId.isEmpty) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(
           content: Text(
             'Account Stripe del salone non disponibile. Contatta il salone.',
@@ -1815,7 +1835,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
 
     final paymentsService = ref.read(stripePaymentsServiceProvider);
     if (!paymentsService.isConfigured) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(
           content: Text('Pagamento non disponibile. Riavvia l\'app e riprova.'),
         ),
@@ -1875,7 +1895,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
         }
       }
 
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(
           content: Text(
             'Pagamento completato! Il salone riceverà subito il preventivo accettato.',
@@ -1910,11 +1930,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       }
     } on StripePaymentsException catch (error) {
       if (mounted) {
-        messenger.showSnackBar(SnackBar(content: Text(error.message)));
+        messenger.showAppSnackBar(SnackBar(content: Text(error.message)));
       }
     } on Exception catch (error) {
       if (mounted) {
-        messenger.showSnackBar(
+        messenger.showAppSnackBar(
           SnackBar(
             content: Text('Pagamento non riuscito: ${error.toString()}'),
           ),
@@ -3064,7 +3084,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
             return;
           }
           final format = DateFormat('dd MMMM yyyy HH:mm', 'it_IT');
-          ScaffoldMessenger.of(context).showSnackBar(
+          ScaffoldMessenger.of(context).showAppSnackBar(
             SnackBar(
               content: Text(
                 'Prenotazione confermata per ${format.format(appointment.start)}.',
@@ -3093,11 +3113,12 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     final cartNotifier = ref.read(cartControllerProvider.notifier);
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
     final items = cartState.items;
+    final salonSupportsOnlinePayments = salon?.canAcceptOnlinePayments ?? false;
     final canCheckout =
         clientPurchasesEnabled &&
         items.isNotEmpty &&
         !cartState.isProcessing &&
-        salon?.stripeAccountId != null;
+        salonSupportsOnlinePayments;
 
     Future<void> handleCheckout() async {
       if (!clientPurchasesEnabled) {
@@ -3105,7 +3126,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
         return;
       }
       if (salon == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('Pagamento non disponibile per questo salone.'),
           ),
@@ -3279,6 +3300,14 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
               const SizedBox(height: 12),
               Text(
                 'Acquisti online temporaneamente disattivati nell\'app clienti.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ] else if (salon != null && !salonSupportsOnlinePayments) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Il salone ha disattivato o non ha ancora attivato i pagamenti online.',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -3766,8 +3795,16 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     final messenger = ScaffoldMessenger.of(context);
     final cartState = ref.read(cartControllerProvider);
     if (cartState.items.isEmpty) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(content: Text('Il carrello è vuoto.')),
+      );
+      return;
+    }
+    if (!salon.canAcceptOnlinePayments) {
+      messenger.showAppSnackBar(
+        const SnackBar(
+          content: Text('Il salone ha disattivato i pagamenti online.'),
+        ),
       );
       return;
     }
@@ -3789,7 +3826,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
 
     final stripeAccountId = salon.stripeAccountId;
     if (stripeAccountId == null) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(
           content: Text('Pagamento non disponibile per questo salone.'),
         ),
@@ -3813,7 +3850,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       if (!mounted) {
         return;
       }
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(content: Text('Pagamento completato con successo.')),
       );
       final updatedCartState = ref.read(cartControllerProvider);
@@ -3844,9 +3881,9 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
             }),
       );
     } on StripePaymentsException catch (error) {
-      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+      messenger.showAppSnackBar(SnackBar(content: Text(error.message)));
     } catch (error) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(content: Text('Pagamento non riuscito: ${error.toString()}')),
       );
     }
@@ -4179,7 +4216,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
         mode: LaunchMode.externalApplication,
       );
       if (!launched && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('Impossibile aprire il link richiesto.'),
           ),
@@ -4189,7 +4226,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Impossibile aprire il link: $error')),
       );
     }
@@ -9738,21 +9775,6 @@ class _ClientPackageGroup extends StatelessWidget {
           ),
       ],
     );
-  }
-
-  static String _paymentMethodLabel(PaymentMethod method) {
-    switch (method) {
-      case PaymentMethod.cash:
-        return 'Contanti';
-      case PaymentMethod.pos:
-        return 'POS';
-      case PaymentMethod.transfer:
-        return 'Bonifico';
-      case PaymentMethod.giftCard:
-        return 'Gift card';
-      case PaymentMethod.posticipated:
-        return 'Posticipato';
-    }
   }
 
   static String _sessionLabel(ClientPackagePurchase purchase) {

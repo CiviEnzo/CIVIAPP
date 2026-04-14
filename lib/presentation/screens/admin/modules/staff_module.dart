@@ -111,10 +111,8 @@ class StaffModule extends ConsumerWidget {
             )
             .toList()
           ..sort((a, b) {
-            final left =
-                a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-            final right =
-                b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+            final left = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+            final right = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
             return right.compareTo(left);
           });
     final requestsByStaff = groupBy<StaffAbsenceRequest, String>(
@@ -135,10 +133,34 @@ class StaffModule extends ConsumerWidget {
       itemBuilder: (context, index) {
         if (index == 0) {
           return Align(
-            alignment: Alignment.centerLeft,
+            alignment: Alignment.centerRight,
             child: Wrap(
+              alignment: WrapAlignment.end,
               spacing: 12,
               children: [
+                OutlinedButton.icon(
+                  onPressed:
+                      !canCreateStaff
+                          ? null
+                          : () => StaffOrderSheet.show(
+                            context,
+                            salons: [primarySalon!],
+                            selectedSalonId: primarySalon.id,
+                          ),
+                  icon: const Icon(Icons.sort_rounded),
+                  label: const Text('Ordina staff'),
+                ),
+                OutlinedButton.icon(
+                  onPressed:
+                      () => _openRoleManager(
+                        context,
+                        ref,
+                        canManageRoles: canManageRoles,
+                        salonId: primarySalon?.id ?? effectiveSalonId,
+                      ),
+                  icon: const Icon(Icons.tune_rounded),
+                  label: const Text('Gestione ruoli'),
+                ),
                 FilledButton.icon(
                   onPressed:
                       !canCreateStaff
@@ -153,29 +175,6 @@ class StaffModule extends ConsumerWidget {
                           ),
                   icon: const Icon(Icons.person_add_alt_1_rounded),
                   label: const Text('Nuovo membro'),
-                ),
-                OutlinedButton.icon(
-                  onPressed:
-                      () => _openRoleManager(
-                        context,
-                        ref,
-                        canManageRoles: canManageRoles,
-                        salonId: primarySalon?.id ?? effectiveSalonId,
-                      ),
-                  icon: const Icon(Icons.tune_rounded),
-                  label: const Text('Gestisci ruoli'),
-                ),
-                OutlinedButton.icon(
-                  onPressed:
-                      !canCreateStaff
-                          ? null
-                          : () => StaffOrderSheet.show(
-                            context,
-                            salons: [primarySalon!],
-                            selectedSalonId: primarySalon.id,
-                          ),
-                  icon: const Icon(Icons.sort_rounded),
-                  label: const Text('Ordina staff'),
                 ),
               ],
             ),
@@ -204,8 +203,7 @@ class StaffModule extends ConsumerWidget {
         final staffRequests =
             requestsByStaff[staff.id] ?? const <StaffAbsenceRequest>[];
         final pendingRequests =
-            pendingRequestsByStaff[staff.id] ??
-            const <StaffAbsenceRequest>[];
+            pendingRequestsByStaff[staff.id] ?? const <StaffAbsenceRequest>[];
         final resolvedRequests =
             staffRequests
                 .where(
@@ -239,13 +237,12 @@ class StaffModule extends ConsumerWidget {
             schedule == null || schedule.isEmpty
                 ? const <int>[]
                 : (schedule
-                      .where((entry) => entry.isOpen)
-                      .map((entry) => entry.weekday)
-                      .toSet()
-                      .toList()
+                    .where((entry) => entry.isOpen)
+                    .map((entry) => entry.weekday)
+                    .toSet()
+                    .toList()
                   ..sort());
-        final weekStart =
-            _startOfWeek(now).add(Duration(days: 7 * weekOffset));
+        final weekStart = _startOfWeek(now).add(Duration(days: 7 * weekOffset));
         final weekEnd = weekStart.add(const Duration(days: 7));
         final weekShifts =
             staffShifts
@@ -279,9 +276,10 @@ class StaffModule extends ConsumerWidget {
                 children: [
                   IconButton(
                     tooltip: 'Modifica profilo',
-                    visualDensity: dense
-                        ? const VisualDensity(horizontal: -2, vertical: -2)
-                        : null,
+                    visualDensity:
+                        dense
+                            ? const VisualDensity(horizontal: -2, vertical: -2)
+                            : null,
                     onPressed:
                         () => _openStaffForm(
                           context,
@@ -296,9 +294,10 @@ class StaffModule extends ConsumerWidget {
                   ),
                   IconButton(
                     tooltip: 'Elimina membro',
-                    visualDensity: dense
-                        ? const VisualDensity(horizontal: -2, vertical: -2)
-                        : null,
+                    visualDensity:
+                        dense
+                            ? const VisualDensity(horizontal: -2, vertical: -2)
+                            : null,
                     onPressed:
                         () => _confirmDeleteStaff(
                           context,
@@ -311,9 +310,10 @@ class StaffModule extends ConsumerWidget {
                   IconButton(
                     tooltip:
                         isExpanded ? 'Comprimi dettagli' : 'Espandi dettagli',
-                    visualDensity: dense
-                        ? const VisualDensity(horizontal: -2, vertical: -2)
-                        : null,
+                    visualDensity:
+                        dense
+                            ? const VisualDensity(horizontal: -2, vertical: -2)
+                            : null,
                     onPressed: toggleExpansion,
                     icon: AnimatedRotation(
                       turns: isExpanded ? 0.5 : 0.0,
@@ -397,8 +397,8 @@ class StaffModule extends ConsumerWidget {
                                               Chip(
                                                 padding:
                                                     const EdgeInsets.symmetric(
-                                                  horizontal: 8,
-                                                ),
+                                                      horizontal: 8,
+                                                    ),
                                                 materialTapTargetSize:
                                                     MaterialTapTargetSize
                                                         .shrinkWrap,
@@ -456,8 +456,8 @@ class StaffModule extends ConsumerWidget {
                                               Chip(
                                                 padding:
                                                     const EdgeInsets.symmetric(
-                                                  horizontal: 8,
-                                                ),
+                                                      horizontal: 8,
+                                                    ),
                                                 materialTapTargetSize:
                                                     MaterialTapTargetSize
                                                         .shrinkWrap,
@@ -477,8 +477,8 @@ class StaffModule extends ConsumerWidget {
                                               Chip(
                                                 padding:
                                                     const EdgeInsets.symmetric(
-                                                  horizontal: 8,
-                                                ),
+                                                      horizontal: 8,
+                                                    ),
                                                 materialTapTargetSize:
                                                     MaterialTapTargetSize
                                                         .shrinkWrap,
@@ -488,8 +488,9 @@ class StaffModule extends ConsumerWidget {
                                                   Icons.precision_manufacturing,
                                                   size: 16,
                                                 ),
-                                                label:
-                                                    const Text('Macchinario'),
+                                                label: const Text(
+                                                  'Macchinario',
+                                                ),
                                               ),
                                             ],
                                             if (staff.dateOfBirth != null) ...[
@@ -530,31 +531,29 @@ class StaffModule extends ConsumerWidget {
                                   Text(
                                     'Nato il ${_birthLabel.format(staff.dateOfBirth!)}',
                                     style:
-                                        Theme.of(
-                                          context,
-                                        ).textTheme.bodySmall,
+                                        Theme.of(context).textTheme.bodySmall,
                                   ),
                                 ],
-                                if (staff.phone != null || staff.email != null)
-                                  ...[
-                                    const SizedBox(height: 12),
-                                    Wrap(
-                                      spacing: 12,
-                                      runSpacing: 8,
-                                      children: [
-                                        if (staff.phone != null)
-                                          _ContactInfo(
-                                            icon: Icons.phone,
-                                            label: staff.phone!,
-                                          ),
-                                        if (staff.email != null)
-                                          _ContactInfo(
-                                            icon: Icons.email,
-                                            label: staff.email!,
-                                          ),
-                                      ],
-                                    ),
-                                  ],
+                                if (staff.phone != null ||
+                                    staff.email != null) ...[
+                                  const SizedBox(height: 12),
+                                  Wrap(
+                                    spacing: 12,
+                                    runSpacing: 8,
+                                    children: [
+                                      if (staff.phone != null)
+                                        _ContactInfo(
+                                          icon: Icons.phone,
+                                          label: staff.phone!,
+                                        ),
+                                      if (staff.email != null)
+                                        _ContactInfo(
+                                          icon: Icons.email,
+                                          label: staff.email!,
+                                        ),
+                                    ],
+                                  ),
+                                ],
                                 if (canCreateAccess) ...[
                                   const SizedBox(height: 12),
                                   OutlinedButton.icon(
@@ -571,15 +570,14 @@ class StaffModule extends ConsumerWidget {
                                         );
                                         return;
                                       }
-                                      final messenger =
-                                          ScaffoldMessenger.of(context);
+                                      final messenger = ScaffoldMessenger.of(
+                                        context,
+                                      );
                                       try {
                                         await ref
-                                            .read(
-                                              appDataProvider.notifier,
-                                            )
+                                            .read(appDataProvider.notifier)
                                             .createStaffAccess(staff);
-                                        messenger.showSnackBar(
+                                        messenger.showAppSnackBar(
                                           const SnackBar(
                                             content: Text(
                                               'Accesso staff abilitato. Se nuovo account, inviata email di reset.',
@@ -587,7 +585,7 @@ class StaffModule extends ConsumerWidget {
                                           ),
                                         );
                                       } catch (_) {
-                                        messenger.showSnackBar(
+                                        messenger.showAppSnackBar(
                                           const SnackBar(
                                             content: Text(
                                               'Impossibile creare l\'accesso. Riprova.',
@@ -596,18 +594,15 @@ class StaffModule extends ConsumerWidget {
                                         );
                                       }
                                     },
-                                    icon: const Icon(
-                                      Icons.key_rounded,
-                                    ),
+                                    icon: const Icon(Icons.key_rounded),
                                     label: const Text('Crea accesso'),
                                   ),
                                   if (!hasEmail) ...[
                                     const SizedBox(height: 6),
                                     Text(
                                       'Aggiungi un\'email per creare l\'accesso.',
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.bodySmall,
+                                      style:
+                                          Theme.of(context).textTheme.bodySmall,
                                     ),
                                   ],
                                 ],
@@ -675,10 +670,9 @@ class StaffModule extends ConsumerWidget {
                                                   shifts: futureShifts,
                                                   roomNames: roomNames,
                                                 ),
-                                            icon:
-                                                const Icon(
-                                                  Icons.delete_sweep_rounded,
-                                                ),
+                                            icon: const Icon(
+                                              Icons.delete_sweep_rounded,
+                                            ),
                                             label: const Text('Elimina turni'),
                                           ),
                                       ],
@@ -698,10 +692,9 @@ class StaffModule extends ConsumerWidget {
                                                     weekOffsetController.state -
                                                     1;
                                               },
-                                              icon:
-                                                  const Icon(
-                                                    Icons.chevron_left_rounded,
-                                                  ),
+                                              icon: const Icon(
+                                                Icons.chevron_left_rounded,
+                                              ),
                                             ),
                                             Expanded(
                                               child: Text(
@@ -710,17 +703,15 @@ class StaffModule extends ConsumerWidget {
                                                     theme.textTheme.labelLarge,
                                               ),
                                             ),
-                                            if (!isCompact &&
-                                                weekOffset != 0)
+                                            if (!isCompact && weekOffset != 0)
                                               TextButton(
                                                 onPressed:
                                                     () =>
                                                         weekOffsetController
                                                             .state = 0,
-                                                child:
-                                                    const Text(
-                                                      'Questa settimana',
-                                                    ),
+                                                child: const Text(
+                                                  'Questa settimana',
+                                                ),
                                               ),
                                             IconButton(
                                               tooltip: 'Settimana successiva',
@@ -731,10 +722,9 @@ class StaffModule extends ConsumerWidget {
                                                     weekOffsetController.state +
                                                     1;
                                               },
-                                              icon:
-                                                  const Icon(
-                                                    Icons.chevron_right_rounded,
-                                                  ),
+                                              icon: const Icon(
+                                                Icons.chevron_right_rounded,
+                                              ),
                                             ),
                                           ],
                                         ),
@@ -764,12 +754,11 @@ class StaffModule extends ConsumerWidget {
                                                 initial: shift,
                                               ),
                                           onDeleteShift:
-                                              (shift) =>
-                                                  _confirmDeleteShift(
-                                                    context,
-                                                    ref,
-                                                    shift,
-                                                  ),
+                                              (shift) => _confirmDeleteShift(
+                                                context,
+                                                ref,
+                                                shift,
+                                              ),
                                         ),
                                       ],
                                     ),
@@ -803,8 +792,9 @@ class StaffModule extends ConsumerWidget {
                                             defaultSalonId: staff.salonId,
                                             defaultStaffId: staff.id,
                                           ),
-                                      icon:
-                                          const Icon(Icons.event_busy_rounded),
+                                      icon: const Icon(
+                                        Icons.event_busy_rounded,
+                                      ),
                                       label: const Text('Nuova assenza'),
                                     ),
                                     child: Column(
@@ -819,14 +809,12 @@ class StaffModule extends ConsumerWidget {
                                               label: 'Ferie',
                                               usedLabel: 'Usate',
                                               remainingLabel: 'Residue',
-                                              used:
-                                                  absenceSummary.vacationUsed,
+                                              used: absenceSummary.vacationUsed,
                                               remaining:
                                                   absenceSummary
                                                       .vacationRemaining,
                                               total:
-                                                  staff
-                                                      .vacationAllowance
+                                                  staff.vacationAllowance
                                                       .toDouble(),
                                             ),
                                             _AllowanceChip(
@@ -839,8 +827,7 @@ class StaffModule extends ConsumerWidget {
                                                   absenceSummary
                                                       .permissionRemaining,
                                               total:
-                                                  staff
-                                                      .permissionAllowance
+                                                  staff.permissionAllowance
                                                       .toDouble(),
                                             ),
                                           ],
@@ -854,8 +841,7 @@ class StaffModule extends ConsumerWidget {
                                         if (upcomingAbsences.isEmpty)
                                           Text(
                                             'Nessuna assenza pianificata. Usa "Nuova assenza" per registrare ferie, permessi o malattia.',
-                                            style:
-                                                theme.textTheme.bodySmall,
+                                            style: theme.textTheme.bodySmall,
                                           )
                                         else
                                           Column(
@@ -870,8 +856,7 @@ class StaffModule extends ConsumerWidget {
                                                               ref,
                                                               salons:
                                                                   staffSalons,
-                                                              staff:
-                                                                  staffPeers,
+                                                              staff: staffPeers,
                                                               initial: absence,
                                                             ),
                                                         onDelete:
@@ -890,16 +875,14 @@ class StaffModule extends ConsumerWidget {
                                           const SizedBox(height: 12),
                                           Text(
                                             'Sono presenti altre ${upcomingAbsences.length - upcomingPreview.length} assenze pianificate.',
-                                            style:
-                                                theme.textTheme.bodySmall,
+                                            style: theme.textTheme.bodySmall,
                                           ),
                                         ],
                                         if (pastAbsences.isNotEmpty) ...[
                                           const SizedBox(height: 16),
                                           Text(
                                             'Storico ${now.year}',
-                                            style:
-                                                theme.textTheme.labelLarge,
+                                            style: theme.textTheme.labelLarge,
                                           ),
                                           const SizedBox(height: 6),
                                           Column(
@@ -914,8 +897,7 @@ class StaffModule extends ConsumerWidget {
                                                               ref,
                                                               salons:
                                                                   staffSalons,
-                                                              staff:
-                                                                  staffPeers,
+                                                              staff: staffPeers,
                                                               initial: absence,
                                                             ),
                                                         onDelete:
@@ -934,8 +916,7 @@ class StaffModule extends ConsumerWidget {
                                             const SizedBox(height: 12),
                                             Text(
                                               'Sono presenti altre ${pastAbsences.length - pastPreview.length} assenze concluse.',
-                                              style:
-                                                  theme.textTheme.bodySmall,
+                                              style: theme.textTheme.bodySmall,
                                             ),
                                           ],
                                         ],
@@ -970,38 +951,37 @@ class StaffModule extends ConsumerWidget {
                                             resolvedRequests.isEmpty)
                                           Text(
                                             'Nessuna richiesta ricevuta per questo membro.',
-                                            style:
-                                                theme.textTheme.bodySmall,
+                                            style: theme.textTheme.bodySmall,
                                           )
                                         else ...[
                                           if (pendingRequests.isNotEmpty) ...[
                                             Text(
                                               'Da approvare',
-                                              style:
-                                                  theme.textTheme.labelLarge,
+                                              style: theme.textTheme.labelLarge,
                                             ),
                                             const SizedBox(height: 6),
                                             ...pendingPreview.map(
-                                              (request) =>
-                                                  _AbsenceRequestAdminTile(
-                                                    request: request,
-                                                    onApprove:
-                                                        () =>
-                                                            _handleAbsenceRequestDecision(
-                                                              context,
-                                                              ref,
-                                                              request: request,
-                                                              approve: true,
-                                                            ),
-                                                    onReject:
-                                                        () =>
-                                                            _handleAbsenceRequestDecision(
-                                                              context,
-                                                              ref,
-                                                              request: request,
-                                                              approve: false,
-                                                            ),
-                                                  ),
+                                              (
+                                                request,
+                                              ) => _AbsenceRequestAdminTile(
+                                                request: request,
+                                                onApprove:
+                                                    () =>
+                                                        _handleAbsenceRequestDecision(
+                                                          context,
+                                                          ref,
+                                                          request: request,
+                                                          approve: true,
+                                                        ),
+                                                onReject:
+                                                    () =>
+                                                        _handleAbsenceRequestDecision(
+                                                          context,
+                                                          ref,
+                                                          request: request,
+                                                          approve: false,
+                                                        ),
+                                              ),
                                             ),
                                             if (pendingRequests.length >
                                                 pendingPreview.length) ...[
@@ -1017,8 +997,7 @@ class StaffModule extends ConsumerWidget {
                                             const SizedBox(height: 12),
                                             Text(
                                               'Storico richieste',
-                                              style:
-                                                  theme.textTheme.labelLarge,
+                                              style: theme.textTheme.labelLarge,
                                             ),
                                             const SizedBox(height: 6),
                                             ...resolvedPreview.map(
@@ -1071,14 +1050,13 @@ class StaffModule extends ConsumerWidget {
                                                 : theme.colorScheme.surface,
                                         borderRadius: BorderRadius.circular(12),
                                         border: Border.all(
-                                          color: theme.colorScheme.outlineVariant
-                                              .withOpacity(
-                                                isLight ? 0.6 : 0.4,
-                                              ),
+                                          color: theme
+                                              .colorScheme
+                                              .outlineVariant
+                                              .withOpacity(isLight ? 0.6 : 0.4),
                                         ),
                                       ),
-                                      indicatorSize:
-                                          TabBarIndicatorSize.tab,
+                                      indicatorSize: TabBarIndicatorSize.tab,
                                       dividerColor: Colors.transparent,
                                       dividerHeight: 0,
                                       labelColor:
@@ -1106,8 +1084,9 @@ class StaffModule extends ConsumerWidget {
                                   builder: (context, _) {
                                     final index = tabController.index;
                                     return AnimatedSwitcher(
-                                      duration:
-                                          const Duration(milliseconds: 220),
+                                      duration: const Duration(
+                                        milliseconds: 220,
+                                      ),
                                       child: KeyedSubtree(
                                         key: ValueKey(index),
                                         child:
@@ -1167,7 +1146,7 @@ class StaffModule extends ConsumerWidget {
     StaffMember? existing,
   }) async {
     if (salons.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Crea prima un salone per assegnare lo staff.'),
         ),
@@ -1242,7 +1221,7 @@ class StaffModule extends ConsumerWidget {
     DateTime? defaultDay,
   }) async {
     if (salons.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text(
             'Aggiungi almeno un salone prima di pianificare turni.',
@@ -1273,7 +1252,7 @@ class StaffModule extends ConsumerWidget {
                 : 'Turno salvato per ${_dayLabel.format(anchor)}.';
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(label)));
+        ).showAppSnackBar(SnackBar(content: Text(label)));
       }
     }
   }
@@ -1286,7 +1265,7 @@ class StaffModule extends ConsumerWidget {
     required Map<String, String> roomNames,
   }) async {
     if (shifts.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Non ci sono turni da eliminare.')),
       );
       return;
@@ -1312,7 +1291,7 @@ class StaffModule extends ConsumerWidget {
               : 'Turno eliminato.';
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(label)));
+      ).showAppSnackBar(SnackBar(content: Text(label)));
     }
   }
 
@@ -1355,9 +1334,9 @@ class StaffModule extends ConsumerWidget {
 
     await ref.read(appDataProvider.notifier).deleteStaff(staff.id);
     if (context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('${staff.fullName} eliminato.')));
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        SnackBar(content: Text('${staff.fullName} eliminato.')),
+      );
     }
   }
 
@@ -1371,7 +1350,7 @@ class StaffModule extends ConsumerWidget {
     StaffAbsence? initial,
   }) async {
     if (salons.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Crea prima un salone per assegnare le assenze.'),
         ),
@@ -1398,7 +1377,7 @@ class StaffModule extends ConsumerWidget {
             initial == null ? 'Assenza registrata.' : 'Assenza aggiornata.';
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(label)));
+        ).showAppSnackBar(SnackBar(content: Text(label)));
       }
     }
   }
@@ -1409,10 +1388,7 @@ class StaffModule extends ConsumerWidget {
     required StaffAbsenceRequest request,
     required bool approve,
   }) async {
-    final note = await _promptAbsenceRequestNote(
-      context,
-      approve: approve,
-    );
+    final note = await _promptAbsenceRequestNote(context, approve: approve);
     if (!context.mounted || note == null) {
       return;
     }
@@ -1422,24 +1398,22 @@ class StaffModule extends ConsumerWidget {
 
     try {
       if (approve) {
-        await ref.read(appDataProvider.notifier).approveStaffAbsenceRequest(
-              request: request,
-              adminNote: noteValue,
-            );
-        messenger.showSnackBar(
+        await ref
+            .read(appDataProvider.notifier)
+            .approveStaffAbsenceRequest(request: request, adminNote: noteValue);
+        messenger.showAppSnackBar(
           const SnackBar(content: Text('Richiesta approvata.')),
         );
       } else {
-        await ref.read(appDataProvider.notifier).rejectStaffAbsenceRequest(
-              request: request,
-              adminNote: noteValue,
-            );
-        messenger.showSnackBar(
+        await ref
+            .read(appDataProvider.notifier)
+            .rejectStaffAbsenceRequest(request: request, adminNote: noteValue);
+        messenger.showAppSnackBar(
           const SnackBar(content: Text('Richiesta rifiutata.')),
         );
       }
     } catch (error) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(content: Text('Errore durante l\'operazione: $error')),
       );
     }
@@ -1454,9 +1428,7 @@ class StaffModule extends ConsumerWidget {
       context: context,
       builder:
           (dialogContext) => AlertDialog(
-            title: Text(
-              approve ? 'Approva richiesta' : 'Rifiuta richiesta',
-            ),
+            title: Text(approve ? 'Approva richiesta' : 'Rifiuta richiesta'),
             content: TextField(
               controller: controller,
               maxLines: 3,
@@ -1474,8 +1446,7 @@ class StaffModule extends ConsumerWidget {
               ),
               FilledButton(
                 onPressed:
-                    () =>
-                        Navigator.of(dialogContext).pop(controller.text),
+                    () => Navigator.of(dialogContext).pop(controller.text),
                 child: Text(approve ? 'Approva' : 'Rifiuta'),
               ),
             ],
@@ -1513,7 +1484,7 @@ class StaffModule extends ConsumerWidget {
     if (confirmed == true) {
       await ref.read(appDataProvider.notifier).deleteShift(shift.id);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(
             content: Text(
               'Turno eliminato (${_dayLabel.format(shift.start)} ${_timeLabel.format(shift.start)}).',
@@ -1552,7 +1523,7 @@ class StaffModule extends ConsumerWidget {
     if (confirmed == true) {
       await ref.read(appDataProvider.notifier).deleteStaffAbsence(absence.id);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(
             content: Text(
               'Assenza rimossa (${_dayLabel.format(absence.start)}).',
@@ -1791,8 +1762,7 @@ String _recurrenceLabel(ShiftRecurrence? recurrence) {
       case ShiftRecurrenceFrequency.weekly:
         final active = recurrence.activeWeeks ?? 1;
         final rawPause =
-            recurrence.inactiveWeeks ??
-            (recurrence.interval - active);
+            recurrence.inactiveWeeks ?? (recurrence.interval - active);
         final pause =
             rawPause < 0
                 ? 0
@@ -1871,9 +1841,9 @@ class _ShiftWeekView extends StatelessWidget {
             .map(
               (day) => _ShiftWeekDayCard(
                 day: day,
-                shifts:
-                    (shiftsByDay[day] ?? const <Shift>[])
-                        .sortedBy((shift) => shift.start),
+                shifts: (shiftsByDay[day] ?? const <Shift>[]).sortedBy(
+                  (shift) => shift.start,
+                ),
                 roomNames: roomNames,
                 onAddShift: () => onAddShift(day),
                 onEditShift: onEditShift,
@@ -1939,9 +1909,7 @@ class _ShiftWeekDayCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         border:
             isToday
-                ? Border.all(
-                    color: theme.colorScheme.primary.withOpacity(0.28),
-                  )
+                ? Border.all(color: theme.colorScheme.primary.withOpacity(0.28))
                 : null,
       ),
       child: Padding(
@@ -1973,16 +1941,17 @@ class _ShiftWeekDayCard extends StatelessWidget {
               Wrap(
                 spacing: 6,
                 runSpacing: 6,
-                children: shifts
-                    .map(
-                      (shift) => _ShiftWeekChip(
-                        shift: shift,
-                        roomName: roomNames[shift.roomId],
-                        onEdit: () => onEditShift(shift),
-                        onDelete: () => onDeleteShift(shift),
-                      ),
-                    )
-                    .toList(),
+                children:
+                    shifts
+                        .map(
+                          (shift) => _ShiftWeekChip(
+                            shift: shift,
+                            roomName: roomNames[shift.roomId],
+                            onEdit: () => onEditShift(shift),
+                            onDelete: () => onDeleteShift(shift),
+                          ),
+                        )
+                        .toList(),
               ),
           ],
         ),

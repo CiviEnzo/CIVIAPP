@@ -4,6 +4,7 @@ import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 
 class StaffAbsenceRequestFormSheet extends ConsumerStatefulWidget {
   const StaffAbsenceRequestFormSheet({
@@ -54,6 +55,123 @@ class _StaffAbsenceRequestFormSheetState
     final theme = Theme.of(context);
     final dateFormat = DateFormat('dd MMM yyyy', 'it_IT');
     final timeFormat = DateFormat('HH:mm', 'it_IT');
+    final formFields = <Widget>[
+      Text('Staff: ${widget.staff.fullName}', style: theme.textTheme.bodySmall),
+      const SizedBox(height: 16),
+      DropdownButtonFormField<StaffAbsenceType>(
+        value: _type,
+        items:
+            StaffAbsenceType.values
+                .map(
+                  (type) =>
+                      DropdownMenuItem(value: type, child: Text(type.label)),
+                )
+                .toList(),
+        decoration: const InputDecoration(labelText: 'Tipo richiesta'),
+        onChanged: (value) {
+          if (value != null) {
+            setState(() => _type = value);
+          }
+        },
+      ),
+      const SizedBox(height: 12),
+      Row(
+        children: [
+          Expanded(
+            child: _DateSelectionTile(
+              label: 'Dal',
+              value: dateFormat.format(_startDate),
+              icon: Icons.event_available_rounded,
+              onTap: _pickStartDate,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _DateSelectionTile(
+              label: 'Al',
+              value: dateFormat.format(_endDate),
+              icon: Icons.event_busy_rounded,
+              onTap: _pickEndDate,
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      SwitchListTile.adaptive(
+        contentPadding: EdgeInsets.zero,
+        value: _isAllDay,
+        title: const Text('Intera giornata'),
+        subtitle: const Text('Disattiva per indicare orario di inizio e fine'),
+        onChanged: (value) {
+          setState(() {
+            _isAllDay = value;
+            _ensureValidTimes();
+          });
+        },
+      ),
+      if (!_isAllDay) ...[
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _DateSelectionTile(
+                label: 'Ora inizio',
+                value: timeFormat.format(
+                  DateTime(2000, 1, 1, _startTime.hour, _startTime.minute),
+                ),
+                icon: Icons.access_time_rounded,
+                onTap: _pickStartTime,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _DateSelectionTile(
+                label: 'Ora fine',
+                value: timeFormat.format(
+                  DateTime(2000, 1, 1, _endTime.hour, _endTime.minute),
+                ),
+                icon: Icons.more_time_rounded,
+                onTap: _pickEndTime,
+              ),
+            ),
+          ],
+        ),
+      ],
+      const SizedBox(height: 12),
+      TextFormField(
+        controller: _notesController,
+        decoration: const InputDecoration(labelText: 'Note (opzionale)'),
+        maxLines: 3,
+      ),
+      const SizedBox(height: 12),
+      TextFormField(
+        controller: _attachmentController,
+        decoration: const InputDecoration(
+          labelText: 'Allegato (URL opzionale)',
+        ),
+        keyboardType: TextInputType.url,
+      ),
+    ];
+
+    if (isAppSheetPhoneLayout(context)) {
+      return AppMobileSheetPageScaffold(
+        title: 'Nuova richiesta',
+        actions: [
+          TextButton(
+            onPressed: _isSubmitting ? null : _submit,
+            child: const Text('Invia'),
+          ),
+        ],
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: formFields,
+          ),
+        ),
+      );
+    }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -65,122 +183,7 @@ class _StaffAbsenceRequestFormSheetState
           children: [
             Text('Nuova richiesta', style: theme.textTheme.titleLarge),
             const SizedBox(height: 6),
-            Text(
-              'Staff: ${widget.staff.fullName}',
-              style: theme.textTheme.bodySmall,
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<StaffAbsenceType>(
-              value: _type,
-              items:
-                  StaffAbsenceType.values
-                      .map(
-                        (type) => DropdownMenuItem(
-                          value: type,
-                          child: Text(type.label),
-                        ),
-                      )
-                      .toList(),
-              decoration: const InputDecoration(labelText: 'Tipo richiesta'),
-              onChanged: (value) {
-                if (value != null) {
-                  setState(() => _type = value);
-                }
-              },
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _DateSelectionTile(
-                    label: 'Dal',
-                    value: dateFormat.format(_startDate),
-                    icon: Icons.event_available_rounded,
-                    onTap: _pickStartDate,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _DateSelectionTile(
-                    label: 'Al',
-                    value: dateFormat.format(_endDate),
-                    icon: Icons.event_busy_rounded,
-                    onTap: _pickEndDate,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: _isAllDay,
-              title: const Text('Intera giornata'),
-              subtitle: const Text(
-                'Disattiva per indicare orario di inizio e fine',
-              ),
-              onChanged: (value) {
-                setState(() {
-                  _isAllDay = value;
-                  _ensureValidTimes();
-                });
-              },
-            ),
-            if (!_isAllDay) ...[
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: _DateSelectionTile(
-                      label: 'Ora inizio',
-                      value: timeFormat.format(
-                        DateTime(
-                          2000,
-                          1,
-                          1,
-                          _startTime.hour,
-                          _startTime.minute,
-                        ),
-                      ),
-                      icon: Icons.access_time_rounded,
-                      onTap: _pickStartTime,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _DateSelectionTile(
-                      label: 'Ora fine',
-                      value: timeFormat.format(
-                        DateTime(
-                          2000,
-                          1,
-                          1,
-                          _endTime.hour,
-                          _endTime.minute,
-                        ),
-                      ),
-                      icon: Icons.more_time_rounded,
-                      onTap: _pickEndTime,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _notesController,
-              decoration: const InputDecoration(
-                labelText: 'Note (opzionale)',
-              ),
-              maxLines: 3,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _attachmentController,
-              decoration: const InputDecoration(
-                labelText: 'Allegato (URL opzionale)',
-              ),
-              keyboardType: TextInputType.url,
-            ),
+            ...formFields,
             const SizedBox(height: 20),
             Row(
               children: [
@@ -287,10 +290,7 @@ class _StaffAbsenceRequestFormSheetState
     final endMinutes = _endTime.hour * 60 + _endTime.minute;
     if (endMinutes <= startMinutes) {
       final adjusted = (startMinutes + 120).clamp(0, 23 * 60 + 59);
-      _endTime = TimeOfDay(
-        hour: adjusted ~/ 60,
-        minute: adjusted % 60,
-      );
+      _endTime = TimeOfDay(hour: adjusted ~/ 60, minute: adjusted % 60);
     }
   }
 
@@ -315,14 +315,16 @@ class _StaffAbsenceRequestFormSheetState
         _isAllDay ? 59 : _endTime.minute,
       );
       if (end.isBefore(start)) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('La data/ora di fine deve essere successiva.'),
           ),
         );
         return;
       }
-      await ref.read(appDataProvider.notifier).submitStaffAbsenceRequest(
+      await ref
+          .read(appDataProvider.notifier)
+          .submitStaffAbsenceRequest(
             salonId: widget.salonId,
             staffId: widget.staff.id,
             type: _type,
@@ -335,14 +337,14 @@ class _StaffAbsenceRequestFormSheetState
         return;
       }
       Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Richiesta inviata.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showAppSnackBar(const SnackBar(content: Text('Richiesta inviata.')));
     } catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Errore durante l\'invio: $error')),
       );
     } finally {

@@ -1,5 +1,7 @@
 import 'package:you_book/domain/entities/sale.dart';
 import 'package:flutter/material.dart';
+import 'package:you_book/presentation/common/app_notice.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
@@ -30,6 +32,78 @@ class _PackageDepositFormSheetState extends State<PackageDepositFormSheet> {
   @override
   Widget build(BuildContext context) {
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    final formFields = [
+      TextFormField(
+        controller: _amountController,
+        decoration: const InputDecoration(labelText: 'Importo (€)'),
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        validator: (value) {
+          final text = value?.trim() ?? '';
+          if (text.isEmpty) {
+            return 'Inserisci l\'importo dell\'acconto';
+          }
+          final amount = double.tryParse(text.replaceAll(',', '.'));
+          if (amount == null || amount <= 0) {
+            return 'Importo non valido';
+          }
+          if (amount > widget.maxAmount + 0.009) {
+            return 'Supera la rimanenza (${currency.format(widget.maxAmount)})';
+          }
+          return null;
+        },
+      ),
+      const SizedBox(height: 12),
+      DropdownButtonFormField<PaymentMethod>(
+        isExpanded: true,
+        value: _paymentMethod,
+        decoration: const InputDecoration(labelText: 'Metodo di pagamento'),
+        items:
+            PaymentMethod.values
+                .where((method) => method.isManualSelectable)
+                .map(
+                  (method) => DropdownMenuItem(
+                    value: method,
+                    child: Text(_paymentLabel(method)),
+                  ),
+                )
+                .toList(),
+        validator:
+            (value) =>
+                value == null ? 'Seleziona il metodo di pagamento' : null,
+        onChanged: (value) => setState(() => _paymentMethod = value),
+      ),
+      const SizedBox(height: 12),
+      TextFormField(
+        controller: _noteController,
+        decoration: const InputDecoration(labelText: 'Nota (facoltativa)'),
+        maxLines: 2,
+      ),
+      const SizedBox(height: 12),
+      ListTile(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('Data acconto'),
+        subtitle: Text(DateFormat('dd/MM/yyyy HH:mm').format(_date)),
+        trailing: const Icon(Icons.calendar_month_rounded),
+        onTap: _pickDateTime,
+      ),
+    ];
+
+    if (isAppSheetPhoneLayout(context)) {
+      return AppMobileSheetPageScaffold(
+        title: 'Nuovo acconto',
+        subtitle: 'Max ${currency.format(widget.maxAmount)}',
+        actions: [TextButton(onPressed: _submit, child: const Text('Salva'))],
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: formFields,
+          ),
+        ),
+      );
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Form(
@@ -43,64 +117,7 @@ class _PackageDepositFormSheetState extends State<PackageDepositFormSheet> {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 16),
-            TextFormField(
-              controller: _amountController,
-              decoration: const InputDecoration(labelText: 'Importo (€)'),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              validator: (value) {
-                final text = value?.trim() ?? '';
-                if (text.isEmpty) {
-                  return 'Inserisci l\'importo dell\'acconto';
-                }
-                final amount = double.tryParse(text.replaceAll(',', '.'));
-                if (amount == null || amount <= 0) {
-                  return 'Importo non valido';
-                }
-                if (amount > widget.maxAmount + 0.009) {
-                  return 'Supera la rimanenza (${currency.format(widget.maxAmount)})';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<PaymentMethod>(
-              isExpanded: true,
-              value: _paymentMethod,
-              decoration: const InputDecoration(
-                labelText: 'Metodo di pagamento',
-              ),
-              items:
-                  PaymentMethod.values
-                      .map(
-                        (method) => DropdownMenuItem(
-                          value: method,
-                          child: Text(_paymentLabel(method)),
-                        ),
-                      )
-                      .toList(),
-              validator:
-                  (value) =>
-                      value == null ? 'Seleziona il metodo di pagamento' : null,
-              onChanged: (value) => setState(() => _paymentMethod = value),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _noteController,
-              decoration: const InputDecoration(
-                labelText: 'Nota (facoltativa)',
-              ),
-              maxLines: 2,
-            ),
-            const SizedBox(height: 12),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Data acconto'),
-              subtitle: Text(DateFormat('dd/MM/yyyy HH:mm').format(_date)),
-              trailing: const Icon(Icons.calendar_month_rounded),
-              onTap: _pickDateTime,
-            ),
+            ...formFields,
             const SizedBox(height: 24),
             Align(
               alignment: Alignment.centerRight,
@@ -116,18 +133,7 @@ class _PackageDepositFormSheetState extends State<PackageDepositFormSheet> {
   }
 
   String _paymentLabel(PaymentMethod method) {
-    switch (method) {
-      case PaymentMethod.cash:
-        return 'Contanti';
-      case PaymentMethod.pos:
-        return 'POS';
-      case PaymentMethod.transfer:
-        return 'Bonifico';
-      case PaymentMethod.giftCard:
-        return 'Gift card';
-      case PaymentMethod.posticipated:
-        return 'Posticipato';
-    }
+    return method.label;
   }
 
   void _submit() {
@@ -135,7 +141,7 @@ class _PackageDepositFormSheetState extends State<PackageDepositFormSheet> {
       return;
     }
     if (_paymentMethod == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Seleziona il metodo di pagamento.')),
       );
       return;

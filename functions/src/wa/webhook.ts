@@ -1,11 +1,13 @@
+import { createHmac, timingSafeEqual } from 'crypto';
 import { onRequest } from 'firebase-functions/v2/https';
 import * as logger from 'firebase-functions/logger';
 import type { Request, Response } from 'express';
 
 import { FieldValue, Timestamp, db } from '../utils/firestore';
 
-import { getSalonWaConfigByPhoneNumberId } from './config';
+import { getSalonWaRoutingByPhoneNumberId } from './config';
 import { readSecret } from './secrets';
+import { getAppSecret } from './runtime';
 
 const REGION = process.env.WA_REGION ?? 'europe-west1';
 const QUIET_HOURS = { start: 21, end: 9 };
@@ -13,6 +15,10 @@ const verifyTokenFallback = process.env.WA_VERIFY_TOKEN;
 
 type WebhookChange = Record<string, unknown> & {
   value?: Record<string, unknown>;
+};
+
+type RequestWithRawBody = Request & {
+  rawBody?: Buffer;
 };
 
 const phoneNumberCache = new Map<string, string>();
@@ -92,6 +98,14 @@ function toDateFromTimestamp(timestamp: unknown): Date | null {
     return timestamp.toDate();
   }
   return null;
+}
+
+function omitUndefinedFields(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== undefined),
+  );
 }
 
 async function resolveSalonIdByVerifyToken(
@@ -174,25 +188,24 @@ async function persistInboundMessage(
 
   const receivedAt = toDateFromTimestamp(message.timestamp) ?? new Date();
 
+  const payload = omitUndefinedFields({
+    salonId,
+    messageId,
+    from: message.from ?? message['wa_id'],
+    type: message.type,
+    payload: message,
+    receivedAt,
+    receivedAtMs: receivedAt.getTime(),
+    createdAt: FieldValue.serverTimestamp(),
+    quietHours: QUIET_HOURS,
+  });
+
   await db
     .collection('salons')
     .doc(salonId)
     .collection('message_inbox')
     .doc(messageId)
-    .set(
-      {
-        salonId,
-        messageId,
-        from: message.from ?? message['wa_id'],
-        type: message.type,
-        payload: message,
-        receivedAt,
-        receivedAtMs: receivedAt.getTime(),
-        createdAt: FieldValue.serverTimestamp(),
-        quietHours: QUIET_HOURS,
-      },
-      { merge: true },
-    );
+    .set(payload, { merge: true });
 }
 
 async function persistDeliveryStatus(
@@ -206,27 +219,26 @@ async function persistDeliveryStatus(
 
   const eventAt = toDateFromTimestamp(status.timestamp) ?? new Date();
 
+  const payload = omitUndefinedFields({
+    salonId,
+    messageId: status.id ?? status.statusId,
+    status: status.status,
+    recipient: status.recipient_id ?? status.recipientId,
+    conversation: status.conversation,
+    pricing: status.pricing,
+    errors: status.errors,
+    eventAt,
+    eventAtMs: eventAt.getTime(),
+    raw: status,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
   await db
     .collection('salons')
     .doc(salonId)
     .collection('delivery_receipts')
     .doc(statusId)
-    .set(
-      {
-        salonId,
-        messageId: status.id,
-        status: status.status,
-        recipient: status.recipient_id ?? status.recipientId,
-        conversation: status.conversation,
-        pricing: status.pricing,
-        errors: status.errors,
-        eventAt,
-        eventAtMs: eventAt.getTime(),
-        raw: status,
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    );
+    .set(payload, { merge: true });
 }
 
 async function processChange(
@@ -248,7 +260,7 @@ async function processChange(
 
   let salonId = phoneNumberCache.get(phoneNumberId);
   if (!salonId) {
-    const config = await getSalonWaConfigByPhoneNumberId(phoneNumberId);
+    const config = await getSalonWaRoutingByPhoneNumberId(phoneNumberId);
     if (!config) {
       logWarn('No salon mapped to phone_number_id', { phoneNumberId });
       return;
@@ -269,10 +281,43 @@ async function processChange(
   }
 }
 
+function hasValidWebhookSignature(request: RequestWithRawBody): boolean {
+  const signatureHeader =
+    request.header('x-hub-signature-256') ??
+    request.header('X-Hub-Signature-256');
+  if (!signatureHeader) {
+    return false;
+  }
+
+  const appSecret = getAppSecret();
+  const rawBody = request.rawBody;
+  if (!rawBody || rawBody.length === 0) {
+    return false;
+  }
+
+  const expected = createHmac('sha256', appSecret).update(rawBody).digest('hex');
+  const received = signatureHeader.replace(/^sha256=/i, '');
+
+  try {
+    return timingSafeEqual(
+      Buffer.from(received, 'utf8'),
+      Buffer.from(expected, 'utf8'),
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
 async function handleNotification(
-  request: Request,
+  request: RequestWithRawBody,
   response: Response,
 ): Promise<void> {
+  if (!hasValidWebhookSignature(request)) {
+    logWarn('Rejected WhatsApp webhook with invalid signature');
+    response.status(403).json({ error: 'Invalid webhook signature' });
+    return;
+  }
+
   const body = request.body;
 
   if (!body || typeof body !== 'object') {
@@ -310,9 +355,9 @@ export const onWhatsappWebhook = onRequest(
         return;
       }
 
-      await handleNotification(request, response);
+      await handleNotification(request as RequestWithRawBody, response);
     } catch (error) {
-    logError('Unhandled error in WhatsApp webhook', error);
+      logError('Unhandled error in WhatsApp webhook', error);
       response.status(500).json({ error: 'Internal Server Error' });
     }
   },

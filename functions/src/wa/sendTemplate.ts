@@ -5,12 +5,27 @@ import type { Request, Response } from 'express';
 
 import { FieldValue, db } from '../utils/firestore';
 
+import { requireWaSalonAdmin, type WaRequestUserContext } from './authz';
 import { getSalonWaConfig } from './config';
 import { readSecret } from './secrets';
+import {
+  GRAPH_API_VERSION,
+  REGION,
+  WhatsAppHttpError,
+  getSystemUserAccessToken,
+  toHttpError,
+} from './runtime';
 
-const REGION = process.env.WA_REGION ?? 'europe-west1';
-const GRAPH_API_VERSION = process.env.WA_GRAPH_API_VERSION ?? 'v19.0';
-const DEFAULT_LANGUAGE = process.env.WA_DEFAULT_LANGUAGE ?? 'it';
+const SEND_TIMEOUT_MS = Number(process.env.WA_SEND_TIMEOUT_MS ?? 10000);
+
+type GraphApiErrorPayload = {
+  error?: {
+    code?: number;
+    message?: string;
+    type?: string;
+    fbtrace_id?: string;
+  };
+};
 
 export interface WhatsAppTemplateComponent {
   type: string;
@@ -34,6 +49,7 @@ export interface SendTemplateResult {
   success: boolean;
   messageId?: string;
   response?: unknown;
+  languageCode?: string;
 }
 
 async function createOutboxTrace(
@@ -59,6 +75,102 @@ async function createOutboxTrace(
     });
 }
 
+function normalizeLanguageCode(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const normalized = value.trim().replace(/-/g, '_');
+  if (!normalized) {
+    return undefined;
+  }
+  if (/^[a-z]{2}$/i.test(normalized)) {
+    return normalized.toLowerCase();
+  }
+  if (/^[a-z]{2}_[a-z]{2}$/i.test(normalized)) {
+    const [language, country] = normalized.split('_');
+    return `${language.toLowerCase()}_${country.toUpperCase()}`;
+  }
+  return normalized;
+}
+
+function resolveTemplateLanguageCode(value: unknown): string {
+  const normalized = normalizeLanguageCode(value);
+  if (!normalized) {
+    throw new Error('Missing template language (lang)');
+  }
+  const key = normalized.toLowerCase();
+  if (key === 'en' || key === 'en_us') {
+    return 'en_US';
+  }
+  return normalized;
+}
+
+function buildTemplatePayload(params: {
+  to: string;
+  templateName: string;
+  languageCode: string;
+  components?: WhatsAppTemplateComponent[];
+  allowPreviewUrl?: boolean;
+}): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    messaging_product: 'whatsapp',
+    to: params.to,
+    type: 'template',
+    template: {
+      name: params.templateName,
+      language: {
+        code: params.languageCode,
+      },
+      ...(Array.isArray(params.components) && params.components.length
+        ? { components: params.components }
+        : {}),
+    },
+  };
+
+  if (params.allowPreviewUrl === false) {
+    (payload.template as Record<string, unknown>).disable_preview = true;
+  }
+
+  return payload;
+}
+
+function mapSendTemplateError(params: {
+  salonId: string;
+  phoneNumberId: string;
+  error: unknown;
+}): Error | null {
+  if (!axios.isAxiosError(params.error)) {
+    return null;
+  }
+
+  const payload = params.error.response?.data as GraphApiErrorPayload | undefined;
+  const graphError = payload?.error;
+  const code = graphError?.code;
+  const message = String(graphError?.message ?? '');
+
+  if (code === 133010 && message.includes('Account not registered')) {
+    return new Error(
+      `WhatsApp sender account not registered for phoneNumberId ${params.phoneNumberId}. Meta rejected the send with "(#133010) Account not registered". The sender number is not fully activated yet in WhatsApp Manager, or this salon is still configured with an old/unregistered phone number ID. Finish number review/registration in Meta, verify the configured sender number, then retry.`,
+    );
+  }
+
+  return null;
+}
+
+export const __test__ = {
+  mapSendTemplateError,
+  resolveTemplateLanguageCode,
+}
+
+async function resolveSendAccessToken(
+  tokenSecretId: string | undefined,
+): Promise<string> {
+  if (tokenSecretId) {
+    return readSecret(tokenSecretId)
+  }
+  return getSystemUserAccessToken()
+}
+
 export async function sendTemplateMessage(
   input: SendTemplateInput,
 ): Promise<SendTemplateResult> {
@@ -77,33 +189,21 @@ export async function sendTemplateMessage(
   logger.debug('Resolved WhatsApp config for salon', {
     salonId,
     phoneNumberId: config.phoneNumberId,
-    tokenSecretId: config.tokenSecretId,
+    wabaId: config.wabaId,
+    registrationStatus: config.registrationStatus,
+    connectionMethod: config.connectionMethod,
   });
-  const accessToken = await readSecret(config.tokenSecretId);
-
-  const languageCode =
-    input.lang ?? config.defaultLanguage ?? DEFAULT_LANGUAGE;
+  const accessToken = await resolveSendAccessToken(config.tokenSecretId);
+  const languageCode = resolveTemplateLanguageCode(input.lang);
 
   const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${config.phoneNumberId}/messages`;
-
-  const payload: Record<string, unknown> = {
-    messaging_product: 'whatsapp',
+  const payload = buildTemplatePayload({
     to,
-    type: 'template',
-    template: {
-      name: templateName,
-      language: {
-        code: languageCode,
-      },
-      ...(Array.isArray(input.components) && input.components.length
-        ? { components: input.components }
-        : {}),
-    },
-  };
-
-  if (input.allowPreviewUrl === false) {
-    (payload.template as Record<string, unknown>).disable_preview = true;
-  }
+    templateName,
+    languageCode,
+    components: input.components,
+    allowPreviewUrl: input.allowPreviewUrl,
+  });
 
   try {
     const response = await axios.post(url, payload, {
@@ -111,7 +211,7 @@ export async function sendTemplateMessage(
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
       },
-      timeout: Number(process.env.WA_SEND_TIMEOUT_MS ?? 10000),
+      timeout: SEND_TIMEOUT_MS,
     });
 
     const messageId: string | undefined =
@@ -123,6 +223,7 @@ export async function sendTemplateMessage(
         salonId,
         to,
         templateName,
+        languageCode,
         response: response.data,
       });
     }
@@ -130,6 +231,7 @@ export async function sendTemplateMessage(
     if (input.outboxMessageId) {
       await createOutboxTrace(salonId, input.outboxMessageId, {
         event: 'graph_api_response',
+        languageCode,
         response: response.data,
       });
     }
@@ -138,27 +240,45 @@ export async function sendTemplateMessage(
       success: true,
       messageId,
       response: response.data,
+      languageCode,
     };
   } catch (error) {
     const axiosError = axios.isAxiosError(error) ? error : null;
     const status = axiosError?.response?.status;
     const data = axiosError?.response?.data;
+    const mappedError = mapSendTemplateError({
+      salonId,
+      phoneNumberId: config.phoneNumberId,
+      error,
+    });
 
     logger.error(
       'Failed to send WhatsApp template',
       error instanceof Error ? error : new Error(String(error)),
-      { salonId, to, templateName, status, data },
+      {
+        salonId,
+        to,
+        templateName,
+        languageCode,
+        phoneNumberId: config.phoneNumberId,
+        status,
+        data,
+        mappedMessage: mappedError?.message ?? null,
+      },
     );
 
     if (input.outboxMessageId) {
       await createOutboxTrace(salonId, input.outboxMessageId, {
         event: 'graph_api_error',
+        languageCode,
+        phoneNumberId: config.phoneNumberId,
         status,
         data,
+        mappedMessage: mappedError?.message ?? null,
       });
     }
 
-    throw error instanceof Error ? error : new Error(String(error));
+    throw mappedError ?? (error instanceof Error ? error : new Error(String(error)));
   }
 }
 
@@ -221,6 +341,44 @@ function sendError(response: Response, status: number, message: string): void {
   response.status(status).json({ success: false, error: message });
 }
 
+async function updateLastPreviewSendStatus(params: {
+  salonId: string;
+  status: 'success' | 'error';
+  messageId?: string;
+  errorMessage?: string;
+  user?: WaRequestUserContext | null;
+}): Promise<void> {
+  const { salonId, status, messageId, errorMessage, user } = params;
+  try {
+    await db
+      .collection('salons')
+      .doc(salonId)
+      .set(
+        {
+          whatsapp: {
+            lastPreviewSendStatus: status,
+            lastPreviewSendAt: FieldValue.serverTimestamp(),
+            lastPreviewSendMessageId: messageId ?? FieldValue.delete(),
+            lastPreviewSendError:
+              status === 'error'
+                ? (errorMessage ?? 'Unknown error')
+                : FieldValue.delete(),
+            lastPreviewSendByUserId: user?.uid ?? null,
+            lastPreviewSendByEmail: user?.email ?? null,
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+        },
+        { merge: true },
+      );
+  } catch (error) {
+    logger.warn('Failed to persist WhatsApp preview send status', {
+      salonId,
+      status,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export const sendWhatsappTemplate = onRequest(
   { region: REGION, cors: true, maxInstances: 10 },
   async (request: Request, response: Response) => {
@@ -240,9 +398,21 @@ export const sendWhatsappTemplate = onRequest(
       return;
     }
 
+    let input: SendTemplateInput | null = null;
+    let requestUser: WaRequestUserContext | null = null;
     try {
-      const input = validateRequestBody(request.body);
+      input = validateRequestBody(request.body);
+      requestUser = await requireWaSalonAdmin(request, response, input.salonId);
+      if (!requestUser) {
+        return;
+      }
       const result = await sendTemplateMessage(input);
+      await updateLastPreviewSendStatus({
+        salonId: input.salonId,
+        status: 'success',
+        messageId: result.messageId,
+        user: requestUser,
+      });
       response.set('Access-Control-Allow-Origin', '*');
       response.status(200).json({
         success: true,
@@ -252,7 +422,16 @@ export const sendWhatsappTemplate = onRequest(
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Unknown error occurred';
-      sendError(response, 400, message);
+      const httpError = toHttpError(error, message);
+      if (input && requestUser) {
+        await updateLastPreviewSendStatus({
+          salonId: input.salonId,
+          status: 'error',
+          errorMessage: message,
+          user: requestUser,
+        });
+      }
+      sendError(response, httpError.statusCode, httpError.message);
     }
   },
 );

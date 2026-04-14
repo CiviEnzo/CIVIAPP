@@ -4,6 +4,8 @@ import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/package.dart';
 import 'package:you_book/domain/entities/sale.dart';
 import 'package:flutter/material.dart';
+import 'package:you_book/presentation/common/app_notice.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
@@ -84,6 +86,256 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
     final hasDiscount = fullPrice > 0 && finalPrice < fullPrice - 0.01;
     final discountPercentage =
         hasDiscount ? ((fullPrice - finalPrice) / fullPrice) * 100 : 0;
+    final formFields = <Widget>[
+      DropdownButtonFormField<ServicePackage>(
+        isExpanded: true,
+        value: _selectedPackage,
+        decoration: const InputDecoration(labelText: 'Pacchetto'),
+        items:
+            widget.packages
+                .map(
+                  (pkg) => DropdownMenuItem(value: pkg, child: Text(pkg.name)),
+                )
+                .toList(),
+        onChanged: (value) {
+          if (value == null) return;
+          setState(() {
+            _selectedPackage = value;
+            _priceController.text = value.price.toStringAsFixed(2);
+            _remainingEdited = false;
+            _expirationEdited = false;
+          });
+          _applyDerivedDefaults(resetUserInput: true);
+        },
+      ),
+      const SizedBox(height: 8),
+      Text(
+        hasDiscount
+            ? 'Prezzo pieno catalogo: ${currency.format(fullPrice)}  •  Sconto ${discountPercentage.toStringAsFixed(discountPercentage.abs() < 10 ? 1 : 0)}%'
+            : 'Prezzo pieno catalogo: ${currency.format(fullPrice)}',
+        style: theme.textTheme.bodyMedium,
+      ),
+      const SizedBox(height: 12),
+      TextFormField(
+        controller: _quantityController,
+        decoration: const InputDecoration(labelText: 'Quantità'),
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        validator: (value) {
+          final qty = double.tryParse(value?.replaceAll(',', '.') ?? '');
+          if (qty == null || qty <= 0) {
+            return 'Inserisci una quantità valida';
+          }
+          return null;
+        },
+      ),
+      const SizedBox(height: 12),
+      TextFormField(
+        controller: _priceController,
+        decoration: const InputDecoration(labelText: 'Prezzo unitario (€)'),
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        validator: (value) {
+          final price = double.tryParse(value?.replaceAll(',', '.') ?? '');
+          if (price == null || price <= 0) {
+            return 'Inserisci un prezzo valido';
+          }
+          return null;
+        },
+      ),
+      const SizedBox(height: 12),
+      DropdownButtonFormField<PaymentMethod>(
+        isExpanded: true,
+        value: _paymentMethod,
+        decoration: const InputDecoration(labelText: 'Metodo di pagamento'),
+        items:
+            PaymentMethod.values
+                .where((method) => method.isManualSelectable)
+                .map(
+                  (method) => DropdownMenuItem(
+                    value: method,
+                    child: Text(_paymentLabel(method)),
+                  ),
+                )
+                .toList(),
+        validator:
+            (value) =>
+                value == null ? 'Seleziona il metodo di pagamento' : null,
+        onChanged: (value) => setState(() => _paymentMethod = value),
+      ),
+      const SizedBox(height: 12),
+      DropdownButtonFormField<PackagePaymentStatus>(
+        isExpanded: true,
+        value: _packagePaymentStatus,
+        decoration: const InputDecoration(labelText: 'Stato pagamento'),
+        items:
+            PackagePaymentStatus.values
+                .map(
+                  (status) => DropdownMenuItem(
+                    value: status,
+                    child: Text(status.label),
+                  ),
+                )
+                .toList(),
+        validator:
+            (value) =>
+                value == null ? 'Seleziona lo stato del pagamento' : null,
+        onChanged: (value) {
+          setState(() {
+            _packagePaymentStatus = value;
+            if (value != PackagePaymentStatus.deposit) {
+              _isUpdatingDeposit = true;
+              _depositController.clear();
+              _isUpdatingDeposit = false;
+              _depositEdited = false;
+            } else {
+              _depositEdited = false;
+            }
+          });
+          if (value != null) {
+            _applyDerivedDefaults(resetUserInput: false);
+          }
+        },
+      ),
+      const SizedBox(height: 12),
+      if (_packagePaymentStatus == PackagePaymentStatus.deposit) ...[
+        TextFormField(
+          controller: _depositController,
+          decoration: const InputDecoration(labelText: 'Importo acconto (€)'),
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          validator: (value) {
+            if (_packagePaymentStatus != PackagePaymentStatus.deposit) {
+              return null;
+            }
+            final text = value?.trim() ?? '';
+            if (text.isEmpty) {
+              return 'Inserisci l\'importo dell\'acconto';
+            }
+            final deposit = double.tryParse(text.replaceAll(',', '.'));
+            if (deposit == null || deposit <= 0) {
+              return 'Importo non valido';
+            }
+            final total = _saleTotal();
+            if (deposit > total) {
+              return 'L\'acconto supera il totale';
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 8),
+        _AmountSummary(
+          total: _saleTotal(),
+          deposit: _parseDepositAmount() ?? 0,
+          currency: NumberFormat.simpleCurrency(locale: 'it_IT'),
+        ),
+        const SizedBox(height: 12),
+      ],
+      DropdownButtonFormField<PackagePurchaseStatus>(
+        isExpanded: true,
+        value: _packageStatus,
+        decoration: const InputDecoration(labelText: 'Stato pacchetto'),
+        items:
+            PackagePurchaseStatus.values
+                .map(
+                  (status) => DropdownMenuItem(
+                    value: status,
+                    child: Text(status.label),
+                  ),
+                )
+                .toList(),
+        onChanged:
+            (value) => setState(
+              () => _packageStatus = value ?? PackagePurchaseStatus.active,
+            ),
+      ),
+      const SizedBox(height: 12),
+      ListTile(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('Data e ora vendita'),
+        subtitle: Text(dateFormat.format(_saleDate)),
+        trailing: const Icon(Icons.calendar_month_rounded),
+        onTap: _pickDateTime,
+      ),
+      const SizedBox(height: 12),
+      ListTile(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('Scadenza pacchetto'),
+        subtitle: Text(
+          _expirationDate == null
+              ? 'Nessuna scadenza'
+              : DateFormat('dd/MM/yyyy').format(_expirationDate!),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_expirationDate != null)
+              IconButton(
+                tooltip: 'Rimuovi scadenza',
+                onPressed: _clearExpiration,
+                icon: const Icon(Icons.close_rounded),
+              ),
+            IconButton(
+              tooltip: 'Modifica scadenza',
+              onPressed: _pickExpirationDate,
+              icon: const Icon(Icons.edit_calendar_rounded),
+            ),
+          ],
+        ),
+      ),
+      if (_totalSessions != null) ...[
+        const SizedBox(height: 12),
+        Text('Totale sessioni previste: $_totalSessions'),
+      ],
+      const SizedBox(height: 12),
+      TextFormField(
+        controller: _remainingSessionsController,
+        decoration: const InputDecoration(
+          labelText: 'Sessioni rimanenti',
+          hintText: 'Lascia vuoto per non impostare',
+        ),
+        keyboardType: TextInputType.number,
+        validator: (value) {
+          if (value == null || value.trim().isEmpty) {
+            return null;
+          }
+          final remaining = int.tryParse(value.trim());
+          if (remaining == null || remaining < 0) {
+            return 'Inserisci un numero valido';
+          }
+          if (_totalSessions != null && remaining > _totalSessions!) {
+            return 'Valore maggiore delle sessioni totali';
+          }
+          return null;
+        },
+      ),
+      const SizedBox(height: 12),
+      TextFormField(
+        controller: _invoiceController,
+        decoration: const InputDecoration(
+          labelText: 'Numero fattura / scontrino',
+        ),
+      ),
+      const SizedBox(height: 12),
+      TextFormField(
+        controller: _notesController,
+        decoration: const InputDecoration(labelText: 'Note'),
+        maxLines: 3,
+      ),
+    ];
+
+    if (isAppSheetPhoneLayout(context)) {
+      return AppMobileSheetPageScaffold(
+        title: 'Registra pacchetto',
+        actions: [TextButton(onPressed: _submit, child: const Text('Salva'))],
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: formFields,
+          ),
+        ),
+      );
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Form(
@@ -94,253 +346,7 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
           children: [
             Text('Registra pacchetto', style: theme.textTheme.titleLarge),
             const SizedBox(height: 16),
-            DropdownButtonFormField<ServicePackage>(
-              isExpanded: true,
-              value: _selectedPackage,
-              decoration: const InputDecoration(labelText: 'Pacchetto'),
-              items:
-                  widget.packages
-                      .map(
-                        (pkg) =>
-                            DropdownMenuItem(value: pkg, child: Text(pkg.name)),
-                      )
-                      .toList(),
-              onChanged: (value) {
-                if (value == null) return;
-                setState(() {
-                  _selectedPackage = value;
-                  _priceController.text = value.price.toStringAsFixed(2);
-                  _remainingEdited = false;
-                  _expirationEdited = false;
-                });
-                _applyDerivedDefaults(resetUserInput: true);
-              },
-            ),
-            const SizedBox(height: 8),
-            Text(
-              hasDiscount
-                  ? 'Prezzo pieno catalogo: ${currency.format(fullPrice)}  •  Sconto ${discountPercentage.toStringAsFixed(discountPercentage.abs() < 10 ? 1 : 0)}%'
-                  : 'Prezzo pieno catalogo: ${currency.format(fullPrice)}',
-              style: theme.textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _quantityController,
-              decoration: const InputDecoration(labelText: 'Quantità'),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              validator: (value) {
-                final qty = double.tryParse(value?.replaceAll(',', '.') ?? '');
-                if (qty == null || qty <= 0) {
-                  return 'Inserisci una quantità valida';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _priceController,
-              decoration: const InputDecoration(
-                labelText: 'Prezzo unitario (€)',
-              ),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              validator: (value) {
-                final price = double.tryParse(
-                  value?.replaceAll(',', '.') ?? '',
-                );
-                if (price == null || price <= 0) {
-                  return 'Inserisci un prezzo valido';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<PaymentMethod>(
-              isExpanded: true,
-              value: _paymentMethod,
-              decoration: const InputDecoration(
-                labelText: 'Metodo di pagamento',
-              ),
-              items:
-                  PaymentMethod.values
-                      .map(
-                        (method) => DropdownMenuItem(
-                          value: method,
-                          child: Text(_paymentLabel(method)),
-                        ),
-                      )
-                      .toList(),
-              validator:
-                  (value) =>
-                      value == null ? 'Seleziona il metodo di pagamento' : null,
-              onChanged: (value) => setState(() => _paymentMethod = value),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<PackagePaymentStatus>(
-              isExpanded: true,
-              value: _packagePaymentStatus,
-              decoration: const InputDecoration(labelText: 'Stato pagamento'),
-              items:
-                  PackagePaymentStatus.values
-                      .map(
-                        (status) => DropdownMenuItem(
-                          value: status,
-                          child: Text(status.label),
-                        ),
-                      )
-                      .toList(),
-              validator:
-                  (value) =>
-                      value == null ? 'Seleziona lo stato del pagamento' : null,
-              onChanged: (value) {
-                setState(() {
-                  _packagePaymentStatus = value;
-                  if (value != PackagePaymentStatus.deposit) {
-                    _isUpdatingDeposit = true;
-                    _depositController.clear();
-                    _isUpdatingDeposit = false;
-                    _depositEdited = false;
-                  } else {
-                    _depositEdited = false;
-                  }
-                });
-                if (value != null) {
-                  _applyDerivedDefaults(resetUserInput: false);
-                }
-              },
-            ),
-            const SizedBox(height: 12),
-            if (_packagePaymentStatus == PackagePaymentStatus.deposit) ...[
-              TextFormField(
-                controller: _depositController,
-                decoration: const InputDecoration(
-                  labelText: 'Importo acconto (€)',
-                ),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                validator: (value) {
-                  if (_packagePaymentStatus != PackagePaymentStatus.deposit) {
-                    return null;
-                  }
-                  final text = value?.trim() ?? '';
-                  if (text.isEmpty) {
-                    return 'Inserisci l\'importo dell\'acconto';
-                  }
-                  final deposit = double.tryParse(text.replaceAll(',', '.'));
-                  if (deposit == null || deposit <= 0) {
-                    return 'Importo non valido';
-                  }
-                  final total = _saleTotal();
-                  if (deposit > total) {
-                    return 'L\'acconto supera il totale';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 8),
-              _AmountSummary(
-                total: _saleTotal(),
-                deposit: _parseDepositAmount() ?? 0,
-                currency: NumberFormat.simpleCurrency(locale: 'it_IT'),
-              ),
-              const SizedBox(height: 12),
-            ],
-            DropdownButtonFormField<PackagePurchaseStatus>(
-              isExpanded: true,
-              value: _packageStatus,
-              decoration: const InputDecoration(labelText: 'Stato pacchetto'),
-              items:
-                  PackagePurchaseStatus.values
-                      .map(
-                        (status) => DropdownMenuItem(
-                          value: status,
-                          child: Text(status.label),
-                        ),
-                      )
-                      .toList(),
-              onChanged:
-                  (value) => setState(
-                    () =>
-                        _packageStatus = value ?? PackagePurchaseStatus.active,
-                  ),
-            ),
-            const SizedBox(height: 12),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Data e ora vendita'),
-              subtitle: Text(dateFormat.format(_saleDate)),
-              trailing: const Icon(Icons.calendar_month_rounded),
-              onTap: _pickDateTime,
-            ),
-            const SizedBox(height: 12),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Scadenza pacchetto'),
-              subtitle: Text(
-                _expirationDate == null
-                    ? 'Nessuna scadenza'
-                    : DateFormat('dd/MM/yyyy').format(_expirationDate!),
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_expirationDate != null)
-                    IconButton(
-                      tooltip: 'Rimuovi scadenza',
-                      onPressed: _clearExpiration,
-                      icon: const Icon(Icons.close_rounded),
-                    ),
-                  IconButton(
-                    tooltip: 'Modifica scadenza',
-                    onPressed: _pickExpirationDate,
-                    icon: const Icon(Icons.edit_calendar_rounded),
-                  ),
-                ],
-              ),
-            ),
-            if (_totalSessions != null) ...[
-              const SizedBox(height: 12),
-              Text('Totale sessioni previste: $_totalSessions'),
-            ],
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _remainingSessionsController,
-              decoration: const InputDecoration(
-                labelText: 'Sessioni rimanenti',
-                hintText: 'Lascia vuoto per non impostare',
-              ),
-              keyboardType: TextInputType.number,
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return null;
-                }
-                final remaining = int.tryParse(value.trim());
-                if (remaining == null || remaining < 0) {
-                  return 'Inserisci un numero valido';
-                }
-                if (_totalSessions != null && remaining > _totalSessions!) {
-                  return 'Valore maggiore delle sessioni totali';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _invoiceController,
-              decoration: const InputDecoration(
-                labelText: 'Numero fattura / scontrino',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _notesController,
-              decoration: const InputDecoration(labelText: 'Note'),
-              maxLines: 3,
-            ),
+            ...formFields,
             const SizedBox(height: 24),
             Align(
               alignment: Alignment.centerRight,
@@ -539,14 +545,14 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
 
     final paymentMethod = _paymentMethod;
     if (paymentMethod == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Seleziona il metodo di pagamento.')),
       );
       return;
     }
     final packagePaymentStatus = _packagePaymentStatus;
     if (packagePaymentStatus == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Seleziona lo stato del pagamento.')),
       );
       return;
@@ -577,14 +583,14 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
     if (packagePaymentStatus == PackagePaymentStatus.deposit) {
       depositAmount = _parseDepositAmount();
       if (depositAmount == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(content: Text('Inserisci un importo per l\'acconto')),
         );
         return;
       }
       depositAmount = double.parse(depositAmount.toStringAsFixed(2));
       if (depositAmount > total) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(content: Text('L\'acconto supera il totale.')),
         );
         return;
@@ -699,18 +705,7 @@ class _PackageSaleFormSheetState extends State<PackageSaleFormSheet> {
   }
 
   String _paymentLabel(PaymentMethod method) {
-    switch (method) {
-      case PaymentMethod.cash:
-        return 'Contanti';
-      case PaymentMethod.pos:
-        return 'POS';
-      case PaymentMethod.transfer:
-        return 'Bonifico';
-      case PaymentMethod.giftCard:
-        return 'Gift card';
-      case PaymentMethod.posticipated:
-        return 'Posticipato';
-    }
+    return method.label;
   }
 }
 

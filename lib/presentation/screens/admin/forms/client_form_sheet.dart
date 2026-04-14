@@ -2,9 +2,75 @@ import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
+import 'package:you_book/presentation/common/app_notice.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+
+const Color kClientFormSheetAccent = Color(0xFFD4AF37);
+const Color _kClientSheetBackground = Color(0xFFF7F5F1);
+const Color _kClientSheetCardBackground = Color(0xFFF8F7F4);
+const Color _kClientSheetInputBackground = Color(0xFFFFFFFF);
+const Color _kClientSheetBorder = Color(0xFFD7D3CB);
+const Color _kClientSheetHint = Color(0xFF98948B);
+
+class _ClientFormPalette {
+  const _ClientFormPalette({
+    required this.background,
+    required this.cardBackground,
+    required this.inputBackground,
+    required this.border,
+    required this.textPrimary,
+    required this.textSecondary,
+    required this.hint,
+    required this.danger,
+    required this.accentSoft,
+    required this.cancelBackground,
+  });
+
+  factory _ClientFormPalette.fromTheme(ThemeData theme) {
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    return _ClientFormPalette(
+      background: isDark ? scheme.surface : _kClientSheetBackground,
+      cardBackground:
+          isDark ? scheme.surfaceContainerLow : _kClientSheetCardBackground,
+      inputBackground:
+          isDark ? scheme.surfaceContainerHigh : _kClientSheetInputBackground,
+      border:
+          isDark
+              ? scheme.outlineVariant.withValues(alpha: 0.82)
+              : _kClientSheetBorder,
+      textPrimary: scheme.onSurface,
+      textSecondary: scheme.onSurfaceVariant,
+      hint:
+          isDark
+              ? scheme.onSurfaceVariant.withValues(alpha: 0.72)
+              : _kClientSheetHint,
+      danger: scheme.error,
+      accentSoft:
+          isDark
+              ? kClientFormSheetAccent.withValues(alpha: 0.18)
+              : kClientFormSheetAccent.withValues(alpha: 0.16),
+      cancelBackground:
+          isDark
+              ? scheme.surfaceContainerHigh
+              : Colors.white.withValues(alpha: 0.75),
+    );
+  }
+
+  final Color background;
+  final Color cardBackground;
+  final Color inputBackground;
+  final Color border;
+  final Color textPrimary;
+  final Color textSecondary;
+  final Color hint;
+  final Color danger;
+  final Color accentSoft;
+  final Color cancelBackground;
+}
 
 class ClientFormSheet extends StatefulWidget {
   const ClientFormSheet({
@@ -57,6 +123,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
   bool _preferencesDirty = false;
   bool _loyaltyDirty = false;
   bool _updatingLoyaltyField = false;
+  bool _isSubmitting = false;
 
   bool get _isEditing => widget.initial != null;
 
@@ -191,27 +258,6 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     _clientNumber.text = _pendingClientNumberDisplay;
   }
 
-  Future<void> _pickDateOfBirth() async {
-    FocusScope.of(context).unfocus();
-    final now = DateTime.now();
-    final initialDate =
-        _dateOfBirth ?? DateTime(now.year - 25, now.month, now.day);
-    final selected = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: DateTime(1900),
-      lastDate: now,
-      locale: const Locale('it', 'IT'),
-    );
-    if (selected == null) {
-      return;
-    }
-    setState(() {
-      _dateOfBirth = selected;
-      _dateOfBirthDisplay.text = _dateFormat.format(selected);
-    });
-  }
-
   void _updateDateOfBirthFromText() {
     final trimmed = _dateOfBirthDisplay.text.trim();
     _dateOfBirth = _parseDate(trimmed);
@@ -231,7 +277,8 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
   String? _validateDateOfBirth(String? value) {
     final trimmed = value?.trim() ?? '';
     if (trimmed.isEmpty) {
-      return 'Inserisci la data di nascita';
+      _dateOfBirth = null;
+      return null;
     }
     final parsed = _parseDate(trimmed);
     if (parsed == null) {
@@ -247,517 +294,581 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
         _clientNumber.text.isEmpty
             ? _pendingClientNumberDisplay
             : _clientNumber.text;
+    final theme = Theme.of(context);
+    final palette = _ClientFormPalette.fromTheme(theme);
+    final baseBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(16),
+      borderSide: BorderSide(color: palette.border),
+    );
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final theme = Theme.of(context);
-        final bool isWide = constraints.maxWidth >= 900;
+    return Theme(
+      data: theme.copyWith(
+        inputDecorationTheme: theme.inputDecorationTheme.copyWith(
+          filled: true,
+          fillColor: palette.inputBackground,
+          hintStyle: theme.textTheme.bodyMedium?.copyWith(color: palette.hint),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 15,
+          ),
+          floatingLabelBehavior: FloatingLabelBehavior.never,
+          border: baseBorder,
+          enabledBorder: baseBorder,
+          disabledBorder: baseBorder,
+          focusedBorder: baseBorder.copyWith(
+            borderSide: BorderSide(color: kClientFormSheetAccent, width: 1.2),
+          ),
+          errorBorder: baseBorder.copyWith(
+            borderSide: BorderSide(color: palette.danger),
+          ),
+          focusedErrorBorder: baseBorder.copyWith(
+            borderSide: BorderSide(color: palette.danger, width: 1.2),
+          ),
+        ),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final bool isWide = constraints.maxWidth >= 860;
+          final bool isCompactHeader = constraints.maxWidth < 680;
+          final bool isPhoneLayout = isAppSheetPhoneLayout(context);
 
-        double sidebarWidth = constraints.maxWidth * 0.36;
-        if (sidebarWidth < 320) {
-          sidebarWidth = 320;
-        } else if (sidebarWidth > 420) {
-          sidebarWidth = 420;
-        }
+          final anagraficaSection = _FormSection(
+            icon: Icons.badge_rounded,
+            title: 'Anagrafica',
+            subtitle: 'Imposta i dati principali del cliente',
+            children: [
+              _buildTextField(
+                controller: _firstName,
+                label: 'Nome',
+                hint: 'Inserisci nome',
+                required: true,
+                autofocus: !_isEditing,
+                textInputAction: TextInputAction.next,
+                textCapitalization: TextCapitalization.words,
+                validator:
+                    (value) =>
+                        value == null || value.trim().isEmpty
+                            ? 'Inserisci il nome'
+                            : null,
+              ),
+              _buildTextField(
+                controller: _lastName,
+                label: 'Cognome',
+                hint: 'Inserisci cognome',
+                required: true,
+                textInputAction: TextInputAction.next,
+                textCapitalization: TextCapitalization.words,
+                validator:
+                    (value) =>
+                        value == null || value.trim().isEmpty
+                            ? 'Inserisci il cognome'
+                            : null,
+              ),
+              _buildTextField(
+                controller: _dateOfBirthDisplay,
+                label: 'Data di nascita',
+                hint: 'gg/mm/aaaa',
+                keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.next,
+                inputFormatters: [
+                  LengthLimitingTextInputFormatter(10),
+                  _SlashDateTextInputFormatter(),
+                ],
+                onChanged: (_) => _updateDateOfBirthFromText(),
+                validator: _validateDateOfBirth,
+              ),
+              _buildDropdownField<String>(
+                label: 'Sesso',
+                hint: 'Seleziona',
+                value: _gender,
+                items: const [
+                  DropdownMenuItem(value: 'male', child: Text('Uomo')),
+                  DropdownMenuItem(value: 'female', child: Text('Donna')),
+                  DropdownMenuItem(
+                    value: 'other',
+                    child: Text('Altro/Non specificato'),
+                  ),
+                ],
+                onChanged: (value) => setState(() => _gender = value),
+              ),
+            ],
+          );
 
-        final isCompactHeader = constraints.maxWidth < 640;
-        final headerTitle = Text(
-          _isEditing ? 'Modifica cliente' : 'Nuovo cliente',
-          style: theme.textTheme.titleLarge,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        );
-        final headerBadge = _ClientNumberBadge(number: numberDisplay);
-        final header =
-            isCompactHeader
-                ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    headerTitle,
-                    const SizedBox(height: 8),
-                    headerBadge,
-                  ],
-                )
-                : Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(child: headerTitle),
-                    const SizedBox(width: 12),
-                    headerBadge,
-                  ],
-                );
+          final contattiSection = _FormSection(
+            icon: Icons.contact_phone_rounded,
+            title: 'Contatti',
+            subtitle: 'Recapiti, indirizzo e provenienza',
+            children: [
+              _buildTextField(
+                controller: _phone,
+                label: 'Telefono',
+                hint: '+39',
+                required: true,
+                keyboardType: TextInputType.phone,
+                textInputAction: TextInputAction.next,
+                validator:
+                    (value) =>
+                        value == null || value.trim().isEmpty
+                            ? 'Inserisci un numero di telefono'
+                            : null,
+              ),
+              _buildTextField(
+                controller: _email,
+                label: 'Email',
+                hint: 'esempio@email.com',
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
+                validator: _validateEmail,
+              ),
+              _buildTextField(
+                controller: _city,
+                label: 'Città di residenza',
+                hint: 'Milano',
+                textCapitalization: TextCapitalization.words,
+                textInputAction: TextInputAction.next,
+              ),
+              _buildTextField(
+                controller: _profession,
+                label: 'Professione',
+                hint: 'Es: Insegnante',
+                textInputAction: TextInputAction.next,
+              ),
+              _buildDropdownField<String>(
+                label: 'Come ci ha conosciuto?',
+                hint: 'Seleziona un\'opzione',
+                labelColor: kClientFormSheetAccent,
+                value: _referralSource,
+                items:
+                    _buildReferralOptions()
+                        .map(
+                          (option) => DropdownMenuItem(
+                            value: option,
+                            child: Text(option),
+                          ),
+                        )
+                        .toList(),
+                onChanged:
+                    (value) => setState(() => _referralSource = value?.trim()),
+              ),
+            ],
+          );
 
-        final anagraficaSection = _FormSection(
-          icon: Icons.badge_rounded,
-          title: 'Anagrafica',
-          subtitle: 'Imposta i dati principali del cliente',
-          children: [
-            TextFormField(
-              controller: _firstName,
-              autofocus: !_isEditing,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(labelText: 'Nome'),
-              validator:
-                  (value) =>
-                      value == null || value.trim().isEmpty
-                          ? 'Inserisci il nome'
-                          : null,
-            ),
-            TextFormField(
-              controller: _lastName,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(labelText: 'Cognome'),
-              validator:
-                  (value) =>
-                      value == null || value.trim().isEmpty
-                          ? 'Inserisci il cognome'
-                          : null,
-            ),
-            TextFormField(
-              controller: _dateOfBirthDisplay,
-              keyboardType: TextInputType.number,
-              inputFormatters: [
-                LengthLimitingTextInputFormatter(10),
-                _SlashDateTextInputFormatter(),
-              ],
-              decoration: InputDecoration(
-                labelText: 'Data di nascita',
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.calendar_today_rounded),
-                  onPressed: _pickDateOfBirth,
+          final notesSection = _FormSection(
+            icon: Icons.sticky_note_2_rounded,
+            title: 'Note',
+            subtitle: 'Annotazioni interne sul cliente',
+            children: [
+              _buildTextField(
+                controller: _notes,
+                label: '',
+                hint: 'Note cliente',
+                keyboardType: TextInputType.multiline,
+                minLines: 6,
+                maxLines: 6,
+              ),
+            ],
+          );
+
+          final preferenzeSection = _FormSection(
+            icon: Icons.forum_rounded,
+            title: 'Preferenze di contatto',
+            subtitle: 'Scegli i canali di comunicazione consentiti',
+            children: [
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: _prefPush,
+                onChanged:
+                    (value) => _updatePreference(() => _prefPush = value),
+                title: const Text('Push (app mobile)'),
+                subtitle: const Text(
+                  'Notifiche gratuite tramite installazione dell\'app.',
                 ),
               ),
-              onChanged: (_) => _updateDateOfBirthFromText(),
-              validator: _validateDateOfBirth,
-            ),
-            DropdownButtonFormField<String>(
-              value: _gender,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Sesso'),
-              items: const [
-                DropdownMenuItem(value: 'male', child: Text('Uomo')),
-                DropdownMenuItem(value: 'female', child: Text('Donna')),
-                DropdownMenuItem(
-                  value: 'other',
-                  child: Text('Altro/Non specificato'),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: _prefEmail,
+                onChanged:
+                    (value) => _updatePreference(() => _prefEmail = value),
+                title: const Text('Email'),
+                subtitle: const Text('Promo e reminder via posta elettronica.'),
+              ),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: _prefWhatsapp,
+                onChanged:
+                    (value) => _updatePreference(() => _prefWhatsapp = value),
+                title: const Text('WhatsApp'),
+                subtitle: const Text(
+                  'Richiede numero Business e template approvati.',
                 ),
-              ],
-              onChanged: (value) => setState(() => _gender = value),
-            ),
-          ],
-        );
-
-        final contattiSection = _FormSection(
-          icon: Icons.contact_phone_rounded,
-          title: 'Contatti',
-          subtitle: 'Recapiti, indirizzo e provenienza',
-          children: [
-            TextFormField(
-              controller: _phone,
-              decoration: const InputDecoration(labelText: 'Telefono'),
-              keyboardType: TextInputType.phone,
-              textInputAction: TextInputAction.next,
-              validator:
-                  (value) =>
-                      value == null || value.trim().isEmpty
-                          ? 'Inserisci un numero di telefono'
-                          : null,
-            ),
-            TextFormField(
-              controller: _email,
-              decoration: const InputDecoration(labelText: 'Email'),
-              keyboardType: TextInputType.emailAddress,
-              textInputAction: TextInputAction.next,
-              validator: _validateEmail,
-            ),
-
-            TextFormField(
-              controller: _city,
-              textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(
-                labelText: 'Città di residenza',
               ),
-              textInputAction: TextInputAction.next,
-            ),
-            TextFormField(
-              controller: _profession,
-              decoration: const InputDecoration(labelText: 'Professione'),
-              textInputAction: TextInputAction.next,
-            ),
-            DropdownButtonFormField<String>(
-              value: _referralSource,
-              decoration: const InputDecoration(
-                labelText: 'Come ci ha conosciuto?',
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: _prefSms,
+                onChanged: (value) => _updatePreference(() => _prefSms = value),
+                title: const Text('SMS'),
+                subtitle: const Text(
+                  'Canale a pagamento, usarlo solo per comunicazioni urgenti.',
+                ),
               ),
-              hint: const Text('Seleziona un\'opzione'),
-              items:
-                  _buildReferralOptions()
-                      .map(
-                        (option) => DropdownMenuItem(
-                          value: option,
-                          child: Text(option),
-                        ),
-                      )
-                      .toList(),
-              isExpanded: true,
-              onChanged:
-                  (value) => setState(() => _referralSource = value?.trim()),
-              validator:
-                  (value) =>
-                      _referralSource == null || _referralSource!.isEmpty
-                          ? 'Indica come il cliente ha conosciuto il salone'
-                          : null,
-            ),
-          ],
-        );
+              Text(
+                _preferencesDirty || widget.initial == null
+                    ? 'Le modifiche saranno registrate al salvataggio.'
+                    : _channelPrefsUpdatedAt != null
+                    ? 'Ultimo aggiornamento: ${_dateTimeFormat.format(_channelPrefsUpdatedAt!)}'
+                    : 'Preferenze non ancora registrate.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: palette.textSecondary,
+                ),
+              ),
+            ],
+          );
 
-        final notesSection = _FormSection(
-          icon: Icons.sticky_note_2_rounded,
-          title: 'Note',
-          subtitle: 'Annotazioni interne sul cliente',
-          children: [
-            TextFormField(
-              controller: _notes,
-              decoration: const InputDecoration(labelText: 'Note cliente'),
-              keyboardType: TextInputType.multiline,
-              maxLines: 4,
-            ),
-          ],
-        );
-
-        final preferenzeSection = _FormSection(
-          icon: Icons.forum_rounded,
-          title: 'Preferenze di contatto',
-          subtitle: 'Scegli i canali di comunicazione consentiti',
-          children: [
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: _prefPush,
-              onChanged: (value) => _updatePreference(() => _prefPush = value),
-              title: const Text('Push (app mobile)'),
-              subtitle: const Text(
-                'Notifiche gratuite tramite installazione dell\'app.',
-              ),
-            ),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: _prefEmail,
-              onChanged: (value) => _updatePreference(() => _prefEmail = value),
-              title: const Text('Email'),
-              subtitle: const Text('Promo e reminder via posta elettronica.'),
-            ),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: _prefWhatsapp,
-              onChanged:
-                  (value) => _updatePreference(() => _prefWhatsapp = value),
-              title: const Text('WhatsApp'),
-              subtitle: const Text(
-                'Richiede numero Business e template approvati.',
-              ),
-            ),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: _prefSms,
-              onChanged: (value) => _updatePreference(() => _prefSms = value),
-              title: const Text('SMS'),
-              subtitle: const Text(
-                'Canale a pagamento, usarlo solo per comunicazioni urgenti.',
-              ),
-            ),
-            Text(
-              _preferencesDirty || widget.initial == null
-                  ? 'Le modifiche saranno registrate al salvataggio.'
-                  : _channelPrefsUpdatedAt != null
-                  ? 'Ultimo aggiornamento: ${_dateTimeFormat.format(_channelPrefsUpdatedAt!)}'
-                  : 'Preferenze non ancora registrate.',
-              style: theme.textTheme.bodySmall,
-            ),
-          ],
-        );
-
-        final loyaltySection = _FormSection(
-          icon: Icons.stars_rounded,
-          title: 'Programma fedeltà',
-          subtitle: 'Configura saldo iniziale e punti attuali',
-          children: [
-            TextFormField(
-              controller: _loyaltyInitialPoints,
-              decoration: const InputDecoration(
-                labelText: 'Punti iniziali',
+          final loyaltySection = _FormSection(
+            icon: Icons.stars_rounded,
+            title: 'Programma fedeltà',
+            subtitle: 'Configura saldo iniziale e punti attuali',
+            children: [
+              _buildTextField(
+                controller: _loyaltyInitialPoints,
+                label: 'Punti iniziali',
+                hint: '0',
+                keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.next,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 helperText: 'Saldo assegnato al momento della creazione.',
               ),
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.next,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            ),
-            TextFormField(
-              controller: _loyaltyPoints,
-              decoration: const InputDecoration(
-                labelText: 'Saldo punti attuale',
+              _buildTextField(
+                controller: _loyaltyPoints,
+                label: 'Saldo punti attuale',
+                hint: '0',
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 helperText:
                     'Se lasci invariato, sarà ricalcolato con il nuovo saldo iniziale.',
               ),
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            ),
-          ],
-        );
+            ],
+          );
 
-        final saveButton = FilledButton(
-          onPressed: _submit,
-          child: const Text('Salva'),
-        );
+          final formSections = <Widget>[
+            if (isWide)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: anagraficaSection),
+                  const SizedBox(width: 18),
+                  Expanded(child: contattiSection),
+                ],
+              )
+            else ...[
+              anagraficaSection,
+              const SizedBox(height: 18),
+              contattiSection,
+            ],
+            const SizedBox(height: 18),
+            notesSection,
+            if (_isEditing) ...[
+              const SizedBox(height: 18),
+              if (isWide)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: preferenzeSection),
+                    const SizedBox(width: 18),
+                    Expanded(child: loyaltySection),
+                  ],
+                )
+              else ...[
+                preferenzeSection,
+                const SizedBox(height: 18),
+                loyaltySection,
+              ],
+            ],
+          ];
 
-        final sections = <Widget>[
-          anagraficaSection,
-          contattiSection,
-          notesSection,
-          if (_isEditing) preferenzeSection,
-          if (_isEditing) loyaltySection,
-        ];
+          if (isPhoneLayout) {
+            return AppMobileSheetPageScaffold(
+              title: _isEditing ? 'Modifica cliente' : 'Nuovo cliente',
+              subtitle: 'Anagrafica, contatti e preferenze del cliente.',
+              backgroundColor: palette.background,
+              actions: [
+                TextButton(
+                  onPressed: _isSubmitting ? null : _submit,
+                  child: Text(_isSubmitting ? 'Attendi...' : 'Salva'),
+                ),
+              ],
+              body: Form(
+                key: _formKey,
+                child: ListView(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                  children: [
+                    _ClientNumberBadge(number: numberDisplay),
+                    const SizedBox(height: 16),
+                    ...formSections,
+                    const SizedBox(height: 32),
+                  ],
+                ),
+              ),
+            );
+          }
 
-        final narrowChildren = <Widget>[
-          header,
-          const SizedBox(height: 24),
-          ..._withSectionDividers(sections),
-        ];
-
-        final wideLayout = Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            header,
-            const SizedBox(height: 24),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          return ColoredBox(
+            color: palette.background,
+            child: Stack(
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: _withSectionDividers([
-                      anagraficaSection,
-                      contattiSection,
-                      notesSection,
-                      if (_isEditing) loyaltySection,
-                    ]),
+                SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(28, 20, 28, 128),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildHeader(
+                          context,
+                          numberDisplay: numberDisplay,
+                          isCompact: isCompactHeader,
+                        ),
+                        const SizedBox(height: 16),
+                        Divider(height: 1, color: palette.border),
+                        const SizedBox(height: 20),
+                        ...formSections,
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(width: 24),
-                SizedBox(
-                  width: sidebarWidth,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: _withSectionDividers([
-                      if (_isEditing) preferenzeSection,
-                    ]),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: SafeArea(
+                    top: false,
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(28, 14, 28, 20),
+                      decoration: BoxDecoration(
+                        color: palette.background,
+                        border: Border(top: BorderSide(color: palette.border)),
+                      ),
+                      child: Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: [
+                          OutlinedButton(
+                            onPressed:
+                                _isSubmitting
+                                    ? null
+                                    : () => Navigator.of(context).maybePop(),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: palette.textPrimary,
+                              backgroundColor: palette.cancelBackground,
+                              side: BorderSide(color: palette.border),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 22,
+                                vertical: 18,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                            child: const Text('Annulla'),
+                          ),
+                          FilledButton(
+                            onPressed: _isSubmitting ? null : _submit,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: kClientFormSheetAccent,
+                              foregroundColor: palette.textPrimary,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: 18,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                            child: Text(_isSubmitting ? 'Attendi...' : 'Salva'),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ],
             ),
-          ],
-        );
-
-        return Stack(
-          children: [
-            SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 120),
-              child: Form(
-                key: _formKey,
-                child:
-                    isWide
-                        ? wideLayout
-                        : Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: narrowChildren,
-                        ),
-              ),
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: SafeArea(
-                top: false,
-                child: Container(
-                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surface,
-                    boxShadow: [
-                      BoxShadow(
-                        color: theme.colorScheme.shadow.withValues(alpha: 0.06),
-                        blurRadius: 12,
-                        offset: const Offset(0, -4),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Align(
-                        alignment: Alignment.bottomRight,
-                        child: saveButton,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
+          );
+        },
+      ),
     );
   }
 
-  void _submit() async {
+  Future<void> _submit() async {
+    if (_isSubmitting) {
+      return;
+    }
     if (!_formKey.currentState!.validate()) {
       return;
     }
     if (_salonId == null) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Seleziona un salone')));
+      ).showAppSnackBar(const SnackBar(content: Text('Seleziona un salone')));
       return;
     }
 
-    final existing = widget.initial;
-    final salonId = _salonId!;
-    final trimmedFirstName = _firstName.text.trim();
-    final trimmedLastName = _lastName.text.trim();
-    final trimmedPhone = _phone.text.trim();
-    final trimmedEmail = _email.text.trim();
-    final trimmedAddress = _address.text.trim();
-    final trimmedCity = _city.text.trim();
-    final trimmedProfession = _profession.text.trim();
-    final trimmedNotes = _notes.text.trim();
-    final referral = _referralSource?.trim();
+    setState(() => _isSubmitting = true);
 
-    _updateDateOfBirthFromText();
+    try {
+      final existing = widget.initial;
+      final salonId = _salonId!;
+      final trimmedFirstName = _firstName.text.trim();
+      final trimmedLastName = _lastName.text.trim();
+      final trimmedPhone = _phone.text.trim();
+      final trimmedEmail = _email.text.trim();
+      final trimmedAddress = _address.text.trim();
+      final trimmedCity = _city.text.trim();
+      final trimmedProfession = _profession.text.trim();
+      final trimmedNotes = _notes.text.trim();
+      final referral = _referralSource?.trim();
 
-    final duplicates = _findPotentialDuplicates(
-      salonId: salonId,
-      phone: trimmedPhone,
-      email: trimmedEmail,
-    );
+      _updateDateOfBirthFromText();
 
-    if (duplicates.isNotEmpty) {
-      final decision = await _promptDuplicateResolution(duplicates);
+      final duplicates = _findPotentialDuplicates(
+        salonId: salonId,
+        phone: trimmedPhone,
+        email: trimmedEmail,
+      );
+
+      if (duplicates.isNotEmpty) {
+        final decision = await _promptDuplicateResolution(duplicates);
+        if (!mounted) {
+          return;
+        }
+        if (decision == _duplicateDialogCancel || decision == null) {
+          return;
+        }
+        if (decision is Client) {
+          final mergedClient = _mergeExistingClientWithForm(
+            decision,
+            firstName: trimmedFirstName,
+            lastName: trimmedLastName,
+            phone: trimmedPhone,
+            email: trimmedEmail,
+            address: trimmedAddress,
+            city: trimmedCity,
+            profession: trimmedProfession,
+            notes: trimmedNotes,
+            referralSource: referral,
+            dateOfBirth: _dateOfBirth,
+            gender: _gender,
+          );
+          Navigator.of(context).pop(mergedClient);
+          return;
+        }
+      }
+
+      var initialPoints = int.tryParse(_loyaltyInitialPoints.text.trim()) ?? 0;
+      if (initialPoints < 0) {
+        initialPoints = 0;
+      }
+
+      var loyaltyPoints = int.tryParse(_loyaltyPoints.text.trim()) ?? 0;
+      final previousInitial = existing?.loyaltyInitialPoints ?? 0;
+      final previousBalance = existing?.loyaltyPoints ?? 0;
+      final historicNet = previousBalance - previousInitial;
+
+      final balanceFieldChanged =
+          existing == null
+              ? _loyaltyPoints.text.trim().isNotEmpty
+              : int.tryParse(_loyaltyPoints.text.trim()) != previousBalance;
+
+      if (!balanceFieldChanged) {
+        loyaltyPoints = initialPoints + historicNet;
+      }
+      if (existing == null && _loyaltyPoints.text.trim().isEmpty) {
+        loyaltyPoints = initialPoints;
+      }
+      if (loyaltyPoints < 0) {
+        loyaltyPoints = 0;
+      }
+
+      final bool isNewClient = existing == null;
+      DateTime? loyaltyUpdatedAt = existing?.loyaltyUpdatedAt;
+      if (loyaltyUpdatedAt == null &&
+          (loyaltyPoints != previousBalance || isNewClient)) {
+        loyaltyUpdatedAt = loyaltyPoints == 0 ? null : DateTime.now();
+      }
+
+      final int loyaltyTotalEarned = existing?.loyaltyTotalEarned ?? 0;
+      final int loyaltyTotalRedeemed = existing?.loyaltyTotalRedeemed ?? 0;
+
+      final normalizedCity =
+          trimmedCity.isNotEmpty
+              ? trimmedCity
+              : () {
+                final existingCity = existing?.city?.trim();
+                if (existingCity != null && existingCity.isNotEmpty) {
+                  return existingCity;
+                }
+                final existingAddress = existing?.address?.trim();
+                if (existingAddress != null && existingAddress.isNotEmpty) {
+                  return existingAddress;
+                }
+                if (trimmedAddress.isNotEmpty) {
+                  return trimmedAddress;
+                }
+                return null;
+              }();
+
+      final client = Client(
+        id: existing?.id ?? _uuid.v4(),
+        salonId: salonId,
+        firstName: trimmedFirstName,
+        lastName: trimmedLastName,
+        phone: trimmedPhone,
+        gender: _gender,
+        dateOfBirth: _dateOfBirth,
+        address: trimmedAddress.isEmpty ? null : trimmedAddress,
+        city: normalizedCity,
+        profession: trimmedProfession.isEmpty ? null : trimmedProfession,
+        referralSource: referral == null || referral.isEmpty ? null : referral,
+        email: trimmedEmail,
+        notes: trimmedNotes.isEmpty ? null : trimmedNotes,
+        loyaltyInitialPoints: initialPoints,
+        loyaltyPoints: loyaltyPoints,
+        loyaltyUpdatedAt: loyaltyUpdatedAt,
+        loyaltyTotalEarned: loyaltyTotalEarned,
+        loyaltyTotalRedeemed: loyaltyTotalRedeemed,
+        marketedConsents: widget.initial?.marketedConsents ?? const [],
+        onboardingStatus:
+            widget.initial?.onboardingStatus ?? ClientOnboardingStatus.notSent,
+        invitationSentAt: widget.initial?.invitationSentAt,
+        firstLoginAt: widget.initial?.firstLoginAt,
+        onboardingCompletedAt: widget.initial?.onboardingCompletedAt,
+        clientNumber:
+            existing?.clientNumber != null && existing!.clientNumber!.isNotEmpty
+                ? existing.clientNumber
+                : null,
+        createdAt: existing?.createdAt ?? DateTime.now(),
+      );
+
+      Navigator.of(context).pop(client);
+    } catch (error) {
       if (!mounted) {
         return;
       }
-      if (decision == _duplicateDialogCancel || decision == null) {
-        return;
-      }
-      if (decision is Client) {
-        final mergedClient = _mergeExistingClientWithForm(
-          decision,
-          firstName: trimmedFirstName,
-          lastName: trimmedLastName,
-          phone: trimmedPhone,
-          email: trimmedEmail,
-          address: trimmedAddress,
-          city: trimmedCity,
-          profession: trimmedProfession,
-          notes: trimmedNotes,
-          referralSource: referral,
-          dateOfBirth: _dateOfBirth,
-          gender: _gender,
-        );
-        Navigator.of(context).pop(mergedClient);
-        return;
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        SnackBar(
+          content: Text(
+            'Impossibile completare il salvataggio del cliente: $error',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
       }
     }
-
-    var initialPoints = int.tryParse(_loyaltyInitialPoints.text.trim()) ?? 0;
-    if (initialPoints < 0) {
-      initialPoints = 0;
-    }
-
-    var loyaltyPoints = int.tryParse(_loyaltyPoints.text.trim()) ?? 0;
-    final previousInitial = existing?.loyaltyInitialPoints ?? 0;
-    final previousBalance = existing?.loyaltyPoints ?? 0;
-    final historicNet = previousBalance - previousInitial;
-
-    final balanceFieldChanged =
-        existing == null
-            ? _loyaltyPoints.text.trim().isNotEmpty
-            : int.tryParse(_loyaltyPoints.text.trim()) != previousBalance;
-
-    if (!balanceFieldChanged) {
-      loyaltyPoints = initialPoints + historicNet;
-    }
-    if (existing == null && _loyaltyPoints.text.trim().isEmpty) {
-      loyaltyPoints = initialPoints;
-    }
-    if (loyaltyPoints < 0) {
-      loyaltyPoints = 0;
-    }
-
-    final bool isNewClient = existing == null;
-    DateTime? loyaltyUpdatedAt = existing?.loyaltyUpdatedAt;
-    if (loyaltyUpdatedAt == null &&
-        (loyaltyPoints != previousBalance || isNewClient)) {
-      loyaltyUpdatedAt = loyaltyPoints == 0 ? null : DateTime.now();
-    }
-
-    final int loyaltyTotalEarned = existing?.loyaltyTotalEarned ?? 0;
-    final int loyaltyTotalRedeemed = existing?.loyaltyTotalRedeemed ?? 0;
-
-    final normalizedCity =
-        trimmedCity.isNotEmpty
-            ? trimmedCity
-            : () {
-              final existingCity = existing?.city?.trim();
-              if (existingCity != null && existingCity.isNotEmpty) {
-                return existingCity;
-              }
-              final existingAddress = existing?.address?.trim();
-              if (existingAddress != null && existingAddress.isNotEmpty) {
-                return existingAddress;
-              }
-              if (trimmedAddress.isNotEmpty) {
-                return trimmedAddress;
-              }
-              return null;
-            }();
-
-    final client = Client(
-      id: existing?.id ?? _uuid.v4(),
-      salonId: salonId,
-      firstName: trimmedFirstName,
-      lastName: trimmedLastName,
-      phone: trimmedPhone,
-      gender: _gender,
-      dateOfBirth: _dateOfBirth,
-      address: trimmedAddress.isEmpty ? null : trimmedAddress,
-      city: normalizedCity,
-      profession: trimmedProfession.isEmpty ? null : trimmedProfession,
-      referralSource: referral == null || referral.isEmpty ? null : referral,
-      email: trimmedEmail,
-      notes: trimmedNotes.isEmpty ? null : trimmedNotes,
-      loyaltyInitialPoints: initialPoints,
-      loyaltyPoints: loyaltyPoints,
-      loyaltyUpdatedAt: loyaltyUpdatedAt,
-      loyaltyTotalEarned: loyaltyTotalEarned,
-      loyaltyTotalRedeemed: loyaltyTotalRedeemed,
-      marketedConsents: widget.initial?.marketedConsents ?? const [],
-      onboardingStatus:
-          widget.initial?.onboardingStatus ?? ClientOnboardingStatus.notSent,
-      invitationSentAt: widget.initial?.invitationSentAt,
-      firstLoginAt: widget.initial?.firstLoginAt,
-      onboardingCompletedAt: widget.initial?.onboardingCompletedAt,
-      clientNumber:
-          existing?.clientNumber != null && existing!.clientNumber!.isNotEmpty
-              ? existing.clientNumber
-              : null,
-      createdAt: existing?.createdAt ?? DateTime.now(),
-    );
-
-    Navigator.of(context).pop(client);
   }
 
   List<Client> _findPotentialDuplicates({
@@ -898,17 +1009,145 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
     return value.replaceAll(RegExp(r'[^0-9]'), '');
   }
 
-  List<Widget> _withSectionDividers(List<Widget> sections) {
-    final result = <Widget>[];
-    for (var i = 0; i < sections.length; i++) {
-      if (i != 0) {
-        result.add(
-          const Divider(height: 32, thickness: 1, color: Colors.white24),
-        );
-      }
-      result.add(sections[i]);
+  Widget _buildHeader(
+    BuildContext context, {
+    required String numberDisplay,
+    required bool isCompact,
+  }) {
+    final theme = Theme.of(context);
+    final palette = _ClientFormPalette.fromTheme(theme);
+    final titleBlock = Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: palette.accentSoft,
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.person_outline_rounded,
+            size: 22,
+            color: kClientFormSheetAccent,
+          ),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Text(
+            _isEditing ? 'Modifica cliente' : 'Nuovo cliente',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: palette.textPrimary,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              titleBlock,
+              if (isCompact) ...[
+                const SizedBox(height: 12),
+                _ClientNumberBadge(number: numberDisplay),
+              ],
+            ],
+          ),
+        ),
+        if (!isCompact) ...[
+          const SizedBox(width: 16),
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: _ClientNumberBadge(number: numberDisplay),
+          ),
+        ],
+        const SizedBox(width: 8),
+        IconButton(
+          tooltip: 'Chiudi',
+          onPressed: () => Navigator.of(context).maybePop(),
+          icon: Icon(Icons.close_rounded, color: palette.textPrimary),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    bool required = false,
+    bool autofocus = false,
+    TextInputAction? textInputAction,
+    TextInputType? keyboardType,
+    TextCapitalization textCapitalization = TextCapitalization.none,
+    List<TextInputFormatter>? inputFormatters,
+    FormFieldValidator<String>? validator,
+    ValueChanged<String>? onChanged,
+    String? helperText,
+    int? minLines,
+    int maxLines = 1,
+  }) {
+    final field = TextFormField(
+      controller: controller,
+      autofocus: autofocus,
+      textInputAction: textInputAction,
+      keyboardType: keyboardType,
+      textCapitalization: textCapitalization,
+      inputFormatters: inputFormatters,
+      validator: validator,
+      onChanged: onChanged,
+      minLines: minLines,
+      maxLines: maxLines,
+      decoration: _inputDecoration(hint: hint, helperText: helperText),
+    );
+    if (label.isEmpty) {
+      return field;
     }
-    return result;
+    return _FieldBlock(label: label, required: required, child: field);
+  }
+
+  Widget _buildDropdownField<T>({
+    required String label,
+    required String hint,
+    required T? value,
+    required List<DropdownMenuItem<T>> items,
+    required ValueChanged<T?> onChanged,
+    bool required = false,
+    Color? labelColor,
+  }) {
+    return _FieldBlock(
+      label: label,
+      required: required,
+      labelColor: labelColor,
+      child: DropdownButtonFormField<T>(
+        initialValue: value,
+        isExpanded: true,
+        hint: Text(hint),
+        icon: Icon(
+          Icons.keyboard_arrow_down_rounded,
+          color: _ClientFormPalette.fromTheme(Theme.of(context)).textSecondary,
+        ),
+        decoration: _inputDecoration(hint: hint),
+        items: items,
+        onChanged: onChanged,
+      ),
+    );
+  }
+
+  InputDecoration _inputDecoration({required String hint, String? helperText}) {
+    return InputDecoration(
+      hintText: hint,
+      helperText: helperText,
+      isDense: true,
+    );
   }
 
   void _updatePreference(VoidCallback updater) {
@@ -921,7 +1160,7 @@ class _ClientFormSheetState extends State<ClientFormSheet> {
   String? _validateEmail(String? value) {
     final raw = value?.trim() ?? '';
     if (raw.isEmpty) {
-      return "Inserisci un indirizzo email";
+      return null;
     }
     final emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
     if (!emailPattern.hasMatch(raw)) {
@@ -964,75 +1203,62 @@ class _FormSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final headerColor = theme.colorScheme.secondaryContainer;
-    final borderColor = theme.colorScheme.outlineVariant;
-    final onHeaderColor = theme.colorScheme.onPrimary;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: borderColor),
-          color: theme.colorScheme.surface,
-        ),
+    final palette = _ClientFormPalette.fromTheme(theme);
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: palette.border),
+        color: palette.cardBackground,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              decoration: BoxDecoration(
-                color: headerColor,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(20),
-                ),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  if (icon != null) ...[
-                    Container(
-                      decoration: BoxDecoration(
-                        color: onHeaderColor.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      padding: const EdgeInsets.all(6),
-                      child: Icon(icon, size: 20, color: onHeaderColor),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                if (icon != null) ...[
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: palette.accentSoft,
+                      shape: BoxShape.circle,
                     ),
-                    const SizedBox(width: 12),
-                  ],
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
+                    child: Icon(icon, size: 18, color: kClientFormSheetAccent),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: palette.textPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (subtitle != null) ...[
+                        const SizedBox(height: 2),
                         Text(
-                          title,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            color: onHeaderColor,
+                          subtitle!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: palette.textSecondary,
                           ),
                         ),
-                        if (subtitle != null) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            subtitle!,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: onHeaderColor.withValues(alpha: 0.8),
-                            ),
-                          ),
-                        ],
                       ],
-                    ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: _withSpacing(children),
-              ),
+            const SizedBox(height: 16),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: _withSpacing(children),
             ),
           ],
         ),
@@ -1060,19 +1286,70 @@ class _ClientNumberBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final palette = _ClientFormPalette.fromTheme(theme);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
       decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
+        color: palette.inputBackground.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: palette.border),
       ),
       child: Text(
         'N° $number',
-        style: theme.textTheme.titleMedium?.copyWith(
-          color: theme.colorScheme.onPrimaryContainer,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: palette.textSecondary,
+          fontWeight: FontWeight.w600,
         ),
       ),
+    );
+  }
+}
+
+class _FieldBlock extends StatelessWidget {
+  const _FieldBlock({
+    required this.label,
+    required this.child,
+    this.required = false,
+    this.labelColor,
+  });
+
+  final String label;
+  final Widget child;
+  final bool required;
+  final Color? labelColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final palette = _ClientFormPalette.fromTheme(theme);
+    final resolvedLabelColor = labelColor ?? palette.textPrimary;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text.rich(
+          TextSpan(
+            children: [
+              TextSpan(
+                text: label,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: resolvedLabelColor,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (required)
+                TextSpan(
+                  text: ' *',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: palette.danger,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        child,
+      ],
     );
   }
 }

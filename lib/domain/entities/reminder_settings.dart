@@ -1,5 +1,7 @@
 enum LastMinuteNotificationAudience { none, everyone, ownerSelection }
 
+enum ReminderDeliveryMode { push, whatsapp, both }
+
 class ReminderOffsetConfig {
   const ReminderOffsetConfig({
     required this.id,
@@ -7,6 +9,9 @@ class ReminderOffsetConfig {
     this.active = true,
     this.title,
     this.bodyTemplate,
+    this.deliveryMode = ReminderDeliveryMode.push,
+    this.whatsappTemplateId,
+    this.whatsappTemplateName,
   });
 
   final String id;
@@ -14,6 +19,17 @@ class ReminderOffsetConfig {
   final bool active;
   final String? title;
   final String? bodyTemplate;
+  final ReminderDeliveryMode deliveryMode;
+  final String? whatsappTemplateId;
+  final String? whatsappTemplateName;
+
+  bool get sendsPush =>
+      deliveryMode == ReminderDeliveryMode.push ||
+      deliveryMode == ReminderDeliveryMode.both;
+
+  bool get sendsWhatsapp =>
+      deliveryMode == ReminderDeliveryMode.whatsapp ||
+      deliveryMode == ReminderDeliveryMode.both;
 
   ReminderOffsetConfig copyWith({
     String? id,
@@ -21,6 +37,9 @@ class ReminderOffsetConfig {
     bool? active,
     String? title,
     String? bodyTemplate,
+    ReminderDeliveryMode? deliveryMode,
+    String? whatsappTemplateId,
+    String? whatsappTemplateName,
   }) {
     return ReminderOffsetConfig(
       id: id ?? this.id,
@@ -28,6 +47,9 @@ class ReminderOffsetConfig {
       active: active ?? this.active,
       title: title ?? this.title,
       bodyTemplate: bodyTemplate ?? this.bodyTemplate,
+      deliveryMode: deliveryMode ?? this.deliveryMode,
+      whatsappTemplateId: whatsappTemplateId ?? this.whatsappTemplateId,
+      whatsappTemplateName: whatsappTemplateName ?? this.whatsappTemplateName,
     );
   }
 }
@@ -37,6 +59,9 @@ class ReminderSettings {
     required this.salonId,
     List<ReminderOffsetConfig>? offsets,
     this.birthdayEnabled = true,
+    this.birthdayDeliveryMode = ReminderDeliveryMode.push,
+    this.birthdayWhatsappTemplateId,
+    this.birthdayWhatsappTemplateName,
     this.lastMinuteNotificationAudience = LastMinuteNotificationAudience.none,
     this.updatedAt,
     this.updatedBy,
@@ -49,6 +74,9 @@ class ReminderSettings {
   final String salonId;
   final List<ReminderOffsetConfig> offsets;
   final bool birthdayEnabled;
+  final ReminderDeliveryMode birthdayDeliveryMode;
+  final String? birthdayWhatsappTemplateId;
+  final String? birthdayWhatsappTemplateName;
   final LastMinuteNotificationAudience lastMinuteNotificationAudience;
   final DateTime? updatedAt;
   final String? updatedBy;
@@ -56,13 +84,25 @@ class ReminderSettings {
   List<ReminderOffsetConfig> get activeOffsets =>
       offsets.where((offset) => offset.active).toList(growable: false);
 
-  List<int> get activeOffsetsMinutes =>
-      activeOffsets.map((offset) => offset.minutesBefore).toList(growable: false);
+  List<int> get activeOffsetsMinutes => activeOffsets
+      .map((offset) => offset.minutesBefore)
+      .toList(growable: false);
+
+  bool get birthdaySendsPush =>
+      birthdayDeliveryMode == ReminderDeliveryMode.push ||
+      birthdayDeliveryMode == ReminderDeliveryMode.both;
+
+  bool get birthdaySendsWhatsapp =>
+      birthdayDeliveryMode == ReminderDeliveryMode.whatsapp ||
+      birthdayDeliveryMode == ReminderDeliveryMode.both;
 
   ReminderSettings copyWith({
     String? salonId,
     List<ReminderOffsetConfig>? offsets,
     bool? birthdayEnabled,
+    ReminderDeliveryMode? birthdayDeliveryMode,
+    String? birthdayWhatsappTemplateId,
+    String? birthdayWhatsappTemplateName,
     LastMinuteNotificationAudience? lastMinuteNotificationAudience,
     DateTime? updatedAt,
     String? updatedBy,
@@ -71,6 +111,11 @@ class ReminderSettings {
       salonId: salonId ?? this.salonId,
       offsets: offsets ?? this.offsets,
       birthdayEnabled: birthdayEnabled ?? this.birthdayEnabled,
+      birthdayDeliveryMode: birthdayDeliveryMode ?? this.birthdayDeliveryMode,
+      birthdayWhatsappTemplateId:
+          birthdayWhatsappTemplateId ?? this.birthdayWhatsappTemplateId,
+      birthdayWhatsappTemplateName:
+          birthdayWhatsappTemplateName ?? this.birthdayWhatsappTemplateName,
       lastMinuteNotificationAudience:
           lastMinuteNotificationAudience ?? this.lastMinuteNotificationAudience,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -137,10 +182,13 @@ class ReminderSettings {
       final minutes = _clampMinutes(entry.minutesBefore);
       var normalizedTitle = entry.title?.trim();
       if (normalizedTitle != null &&
-          (normalizedTitle.isEmpty || defaultTitleHints.contains(normalizedTitle))) {
+          (normalizedTitle.isEmpty ||
+              defaultTitleHints.contains(normalizedTitle))) {
         normalizedTitle = null;
       }
       final normalizedBody = entry.bodyTemplate?.trim();
+      final normalizedWhatsappTemplateId = entry.whatsappTemplateId?.trim();
+      final normalizedWhatsappTemplateName = entry.whatsappTemplateName?.trim();
       final uniqueId = _ensureUniqueId(sanitizedId, minutes);
       normalized.add(
         ReminderOffsetConfig(
@@ -149,13 +197,20 @@ class ReminderSettings {
           active: entry.active,
           title: normalizedTitle?.isEmpty == true ? null : normalizedTitle,
           bodyTemplate: normalizedBody?.isEmpty == true ? null : normalizedBody,
+          deliveryMode: entry.deliveryMode,
+          whatsappTemplateId:
+              normalizedWhatsappTemplateId?.isEmpty == true
+                  ? null
+                  : normalizedWhatsappTemplateId,
+          whatsappTemplateName:
+              normalizedWhatsappTemplateName?.isEmpty == true
+                  ? null
+                  : normalizedWhatsappTemplateName,
         ),
       );
     }
 
-    normalized.sort(
-      (a, b) => a.minutesBefore.compareTo(b.minutesBefore),
-    );
+    normalized.sort((a, b) => a.minutesBefore.compareTo(b.minutesBefore));
 
     return List<ReminderOffsetConfig>.unmodifiable(normalized);
   }

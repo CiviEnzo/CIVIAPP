@@ -1,6 +1,7 @@
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:flutter/material.dart';
+import 'package:you_book/presentation/common/app_notice.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
@@ -219,7 +220,7 @@ class _SalonOperationsSheetState extends State<SalonOperationsSheet> {
     }
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ).showAppSnackBar(SnackBar(content: Text(message)));
   }
 
   static TimeOfDay _minutesToTimeOfDay(int minutes) {
@@ -246,17 +247,14 @@ class _SalonOperationsSheetState extends State<SalonOperationsSheet> {
     final bodyMedium = theme.textTheme.bodyMedium;
 
     return DialogActionLayout(
+      title: 'Stato operativo',
+      subtitle:
+          'Aggiorna lo stato del salone, gestisci i giorni di apertura e pianifica le chiusure straordinarie.',
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('Stato operativo', style: theme.textTheme.titleLarge),
-          const SizedBox(height: 12),
-          Text(
-            'Aggiorna lo stato del salone, gestisci i giorni di apertura e pianifica le chiusure straordinarie.',
-            style: bodyMedium,
-          ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 4),
           DropdownButtonFormField<SalonStatus>(
             isExpanded: true,
             value: _status,

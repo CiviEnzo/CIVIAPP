@@ -5,6 +5,7 @@ import 'package:you_book/domain/entities/staff_role.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
+import 'package:you_book/presentation/common/app_notice.dart';
 import 'package:uuid/uuid.dart';
 
 class ServiceFormSheet extends StatefulWidget {
@@ -167,17 +168,13 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
     final equipmentOptions = _equipmentForSalon(_salonId);
     final categoriesForSalon = _categoriesForSalon(_salonId);
     return DialogActionLayout(
+      title: widget.initial == null ? 'Nuovo servizio' : 'Modifica servizio',
       body: Form(
         key: _formKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              widget.initial == null ? 'Nuovo servizio' : 'Modifica servizio',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 16),
             TextFormField(
               controller: _name,
               decoration: const InputDecoration(labelText: 'Nome'),
@@ -361,7 +358,7 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
     if (_salonId == null) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Seleziona un salone')));
+      ).showAppSnackBar(const SnackBar(content: Text('Seleziona un salone')));
       return;
     }
 

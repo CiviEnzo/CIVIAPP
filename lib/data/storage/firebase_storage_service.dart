@@ -53,6 +53,16 @@ class StaffAvatarUploadData {
   final String downloadUrl;
 }
 
+class WhatsAppTemplateImageUploadData {
+  const WhatsAppTemplateImageUploadData({
+    required this.storagePath,
+    required this.downloadUrl,
+  });
+
+  final String storagePath;
+  final String downloadUrl;
+}
+
 class ClientCollageUploadData {
   const ClientCollageUploadData({
     required this.collageId,
@@ -289,6 +299,41 @@ class FirebaseStorageService {
     await reference.putData(data, metadata);
     final downloadUrl = await reference.getDownloadURL();
     return LastMinuteSlotImageUploadData(
+      storagePath: storagePath,
+      downloadUrl: downloadUrl,
+    );
+  }
+
+  Future<WhatsAppTemplateImageUploadData> uploadWhatsAppTemplateImage({
+    required String salonId,
+    required String templateName,
+    required Uint8List data,
+    String? fileName,
+    String? uploaderId,
+  }) async {
+    final extension = _resolveExtension(fileName);
+    final contentType = _contentTypeForExtension(extension);
+    final sanitizedTemplateName = templateName.replaceAll(
+      RegExp(r'[^a-zA-Z0-9_-]+'),
+      '-',
+    );
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final storagePath =
+        'salon_media/$salonId/whatsapp_templates/$sanitizedTemplateName/header-$timestamp.$extension';
+    final reference = _storage.ref(storagePath);
+    final metadata = SettableMetadata(
+      contentType: contentType,
+      cacheControl: 'public,max-age=86400',
+      customMetadata: {
+        'salonId': salonId,
+        'templateName': templateName,
+        if (uploaderId != null && uploaderId.isNotEmpty)
+          'uploadedBy': uploaderId,
+      },
+    );
+    await reference.putData(data, metadata);
+    final downloadUrl = await reference.getDownloadURL();
+    return WhatsAppTemplateImageUploadData(
       storagePath: storagePath,
       downloadUrl: downloadUrl,
     );

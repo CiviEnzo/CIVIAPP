@@ -1,6 +1,11 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:csv/csv.dart';
 import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/client_import.dart';
+import 'package:you_book/domain/entities/sale.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/salon_access_request.dart';
 import 'package:you_book/app/providers.dart';
@@ -8,12 +13,15 @@ import 'package:you_book/data/repositories/auth_repository.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/screens/admin/forms/client_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/client_import_sheet.dart';
+import 'package:you_book/presentation/screens/admin/forms/client_save_feedback.dart';
+import 'package:you_book/presentation/screens/admin/forms/client_search_utils.dart';
 import 'package:you_book/presentation/screens/admin/modules/client_detail_page.dart';
 import 'package:you_book/presentation/screens/admin/modules/clients/advanced_search/advanced_search_tab.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
 
 class ClientsModule extends ConsumerStatefulWidget {
   const ClientsModule({super.key, this.salonId});
@@ -74,18 +82,31 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
   void _performSearch({bool showErrorWhenEmpty = true}) {
     final general = _generalQueryController.text.trim();
     final clientNumber = _clientNumberController.text.trim();
-    final hasInput = general.isNotEmpty || clientNumber.isNotEmpty;
+    final hasGeneralQuery = ClientSearchUtils.hasMinimumGeneralQueryLength(
+      general,
+    );
+    final hasClientNumber = ClientSearchUtils.hasClientNumberQuery(
+      clientNumber,
+    );
+    final hasInput = hasGeneralQuery || hasClientNumber;
+    final hasShortGeneralQuery = ClientSearchUtils.hasShortGeneralQuery(
+      generalQuery: general,
+      clientNumberQuery: clientNumber,
+    );
 
     setState(() {
-      _generalQuery = general.toLowerCase();
+      _generalQuery = hasGeneralQuery ? general.toLowerCase() : '';
       _clientNumberQuery = clientNumber.toLowerCase();
       _searchPerformed = hasInput;
       _searchError =
-          showErrorWhenEmpty && !hasInput
+          hasShortGeneralQuery
+              ? ClientSearchUtils.minSearchCriteriaMessage
+              : showErrorWhenEmpty && !hasInput
               ? 'Inserisci almeno un criterio di ricerca'
               : null;
       if (!hasInput) {
         _selectedClientId = null;
+        _clientDetailInitialTabIndex = null;
       }
     });
   }
@@ -129,7 +150,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     Client? existing,
   }) async {
     if (salons.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Crea prima un salone per associare clienti.'),
         ),
@@ -139,6 +160,8 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
 
     final result = await showAppModalSheet<Client>(
       context: context,
+      includeCloseButton: false,
+      desktopMaxWidth: 980,
       builder:
           (ctx) => ClientFormSheet(
             salons: salons,
@@ -150,24 +173,23 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     if (result == null) {
       return;
     }
+    if (!mounted) {
+      return;
+    }
 
     setState(() => _isSavingClient = true);
-    Client? updated;
+    late Client savedClient;
+    String? warningMessage;
     try {
-      await ref.read(appDataProvider.notifier).upsertClient(result);
-      if (!mounted) {
-        return;
-      }
-      if (existing == null) {
-        updated = ref
-            .read(appDataProvider)
-            .clients
-            .firstWhereOrNull((client) => client.id == result.id);
-      }
+      final saveResult = await ref
+          .read(appDataProvider.notifier)
+          .upsertClient(result);
+      savedClient = saveResult.client;
+      warningMessage = saveResult.warningMessage?.trim();
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Errore durante il salvataggio: $error')),
+        ScaffoldMessenger.of(context).showAppSnackBar(
+          SnackBar(content: Text(formatClientSaveError(error))),
         );
       }
       return;
@@ -177,16 +199,26 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
       }
     }
 
-    if (!mounted || existing != null || updated == null) {
+    if (!mounted) {
       return;
     }
 
-    final clientNumber = updated.clientNumber?.trim();
+    if (warningMessage != null && warningMessage.isNotEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showAppSnackBar(SnackBar(content: Text(warningMessage)));
+    }
+
+    if (existing != null) {
+      return;
+    }
+
+    final clientNumber = savedClient.clientNumber?.trim();
     if (clientNumber == null || clientNumber.isEmpty) {
       return;
     }
 
-    _focusOnClient(updated);
+    _focusOnClient(savedClient);
   }
 
   void _focusOnClient(Client client) {
@@ -204,10 +236,10 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
   void _applyIntent(ClientsModuleIntent intent) {
     final general = intent.generalQuery?.trim() ?? '';
     final clientNumber = intent.clientNumber?.trim() ?? '';
+    final hasGeneralQuery = general.length >= 3;
+    final hasClientNumber = clientNumber.isNotEmpty;
     final hasInput =
-        general.isNotEmpty ||
-        clientNumber.isNotEmpty ||
-        intent.clientId != null;
+        hasGeneralQuery || hasClientNumber || intent.clientId != null;
 
     if (_generalQueryController.text != general) {
       _generalQueryController.text = general;
@@ -217,57 +249,13 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     }
 
     setState(() {
-      _generalQuery = general.toLowerCase();
+      _generalQuery = hasGeneralQuery ? general.toLowerCase() : '';
       _clientNumberQuery = clientNumber.toLowerCase();
       _searchPerformed = hasInput;
       _searchError = null;
       _selectedClientId = intent.clientId;
       _clientDetailInitialTabIndex = intent.detailTabIndex;
     });
-  }
-
-  bool _matchesGeneralQuery(Client client) {
-    if (_generalQuery.isEmpty) {
-      return true;
-    }
-
-    final tokens =
-        _generalQuery
-            .split(RegExp(r'\s+'))
-            .where((token) => token.isNotEmpty)
-            .toList();
-    if (tokens.isEmpty) {
-      return true;
-    }
-
-    bool contains(String? value, String token) {
-      final normalized = value?.trim().toLowerCase();
-      if (normalized == null || normalized.isEmpty) {
-        return false;
-      }
-      return normalized.contains(token);
-    }
-
-    bool tokenMatches(String token) {
-      return contains(client.fullName, token) ||
-          contains(client.firstName, token) ||
-          contains(client.lastName, token) ||
-          contains(client.phone, token) ||
-          contains(client.email, token);
-    }
-
-    return tokens.every(tokenMatches);
-  }
-
-  bool _matchesClientNumber(Client client) {
-    if (_clientNumberQuery.isEmpty) {
-      return true;
-    }
-    final number = client.clientNumber;
-    if (number == null) {
-      return false;
-    }
-    return number.toLowerCase() == _clientNumberQuery;
   }
 
   String _displayName(Client client) {
@@ -283,6 +271,49 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
       return last;
     }
     return 'Cliente senza nome';
+  }
+
+  bool _matchesGeneralQuery(Client client) {
+    if (_generalQuery.isEmpty) {
+      return true;
+    }
+
+    final tokens = _generalQuery
+        .split(RegExp(r'\s+'))
+        .where((token) => token.isNotEmpty)
+        .toList(growable: false);
+    if (tokens.isEmpty) {
+      return true;
+    }
+
+    bool contains(String? value, String token) {
+      final normalized = value?.trim().toLowerCase();
+      if (normalized == null || normalized.isEmpty) {
+        return false;
+      }
+      return normalized.contains(token);
+    }
+
+    return tokens.every(
+      (token) =>
+          contains(client.fullName, token) ||
+          contains(client.firstName, token) ||
+          contains(client.lastName, token) ||
+          contains(client.phone, token) ||
+          contains(client.email, token) ||
+          contains(client.clientNumber, token),
+    );
+  }
+
+  bool _matchesClientNumber(Client client) {
+    if (_clientNumberQuery.isEmpty) {
+      return true;
+    }
+    final number = client.clientNumber;
+    if (number == null) {
+      return false;
+    }
+    return number.toLowerCase() == _clientNumberQuery;
   }
 
   String _clientInitial(Client client) {
@@ -311,16 +342,19 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
   }) {
     final theme = Theme.of(context);
     return Card(
+      elevation: 0,
       color: theme.colorScheme.surface,
-      elevation: 2,
       surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 48, color: theme.colorScheme.primary),
+            Icon(icon, size: 42, color: theme.colorScheme.primary),
             const SizedBox(height: 12),
             Text(
               title,
@@ -330,7 +364,9 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
             const SizedBox(height: 8),
             Text(
               message,
-              style: theme.textTheme.bodyMedium,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
               textAlign: TextAlign.center,
             ),
           ],
@@ -367,12 +403,15 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     }
 
     return Card(
+      elevation: 0,
       color: theme.colorScheme.surface,
-      elevation: 2,
       surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -420,7 +459,12 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                       style: theme.textTheme.titleMedium,
                     ),
                     const SizedBox(height: 4),
-                    Text(salonName, style: theme.textTheme.bodyMedium),
+                    Text(
+                      salonName,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
                     buildInfoRow('Email', request.email),
                     buildInfoRow('Telefono', request.phone),
                     buildInfoRow('Creata il', createdLabel),
@@ -434,7 +478,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                     if (referral != null)
                       buildInfoRow('Come ci ha conosciuto', referral),
                     if (notes != null) buildInfoRow('Note', notes),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 10),
                     Wrap(
                       spacing: 12,
                       runSpacing: 8,
@@ -469,8 +513,11 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                   ],
                 );
               }(),
-              if (i != requests.length - 1) const Divider(),
-              if (i != requests.length - 1) const SizedBox(height: 16),
+              if (i != requests.length - 1) ...[
+                const SizedBox(height: 16),
+                Divider(color: theme.colorScheme.outlineVariant),
+                const SizedBox(height: 16),
+              ],
             ],
           ],
         ),
@@ -491,11 +538,11 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
       await ref
           .read(appDataProvider.notifier)
           .approveSalonAccessRequest(request: request);
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(content: Text('Richiesta approvata.')),
       );
     } catch (error) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(content: Text('Errore durante l\'approvazione: $error')),
       );
     } finally {
@@ -518,11 +565,11 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
       await ref
           .read(appDataProvider.notifier)
           .rejectSalonAccessRequest(request: request);
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         const SnackBar(content: Text('Richiesta rifiutata.')),
       );
     } catch (error) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(content: Text('Errore durante il rifiuto: $error')),
       );
     } finally {
@@ -565,7 +612,17 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                   widget.salonId == null || client.salonId == widget.salonId,
             )
             .toList()
-          ..sort((a, b) => a.lastName.compareTo(b.lastName));
+          ..sort((a, b) {
+            final lastNameCompare = a.lastName.toLowerCase().compareTo(
+              b.lastName.toLowerCase(),
+            );
+            if (lastNameCompare != 0) {
+              return lastNameCompare;
+            }
+            return a.firstName.toLowerCase().compareTo(
+              b.firstName.toLowerCase(),
+            );
+          });
     final filteredClients =
         _searchPerformed
             ? salonClients
@@ -591,87 +648,257 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
             final right = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
             return right.compareTo(left);
           });
-    final Client? selectedClient =
+    final selectedClient =
         _selectedClientId == null
             ? null
             : filteredClients.firstWhereOrNull(
               (client) => client.id == _selectedClientId,
             );
-    final bool showDetailOnly = selectedClient != null && _searchPerformed;
+    final showDetailOnly = selectedClient != null && _searchPerformed;
+    final dateFormat = DateFormat('dd/MM/yyyy');
+    final now = DateTime.now();
+    final currentMonthStart = DateTime(now.year, now.month);
+    final clientEntries = <_ClientTableEntry>[];
+    if (_searchPerformed && !showDetailOnly && filteredClients.isNotEmpty) {
+      final filteredClientIds =
+          filteredClients.map((client) => client.id).toSet();
+      final completedAppointmentsByClient = <String, List<Appointment>>{};
+      for (final appointment in data.appointments) {
+        if (widget.salonId != null && appointment.salonId != widget.salonId) {
+          continue;
+        }
+        if (appointment.status != AppointmentStatus.completed) {
+          continue;
+        }
+        if (!filteredClientIds.contains(appointment.clientId)) {
+          continue;
+        }
+        completedAppointmentsByClient
+            .putIfAbsent(appointment.clientId, () => <Appointment>[])
+            .add(appointment);
+      }
 
-    final List<Widget> children = [];
-    if (!showDetailOnly) {
-      children.addAll([
-        Card(
-          color: theme.colorScheme.surface,
-          elevation: 2,
-          surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      final salesByClient = <String, List<Sale>>{};
+      for (final sale in data.sales) {
+        if (widget.salonId != null && sale.salonId != widget.salonId) {
+          continue;
+        }
+        if (!filteredClientIds.contains(sale.clientId)) {
+          continue;
+        }
+        salesByClient.putIfAbsent(sale.clientId, () => <Sale>[]).add(sale);
+      }
+
+      for (final client in filteredClients) {
+        final completedVisits =
+            completedAppointmentsByClient[client.id] ?? const <Appointment>[];
+        DateTime? lastVisit;
+        for (final appointment in completedVisits) {
+          if (lastVisit == null || appointment.start.isAfter(lastVisit)) {
+            lastVisit = appointment.start;
+          }
+        }
+        final sales = salesByClient[client.id] ?? const <Sale>[];
+        final totalSpent = sales.fold<double>(
+          0,
+          (sum, sale) => sum + sale.total,
+        );
+        clientEntries.add(
+          _ClientTableEntry(
+            client: client,
+            visits: completedVisits.length,
+            lastVisit: lastVisit,
+            totalSpent: totalSpent,
+          ),
+        );
+      }
+    }
+
+    final newClientsThisMonth =
+        salonClients.where((client) {
+          final createdAt = client.createdAt;
+          return createdAt != null && !createdAt.isBefore(currentMonthStart);
+        }).length;
+    final appActiveClients =
+        salonClients
+            .where(
+              (client) =>
+                  client.fcmTokens.isNotEmpty ||
+                  client.onboardingStatus ==
+                      ClientOnboardingStatus.firstLogin ||
+                  client.onboardingStatus ==
+                      ClientOnboardingStatus.onboardingCompleted,
+            )
+            .length;
+    final recentClients = [...salonClients]..sort((a, b) {
+      final left = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final right = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return right.compareTo(left);
+    });
+    final latestClients = recentClients.take(20).toList();
+
+    final pagePadding = EdgeInsets.fromLTRB(
+      MediaQuery.sizeOf(context).width < 720 ? 12 : 16,
+      16,
+      MediaQuery.sizeOf(context).width < 720 ? 12 : 16,
+      24,
+    );
+
+    final Widget searchTabContent =
+        showDetailOnly
+            ? ListView(
+              padding: pagePadding,
+              children: [_buildSelectedClientSection(client: selectedClient)],
+            )
+            : ListView(
+              padding: pagePadding,
               children: [
-                Text('Ricerca cliente', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _generalQueryController,
-                  decoration: const InputDecoration(
-                    labelText: 'Nome, cognome, telefono, email',
-                    prefixIcon: Icon(Icons.search_rounded),
-                  ),
-                  textInputAction: TextInputAction.search,
-                  onChanged: (_) => _performSearch(showErrorWhenEmpty: false),
-                  onSubmitted: (_) => _performSearch(),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _clientNumberController,
-                  decoration: const InputDecoration(
-                    labelText: 'Numero cliente',
-                    prefixIcon: Icon(Icons.badge_outlined),
-                  ),
-                  textInputAction: TextInputAction.search,
-                  onChanged: (_) => _performSearch(showErrorWhenEmpty: false),
-                  onSubmitted: (_) => _performSearch(),
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: _performSearch,
-                      icon: const Icon(Icons.manage_search_rounded),
-                      label: const Text('Cerca'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: _clearSearch,
-                      icon: const Icon(Icons.clear_rounded),
-                      label: const Text('Azzera'),
-                    ),
-                    FilledButton.icon(
-                      onPressed:
-                          () => _openClientForm(
-                            salons: salons,
-                            clients: data.clients,
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isCompact = constraints.maxWidth < 1080;
+                    final generalField = TextField(
+                      key: const ValueKey('clients_search_general_field'),
+                      controller: _generalQueryController,
+                      textInputAction: TextInputAction.search,
+                      onChanged:
+                          (_) => _performSearch(showErrorWhenEmpty: false),
+                      onSubmitted: (_) => _performSearch(),
+                      decoration: InputDecoration(
+                        hintText: 'Cerca cliente...',
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        filled: true,
+                        fillColor: theme.colorScheme.surface,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(
+                            color: theme.colorScheme.outlineVariant,
                           ),
-                      icon: const Icon(Icons.person_add_alt_1_rounded),
-                      label: const Text('Nuovo cliente'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed:
-                          () => _openImport(
-                            context,
-                            ref,
-                            salons: salons,
-                            clients: data.clients,
-                            defaultSalonId: widget.salonId,
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(
+                            color: theme.colorScheme.outlineVariant,
                           ),
-                      icon: const Icon(Icons.upload_file_rounded),
-                      label: const Text('Importa CSV'),
-                    ),
-                  ],
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(
+                            color: theme.colorScheme.primary,
+                            width: 1.4,
+                          ),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
+                      ),
+                    );
+
+                    final numberField = TextField(
+                      controller: _clientNumberController,
+                      textInputAction: TextInputAction.search,
+                      keyboardType: TextInputType.number,
+                      onChanged:
+                          (_) => _performSearch(showErrorWhenEmpty: false),
+                      onSubmitted: (_) => _performSearch(),
+                      decoration: InputDecoration(
+                        hintText: 'Numero cliente',
+                        prefixIcon: const Icon(Icons.badge_outlined),
+                        filled: true,
+                        fillColor: theme.colorScheme.surface,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(
+                            color: theme.colorScheme.outlineVariant,
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(
+                            color: theme.colorScheme.outlineVariant,
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(
+                            color: theme.colorScheme.primary,
+                            width: 1.4,
+                          ),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
+                      ),
+                    );
+
+                    final filterButton = Builder(
+                      builder:
+                          (tabContext) => OutlinedButton.icon(
+                            onPressed:
+                                () => DefaultTabController.of(
+                                  tabContext,
+                                ).animateTo(1),
+                            icon: const Icon(Icons.filter_alt_outlined),
+                            label: const Text('Filtri'),
+                          ),
+                    );
+
+                    final exportButton = OutlinedButton.icon(
+                      onPressed:
+                          !_searchPerformed || clientEntries.isEmpty
+                              ? null
+                              : () => _exportClients(clientEntries),
+                      icon: const Icon(Icons.download_outlined),
+                      label: const Text('Esporta'),
+                    );
+
+                    final clearButton =
+                        _generalQuery.isEmpty && _clientNumberQuery.isEmpty
+                            ? null
+                            : TextButton.icon(
+                              onPressed: _clearSearch,
+                              icon: const Icon(Icons.close_rounded),
+                              label: const Text('Azzera'),
+                            );
+
+                    if (isCompact) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          generalField,
+                          const SizedBox(height: 12),
+                          numberField,
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: [
+                              filterButton,
+                              exportButton,
+                              if (clearButton != null) clearButton,
+                            ],
+                          ),
+                        ],
+                      );
+                    }
+
+                    return Row(
+                      children: [
+                        Expanded(flex: 5, child: generalField),
+                        const SizedBox(width: 12),
+                        SizedBox(width: 220, child: numberField),
+                        const SizedBox(width: 12),
+                        filterButton,
+                        const SizedBox(width: 12),
+                        exportButton,
+                        if (clearButton != null) ...[
+                          const SizedBox(width: 8),
+                          clearButton,
+                        ],
+                      ],
+                    );
+                  },
                 ),
                 if (_searchError != null) ...[
                   const SizedBox(height: 12),
@@ -680,300 +907,82 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                     style: TextStyle(color: theme.colorScheme.error),
                   ),
                 ],
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-      ]);
-    }
-    if (false && pendingRequests.isNotEmpty) {
-      children.add(
-        _buildAccessRequestsCard(
-          context: context,
-          requests: pendingRequests,
-          salonLookup: salonLookup,
-        ),
-      );
-      children.add(const SizedBox(height: 16));
-    }
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final hideSummaryCards =
+                        _searchPerformed && constraints.maxWidth < 760;
+                    if (hideSummaryCards) {
+                      return const SizedBox(height: 16);
+                    }
 
-    if (!_searchPerformed) {
-      final message =
-          salonClients.isEmpty
-              ? 'Non risultano clienti registrati per questo salone. Aggiungi un nuovo cliente per iniziare.'
-              : 'Inserisci almeno un criterio e avvia la ricerca per visualizzare la lista clienti.';
-      children.add(
-        _buildPlaceholder(
-          context: context,
-          icon: Icons.person_search_rounded,
-          title: 'Cerca un cliente',
-          message: message,
-        ),
-      );
-    } else if (filteredClients.isEmpty) {
-      final message =
-          salonClients.isEmpty
-              ? 'Non sono presenti clienti registrati per questo salone.'
-              : 'Nessun cliente trovato. Modifica i criteri di ricerca e riprova.';
-      children.add(
-        _buildPlaceholder(
-          context: context,
-          icon: Icons.person_off_rounded,
-          title: 'Nessun risultato',
-          message: message,
-        ),
-      );
-    } else {
-      final now = DateTime.now();
-      final clientsToRender =
-          selectedClient != null ? [selectedClient] : filteredClients;
-
-      for (var i = 0; i < clientsToRender.length; i++) {
-        final client = clientsToRender[i];
-        final appointments =
-            data.appointments.where((appointment) {
-              final isForClient = appointment.clientId == client.id;
-              final isUpcoming =
-                  appointment.status == AppointmentStatus.scheduled &&
-                  !appointment.start.isBefore(now);
-              return isForClient && isUpcoming;
-            }).length;
-        final purchases =
-            data.sales.where((sale) => sale.clientId == client.id).length;
-        final isSelected = client.id == _selectedClientId;
-        final emailAvailable = client.email != null && client.email!.isNotEmpty;
-        final isSending = _isSending(client.id);
-        children.add(
-          Card(
-            color:
-                isSelected
-                    ? theme.colorScheme.primaryContainer.withValues(alpha: 0.35)
-                    : theme.colorScheme.surface,
-            elevation: 2,
-            surfaceTintColor: Colors.transparent,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () async {
-                await _handleClientTap(client.id);
-              },
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final isCompact = constraints.maxWidth < 640;
-                        final actionSection = Column(
-                          crossAxisAlignment: isCompact
-                              ? CrossAxisAlignment.start
-                              : CrossAxisAlignment.end,
-                          children: [
-                            Wrap(
-                              spacing: 12,
-                              runSpacing: 8,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              alignment: isCompact
-                                  ? WrapAlignment.start
-                                  : WrapAlignment.end,
-                              children: [
-                                _buildStatusChip(context, client),
-                                FilledButton.tonalIcon(
-                                  onPressed:
-                                      emailAvailable && !isSending
-                                          ? () => _sendAccessLink(client)
-                                          : null,
-                                  icon:
-                                      isSending
-                                          ? const SizedBox(
-                                            width: 18,
-                                            height: 18,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                            ),
-                                          )
-                                          : const Icon(
-                                            Icons.mail_outline_rounded,
-                                          ),
-                                  label: Text(
-                                    emailAvailable
-                                        ? 'Invia link'
-                                        : 'Email assente',
-                                  ),
-                                ),
-                                OutlinedButton.icon(
-                                  onPressed:
-                                      () => _openClientForm(
-                                        salons: salons,
-                                        clients: data.clients,
-                                        existing: client,
-                                      ),
-                                  icon: const Icon(Icons.edit_rounded),
-                                  label: const Text('Modifica'),
-                                ),
-                              ],
-                            ),
-                          ],
-                        );
-
-                        final infoSection = Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
+                    final isCompact = constraints.maxWidth < 760;
+                    final cardWidth =
+                        isCompact
+                            ? constraints.maxWidth
+                            : (constraints.maxWidth - 24) / 3;
+                    return Column(
+                      children: [
+                        const SizedBox(height: 16),
                         Wrap(
-                          spacing: 8,
-                          runSpacing: 4,
+                          key: const ValueKey('clients_search_summary_cards'),
+                          spacing: 12,
+                          runSpacing: 12,
                           children: [
-                            Text(
-                              _displayName(client),
-                              style: theme.textTheme.titleMedium,
+                            _ClientsSummaryCard(
+                              width: cardWidth,
+                              title: 'Clienti Totali',
+                              value: salonClients.length.toString(),
                             ),
-                            Text(
-                              'N° ${client.clientNumber}',
-                              style: theme.textTheme.titleMedium,
+                            _ClientsSummaryCard(
+                              width: cardWidth,
+                              title: 'Nuovi (Mese)',
+                              value: '+$newClientsThisMonth',
+                              valueColor: const Color(0xFF16A34A),
+                            ),
+                            _ClientsSummaryCard(
+                              width: cardWidth,
+                              title: 'App Attiva',
+                              value: appActiveClients.toString(),
+                              valueColor: theme.colorScheme.primary,
                             ),
                           ],
                         ),
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Row(
-                                  children: [
-                                    const Icon(Icons.phone),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      client.phone,
-                                      style: theme.textTheme.bodyLarge,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.only(top: 12),
-                                child: Wrap(
-                                  spacing: 12,
-                                  runSpacing: 8,
-                                  children: [
-                                    _QuickStat(
-                                      icon: Icons.event_available_rounded,
-                                      label: 'Appuntamenti: $appointments',
-                                    ),
-                                    _QuickStat(
-                                      icon: Icons.shopping_bag_outlined,
-                                      label: 'Acquisti: $purchases',
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-
-                        final avatar = CircleAvatar(
-                          radius: 26,
-                          child: Text(_clientInitial(client)),
-                        );
-
-                        if (isCompact) {
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  avatar,
-                                  const SizedBox(width: 16),
-                                  infoSection,
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              actionSection,
-                            ],
-                          );
-                        }
-
-                        return Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            avatar,
-                            const SizedBox(width: 16),
-                            infoSection,
-                            const SizedBox(width: 16),
-                            actionSection,
-                          ],
-                        );
-                      },
-                    ),
-                    if (isSelected) ...[
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          const Icon(Icons.info_outline, size: 18),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Scheda completa aperta sotto.',
-                            style: theme.textTheme.bodySmall,
-                          ),
-                          const Spacer(),
-                          TextButton.icon(
-                            onPressed: _clearSelectedClient,
-                            icon: const Icon(Icons.close_rounded),
-                            label: const Text('Chiudi scheda'),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
+                        const SizedBox(height: 16),
+                      ],
+                    );
+                  },
                 ),
-              ),
-            ),
-          ),
-        );
-        if (i != clientsToRender.length - 1) {
-          children.add(const SizedBox(height: 12));
-        }
-      }
-      if (selectedClient != null) {
-        children.add(const SizedBox(height: 16));
-        children.add(
-          ClientDetailView(
-            key: ValueKey(
-              'client-detail-${selectedClient.id}-${_clientDetailInitialTabIndex ?? 0}',
-            ),
-            clientId: selectedClient.id,
-            showAppBar: false,
-            onClose: _clearSelectedClient,
-            initialTabIndex: _clientDetailInitialTabIndex ?? 0,
-          ),
-        );
-      }
-    }
+                if (!_searchPerformed)
+                  _buildPlaceholder(
+                    context: context,
+                    icon: Icons.person_search_rounded,
+                    title: 'Cerca un cliente',
+                    message:
+                        salonClients.isEmpty
+                            ? 'Non risultano clienti registrati per questo salone. Aggiungi un nuovo cliente per iniziare.'
+                            : 'Inserisci nome, contatto o numero cliente per visualizzare la lista clienti.',
+                  )
+                else if (clientEntries.isEmpty)
+                  _buildPlaceholder(
+                    context: context,
+                    icon: Icons.person_off_rounded,
+                    title: 'Nessun risultato',
+                    message:
+                        salonClients.isEmpty
+                            ? 'Non sono presenti clienti registrati per questo salone.'
+                            : 'Nessun cliente trovato. Modifica i criteri di ricerca e riprova.',
+                  )
+                else
+                  _buildClientTableCard(
+                    context: context,
+                    entries: clientEntries,
+                    dateFormat: dateFormat,
+                  ),
+              ],
+            );
 
-    final Widget searchTabContent;
-    if (showDetailOnly && selectedClient != null) {
-      searchTabContent = _buildDetailOnlyClientView(selectedClient, theme);
-    } else {
-      searchTabContent = ListView(
-        padding: const EdgeInsets.all(16),
-        children: children,
-      );
-    }
-
-    // Ultimi clienti (ordinati per data di creazione desc, max 20)
-    final recentClients = [...salonClients]
-      ..sort((a, b) {
-        final left = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        final right = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        return right.compareTo(left);
-      });
-    final latestClients = recentClients.take(20).toList();
-
-    // Tab 2: richieste di accesso
     final requestsTab = ListView(
-      padding: const EdgeInsets.all(16),
+      padding: pagePadding,
       children: [
         if (pendingRequests.isEmpty)
           _buildPlaceholder(
@@ -991,7 +1000,6 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
       ],
     );
 
-    // Tab 3: ultimi clienti
     final List<Widget> latestChildren = [];
     if (latestClients.isEmpty) {
       latestChildren.add(
@@ -1003,20 +1011,21 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
         ),
       );
     } else {
-      final dateFmt = DateFormat('dd/MM/yyyy');
       for (var i = 0; i < latestClients.length; i++) {
         final client = latestClients[i];
         final created = client.createdAt;
-        final subtitle = created != null
-            ? 'Registrato il ${dateFmt.format(created)}'
-            : 'Data registrazione non disponibile';
+        final subtitle =
+            created != null
+                ? 'Registrato il ${dateFormat.format(created)}'
+                : 'Data registrazione non disponibile';
         latestChildren.add(
           Card(
+            elevation: 0,
             color: theme.colorScheme.surface,
-            elevation: 2,
             surfaceTintColor: Colors.transparent,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(18),
+              side: BorderSide(color: theme.colorScheme.outlineVariant),
             ),
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -1047,25 +1056,30 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                           ],
                         ),
                         const SizedBox(height: 4),
-                        Text(subtitle, style: theme.textTheme.bodyMedium),
+                        Text(
+                          subtitle,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
                       ],
                     ),
                   );
                   final action = Builder(
-                    builder: (tabCtx) => OutlinedButton.icon(
-                      onPressed: () async {
-                        final controller = DefaultTabController.of(tabCtx);
-                        controller?.index = 0;
-                        final isCompact = isCompactClientLayout(context);
-                        if (isCompact) {
-                          await _handleClientTap(client.id);
-                        } else {
-                          _focusOnClient(client);
-                        }
-                      },
-                      icon: const Icon(Icons.open_in_new_rounded),
-                      label: const Text('Apri'),
-                    ),
+                    builder:
+                        (tabContext) => OutlinedButton.icon(
+                          onPressed: () async {
+                            DefaultTabController.of(tabContext).animateTo(0);
+                            final isCompact = isCompactClientLayout(context);
+                            if (isCompact) {
+                              await _handleClientTap(client.id);
+                            } else {
+                              _focusOnClient(client);
+                            }
+                          },
+                          icon: const Icon(Icons.open_in_new_rounded),
+                          label: const Text('Apri'),
+                        ),
                   );
 
                   if (isCompact) {
@@ -1074,11 +1088,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                       children: [
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            avatar,
-                            const SizedBox(width: 12),
-                            info,
-                          ],
+                          children: [avatar, const SizedBox(width: 12), info],
                         ),
                         const SizedBox(height: 12),
                         action,
@@ -1106,10 +1116,8 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
         }
       }
     }
-    final latestTab = ListView(
-      padding: const EdgeInsets.all(16),
-      children: latestChildren,
-    );
+
+    final latestTab = ListView(padding: pagePadding, children: latestChildren);
 
     return DefaultTabController(
       length: 4,
@@ -1118,16 +1126,61 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
           Column(
             children: [
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                child: Material(
-                  color: Colors.transparent,
+                padding: pagePadding.copyWith(bottom: 12),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isCompact = constraints.maxWidth < 780;
+                    final addButton = FilledButton.icon(
+                      onPressed:
+                          () => _openClientForm(
+                            salons: salons,
+                            clients: data.clients,
+                          ),
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('Aggiungi Cliente'),
+                    );
+
+                    if (isCompact) {
+                      return SizedBox(width: double.infinity, child: addButton);
+                    }
+
+                    return Row(children: [const Spacer(), addButton]);
+                  },
+                ),
+              ),
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  pagePadding.left,
+                  0,
+                  pagePadding.right,
+                  12,
+                ),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: theme.colorScheme.outlineVariant),
+                  ),
                   child: TabBar(
                     isScrollable: true,
-                    indicatorSize: TabBarIndicatorSize.label,
+                    indicator: BoxDecoration(
+                      color: theme.colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    indicatorSize: TabBarIndicatorSize.tab,
+                    labelColor: theme.colorScheme.onPrimaryContainer,
+                    unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
+                    dividerColor: Colors.transparent,
                     tabs: const [
                       Tab(icon: Icon(Icons.search_rounded), text: 'Ricerca'),
-                      Tab(icon: Icon(Icons.filter_alt_rounded), text: 'Ricerca avanzata'),
-                      Tab(icon: Icon(Icons.how_to_reg_outlined), text: 'Richieste'),
+                      Tab(
+                        icon: Icon(Icons.filter_alt_rounded),
+                        text: 'Ricerca avanzata',
+                      ),
+                      Tab(
+                        icon: Icon(Icons.how_to_reg_outlined),
+                        text: 'Richieste',
+                      ),
                       Tab(icon: Icon(Icons.fiber_new_rounded), text: 'Ultimi'),
                     ],
                   ),
@@ -1139,22 +1192,25 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                     searchTabContent,
                     AdvancedSearchTab(
                       salonId: widget.salonId,
-                      onCreateClient: () => _openClientForm(
-                        salons: salons,
-                        clients: data.clients,
-                      ),
-                      onImportClients: () => _openImport(
-                        context,
-                        ref,
-                        salons: salons,
-                        clients: data.clients,
-                        defaultSalonId: widget.salonId,
-                      ),
-                      onEditClient: (client) => _openClientForm(
-                        salons: salons,
-                        clients: data.clients,
-                        existing: client,
-                      ),
+                      onCreateClient:
+                          () => _openClientForm(
+                            salons: salons,
+                            clients: data.clients,
+                          ),
+                      onImportClients:
+                          () => _openImport(
+                            context,
+                            ref,
+                            salons: salons,
+                            clients: data.clients,
+                            defaultSalonId: widget.salonId,
+                          ),
+                      onEditClient:
+                          (client) => _openClientForm(
+                            salons: salons,
+                            clients: data.clients,
+                            existing: client,
+                          ),
                       onSendInvite: _sendAccessLink,
                       isSendingInvite: _isSending,
                     ),
@@ -1170,7 +1226,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
               child: AbsorbPointer(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.35),
+                    color: Colors.black.withValues(alpha: 0.35),
                   ),
                   child: const Center(child: CircularProgressIndicator()),
                 ),
@@ -1181,60 +1237,556 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     );
   }
 
-  Widget _buildDetailOnlyClientView(Client client, ThemeData theme) {
-    final data = ref.read(appDataProvider);
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
+  Future<void> _exportClients(List<_ClientTableEntry> entries) async {
+    if (entries.isEmpty) {
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        const SnackBar(content: Text('Nessun cliente da esportare.')),
+      );
+      return;
+    }
+    final dateFormat = DateFormat('dd/MM/yyyy');
+    final rows = <List<String>>[
+      [
+        'Numero cliente',
+        'Nome',
+        'Email',
+        'Telefono',
+        'Visite',
+        'Ultima visita',
+        'Spesa totale',
+        'Stato app',
+      ],
+    ];
+    for (final entry in entries) {
+      rows.add([
+        entry.client.clientNumber ?? '',
+        _displayName(entry.client),
+        entry.client.email ?? '',
+        entry.client.phone,
+        entry.visits.toString(),
+        entry.lastVisit == null ? '' : dateFormat.format(entry.lastVisit!),
+        entry.totalSpent.toStringAsFixed(2),
+        _appStatusLabel(entry.client),
+      ]);
+    }
+    try {
+      final converter = const ListToCsvConverter(fieldDelimiter: ';');
+      final csv = converter.convert(rows);
+      final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+      final fileName = 'clienti_youbook_$timestamp.csv';
+      final csvBytes = Uint8List.fromList(utf8.encode(csv));
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [
+            XFile.fromData(csvBytes, mimeType: 'text/csv', name: fileName),
+          ],
+          subject: 'Esportazione clienti',
+          text: 'File generato dal modulo clienti di youbook.',
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        SnackBar(content: Text('Impossibile esportare i clienti: $error')),
+      );
+    }
+  }
+
+  Widget _buildClientTableCard({
+    required BuildContext context,
+    required List<_ClientTableEntry> entries,
+    required DateFormat dateFormat,
+  }) {
+    final theme = Theme.of(context);
+    final headerBackground = theme.colorScheme.surfaceContainerHighest
+        .withValues(alpha: 0.72);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 920;
+        if (isCompact) {
+          return Card(
+            elevation: 0,
+            color: theme.colorScheme.surface,
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              side: BorderSide(color: theme.colorScheme.outlineVariant),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
+                  decoration: BoxDecoration(
+                    color: headerBackground,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(18),
+                    ),
+                  ),
+                  child: Text(
+                    'Elenco clienti',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+                if (entries.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      'Nessun cliente trovato per i filtri correnti.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  )
+                else
+                  Column(
+                    children: [
+                      for (var i = 0; i < entries.length; i++) ...[
+                        _buildCompactClientCard(
+                          context: context,
+                          entry: entries[i],
+                          dateFormat: dateFormat,
+                        ),
+                        if (i != entries.length - 1)
+                          Divider(
+                            height: 1,
+                            color: theme.colorScheme.outlineVariant,
+                          ),
+                      ],
+                    ],
+                  ),
+              ],
+            ),
+          );
+        }
+
+        final tableWidth =
+            constraints.maxWidth < 1040 ? 1040.0 : constraints.maxWidth;
+
+        return Card(
+          elevation: 0,
+          color: theme.colorScheme.surface,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+            side: BorderSide(color: theme.colorScheme.outlineVariant),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: tableWidth,
+                child: Column(
+                  children: [
+                    Container(
+                      color: headerBackground,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 14,
+                      ),
+                      child: Row(
+                        children: const [
+                          _TableHeaderCell(label: 'Cliente', flex: 4),
+                          _TableHeaderCell(label: 'Telefono', flex: 3),
+                          _TableHeaderCell(label: 'Visite', flex: 2),
+                          _TableHeaderCell(label: 'Ultima Visita', flex: 3),
+                          _TableHeaderCell(label: 'Spesa Totale', flex: 3),
+                          _TableHeaderCell(label: 'App', flex: 3),
+                          _TableHeaderCell(label: 'Azioni', flex: 2),
+                        ],
+                      ),
+                    ),
+                    if (entries.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(28),
+                        child: Text(
+                          'Nessun cliente trovato per i filtri correnti.',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      )
+                    else
+                      Column(
+                        children: [
+                          for (var i = 0; i < entries.length; i++) ...[
+                            _buildDesktopClientRow(
+                              context: context,
+                              entry: entries[i],
+                              dateFormat: dateFormat,
+                            ),
+                            if (i != entries.length - 1)
+                              Divider(
+                                height: 1,
+                                color: theme.colorScheme.outlineVariant,
+                              ),
+                          ],
+                        ],
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDesktopClientRow({
+    required BuildContext context,
+    required _ClientTableEntry entry,
+    required DateFormat dateFormat,
+  }) {
+    final theme = Theme.of(context);
+    final client = entry.client;
+    final isSelected = client.id == _selectedClientId;
+    final hasInstalledApp = _hasInstalledApp(client);
+    final emailAvailable = client.email?.trim().isNotEmpty == true;
+    final isSending = _isSending(client.id);
+    final canSendAppLink = emailAvailable && !isSending && !hasInstalledApp;
+
+    return Material(
+      color:
+          isSelected
+              ? theme.colorScheme.primaryContainer.withValues(alpha: 0.28)
+              : Colors.transparent,
+      child: InkWell(
+        onTap: () => _handleClientTap(client.id),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+          child: Row(
+            children: [
+              Expanded(
+                flex: 4,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _displayName(client),
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      client.email ?? 'Email non disponibile',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                flex: 3,
+                child: Text(client.phone, style: theme.textTheme.bodyMedium),
+              ),
+              Expanded(
+                flex: 2,
+                child: Text(
+                  '${entry.visits}',
+                  style: theme.textTheme.bodyMedium,
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              Expanded(
+                flex: 3,
+                child: Text(
+                  entry.lastVisit == null
+                      ? '—'
+                      : dateFormat.format(entry.lastVisit!),
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+              Expanded(
+                flex: 3,
+                child: Text(
+                  _formatCurrency(entry.totalSpent),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Expanded(flex: 3, child: _buildAppStatusChip(context, client)),
+              Expanded(
+                flex: 2,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: [
+                    IconButton(
+                      tooltip: 'Apri scheda',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => _handleClientTap(client.id),
+                      icon: const Icon(Icons.visibility_outlined, size: 18),
+                    ),
+                    IconButton(
+                      tooltip:
+                          hasInstalledApp
+                              ? 'App gia scaricata'
+                              : emailAvailable
+                              ? 'Invia link app'
+                              : 'Email non disponibile',
+                      visualDensity: VisualDensity.compact,
+                      onPressed:
+                          canSendAppLink ? () => _sendAccessLink(client) : null,
+                      icon:
+                          isSending
+                              ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                              : const Icon(
+                                Icons.mail_outline_rounded,
+                                size: 18,
+                              ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompactClientCard({
+    required BuildContext context,
+    required _ClientTableEntry entry,
+    required DateFormat dateFormat,
+  }) {
+    final theme = Theme.of(context);
+    final client = entry.client;
+    final isSelected = client.id == _selectedClientId;
+    final hasInstalledApp = _hasInstalledApp(client);
+    final emailAvailable = client.email?.trim().isNotEmpty == true;
+    final isSending = _isSending(client.id);
+    final canSendAppLink = emailAvailable && !isSending && !hasInstalledApp;
+
+    Widget infoRow(String label, String value, {Color? valueColor}) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               child: Text(
-                'Scheda ${_displayName(client)}',
-                style: theme.textTheme.titleLarge,
+                label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
-            Flexible(
-              child: Align(
-                alignment: Alignment.bottomRight,
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  alignment: WrapAlignment.end,
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed:
-                          () => _openClientForm(
-                            salons: data.salons,
-                            clients: data.clients,
-                            existing: client,
-                          ),
-                      icon: const Icon(Icons.edit_rounded),
-                      label: const Text('Modifica'),
-                    ),
-                    TextButton.icon(
-                      onPressed: _clearSelectedClient,
-                      icon: const Icon(Icons.close_rounded),
-                      label: const Text('Chiudi'),
-                    ),
-                  ],
+            Expanded(
+              child: Text(
+                value,
+                textAlign: TextAlign.right,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: valueColor,
+                  fontWeight: valueColor == null ? null : FontWeight.w700,
                 ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 12),
-        ClientDetailView(
-          key: ValueKey(
-            'client-detail-${client.id}-${_clientDetailInitialTabIndex ?? 0}',
+      );
+    }
+
+    return Material(
+      color:
+          isSelected
+              ? theme.colorScheme.primaryContainer.withValues(alpha: 0.26)
+              : Colors.transparent,
+      child: InkWell(
+        onTap: () => _handleClientTap(client.id),
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _displayName(client),
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          client.email ?? 'Email non disponibile',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: 'Apri scheda',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => _handleClientTap(client.id),
+                        icon: const Icon(Icons.visibility_outlined, size: 18),
+                      ),
+                      IconButton(
+                        tooltip:
+                            hasInstalledApp
+                                ? 'App gia scaricata'
+                                : emailAvailable
+                                ? 'Invia link app'
+                                : 'Email non disponibile',
+                        visualDensity: VisualDensity.compact,
+                        onPressed:
+                            canSendAppLink
+                                ? () => _sendAccessLink(client)
+                                : null,
+                        icon:
+                            isSending
+                                ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                                : const Icon(
+                                  Icons.mail_outline_rounded,
+                                  size: 18,
+                                ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              infoRow('Telefono', client.phone),
+              infoRow('Visite', '${entry.visits}'),
+              infoRow(
+                'Ultima visita',
+                entry.lastVisit == null
+                    ? '—'
+                    : dateFormat.format(entry.lastVisit!),
+              ),
+              infoRow(
+                'Spesa totale',
+                _formatCurrency(entry.totalSpent),
+                valueColor: theme.colorScheme.primary,
+              ),
+              infoRow('App', _appStatusLabel(client)),
+            ],
           ),
-          clientId: client.id,
-          showAppBar: false,
-          onClose: _clearSelectedClient,
-          initialTabIndex: _clientDetailInitialTabIndex ?? 0,
         ),
-      ],
+      ),
+    );
+  }
+
+  Widget _buildSelectedClientSection({required Client client}) {
+    return ClientDetailView(
+      key: ValueKey(
+        'client-detail-${client.id}-${_clientDetailInitialTabIndex ?? 0}',
+      ),
+      clientId: client.id,
+      showAppBar: false,
+      onClose: _clearSelectedClient,
+      initialTabIndex: _clientDetailInitialTabIndex ?? 0,
+    );
+  }
+
+  String _formatCurrency(double value) {
+    final decimalDigits = value == value.roundToDouble() ? 0 : 2;
+    return NumberFormat.currency(
+      locale: 'it_IT',
+      symbol: '€',
+      decimalDigits: decimalDigits,
+    ).format(value);
+  }
+
+  bool _hasInstalledApp(Client client) {
+    return client.fcmTokens.isNotEmpty ||
+        client.onboardingStatus == ClientOnboardingStatus.firstLogin ||
+        client.onboardingStatus == ClientOnboardingStatus.onboardingCompleted;
+  }
+
+  String _appStatusLabel(Client client) {
+    if (_hasInstalledApp(client)) {
+      return 'Scaricata';
+    }
+    switch (client.onboardingStatus) {
+      case ClientOnboardingStatus.invitationSent:
+        return 'Link inviato';
+      case ClientOnboardingStatus.notSent:
+        return 'Non scaricata';
+      case ClientOnboardingStatus.firstLogin:
+      case ClientOnboardingStatus.onboardingCompleted:
+        return 'Scaricata';
+    }
+  }
+
+  Widget _buildAppStatusChip(BuildContext context, Client client) {
+    final theme = Theme.of(context);
+    final hasInstalledApp = _hasInstalledApp(client);
+    final status = client.onboardingStatus;
+
+    late final Color background;
+    late final Color foreground;
+    late final IconData icon;
+
+    if (hasInstalledApp) {
+      background = const Color(0xFFE7F6EC);
+      foreground = const Color(0xFF166534);
+      icon = Icons.download_done_rounded;
+    } else if (status == ClientOnboardingStatus.invitationSent) {
+      background = const Color(0xFFFFF4DB);
+      foreground = const Color(0xFF92400E);
+      icon = Icons.mark_email_unread_outlined;
+    } else {
+      background = theme.colorScheme.surfaceContainerHighest;
+      foreground = theme.colorScheme.onSurfaceVariant;
+      icon = Icons.phone_iphone_outlined;
+    }
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: foreground),
+            const SizedBox(width: 6),
+            Text(
+              _appStatusLabel(client),
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: foreground,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1243,7 +1795,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
   Future<void> _sendAccessLink(Client client) async {
     final email = client.email;
     if (email == null || email.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text("Aggiungi un'email al profilo per inviare il link."),
         ),
@@ -1278,69 +1830,18 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
               : "Invito di accesso inviato a $email";
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ).showAppSnackBar(SnackBar(content: Text(message)));
     } catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text("Errore durante l'invio del link: $error")),
       );
     } finally {
       if (mounted) {
         setState(() => _sendingInvites.remove(client.id));
       }
-    }
-  }
-
-  Widget _buildStatusChip(BuildContext context, Client client) {
-    final scheme = Theme.of(context).colorScheme;
-    final status = client.onboardingStatus;
-
-    late final Color background;
-    late final Color foreground;
-    late final IconData icon;
-
-    switch (status) {
-      case ClientOnboardingStatus.notSent:
-        background = scheme.surfaceContainerHighest;
-        foreground = scheme.onSurface;
-        icon = Icons.hourglass_empty_rounded;
-        break;
-      case ClientOnboardingStatus.invitationSent:
-        background = scheme.primary;
-        foreground = scheme.onPrimary;
-        icon = Icons.outgoing_mail;
-        break;
-      case ClientOnboardingStatus.firstLogin:
-        background = scheme.tertiary;
-        foreground = scheme.onTertiary;
-        icon = Icons.login_rounded;
-        break;
-      case ClientOnboardingStatus.onboardingCompleted:
-        background = scheme.secondary;
-        foreground = scheme.onSecondary;
-        icon = Icons.verified_rounded;
-        break;
-    }
-
-    return Chip(
-      backgroundColor: background,
-      avatar: Icon(icon, size: 18, color: foreground),
-      label: Text(_statusLabel(status), style: TextStyle(color: foreground)),
-    );
-  }
-
-  String _statusLabel(ClientOnboardingStatus status) {
-    switch (status) {
-      case ClientOnboardingStatus.notSent:
-        return "Non inviato";
-      case ClientOnboardingStatus.invitationSent:
-        return "Inviata";
-      case ClientOnboardingStatus.firstLogin:
-        return "Primo accesso";
-      case ClientOnboardingStatus.onboardingCompleted:
-        return "Onboarding completato";
     }
   }
 }
@@ -1353,7 +1854,7 @@ Future<void> _openImport(
   String? defaultSalonId,
 }) async {
   if (salons.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       const SnackBar(
         content: Text('Crea prima un salone per associare clienti.'),
       ),
@@ -1369,6 +1870,9 @@ Future<void> _openImport(
           defaultSalonId: defaultSalonId,
         ),
   );
+  if (!context.mounted) {
+    return;
+  }
   if (result == null) {
     return;
   }
@@ -1378,31 +1882,94 @@ Future<void> _openImport(
       failed > 0
           ? 'Import completato: $imported clienti importati, $failed non importati.'
           : '$imported clienti importati correttamente.';
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  ScaffoldMessenger.of(
+    context,
+  ).showAppSnackBar(SnackBar(content: Text(message)));
 }
 
-class _QuickStat extends StatelessWidget {
-  const _QuickStat({required this.icon, required this.label});
+class _ClientTableEntry {
+  const _ClientTableEntry({
+    required this.client,
+    required this.visits,
+    required this.lastVisit,
+    required this.totalSpent,
+  });
 
-  final IconData icon;
-  final String label;
+  final Client client;
+  final int visits;
+  final DateTime? lastVisit;
+  final double totalSpent;
+}
+
+class _ClientsSummaryCard extends StatelessWidget {
+  const _ClientsSummaryCard({
+    required this.width,
+    required this.title,
+    required this.value,
+    this.valueColor,
+  });
+
+  final double width;
+  final String title;
+  final String value;
+  final Color? valueColor;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(20),
+    return SizedBox(
+      width: width,
+      child: Card(
+        elevation: 0,
+        color: theme.colorScheme.surface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                value,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  color: valueColor,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: theme.colorScheme.primary),
-          const SizedBox(width: 6),
-          Text(label, style: theme.textTheme.bodySmall),
-        ],
+    );
+  }
+}
+
+class _TableHeaderCell extends StatelessWidget {
+  const _TableHeaderCell({required this.label, required this.flex});
+
+  final String label;
+  final int flex;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Expanded(
+      flex: flex,
+      child: Text(
+        label,
+        style: theme.textTheme.labelMedium?.copyWith(
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }

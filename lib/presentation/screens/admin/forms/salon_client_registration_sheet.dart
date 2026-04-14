@@ -67,37 +67,35 @@ class _SalonClientRegistrationSheetState
     };
 
     return DialogActionLayout(
+      title: 'Registrazione clienti',
+      subtitle:
+          'Configura come i clienti richiedono l\'accesso e quali dati sono obbligatori.',
       body: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Registrazione clienti', style: theme.textTheme.titleLarge),
-          const SizedBox(height: 8),
-          Text(
-            'Configura come i clienti richiedono l\'accesso e quali dati sono obbligatori.',
-            style: theme.textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 16),
           DropdownButtonFormField<ClientRegistrationAccessMode>(
             isExpanded: true,
             value: _accessMode,
             decoration: const InputDecoration(labelText: 'Modalità di accesso'),
-            items:
-                ClientRegistrationAccessMode.values
-                    .map(
-                      (mode) => DropdownMenuItem(
-                        value: mode,
-                        child: Text(_accessModeLabel(mode)),
-                      ),
-                    )
-                    .toList(growable: false),
+            items: ClientRegistrationAccessMode.values
+                .map(
+                  (mode) => DropdownMenuItem(
+                    value: mode,
+                    child: Text(_accessModeLabel(mode)),
+                  ),
+                )
+                .toList(growable: false),
             onChanged: (value) {
               if (value == null) return;
               setState(() => _accessMode = value);
             },
           ),
           const SizedBox(height: 16),
-          Text('Campi aggiuntivi obbligatori', style: theme.textTheme.labelLarge),
+          Text(
+            'Campi aggiuntivi obbligatori',
+            style: theme.textTheme.labelLarge,
+          ),
           const SizedBox(height: 8),
           ...extraOptions.entries.map((entry) {
             final isSelected = _extraFields.contains(entry.key);
@@ -120,4 +118,3 @@ class _SalonClientRegistrationSheetState
     );
   }
 }
-

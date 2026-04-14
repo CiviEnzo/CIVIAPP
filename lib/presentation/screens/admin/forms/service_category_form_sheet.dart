@@ -2,6 +2,7 @@ import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/service_category.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:flutter/material.dart';
+import 'package:you_book/presentation/common/app_notice.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
@@ -83,17 +84,13 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return DialogActionLayout(
+      title: widget.initial == null ? 'Nuova categoria' : 'Modifica categoria',
       body: Form(
         key: _formKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              widget.initial == null ? 'Nuova categoria' : 'Modifica categoria',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 12),
             TextFormField(
               controller: _name,
               decoration: const InputDecoration(labelText: 'Nome'),
@@ -221,7 +218,7 @@ class _ServiceCategoryFormSheetState extends State<ServiceCategoryFormSheet> {
       return;
     }
     if (_salonId == null || _salonId!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text(
             'Nessun salone disponibile. Verifica la configurazione.',

@@ -8,6 +8,7 @@ import 'package:you_book/domain/availability/equipment_availability.dart';
 import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/service.dart';
+import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_anomaly.dart';
 
 Future<bool> validateAndSaveAppointment({
   required BuildContext context,
@@ -19,45 +20,48 @@ Future<bool> validateAndSaveAppointment({
 }) async {
   final messenger = ScaffoldMessenger.of(context);
   final data = ref.read(appDataProvider);
-  final existingAppointments = data.appointments.isNotEmpty
-      ? data.appointments
-      : (fallbackAppointments ?? const <Appointment>[]);
+  final existingAppointments =
+      data.appointments.isNotEmpty
+          ? data.appointments
+          : (fallbackAppointments ?? const <Appointment>[]);
   final allServices =
       data.services.isNotEmpty ? data.services : fallbackServices;
   final allSalons = data.salons.isNotEmpty ? data.salons : fallbackSalons;
   final nowReference = DateTime.now();
-  final expressPlaceholders = data.lastMinuteSlots
-      .where((slot) {
-        if (slot.salonId != appointment.salonId) {
-          return false;
-        }
-        if (slot.operatorId != appointment.staffId) {
-          return false;
-        }
-        if (!slot.isAvailable) {
-          return false;
-        }
-        if (!slot.end.isAfter(nowReference)) {
-          return false;
-        }
-        return true;
-      })
-      .map(
-        (slot) => Appointment(
-          id: 'last-minute-${slot.id}',
-          salonId: slot.salonId,
-          clientId: 'last-minute-${slot.id}',
-          staffId: slot.operatorId ?? appointment.staffId,
-          serviceIds: slot.serviceId != null && slot.serviceId!.isNotEmpty
-              ? <String>[slot.serviceId!]
-              : const <String>[],
-          start: slot.start,
-          end: slot.end,
-          status: AppointmentStatus.scheduled,
-          roomId: slot.roomId,
-        ),
-      )
-      .toList();
+  final expressPlaceholders =
+      data.lastMinuteSlots
+          .where((slot) {
+            if (slot.salonId != appointment.salonId) {
+              return false;
+            }
+            if (slot.operatorId != appointment.staffId) {
+              return false;
+            }
+            if (!slot.isAvailable) {
+              return false;
+            }
+            if (!slot.end.isAfter(nowReference)) {
+              return false;
+            }
+            return true;
+          })
+          .map(
+            (slot) => Appointment(
+              id: 'last-minute-${slot.id}',
+              salonId: slot.salonId,
+              clientId: 'last-minute-${slot.id}',
+              staffId: slot.operatorId ?? appointment.staffId,
+              serviceIds:
+                  slot.serviceId != null && slot.serviceId!.isNotEmpty
+                      ? <String>[slot.serviceId!]
+                      : const <String>[],
+              start: slot.start,
+              end: slot.end,
+              status: AppointmentStatus.scheduled,
+              roomId: slot.roomId,
+            ),
+          )
+          .toList();
   final combinedAppointments = <Appointment>[
     ...existingAppointments,
     ...expressPlaceholders,
@@ -70,7 +74,7 @@ Future<bool> validateAndSaveAppointment({
     excludeAppointmentId: appointment.id,
   );
   if (hasStaffConflict) {
-    messenger.showSnackBar(
+    messenger.showAppSnackBar(
       const SnackBar(
         content: Text(
           'Impossibile salvare: operatore già occupato in quel periodo',
@@ -87,7 +91,7 @@ Future<bool> validateAndSaveAppointment({
     excludeAppointmentId: appointment.id,
   );
   if (hasClientConflict) {
-    messenger.showSnackBar(
+    messenger.showAppSnackBar(
       const SnackBar(
         content: Text(
           'Impossibile salvare: il cliente ha già un appuntamento in quel periodo',
@@ -99,13 +103,13 @@ Future<bool> validateAndSaveAppointment({
   final servicesById = {for (final service in allServices) service.id: service};
   final serviceWindows =
       EquipmentAvailabilityChecker.serviceWindowsForAppointment(
-    appointment: appointment,
-    servicesById: servicesById,
-    startOverride: appointment.start,
-    endOverride: appointment.end,
-  );
+        appointment: appointment,
+        servicesById: servicesById,
+        startOverride: appointment.start,
+        endOverride: appointment.end,
+      );
   if (serviceWindows.isEmpty) {
-    messenger.showSnackBar(
+    messenger.showAppSnackBar(
       const SnackBar(content: Text('Servizio non valido.')),
     );
     return false;
@@ -134,22 +138,39 @@ Future<bool> validateAndSaveAppointment({
   }
   if (blockingEquipment.isNotEmpty) {
     final equipmentLabel = blockingEquipment.join(', ');
-    final message = equipmentLabel.isEmpty
-        ? 'Macchinario non disponibile per questo orario.'
-        : 'Macchinario non disponibile per questo orario: $equipmentLabel.';
-    messenger.showSnackBar(
+    final message =
+        equipmentLabel.isEmpty
+            ? 'Macchinario non disponibile per questo orario.'
+            : 'Macchinario non disponibile per questo orario: $equipmentLabel.';
+    messenger.showAppSnackBar(
       SnackBar(content: Text('$message Scegli un altro slot.')),
     );
+    return false;
+  }
+  final warningAnomalies = calculateAppointmentAnomalies(
+    appointment: appointment,
+    shifts: data.shifts,
+    absences: mergeStaffAbsenceLists(
+      staffAbsences: data.staffAbsences,
+      publicStaffAbsences: data.publicStaffAbsences,
+    ),
+    now: DateTime.now(),
+  );
+  final shouldContinue = await showAppointmentWarningConfirmationDialog(
+    context: context,
+    anomalies: warningAnomalies,
+  );
+  if (!shouldContinue) {
     return false;
   }
   try {
     await ref.read(appDataProvider.notifier).upsertAppointment(appointment);
     return true;
   } on StateError catch (error) {
-    messenger.showSnackBar(SnackBar(content: Text(error.message)));
+    messenger.showAppSnackBar(SnackBar(content: Text(error.message)));
     return false;
   } catch (error) {
-    messenger.showSnackBar(
+    messenger.showAppSnackBar(
       SnackBar(content: Text('Errore durante il salvataggio: $error')),
     );
     return false;

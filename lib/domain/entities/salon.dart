@@ -144,7 +144,9 @@ class Salon {
   final Map<String, SetupChecklistStatus> setupChecklist;
 
   bool get canAcceptOnlinePayments =>
-      stripeAccountId != null && stripeAccount.isReadyForPayments;
+      featureFlags.clientOnlinePayments &&
+      stripeAccountId != null &&
+      stripeAccount.isReadyForPayments;
 
   Salon copyWith({
     String? id,
@@ -244,15 +246,22 @@ class ClientRegistrationSettings {
 
 class SalonFeatureFlags {
   const SalonFeatureFlags({
+    this.clientOnlinePayments = true,
     this.clientPromotions = false,
     this.clientLastMinute = false,
   });
 
+  final bool clientOnlinePayments;
   final bool clientPromotions;
   final bool clientLastMinute;
 
-  SalonFeatureFlags copyWith({bool? clientPromotions, bool? clientLastMinute}) {
+  SalonFeatureFlags copyWith({
+    bool? clientOnlinePayments,
+    bool? clientPromotions,
+    bool? clientLastMinute,
+  }) {
     return SalonFeatureFlags(
+      clientOnlinePayments: clientOnlinePayments ?? this.clientOnlinePayments,
       clientPromotions: clientPromotions ?? this.clientPromotions,
       clientLastMinute: clientLastMinute ?? this.clientLastMinute,
     );
@@ -260,6 +269,7 @@ class SalonFeatureFlags {
 
   Map<String, dynamic> toMap() {
     return {
+      'clientOnlinePayments': clientOnlinePayments,
       'clientPromotions': clientPromotions,
       'clientLastMinute': clientLastMinute,
     };
@@ -270,6 +280,10 @@ class SalonFeatureFlags {
       return const SalonFeatureFlags();
     }
     return SalonFeatureFlags(
+      clientOnlinePayments:
+          data.containsKey('clientOnlinePayments')
+              ? _readFlag(data['clientOnlinePayments'])
+              : true,
       clientPromotions: _readFlag(data['clientPromotions']),
       clientLastMinute: _readFlag(data['clientLastMinute']),
     );

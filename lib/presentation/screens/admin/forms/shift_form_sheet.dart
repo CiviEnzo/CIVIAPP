@@ -3,6 +3,8 @@ import 'package:you_book/domain/entities/shift.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
+import 'package:you_book/presentation/common/app_notice.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
@@ -87,11 +89,18 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
         (widget.salons.isNotEmpty ? widget.salons.first.id : null);
     _staffId = initial?.staffId ?? widget.defaultStaffId;
     final now = DateTime.now();
-    final defaultDay = widget.defaultDay != null
-        ? DateUtils.dateOnly(widget.defaultDay!)
-        : null;
+    final defaultDay =
+        widget.defaultDay != null
+            ? DateUtils.dateOnly(widget.defaultDay!)
+            : null;
     final baseDay = defaultDay ?? DateUtils.dateOnly(now);
-    final defaultStart = DateTime(baseDay.year, baseDay.month, baseDay.day, 9, 0);
+    final defaultStart = DateTime(
+      baseDay.year,
+      baseDay.month,
+      baseDay.day,
+      9,
+      0,
+    );
     _start = initial?.start ?? defaultStart;
     _end = initial?.end ?? _start.add(const Duration(hours: 6));
     _roomId = initial?.roomId;
@@ -147,7 +156,6 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final dateTimeFormat = DateFormat('dd MMM yyyy HH:mm', 'it_IT');
     final dateFormat = DateFormat('dd MMM yyyy', 'it_IT');
     final timeFormat = DateFormat('HH:mm', 'it_IT');
     final selectedSalon = widget.salons.firstWhereOrNull(
@@ -175,6 +183,376 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
         ),
       ),
     ];
+    final title = _isEditing ? 'Modifica turno' : 'Nuovo turno';
+
+    if (isAppSheetPhoneLayout(context)) {
+      return AppMobileSheetPageScaffold(
+        title: title,
+        actions: [
+          TextButton(
+            onPressed: _submit,
+            child: Text(_isEditing ? 'Salva' : 'Salva'),
+          ),
+        ],
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: [
+              if (!hasActiveSalon) ...[
+                Text(
+                  'Seleziona un salone dall\'appbar per pianificare nuovi turni.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+              DropdownButtonFormField<String>(
+                isExpanded: true,
+                value:
+                    filteredStaff.any((member) => member.id == _staffId)
+                        ? _staffId
+                        : null,
+                items:
+                    filteredStaff
+                        .map(
+                          (member) => DropdownMenuItem(
+                            value: member.id,
+                            child: Text(member.fullName),
+                          ),
+                        )
+                        .toList(),
+                decoration: const InputDecoration(labelText: 'Operatore'),
+                validator:
+                    (value) => value == null ? 'Seleziona un operatore' : null,
+                onChanged:
+                    hasActiveSalon
+                        ? (value) => setState(() => _staffId = value)
+                        : null,
+              ),
+              const SizedBox(height: 12),
+              if (hasRooms) ...[
+                DropdownButtonFormField<String?>(
+                  isExpanded: true,
+                  value:
+                      rooms.any((room) => room.id == _roomId) ? _roomId : null,
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('Nessuna cabina'),
+                    ),
+                    ...rooms.map(
+                      (room) => DropdownMenuItem<String?>(
+                        value: room.id,
+                        child: Text(room.name),
+                      ),
+                    ),
+                  ],
+                  decoration: const InputDecoration(
+                    labelText: 'Cabina / stanza',
+                  ),
+                  onChanged: (value) => setState(() => _roomId = value),
+                ),
+                const SizedBox(height: 12),
+              ] else
+                const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _ShiftFormSelectionTile(
+                      label: 'Data di inizio',
+                      value: dateFormat.format(_start),
+                      icon: Icons.calendar_today_rounded,
+                      onTap: _pickStartDate,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _ShiftFormSelectionTile(
+                      label: 'Data di fine',
+                      value: dateFormat.format(_end),
+                      icon: Icons.event,
+                      onTap: _pickEndDate,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _ShiftFormSelectionTile(
+                      label: 'Ora di inizio',
+                      value: timeFormat.format(_start),
+                      icon: Icons.schedule_rounded,
+                      onTap: _pickStartTime,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _ShiftFormSelectionTile(
+                      label: 'Ora di fine',
+                      value: timeFormat.format(_end),
+                      icon: Icons.schedule,
+                      onTap: _pickEndTime,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: _hasBreak,
+                title: const Text('Pausa programmata'),
+                subtitle: const Text(
+                  'Specifica un intervallo di pausa durante il turno',
+                ),
+                onChanged: (value) {
+                  setState(() {
+                    _hasBreak = value;
+                    if (value) {
+                      _setDefaultBreak();
+                    } else {
+                      _breakStart = null;
+                      _breakEnd = null;
+                    }
+                  });
+                },
+              ),
+              if (_hasBreak) ...[
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Inizio pausa'),
+                  subtitle: Text(
+                    _breakStart != null
+                        ? timeFormat.format(_breakStart!)
+                        : 'Seleziona orario',
+                  ),
+                  trailing: const Icon(Icons.free_breakfast),
+                  onTap: _pickBreakStart,
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Fine pausa'),
+                  subtitle: Text(
+                    _breakEnd != null
+                        ? timeFormat.format(_breakEnd!)
+                        : 'Seleziona orario',
+                  ),
+                  trailing: const Icon(Icons.emoji_food_beverage),
+                  onTap: _pickBreakEnd,
+                ),
+              ],
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _notes,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Note (facoltative)',
+                ),
+              ),
+              if (_canConfigureRecurrence) ...[
+                const SizedBox(height: 24),
+                Text(
+                  'Ripetizione',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<ShiftRecurrenceFrequency?>(
+                  isExpanded: true,
+                  value: _recurrenceFrequency,
+                  items: recurrenceItems,
+                  decoration: const InputDecoration(labelText: 'Frequenza'),
+                  onChanged: (value) {
+                    setState(() {
+                      _recurrenceFrequency = value;
+                      if (value == null) {
+                        _recurrenceInterval = 1;
+                        _recurrenceMonths = 1;
+                        return;
+                      }
+                      if (value != ShiftRecurrenceFrequency.weekly) {
+                        _recurrenceInterval = 1;
+                        _weeklyActiveWeeks = 1;
+                        _weeklyBreakWeeks = 0;
+                      }
+                      if (value == ShiftRecurrenceFrequency.weekly) {
+                        _recurrenceInterval = _clampWeekCount(
+                          _weeklyActiveWeeks + _weeklyBreakWeeks,
+                          min: 1,
+                        );
+                        _ensureWeekdaySelection();
+                      }
+                    });
+                  },
+                ),
+                if (_recurrenceFrequency ==
+                    ShiftRecurrenceFrequency.weekly) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<int>(
+                          isExpanded: true,
+                          value: _weeklyActiveWeeks,
+                          decoration: const InputDecoration(
+                            labelText: 'Settimane attive',
+                          ),
+                          items: List<DropdownMenuItem<int>>.generate(6, (
+                            index,
+                          ) {
+                            final value = index + 1;
+                            return DropdownMenuItem(
+                              value: value,
+                              child: Text('$value'),
+                            );
+                          }),
+                          onChanged: (value) {
+                            if (value == null) {
+                              return;
+                            }
+                            setState(() {
+                              _weeklyActiveWeeks = value;
+                              _recurrenceInterval = _clampWeekCount(
+                                _weeklyActiveWeeks + _weeklyBreakWeeks,
+                                min: 1,
+                              );
+                            });
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: DropdownButtonFormField<int>(
+                          isExpanded: true,
+                          value: _weeklyBreakWeeks,
+                          decoration: const InputDecoration(
+                            labelText: 'Settimane di pausa',
+                          ),
+                          items: List<DropdownMenuItem<int>>.generate(
+                            6,
+                            (index) => DropdownMenuItem(
+                              value: index,
+                              child: Text(index == 0 ? 'Nessuna' : '$index'),
+                            ),
+                          ),
+                          onChanged: (value) {
+                            if (value == null) {
+                              return;
+                            }
+                            setState(() {
+                              _weeklyBreakWeeks = value;
+                              _recurrenceInterval = _clampWeekCount(
+                                _weeklyActiveWeeks + _weeklyBreakWeeks,
+                                min: 1,
+                              );
+                            });
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Giorni della settimana',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Builder(
+                    builder: (context) {
+                      final allowedWeekdays = _allowedWeekdays();
+                      final selectableWeekdays =
+                          _weekdayOrder
+                              .where(
+                                (weekday) =>
+                                    allowedWeekdays.contains(weekday) ||
+                                    _recurrenceWeekdays.contains(weekday),
+                              )
+                              .toList();
+                      return Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children:
+                            selectableWeekdays.map((weekday) {
+                              final label = _weekdayLabel(weekday);
+                              final isSelected = _recurrenceWeekdays.contains(
+                                weekday,
+                              );
+                              final isAllowed = allowedWeekdays.contains(
+                                weekday,
+                              );
+                              final canToggle = isAllowed || isSelected;
+                              return FilterChip(
+                                label: Text(label),
+                                selected: isSelected,
+                                onSelected:
+                                    canToggle
+                                        ? (selected) {
+                                          setState(() {
+                                            if (selected && isAllowed) {
+                                              _recurrenceWeekdays.add(weekday);
+                                            } else {
+                                              _recurrenceWeekdays.remove(
+                                                weekday,
+                                              );
+                                            }
+                                          });
+                                        }
+                                        : null,
+                              );
+                            }).toList(),
+                      );
+                    },
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'Seleziona i giorni in cui il turno verrà ripetuto. '
+                      'Puoi scegliere solo i giorni in cui il centro è aperto.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color:
+                            _recurrenceWeekdays.isEmpty
+                                ? Theme.of(context).colorScheme.error
+                                : null,
+                      ),
+                    ),
+                  ),
+                ],
+                if (_recurrenceFrequency != null) ...[
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<int>(
+                    isExpanded: true,
+                    value: _recurrenceMonths,
+                    decoration: const InputDecoration(
+                      labelText: 'Durata ripetizione (mesi)',
+                    ),
+                    items: List<DropdownMenuItem<int>>.generate(12, (index) {
+                      final value = index + 1;
+                      final label = value == 1 ? '1 mese' : '$value mesi';
+                      return DropdownMenuItem(value: value, child: Text(label));
+                    }),
+                    onChanged: (value) {
+                      if (value == null) {
+                        return;
+                      }
+                      setState(() {
+                        _recurrenceMonths = _clampMonthCount(value);
+                      });
+                    },
+                  ),
+                  Text(
+                    'I turni saranno generati per il numero di mesi selezionato.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ],
+            ],
+          ),
+        ),
+      );
+    }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -184,10 +562,7 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              _isEditing ? 'Modifica turno' : 'Nuovo turno',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
+            Text(title, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 16),
             if (!hasActiveSalon) ...[
               const SizedBox(height: 8),
@@ -1192,7 +1567,7 @@ class _ShiftFormSheetState extends State<ShiftFormSheet> {
     }
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ).showAppSnackBar(SnackBar(content: Text(message)));
   }
 
   int _clampWeekCount(int value, {int min = 0, int max = 52}) {

@@ -2,6 +2,7 @@ import 'package:you_book/domain/entities/loyalty_settings.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:flutter/material.dart';
+import 'package:you_book/presentation/common/app_notice.dart';
 
 class SalonLoyaltySheet extends StatefulWidget {
   const SalonLoyaltySheet({super.key, required this.salon});
@@ -144,37 +145,23 @@ class _SalonLoyaltySheetState extends State<SalonLoyaltySheet> {
   void _showError(String message) {
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ).showAppSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return DialogActionLayout(
+      title: 'Programma fedeltà',
+      subtitle:
+          'Attiva il programma punti e definisci le regole di earning e redemption.',
+      trailing: Switch.adaptive(
+        value: _enabled,
+        onChanged: (value) => setState(() => _enabled = value),
+      ),
       body: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Programma fedeltà',
-                  style: theme.textTheme.titleLarge,
-                ),
-              ),
-              Switch.adaptive(
-                value: _enabled,
-                onChanged: (value) => setState(() => _enabled = value),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Attiva il programma punti e definisci le regole di earning e redemption.',
-            style: theme.textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 16),
           IgnorePointer(
             ignoring: !_enabled,
             child: AnimatedOpacity(

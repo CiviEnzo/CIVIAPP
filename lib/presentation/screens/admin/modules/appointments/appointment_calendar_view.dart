@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:collection';
 import 'dart:math';
 
 import 'package:you_book/app/providers.dart';
@@ -27,13 +26,21 @@ import 'package:intl/intl.dart';
 
 const double _kStaffColumnWidth = 220.0;
 const double _kStaffHeaderHeight = 48.0;
-const double _kBasePreviewHeight = 170.0;
+const double _kDayColumnBorderWidth = 1.6;
+const double _kDayHeaderBorderRadius = 16.0;
+const double _kBasePreviewHeight = 210.0;
+const double _kHoverPreviewWidth = 410.0;
+const double _kHoverPreviewGap = 12.0;
 const double _kAutoScrollEdgeExtent = 120.0;
 const double _kAutoScrollMinStep = 10.0;
 const double _kAutoScrollMaxStep = 34.0;
 const Duration _kMinDragUpdateInterval = Duration(milliseconds: 16);
+const ValueKey<String> _kAppointmentHoverPreviewKey = ValueKey<String>(
+  'appointment_hover_preview',
+);
 
 final DateFormat _calendarWeekdayFormat = DateFormat('EEEE', 'it_IT');
+final DateFormat _calendarWeekdayShortFormat = DateFormat('EEE', 'it_IT');
 final DateFormat _calendarDayNumberFormat = DateFormat('dd', 'it_IT');
 final DateFormat _calendarMonthAbbrevFormat = DateFormat('MMM', 'it_IT');
 final DateFormat _closureTimeFormat = DateFormat('HH:mm', 'it_IT');
@@ -61,6 +68,186 @@ String _firstNameOnly(String fullName) {
   return parts.isEmpty ? fullName : parts.first;
 }
 
+String _calendarCompactDayLabel(DateTime date) {
+  final weekday = _calendarWeekdayShortFormat.format(date).replaceAll('.', '');
+  final dayNumber = _calendarDayNumberFormat.format(date);
+  return '${_capitalizeItalianWord(weekday)} $dayNumber';
+}
+
+String _primaryStaffRoleLabel(
+  StaffMember staffMember,
+  Map<String, StaffRole> rolesById,
+) {
+  for (final roleId in staffMember.roleIds) {
+    final label = rolesById[roleId]?.displayName.trim();
+    if (label != null && label.isNotEmpty) {
+      return label;
+    }
+  }
+  return '';
+}
+
+class _StaffAvatarTone {
+  const _StaffAvatarTone({required this.background, required this.foreground});
+
+  final Color background;
+  final Color foreground;
+}
+
+enum _ChecklistStateKind { empty, completed, pending }
+
+class _ChecklistVisualState {
+  const _ChecklistVisualState({
+    required this.kind,
+    required this.icon,
+    required this.tooltip,
+    required this.label,
+    required this.bannerTitle,
+    required this.badgeLabel,
+    required this.background,
+    required this.foreground,
+    required this.badgeBackground,
+    required this.badgeForeground,
+    required this.borderColor,
+  });
+
+  final _ChecklistStateKind kind;
+  final IconData icon;
+  final String tooltip;
+  final String label;
+  final String bannerTitle;
+  final String badgeLabel;
+  final Color background;
+  final Color foreground;
+  final Color badgeBackground;
+  final Color badgeForeground;
+  final Color borderColor;
+}
+
+int _completedChecklistCount(AppointmentDayChecklist? checklist) =>
+    checklist?.items.where((item) => item.isCompleted).length ?? 0;
+
+String _checklistSummaryText({required int total, required int completed}) {
+  final pending = max(total - completed, 0);
+  if (total == 0) {
+    return 'Nessuna attività ancora pianificata.';
+  }
+  if (pending == 0) {
+    return 'Tutte le $total attività sono completate.';
+  }
+  return '$pending attività da completare su $total.';
+}
+
+_ChecklistVisualState _resolveChecklistVisualState(
+  ThemeData theme, {
+  required int total,
+  required int completed,
+  required bool isCurrentDay,
+}) {
+  final pending = max(total - completed, 0);
+  if (total == 0) {
+    return _ChecklistVisualState(
+      kind: _ChecklistStateKind.empty,
+      icon: Icons.playlist_add_rounded,
+      tooltip: 'Checklist vuota',
+      label: 'Checklist vuota',
+      bannerTitle: 'Nessuna attività in checklist',
+      badgeLabel: '0',
+      background: theme.colorScheme.surfaceContainerHighest,
+      foreground: theme.colorScheme.onSurfaceVariant,
+      badgeBackground: theme.colorScheme.surface,
+      badgeForeground: theme.colorScheme.onSurfaceVariant,
+      borderColor: theme.colorScheme.outlineVariant.withValues(alpha: 0.9),
+    );
+  }
+  if (pending == 0) {
+    return _ChecklistVisualState(
+      kind: _ChecklistStateKind.completed,
+      icon: Icons.task_alt_rounded,
+      tooltip: 'Checklist completata',
+      label: 'Checklist completata',
+      bannerTitle: 'Tutto eseguito',
+      badgeLabel: 'OK',
+      background: Color.alphaBlend(
+        theme.colorScheme.primary.withValues(alpha: 0.08),
+        theme.colorScheme.primaryContainer.withValues(alpha: 0.9),
+      ),
+      foreground: theme.colorScheme.onPrimaryContainer,
+      badgeBackground: theme.colorScheme.primary,
+      badgeForeground: theme.colorScheme.onPrimary,
+      borderColor: theme.colorScheme.primary.withValues(alpha: 0.32),
+    );
+  }
+  return _ChecklistVisualState(
+    kind: _ChecklistStateKind.pending,
+    icon:
+        isCurrentDay ? Icons.pending_actions_rounded : Icons.checklist_rounded,
+    tooltip:
+        isCurrentDay
+            ? '$pending attività da completare'
+            : '$pending attività pianificate',
+    label: isCurrentDay ? 'Checklist $pending da fare' : 'Checklist',
+    bannerTitle:
+        isCurrentDay
+            ? (pending == 1
+                ? '1 attività da fare'
+                : '$pending attività da fare')
+            : (pending == 1
+                ? '1 attività pianificata'
+                : '$pending attività pianificate'),
+    badgeLabel: pending > 99 ? '99+' : '$pending',
+    background:
+        isCurrentDay
+            ? Color.alphaBlend(
+              theme.colorScheme.error.withValues(alpha: 0.08),
+              theme.colorScheme.errorContainer.withValues(alpha: 0.92),
+            )
+            : theme.colorScheme.surfaceContainerHighest,
+    foreground:
+        isCurrentDay
+            ? theme.colorScheme.onErrorContainer
+            : theme.colorScheme.onSurfaceVariant,
+    badgeBackground: theme.colorScheme.error,
+    badgeForeground: theme.colorScheme.onError,
+    borderColor:
+        isCurrentDay
+            ? theme.colorScheme.error.withValues(alpha: 0.26)
+            : theme.colorScheme.outlineVariant.withValues(alpha: 0.9),
+  );
+}
+
+_StaffAvatarTone _staffAvatarTone(StaffMember staffMember) {
+  const tones = <_StaffAvatarTone>[
+    _StaffAvatarTone(
+      background: Color(0xFFF4B266),
+      foreground: Color(0xFFFFFFFF),
+    ),
+    _StaffAvatarTone(
+      background: Color(0xFFF395B5),
+      foreground: Color(0xFFFFFFFF),
+    ),
+    _StaffAvatarTone(
+      background: Color(0xFF62D1A7),
+      foreground: Color(0xFFFFFFFF),
+    ),
+    _StaffAvatarTone(
+      background: Color(0xFF5DA7F8),
+      foreground: Color(0xFFFFFFFF),
+    ),
+    _StaffAvatarTone(
+      background: Color(0xFF9B8AF8),
+      foreground: Color(0xFFFFFFFF),
+    ),
+    _StaffAvatarTone(
+      background: Color(0xFFF28A6D),
+      foreground: Color(0xFFFFFFFF),
+    ),
+  ];
+  final seed = '${staffMember.id}:${staffMember.fullName}';
+  final hash = seed.codeUnits.fold<int>(0, (sum, code) => sum + code);
+  return tones[hash % tones.length];
+}
+
 bool _hasAllowedRole(StaffMember staff, List<String> allowedRoles) {
   if (allowedRoles.isEmpty) {
     return true;
@@ -71,6 +258,34 @@ bool _hasAllowedRole(StaffMember staff, List<String> allowedRoles) {
 enum AppointmentCalendarScope { day, week }
 
 enum AppointmentWeekLayoutMode { detailed, compact, operatorBoard }
+
+double _resolveSlotExtent(
+  BuildContext context, {
+  required AppointmentCalendarScope scope,
+  required AppointmentWeekLayoutMode weekLayout,
+  required int slotMinutes,
+}) {
+  final viewportWidth = MediaQuery.sizeOf(context).width;
+  final bool isPhone = viewportWidth < 720;
+  final bool isTablet = viewportWidth < 1280;
+  final bool isCompactWeekLayout =
+      scope == AppointmentCalendarScope.week &&
+      weekLayout == AppointmentWeekLayoutMode.compact;
+  final double quarterHourTarget =
+      isCompactWeekLayout
+          ? isPhone
+              ? 48.0
+              : isTablet
+              ? 44.0
+              : 40.0
+          : isPhone
+          ? 76.0
+          : isTablet
+          ? 68.0
+          : 60.0;
+  final normalizedSlotMinutes = max(1, slotMinutes);
+  return quarterHourTarget * (normalizedSlotMinutes / 15.0);
+}
 
 String _appointmentStatusLabel(AppointmentStatus status) {
   switch (status) {
@@ -83,6 +298,54 @@ String _appointmentStatusLabel(AppointmentStatus status) {
     case AppointmentStatus.noShow:
       return 'No show';
   }
+}
+
+IconData _appointmentStatusIcon(AppointmentStatus status) {
+  switch (status) {
+    case AppointmentStatus.scheduled:
+      return Icons.event_available_rounded;
+    case AppointmentStatus.completed:
+      return Icons.check_circle_rounded;
+    case AppointmentStatus.cancelled:
+      return Icons.close_rounded;
+    case AppointmentStatus.noShow:
+      return Icons.person_off_rounded;
+  }
+}
+
+Color _appointmentStatusColor(ColorScheme scheme, AppointmentStatus status) {
+  switch (status) {
+    case AppointmentStatus.scheduled:
+      return scheme.primary;
+    case AppointmentStatus.completed:
+      return const Color(0xFF1E9C63);
+    case AppointmentStatus.cancelled:
+      return const Color(0xFF8D8D8D);
+    case AppointmentStatus.noShow:
+      return const Color(0xFFE24C5A);
+  }
+}
+
+Color _appointmentCardBackgroundColor(
+  ThemeData theme,
+  AppointmentStatus status,
+) {
+  final bool isDark = theme.brightness == Brightness.dark;
+  switch (status) {
+    case AppointmentStatus.scheduled:
+    case AppointmentStatus.completed:
+      return isDark ? const Color(0xFF211D1A) : Colors.white;
+    case AppointmentStatus.cancelled:
+      return isDark ? const Color(0xFF3A312E) : const Color(0xFFF3E8E4);
+    case AppointmentStatus.noShow:
+      return isDark ? const Color(0xFF4B2A31) : const Color(0xFFF6D9DC);
+  }
+}
+
+bool _appointmentHasActivePackage(Appointment appointment) {
+  final packageId = appointment.packageId?.trim();
+  return (packageId != null && packageId.isNotEmpty) ||
+      appointment.hasPackageConsumptions;
 }
 
 class AppointmentRescheduleRequest {
@@ -978,12 +1241,12 @@ class _StaffHeaderButton extends StatelessWidget {
 }
 
 class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
-  static const _slotExtent = 84.0;
   static const _timeScaleExtent = 74.0;
 
   final ScrollController _horizontalHeaderController = ScrollController();
   final ScrollController _horizontalBodyController = ScrollController();
   final ScrollController _verticalController = ScrollController();
+  final _hoverPreviewController = _AppointmentHoverPreviewController();
   bool _isSynchronizing = false;
   late final DateTime _initialScrollDate;
   bool _didAutoScrollToInitialDay = false;
@@ -1020,6 +1283,20 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
     } else if (newScrollDate == null && oldScrollDate != null) {
       _requestedScrollDate = null;
     }
+
+    final activePreviewId =
+        _hoverPreviewController.activeRequest?.appointmentId;
+    final shouldDismissPreview =
+        widget.scope != oldWidget.scope ||
+        widget.weekLayout != oldWidget.weekLayout ||
+        widget.readOnly != oldWidget.readOnly ||
+        (activePreviewId != null &&
+            !widget.appointments.any(
+              (appointment) => appointment.id == activePreviewId,
+            ));
+    if (shouldDismissPreview) {
+      _hoverPreviewController.dismiss();
+    }
   }
 
   @override
@@ -1031,6 +1308,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
       ..removeListener(_syncFromBody)
       ..dispose();
     _verticalController.dispose();
+    _hoverPreviewController.dispose();
     super.dispose();
   }
 
@@ -1050,6 +1328,23 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
     _isSynchronizing = true;
     _horizontalHeaderController.jumpTo(_horizontalBodyController.offset);
     _isSynchronizing = false;
+  }
+
+  Widget _buildCalendarBody(Widget child) {
+    return Stack(
+      fit: StackFit.expand,
+      clipBehavior: Clip.none,
+      children: [
+        child,
+        Positioned.fill(
+          child: IgnorePointer(
+            child: _AppointmentHoverPreviewLayer(
+              controller: _hoverPreviewController,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -1077,122 +1372,136 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
         categoriesByName[normalized] = category;
       }
     }
+    final resolvedSlotExtent = _resolveSlotExtent(
+      context,
+      scope: widget.scope,
+      weekLayout: widget.weekLayout,
+      slotMinutes: widget.slotMinutes,
+    );
     switch (widget.scope) {
       case AppointmentCalendarScope.day:
-        return ScrollConfiguration(
-          behavior: const _CompactMacScrollBehavior(),
-          child: _DaySchedule(
-            anchorDate: widget.anchorDate,
-            appointments: widget.appointments,
-            allAppointments: widget.allAppointments,
-            lastMinutePlaceholders: widget.lastMinutePlaceholders,
-            lastMinuteSlots: widget.lastMinuteSlots,
-            shifts: widget.shifts,
-            absences: widget.absences,
-            schedule: widget.schedule,
-            staff: widget.staff,
-            clientsWithOutstandingPayments:
-                widget.clientsWithOutstandingPayments,
-            clientsById: clientsById,
-            servicesById: servicesById,
-            categoriesById: categoriesById,
-            categoriesByName: categoriesByName,
-            roomsById: widget.roomsById,
-            statusColor: widget.statusColor,
-            salonsById: widget.salonsById,
-            selectedSalonId: widget.selectedSalonId,
-            lockedAppointmentReasons: widget.lockedAppointmentReasons,
-            dayChecklists: widget.dayChecklists,
-            onReschedule: widget.onReschedule,
-            onEdit: widget.onEdit,
-            onCreate: widget.onCreate,
-            onTapLastMinuteSlot: widget.onTapLastMinuteSlot,
-            anomalies: widget.anomalies,
-            horizontalHeaderController: _horizontalHeaderController,
-            horizontalBodyController: _horizontalBodyController,
-            verticalController: _verticalController,
-            slotMinutes: widget.slotMinutes,
-            interactionSlotMinutes: widget.interactionSlotMinutes,
-            onAddChecklistItem: widget.onAddChecklistItem,
-            onToggleChecklistItem: widget.onToggleChecklistItem,
-            onRenameChecklistItem: widget.onRenameChecklistItem,
-            onDeleteChecklistItem: widget.onDeleteChecklistItem,
-            onCreateShift: widget.onCreateShift,
-            onEditShift: widget.onEditShift,
-            onDeleteShift: widget.onDeleteShift,
-            onCreateAbsence: widget.onCreateAbsence,
-            onEditAbsence: widget.onEditAbsence,
-            onDeleteAbsence: widget.onDeleteAbsence,
-            readOnly: widget.readOnly,
-            showStaffHeader: widget.showStaffHeader,
+        return _buildCalendarBody(
+          ScrollConfiguration(
+            behavior: const _CompactMacScrollBehavior(),
+            child: _DaySchedule(
+              anchorDate: widget.anchorDate,
+              appointments: widget.appointments,
+              allAppointments: widget.allAppointments,
+              lastMinutePlaceholders: widget.lastMinutePlaceholders,
+              lastMinuteSlots: widget.lastMinuteSlots,
+              shifts: widget.shifts,
+              absences: widget.absences,
+              schedule: widget.schedule,
+              staff: widget.staff,
+              clientsWithOutstandingPayments:
+                  widget.clientsWithOutstandingPayments,
+              clientsById: clientsById,
+              servicesById: servicesById,
+              categoriesById: categoriesById,
+              categoriesByName: categoriesByName,
+              roomsById: widget.roomsById,
+              statusColor: widget.statusColor,
+              salonsById: widget.salonsById,
+              selectedSalonId: widget.selectedSalonId,
+              lockedAppointmentReasons: widget.lockedAppointmentReasons,
+              dayChecklists: widget.dayChecklists,
+              onReschedule: widget.onReschedule,
+              onEdit: widget.onEdit,
+              onCreate: widget.onCreate,
+              onTapLastMinuteSlot: widget.onTapLastMinuteSlot,
+              anomalies: widget.anomalies,
+              horizontalHeaderController: _horizontalHeaderController,
+              horizontalBodyController: _horizontalBodyController,
+              verticalController: _verticalController,
+              slotMinutes: widget.slotMinutes,
+              slotExtent: resolvedSlotExtent,
+              interactionSlotMinutes: widget.interactionSlotMinutes,
+              onAddChecklistItem: widget.onAddChecklistItem,
+              onToggleChecklistItem: widget.onToggleChecklistItem,
+              onRenameChecklistItem: widget.onRenameChecklistItem,
+              onDeleteChecklistItem: widget.onDeleteChecklistItem,
+              onCreateShift: widget.onCreateShift,
+              onEditShift: widget.onEditShift,
+              onDeleteShift: widget.onDeleteShift,
+              onCreateAbsence: widget.onCreateAbsence,
+              onEditAbsence: widget.onEditAbsence,
+              onDeleteAbsence: widget.onDeleteAbsence,
+              hoverPreviewController: _hoverPreviewController,
+              readOnly: widget.readOnly,
+              showStaffHeader: widget.showStaffHeader,
+            ),
           ),
         );
       case AppointmentCalendarScope.week:
         final autoScrollTargetDate = _requestedScrollDate ?? _initialScrollDate;
         final autoScrollPending =
             _requestedScrollDate != null || !_didAutoScrollToInitialDay;
-        return ScrollConfiguration(
-          behavior: const _CompactMacScrollBehavior(),
-          child: _WeekSchedule(
-            anchorDate: widget.anchorDate,
-            appointments: widget.appointments,
-            allAppointments: widget.allAppointments,
-            lastMinutePlaceholders: widget.lastMinutePlaceholders,
-            lastMinuteSlots: widget.lastMinuteSlots,
-            shifts: widget.shifts,
-            absences: widget.absences,
-            schedule: widget.schedule,
-            visibleWeekdays: widget.visibleWeekdays,
-            staff: widget.staff,
-            roles: widget.roles,
-            clientsWithOutstandingPayments:
-                widget.clientsWithOutstandingPayments,
-            clientsById: clientsById,
-            servicesById: servicesById,
-            categoriesById: categoriesById,
-            categoriesByName: categoriesByName,
-            roomsById: widget.roomsById,
-            statusColor: widget.statusColor,
-            salonsById: widget.salonsById,
-            selectedSalonId: widget.selectedSalonId,
-            lockedAppointmentReasons: widget.lockedAppointmentReasons,
-            dayChecklists: widget.dayChecklists,
-            onReschedule: widget.onReschedule,
-            onEdit: widget.onEdit,
-            onCreate: widget.onCreate,
-            onTapLastMinuteSlot: widget.onTapLastMinuteSlot,
-            anomalies: widget.anomalies,
-            horizontalHeaderController: _horizontalHeaderController,
-            horizontalBodyController: _horizontalBodyController,
-            verticalController: _verticalController,
-            slotMinutes: widget.slotMinutes,
-            interactionSlotMinutes: widget.interactionSlotMinutes,
-            onAddChecklistItem: widget.onAddChecklistItem,
-            onToggleChecklistItem: widget.onToggleChecklistItem,
-            onRenameChecklistItem: widget.onRenameChecklistItem,
-            onDeleteChecklistItem: widget.onDeleteChecklistItem,
-            autoScrollTargetDate: autoScrollTargetDate,
-            autoScrollPending: autoScrollPending,
-            autoScrollIsManual: _requestedScrollDate != null,
-            layout: widget.weekLayout,
-            onCreateShift: widget.onCreateShift,
-            onEditShift: widget.onEditShift,
-            onDeleteShift: widget.onDeleteShift,
-            onCreateAbsence: widget.onCreateAbsence,
-            onEditAbsence: widget.onEditAbsence,
-            onDeleteAbsence: widget.onDeleteAbsence,
-            extraDetailedDay: widget.extraDetailedDay,
-            onJumpToNextWeek: widget.onJumpToNextWeek,
-            readOnly: widget.readOnly,
-            showStaffHeader: widget.showStaffHeader,
-            onAutoScrollComplete: () {
-              if (mounted) {
-                setState(() {
-                  _didAutoScrollToInitialDay = true;
-                  _requestedScrollDate = null;
-                });
-              }
-            },
+        return _buildCalendarBody(
+          ScrollConfiguration(
+            behavior: const _CompactMacScrollBehavior(),
+            child: _WeekSchedule(
+              anchorDate: widget.anchorDate,
+              appointments: widget.appointments,
+              allAppointments: widget.allAppointments,
+              lastMinutePlaceholders: widget.lastMinutePlaceholders,
+              lastMinuteSlots: widget.lastMinuteSlots,
+              shifts: widget.shifts,
+              absences: widget.absences,
+              schedule: widget.schedule,
+              visibleWeekdays: widget.visibleWeekdays,
+              staff: widget.staff,
+              roles: widget.roles,
+              clientsWithOutstandingPayments:
+                  widget.clientsWithOutstandingPayments,
+              clientsById: clientsById,
+              servicesById: servicesById,
+              categoriesById: categoriesById,
+              categoriesByName: categoriesByName,
+              roomsById: widget.roomsById,
+              statusColor: widget.statusColor,
+              salonsById: widget.salonsById,
+              selectedSalonId: widget.selectedSalonId,
+              lockedAppointmentReasons: widget.lockedAppointmentReasons,
+              dayChecklists: widget.dayChecklists,
+              onReschedule: widget.onReschedule,
+              onEdit: widget.onEdit,
+              onCreate: widget.onCreate,
+              onTapLastMinuteSlot: widget.onTapLastMinuteSlot,
+              anomalies: widget.anomalies,
+              horizontalHeaderController: _horizontalHeaderController,
+              horizontalBodyController: _horizontalBodyController,
+              verticalController: _verticalController,
+              slotMinutes: widget.slotMinutes,
+              slotExtent: resolvedSlotExtent,
+              interactionSlotMinutes: widget.interactionSlotMinutes,
+              onAddChecklistItem: widget.onAddChecklistItem,
+              onToggleChecklistItem: widget.onToggleChecklistItem,
+              onRenameChecklistItem: widget.onRenameChecklistItem,
+              onDeleteChecklistItem: widget.onDeleteChecklistItem,
+              autoScrollTargetDate: autoScrollTargetDate,
+              autoScrollPending: autoScrollPending,
+              autoScrollIsManual: _requestedScrollDate != null,
+              layout: widget.weekLayout,
+              onCreateShift: widget.onCreateShift,
+              onEditShift: widget.onEditShift,
+              onDeleteShift: widget.onDeleteShift,
+              onCreateAbsence: widget.onCreateAbsence,
+              onEditAbsence: widget.onEditAbsence,
+              onDeleteAbsence: widget.onDeleteAbsence,
+              extraDetailedDay: widget.extraDetailedDay,
+              onJumpToNextWeek: widget.onJumpToNextWeek,
+              hoverPreviewController: _hoverPreviewController,
+              readOnly: widget.readOnly,
+              showStaffHeader: widget.showStaffHeader,
+              onAutoScrollComplete: () {
+                if (mounted) {
+                  setState(() {
+                    _didAutoScrollToInitialDay = true;
+                    _requestedScrollDate = null;
+                  });
+                }
+              },
+            ),
           ),
         );
     }
@@ -1255,6 +1564,7 @@ class _DaySchedule extends StatelessWidget {
     required this.horizontalBodyController,
     required this.verticalController,
     required this.slotMinutes,
+    required this.slotExtent,
     required this.interactionSlotMinutes,
     this.onAddChecklistItem,
     this.onToggleChecklistItem,
@@ -1266,6 +1576,7 @@ class _DaySchedule extends StatelessWidget {
     this.onCreateAbsence,
     this.onEditAbsence,
     this.onDeleteAbsence,
+    required this.hoverPreviewController,
     required this.readOnly,
     required this.showStaffHeader,
   });
@@ -1299,6 +1610,7 @@ class _DaySchedule extends StatelessWidget {
   final ScrollController horizontalBodyController;
   final ScrollController verticalController;
   final int slotMinutes;
+  final double slotExtent;
   final int interactionSlotMinutes;
   final Future<void> Function(DateTime day, String label)? onAddChecklistItem;
   final Future<void> Function(
@@ -1317,12 +1629,9 @@ class _DaySchedule extends StatelessWidget {
   final Future<void> Function(StaffMember staff, DateTime day)? onCreateAbsence;
   final Future<void> Function(StaffAbsence absence)? onEditAbsence;
   final Future<void> Function(StaffAbsence absence)? onDeleteAbsence;
+  final _AppointmentHoverPreviewController hoverPreviewController;
   final bool readOnly;
   final bool showStaffHeader;
-
-  static const _slotExtent = _AppointmentCalendarViewState._slotExtent;
-  static const _timeScaleExtent =
-      _AppointmentCalendarViewState._timeScaleExtent;
 
   @override
   Widget build(BuildContext context) {
@@ -1386,11 +1695,7 @@ class _DaySchedule extends StatelessWidget {
     );
     final totalMinutes = bounds.end.difference(bounds.start).inMinutes;
     final slotCount = max(1, (totalMinutes / slotMinutes).ceil());
-    final gridHeight = slotCount * _slotExtent;
-    final timeSlots = List.generate(
-      slotCount,
-      (index) => bounds.start.add(Duration(minutes: index * slotMinutes)),
-    );
+    final gridHeight = slotCount * slotExtent;
 
     final appointmentsByStaff = groupBy<Appointment, String>(
       dayAppointments,
@@ -1422,30 +1727,29 @@ class _DaySchedule extends StatelessWidget {
       alpha: 0.45,
     );
     final viewportWidth = MediaQuery.sizeOf(context).width;
-    const double staffColumnGap = 16.0;
+    const double outerBorderWidth = 1.0;
+    const double innerDividerWidth = 1.0;
     final staffColumnWidth =
         showStaffHeader
             ? _kStaffColumnWidth
             : min(_kStaffColumnWidth, max(0.0, viewportWidth - 32));
     final staffCount = staff.length;
     final totalStaffWidth =
-        staffCount == 0
-            ? 0.0
-            : (staffColumnWidth * staffCount) +
-                staffColumnGap * max(0, staffCount - 1);
+        staffCount == 0 ? 0.0 : staffColumnWidth * staffCount;
     final centerStaffColumns =
         !showStaffHeader &&
         staffCount > 0 &&
         totalStaffWidth > 0 &&
         totalStaffWidth < viewportWidth;
-    final staffRowWidth = centerStaffColumns ? viewportWidth : totalStaffWidth;
+    final staffGridWidth = totalStaffWidth;
+    final staffGridOuterWidth =
+        staffGridWidth == 0 ? 0.0 : staffGridWidth + (outerBorderWidth * 2);
+    final staffGridOuterHeight = gridHeight + (outerBorderWidth * 2);
+    final staffRowWidth =
+        centerStaffColumns ? viewportWidth : staffGridOuterWidth;
     final staffColumnBorderColor = theme.colorScheme.outlineVariant.withValues(
-      alpha: 0.55,
+      alpha: 0.64,
     );
-    final staffColumnShadowColor = theme.colorScheme.shadow.withValues(
-      alpha: 0.08,
-    );
-    final timeFormat = DateFormat('HH:mm');
     final isCompact = MediaQuery.of(context).size.width < 720;
     final relevantSalonIds =
         staff.map((member) => member.salonId).whereType<String>().toSet();
@@ -1563,110 +1867,110 @@ class _DaySchedule extends StatelessWidget {
                         child: SingleChildScrollView(
                           controller: horizontalHeaderController,
                           scrollDirection: Axis.horizontal,
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              for (
-                                var staffIndex = 0;
-                                staffIndex < staff.length;
-                                staffIndex++
-                              ) ...[
-                                Builder(
-                                  builder: (context) {
-                                    final staffMember = staff[staffIndex];
-                                    final staffShifts =
-                                        shiftsByStaff[staffMember.id] ??
-                                        const <Shift>[];
-                                    final staffAbsences =
-                                        absencesByStaff[staffMember.id] ??
-                                        const <StaffAbsence>[];
-                                    final canManage =
-                                        (onCreateShift != null ||
-                                            onEditShift != null ||
-                                            onDeleteShift != null) ||
-                                        (onCreateAbsence != null ||
-                                            onEditAbsence != null ||
-                                            onDeleteAbsence != null);
-                                    return Padding(
-                                      padding: EdgeInsets.only(
-                                        right:
-                                            staffIndex == staff.length - 1
-                                                ? 0
-                                                : 16,
-                                      ),
-                                      child: _StaffHeaderButton(
-                                        enabled: canManage,
-                                        tooltip:
-                                            'Gestisci turni e assenze per ${_formatCalendarDayLabel(dayStart)}',
-                                        onPressed: () async {
-                                          await _handleStaffDayManagement(
-                                            context,
-                                            staff: staffMember,
-                                            day: dayStart,
-                                            shifts: staffShifts,
-                                            absences: staffAbsences,
-                                            roomsById: roomsById,
-                                            onCreateShift: onCreateShift,
-                                            onEditShift: onEditShift,
-                                            onDeleteShift: onDeleteShift,
-                                            onCreateAbsence: onCreateAbsence,
-                                            onEditAbsence: onEditAbsence,
-                                            onDeleteAbsence: onDeleteAbsence,
-                                          );
-                                        },
-                                        child: Container(
-                                          width: _kStaffColumnWidth,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 10,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            gradient: LinearGradient(
-                                              colors: [
-                                                theme.colorScheme.surfaceVariant
-                                                    .withValues(alpha: 0.78),
-                                                theme.colorScheme.surface,
-                                              ],
-                                              begin: Alignment.topCenter,
-                                              end: Alignment.bottomCenter,
-                                            ),
-                                            borderRadius: BorderRadius.circular(
-                                              14,
-                                            ),
-                                            border: Border.all(
-                                              color: staffColumnBorderColor,
-                                              width: 1.1,
-                                            ),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: staffColumnShadowColor,
-                                                blurRadius: 18,
-                                                offset: const Offset(0, 10),
-                                              ),
-                                            ],
-                                          ),
-                                          child: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Text(
-                                                _firstNameOnly(
-                                                  staffMember.fullName,
-                                                ),
-                                                style:
-                                                    theme.textTheme.titleSmall,
-                                                textAlign: TextAlign.center,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  },
+                          child: SizedBox(
+                            width: staffGridOuterWidth,
+                            child: Container(
+                              clipBehavior: Clip.antiAlias,
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.surfaceContainerHighest
+                                    .withValues(alpha: 0.5),
+                                border: Border.all(
+                                  color: staffColumnBorderColor,
+                                  width: outerBorderWidth,
                                 ),
-                              ],
-                            ],
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  for (
+                                    var staffIndex = 0;
+                                    staffIndex < staff.length;
+                                    staffIndex++
+                                  )
+                                    Builder(
+                                      builder: (context) {
+                                        final staffMember = staff[staffIndex];
+                                        final staffShifts =
+                                            shiftsByStaff[staffMember.id] ??
+                                            const <Shift>[];
+                                        final staffAbsences =
+                                            absencesByStaff[staffMember.id] ??
+                                            const <StaffAbsence>[];
+                                        final canManage =
+                                            (onCreateShift != null ||
+                                                onEditShift != null ||
+                                                onDeleteShift != null) ||
+                                            (onCreateAbsence != null ||
+                                                onEditAbsence != null ||
+                                                onDeleteAbsence != null);
+                                        return SizedBox(
+                                          width: staffColumnWidth,
+                                          child: DecoratedBox(
+                                            decoration: BoxDecoration(
+                                              border:
+                                                  staffIndex == staff.length - 1
+                                                      ? null
+                                                      : Border(
+                                                        right: BorderSide(
+                                                          color:
+                                                              staffColumnBorderColor,
+                                                          width:
+                                                              innerDividerWidth,
+                                                        ),
+                                                      ),
+                                            ),
+                                            child: _StaffHeaderButton(
+                                              enabled: canManage,
+                                              tooltip:
+                                                  'Gestisci turni e assenze per ${_formatCalendarDayLabel(dayStart)}',
+                                              onPressed: () async {
+                                                await _handleStaffDayManagement(
+                                                  context,
+                                                  staff: staffMember,
+                                                  day: dayStart,
+                                                  shifts: staffShifts,
+                                                  absences: staffAbsences,
+                                                  roomsById: roomsById,
+                                                  onCreateShift: onCreateShift,
+                                                  onEditShift: onEditShift,
+                                                  onDeleteShift: onDeleteShift,
+                                                  onCreateAbsence:
+                                                      onCreateAbsence,
+                                                  onEditAbsence: onEditAbsence,
+                                                  onDeleteAbsence:
+                                                      onDeleteAbsence,
+                                                );
+                                              },
+                                              child: Padding(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 12,
+                                                      vertical: 10,
+                                                    ),
+                                                child: Center(
+                                                  child: Text(
+                                                    _firstNameOnly(
+                                                      staffMember.fullName,
+                                                    ),
+                                                    style:
+                                                        theme
+                                                            .textTheme
+                                                            .titleSmall,
+                                                    textAlign: TextAlign.center,
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -1691,108 +1995,139 @@ class _DaySchedule extends StatelessWidget {
                               scrollDirection: Axis.horizontal,
                               child: SizedBox(
                                 width: staffRowWidth,
-                                child: Row(
-                                  mainAxisAlignment:
+                                child: Align(
+                                  alignment:
                                       centerStaffColumns
-                                          ? MainAxisAlignment.center
-                                          : MainAxisAlignment.start,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    for (
-                                      var staffIndex = 0;
-                                      staffIndex < staff.length;
-                                      staffIndex++
-                                    ) ...[
-                                      Padding(
-                                        padding: EdgeInsets.only(
-                                          right:
-                                              staffIndex == staff.length - 1
-                                                  ? 0
-                                                  : staffColumnGap,
-                                        ),
-                                        child: DecoratedBox(
-                                          decoration: BoxDecoration(
-                                            gradient: LinearGradient(
-                                              colors: [
-                                                theme.colorScheme.surface,
-                                                theme.colorScheme.surfaceVariant
-                                                    .withValues(alpha: 0.42),
-                                              ],
-                                              begin: Alignment.topCenter,
-                                              end: Alignment.bottomCenter,
-                                            ),
-                                            borderRadius: BorderRadius.circular(
-                                              16,
-                                            ),
-                                            border: Border.all(
-                                              color: staffColumnBorderColor,
-                                              width: 1.05,
-                                            ),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: staffColumnShadowColor,
-                                                blurRadius: 24,
-                                                offset: const Offset(0, 12),
-                                              ),
-                                            ],
-                                          ),
-                                          child: SizedBox(
-                                            width: staffColumnWidth,
+                                          ? Alignment.topCenter
+                                          : Alignment.topLeft,
+                                  child:
+                                      staffCount == 0
+                                          ? SizedBox(
                                             height: gridHeight,
-                                            child: _StaffDayColumn(
-                                              staffMember: staff[staffIndex],
-                                              appointments:
-                                                  appointmentsByStaff[staff[staffIndex]
-                                                      .id] ??
-                                                  const [],
-                                              lastMinutePlaceholders:
-                                                  lastMinutePlaceholders,
-                                              lastMinuteSlots: lastMinuteSlots,
-                                              onTapLastMinuteSlot:
-                                                  onTapLastMinuteSlot,
-                                              shifts:
-                                                  shiftsByStaff[staff[staffIndex]
-                                                      .id] ??
-                                                  const [],
-                                              absences:
-                                                  absencesByStaff[staff[staffIndex]
-                                                      .id] ??
-                                                  const [],
-                                              timelineStart: bounds.start,
-                                              timelineEnd: bounds.end,
-                                              slotMinutes: slotMinutes,
-                                              interactionSlotMinutes:
-                                                  interactionSlotMinutes,
-                                              slotExtent: _slotExtent,
-                                              verticalController:
-                                                  verticalController,
-                                              clientsWithOutstandingPayments:
-                                                  clientsWithOutstandingPayments,
-                                              clientsById: clientsById,
-                                              servicesById: servicesById,
-                                              categoriesById: categoriesById,
-                                              categoriesByName:
-                                                  categoriesByName,
-                                              roomsById: roomsById,
-                                              salonsById: salonsById,
-                                              allAppointments: allAppointments,
-                                              statusColor: statusColor,
-                                              lockedAppointmentReasons:
-                                                  lockedAppointmentReasons,
-                                              onReschedule: onReschedule,
-                                              onEdit: onEdit,
-                                              onCreate: onCreate,
-                                              anomalies: anomalies,
-                                              openStart: openingStart,
-                                              openEnd: closingEnd,
-                                              showSlotStartTimes: isCompact,
-                                              readOnly: readOnly,
+                                            child: Center(
+                                              child: Text(
+                                                'Aggiungi membri dello staff per pianificare.',
+                                                style: theme.textTheme.bodySmall
+                                                    ?.copyWith(
+                                                      color: theme
+                                                          .colorScheme
+                                                          .onSurfaceVariant
+                                                          .withValues(
+                                                            alpha: 0.7,
+                                                          ),
+                                                    ),
+                                                textAlign: TextAlign.center,
+                                              ),
+                                            ),
+                                          )
+                                          : Container(
+                                            width: staffGridOuterWidth,
+                                            height: staffGridOuterHeight,
+                                            clipBehavior: Clip.antiAlias,
+                                            decoration: BoxDecoration(
+                                              color: timelineColor,
+                                              border: Border.all(
+                                                color: staffColumnBorderColor,
+                                                width: outerBorderWidth,
+                                              ),
+                                            ),
+                                            child: Row(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                for (
+                                                  var staffIndex = 0;
+                                                  staffIndex < staff.length;
+                                                  staffIndex++
+                                                )
+                                                  SizedBox(
+                                                    width: staffColumnWidth,
+                                                    height: gridHeight,
+                                                    child: DecoratedBox(
+                                                      decoration: BoxDecoration(
+                                                        border:
+                                                            staffIndex ==
+                                                                    staff.length -
+                                                                        1
+                                                                ? null
+                                                                : Border(
+                                                                  right: BorderSide(
+                                                                    color:
+                                                                        staffColumnBorderColor,
+                                                                    width:
+                                                                        innerDividerWidth,
+                                                                  ),
+                                                                ),
+                                                      ),
+                                                      child: _StaffDayColumn(
+                                                        staffMember:
+                                                            staff[staffIndex],
+                                                        appointments:
+                                                            appointmentsByStaff[staff[staffIndex]
+                                                                .id] ??
+                                                            const [],
+                                                        lastMinutePlaceholders:
+                                                            lastMinutePlaceholders,
+                                                        lastMinuteSlots:
+                                                            lastMinuteSlots,
+                                                        onTapLastMinuteSlot:
+                                                            onTapLastMinuteSlot,
+                                                        shifts:
+                                                            shiftsByStaff[staff[staffIndex]
+                                                                .id] ??
+                                                            const [],
+                                                        absences:
+                                                            absencesByStaff[staff[staffIndex]
+                                                                .id] ??
+                                                            const [],
+                                                        timelineStart:
+                                                            bounds.start,
+                                                        timelineEnd: bounds.end,
+                                                        slotMinutes:
+                                                            slotMinutes,
+                                                        interactionSlotMinutes:
+                                                            interactionSlotMinutes,
+                                                        slotExtent: slotExtent,
+                                                        verticalController:
+                                                            verticalController,
+                                                        horizontalScrollController:
+                                                            horizontalBodyController,
+                                                        clientsWithOutstandingPayments:
+                                                            clientsWithOutstandingPayments,
+                                                        clientsById:
+                                                            clientsById,
+                                                        servicesById:
+                                                            servicesById,
+                                                        categoriesById:
+                                                            categoriesById,
+                                                        categoriesByName:
+                                                            categoriesByName,
+                                                        roomsById: roomsById,
+                                                        salonsById: salonsById,
+                                                        allAppointments:
+                                                            allAppointments,
+                                                        statusColor:
+                                                            statusColor,
+                                                        lockedAppointmentReasons:
+                                                            lockedAppointmentReasons,
+                                                        onReschedule:
+                                                            onReschedule,
+                                                        onEdit: onEdit,
+                                                        onCreate: onCreate,
+                                                        anomalies: anomalies,
+                                                        hoverPreviewController:
+                                                            hoverPreviewController,
+                                                        openStart: openingStart,
+                                                        openEnd: closingEnd,
+                                                        showSlotStartTimes:
+                                                            isCompact,
+                                                        readOnly: readOnly,
+                                                      ),
+                                                    ),
+                                                  ),
+                                              ],
                                             ),
                                           ),
-                                        ),
-                                      ),
-                                    ],
-                                  ],
                                 ),
                               ),
                             ),
@@ -1914,6 +2249,7 @@ class _WeekSchedule extends StatelessWidget {
     required this.verticalController,
     required this.anomalies,
     required this.slotMinutes,
+    required this.slotExtent,
     required this.interactionSlotMinutes,
     this.onAddChecklistItem,
     this.onToggleChecklistItem,
@@ -1932,6 +2268,7 @@ class _WeekSchedule extends StatelessWidget {
     this.onAutoScrollComplete,
     this.extraDetailedDay,
     this.onJumpToNextWeek,
+    required this.hoverPreviewController,
     required this.readOnly,
     required this.showStaffHeader,
   });
@@ -1966,6 +2303,7 @@ class _WeekSchedule extends StatelessWidget {
   final ScrollController verticalController;
   final Map<String, Set<AppointmentAnomalyType>> anomalies;
   final int slotMinutes;
+  final double slotExtent;
   final int interactionSlotMinutes;
   final Map<DateTime, AppointmentDayChecklist> dayChecklists;
   final Future<void> Function(DateTime day, String label)? onAddChecklistItem;
@@ -1992,10 +2330,10 @@ class _WeekSchedule extends StatelessWidget {
   final VoidCallback? onAutoScrollComplete;
   final DateTime? extraDetailedDay;
   final VoidCallback? onJumpToNextWeek;
+  final _AppointmentHoverPreviewController hoverPreviewController;
   final bool readOnly;
   final bool showStaffHeader;
 
-  static const _slotExtent = _AppointmentCalendarViewState._slotExtent;
   static const _timeScaleExtent =
       _AppointmentCalendarViewState._timeScaleExtent;
 
@@ -2007,6 +2345,7 @@ class _WeekSchedule extends StatelessWidget {
     Color? foreground,
     String? tooltip,
     VoidCallback? onTap,
+    bool showLabel = false,
   }) {
     final tooltipParts = <String>[];
     if (label.trim().isNotEmpty) {
@@ -2016,18 +2355,15 @@ class _WeekSchedule extends StatelessWidget {
       tooltipParts.add(tooltip);
     }
     final tooltipMessage = tooltipParts.join('\n');
+    final bool iconOnly = !showLabel || label.trim().isEmpty;
 
     Widget chip = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: EdgeInsets.symmetric(horizontal: iconOnly ? 6 : 10, vertical: 6),
       decoration: BoxDecoration(
         color: background ?? theme.colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Icon(
-        icon,
-        size: 18,
-        color: foreground ?? theme.colorScheme.onSurfaceVariant,
-      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: []),
     );
     if (onTap != null) {
       chip = MouseRegion(
@@ -2047,6 +2383,283 @@ class _WeekSchedule extends StatelessWidget {
       );
     }
     return chip;
+  }
+
+  Widget _buildDetailedDayHeaderCard({
+    required BuildContext context,
+    required ThemeData theme,
+    required _WeekDayData data,
+    required bool isToday,
+    required bool isNextWeekDay,
+    required Color borderColor,
+    required double dayWidth,
+    required double summaryHorizontalPadding,
+    required double staffColumnWidth,
+    required double staffGap,
+    required Color staffDividerColor,
+    required double dayBorderWidth,
+    required double staffDividerWidth,
+    required Color dayHeaderColor,
+    required Map<String, StaffRole> rolesById,
+    required Set<String> relevantSalonIds,
+  }) {
+    final dateLabel = _formatCalendarDayLabel(data.date);
+    final compactDayLabel = _calendarCompactDayLabel(data.date);
+    final totalAppointments = data.appointmentsByStaff.values.fold<int>(
+      0,
+      (running, list) => running + list.length,
+    );
+    final dayChecklist = dayChecklists[data.date];
+    final checklistTotal = dayChecklist?.items.length ?? 0;
+    final checklistCompleted =
+        dayChecklist?.items.where((item) => item.isCompleted).length ?? 0;
+    final closures = _closuresForDay(
+      day: data.date,
+      salonsById: salonsById,
+      focusSalonId: selectedSalonId,
+      relatedSalonIds: relevantSalonIds,
+    );
+    final showClosureSalonName =
+        closures.map((closure) => closure.salonId).toSet().length > 1;
+    final headerBackground =
+        isToday
+            ? Color.alphaBlend(
+              theme.colorScheme.primary.withValues(alpha: 0.05),
+              dayHeaderColor,
+            )
+            : isNextWeekDay
+            ? Color.alphaBlend(
+              theme.colorScheme.secondary.withValues(alpha: 0.08),
+              dayHeaderColor,
+            )
+            : dayHeaderColor;
+    final bool showHeaderChipLabels = dayWidth >= 320;
+
+    return Container(
+      width: dayWidth,
+      decoration: BoxDecoration(
+        color: headerBackground,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(_kDayHeaderBorderRadius),
+        ),
+        border: Border(
+          top: BorderSide(color: borderColor, width: dayBorderWidth),
+          left: BorderSide(color: borderColor, width: dayBorderWidth),
+          right: BorderSide(color: borderColor, width: dayBorderWidth),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              summaryHorizontalPadding,
+              14,
+              summaryHorizontalPadding,
+              showStaffHeader && staff.isNotEmpty ? 12 : 14,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isNextWeekDay)
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: _summaryChip(
+                      theme: theme,
+                      icon: Icons.north_east_rounded,
+                      label: 'Settimana prossima',
+                      background: theme.colorScheme.secondaryContainer
+                          .withValues(alpha: 0.7),
+                      foreground: theme.colorScheme.onSecondaryContainer,
+                      onTap: onJumpToNextWeek,
+                      showLabel: true,
+                    ),
+                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(
+                      compactDayLabel,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          alignment: WrapAlignment.end,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            _summaryChip(
+                              theme: theme,
+                              icon: Icons.event_available_rounded,
+                              label: '$totalAppointments appuntamenti',
+                              background: theme.colorScheme.tertiaryContainer
+                                  .withValues(alpha: 0.62),
+                              foreground: theme.colorScheme.onTertiaryContainer,
+                              showLabel: showHeaderChipLabels,
+                            ),
+                            _ChecklistDialogLauncher(
+                              day: data.date,
+                              dateLabel: dateLabel,
+                              checklist: dayChecklist,
+                              total: checklistTotal,
+                              completed: checklistCompleted,
+                              salonId: dayChecklist?.salonId,
+                              onAdd: onAddChecklistItem,
+                              onToggle: onToggleChecklistItem,
+                              onRename: onRenameChecklistItem,
+                              onDelete: onDeleteChecklistItem,
+                              compact: true,
+                              showLabel: showHeaderChipLabels,
+                              forceVisible: true,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (closures.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  for (var index = 0; index < closures.length; index++) ...[
+                    if (index != 0) const SizedBox(height: 6),
+                    _ClosureBanner(
+                      info: closures[index],
+                      showSalonName: showClosureSalonName,
+                      compact: true,
+                    ),
+                  ],
+                ],
+              ],
+            ),
+          ),
+          if (showStaffHeader && staff.isNotEmpty) ...[
+            Divider(
+              height: 1,
+              thickness: staffDividerWidth,
+              color: staffDividerColor,
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (
+                  var staffIndex = 0;
+                  staffIndex < staff.length;
+                  staffIndex++
+                ) ...[
+                  _buildDetailedStaffHeaderCell(
+                    context: context,
+                    theme: theme,
+                    data: data,
+                    staffMember: staff[staffIndex],
+                    rolesById: rolesById,
+                    width: staffColumnWidth,
+                    dividerColor: staffDividerColor,
+                    dividerWidth: staffDividerWidth,
+                    showTrailingDivider: staffIndex != staff.length - 1,
+                  ),
+                  if (staffIndex != staff.length - 1) SizedBox(width: staffGap),
+                ],
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailedStaffHeaderCell({
+    required BuildContext context,
+    required ThemeData theme,
+    required _WeekDayData data,
+    required StaffMember staffMember,
+    required Map<String, StaffRole> rolesById,
+    required double width,
+    required Color dividerColor,
+    required double dividerWidth,
+    required bool showTrailingDivider,
+  }) {
+    final canManageDay =
+        (onCreateShift != null ||
+            onEditShift != null ||
+            onDeleteShift != null) ||
+        (onCreateAbsence != null ||
+            onEditAbsence != null ||
+            onDeleteAbsence != null);
+    final manageCallback =
+        !canManageDay
+            ? null
+            : () async {
+              await _handleStaffDayManagement(
+                context,
+                staff: staffMember,
+                day: data.date,
+                shifts: data.shiftsByStaff[staffMember.id] ?? const <Shift>[],
+                absences:
+                    data.absencesByStaff[staffMember.id] ??
+                    const <StaffAbsence>[],
+                roomsById: roomsById,
+                onCreateShift: onCreateShift,
+                onEditShift: onEditShift,
+                onDeleteShift: onDeleteShift,
+                onCreateAbsence: onCreateAbsence,
+                onEditAbsence: onEditAbsence,
+                onDeleteAbsence: onDeleteAbsence,
+              );
+            };
+    final avatarTone = _staffAvatarTone(staffMember);
+    final roleLabel = _primaryStaffRoleLabel(staffMember, rolesById);
+    final initialsValue = _staffInitials(staffMember.fullName).toUpperCase();
+    final displayInitials = initialsValue.isEmpty ? '--' : initialsValue;
+
+    return SizedBox(
+      width: width,
+      child: _StaffHeaderButton(
+        enabled: canManageDay,
+        tooltip:
+            'Gestisci turni e assenze per ${_formatCalendarDayLabel(data.date)}',
+        onPressed: manageCallback,
+        child: Container(
+          decoration: BoxDecoration(
+            border:
+                showTrailingDivider
+                    ? Border(
+                      right: BorderSide(
+                        color: dividerColor,
+                        width: dividerWidth,
+                      ),
+                    )
+                    : null,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: avatarTone.background,
+                  child: Text(
+                    displayInitials,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: avatarTone.foreground,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 18,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -2204,18 +2817,6 @@ class _WeekSchedule extends StatelessWidget {
 
     final totalMinutes = maxMinute - minMinute;
     final slotCount = max(1, (totalMinutes / slotMinutes).ceil());
-    const double staffHeaderHeight = 44.0;
-    const double compactSlotExtent = 120.0;
-    const double detailedSlotExtent = _slotExtent;
-    final referenceDate = dayData.first.date;
-    final referenceTimelineStart = referenceDate.add(
-      Duration(minutes: minMinute),
-    );
-    final timeSlots = List.generate(
-      slotCount,
-      (index) =>
-          referenceTimelineStart.add(Duration(minutes: index * slotMinutes)),
-    );
 
     if (layout == AppointmentWeekLayoutMode.operatorBoard) {
       return _WeekOperatorBoardView(
@@ -2232,7 +2833,7 @@ class _WeekSchedule extends StatelessWidget {
         lastMinutePlaceholders: lastMinutePlaceholders,
         onEdit: onEdit,
         onCreate: onCreate,
-        minMinute: minMinute!,
+        minMinute: minMinute,
         verticalController: verticalController,
         readOnly: readOnly,
       );
@@ -2242,6 +2843,7 @@ class _WeekSchedule extends StatelessWidget {
       return _WeekCompactView(
         dayData: dayData,
         staff: staff,
+        hoverPreviewController: hoverPreviewController,
         roles: roles,
         clientsWithOutstandingPayments: clientsWithOutstandingPayments,
         clientsById: clientsById,
@@ -2263,9 +2865,9 @@ class _WeekSchedule extends StatelessWidget {
         anomalies: anomalies,
         statusColor: statusColor,
         slotMinutes: slotMinutes,
-        slotExtent: compactSlotExtent,
-        minMinute: minMinute!,
-        maxMinute: maxMinute!,
+        slotExtent: slotExtent,
+        minMinute: minMinute,
+        maxMinute: maxMinute,
         verticalController: verticalController,
         interactionSlotMinutes: interactionSlotMinutes,
         readOnly: readOnly,
@@ -2283,8 +2885,7 @@ class _WeekSchedule extends StatelessWidget {
       );
     }
 
-    final gridHeight = slotCount * detailedSlotExtent;
-    final timeFormat = DateFormat('HH:mm');
+    final gridHeight = slotCount * slotExtent;
     final showSlotStartTimes = MediaQuery.of(context).size.width < 720;
 
     final dayHeaderColor = theme.colorScheme.surfaceContainerHighest.withValues(
@@ -2293,26 +2894,25 @@ class _WeekSchedule extends StatelessWidget {
     final dayBodyColor = theme.colorScheme.surfaceContainerLowest.withValues(
       alpha: 0.45,
     );
-    final staffById = {for (final member in staff) member.id: member};
+    final rolesById = {for (final role in roles) role.id: role};
     final relevantSalonIds =
         staff.map((member) => member.salonId).whereType<String>().toSet();
     final now = DateTime.now();
-    final staffColumnBorderColor = theme.colorScheme.outlineVariant.withValues(
-      alpha: 0.55,
-    );
-    final staffColumnShadowColor = theme.colorScheme.shadow.withValues(
-      alpha: 0.08,
-    );
-    const double dayHorizontalPadding = 12.0;
+    final staffColumnBorderColor =
+        theme.brightness == Brightness.dark
+            ? Colors.white.withValues(alpha: 0.52)
+            : Colors.black.withValues(alpha: 0.68);
+    const double summaryHorizontalPadding = 12.0;
     const double dayGap = 16.0;
-    const double staffGap = 8.0;
+    const double staffGap = 0.0;
     const double minDayWidth = 320.0;
-    const double minStaffColumnWidth = 110.0;
-    const double dayBorderWidth = 1.0;
+    const double minStaffColumnWidth = 124.0;
+    const double dayBorderWidth = _kDayColumnBorderWidth;
+    const double staffDividerWidth = 1.0;
     final viewportWidth = MediaQuery.sizeOf(context).width;
     final availableRowWidth = max(
       0.0,
-      viewportWidth - _timeScaleExtent - (dayGap + dayHorizontalPadding),
+      viewportWidth - _timeScaleExtent - dayGap,
     );
     final targetVisibleDays = max(1, min(3, dayData.length));
     var dayWidth = max(
@@ -2320,10 +2920,7 @@ class _WeekSchedule extends StatelessWidget {
       availableRowWidth / targetVisibleDays.toDouble(),
     );
     final staffCount = max(1, staff.length);
-    final rawInnerWidth = max(
-      0.0,
-      dayWidth - (dayHorizontalPadding * 2) - (dayBorderWidth * 2),
-    );
+    final rawInnerWidth = max(0.0, dayWidth - (dayBorderWidth * 2));
     final rawStaffWidth =
         (rawInnerWidth - staffGap * max(staffCount - 1, 0)) / staffCount;
     final staffColumnWidth = rawStaffWidth.clamp(
@@ -2332,8 +2929,7 @@ class _WeekSchedule extends StatelessWidget {
     );
     final dayInnerWidth =
         (staffColumnWidth * staffCount) + staffGap * max(staffCount - 1, 0);
-    dayWidth =
-        dayInnerWidth + (dayHorizontalPadding * 2) + (dayBorderWidth * 2);
+    dayWidth = dayInnerWidth + (dayBorderWidth * 2);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2349,7 +2945,7 @@ class _WeekSchedule extends StatelessWidget {
                   child: SingleChildScrollView(
                     controller: horizontalHeaderController,
                     scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    padding: const EdgeInsets.only(top: 4),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -2364,9 +2960,6 @@ class _WeekSchedule extends StatelessWidget {
                               Builder(
                                 builder: (context) {
                                   final data = dayData[dayIndex];
-                                  final dateLabel = _formatCalendarDayLabel(
-                                    data.date,
-                                  );
                                   final normalizedDate = DateUtils.dateOnly(
                                     data.date,
                                   );
@@ -2380,6 +2973,14 @@ class _WeekSchedule extends StatelessWidget {
                                         normalizedExtraDay,
                                         normalizedDate,
                                       );
+                                  final dayBorderColor =
+                                      isNextWeekDay
+                                          ? theme.colorScheme.secondary
+                                              .withValues(alpha: 0.66)
+                                          : isToday
+                                          ? theme.colorScheme.primary
+                                              .withValues(alpha: 0.7)
+                                          : staffColumnBorderColor;
                                   final shouldAutoScroll =
                                       autoScrollPending &&
                                       autoScrollTargetDate != null &&
@@ -2404,318 +3005,31 @@ class _WeekSchedule extends StatelessWidget {
                                       });
                                     });
                                   }
-                                  var headerColor = dayHeaderColor;
-                                  var borderColor = theme.dividerColor
-                                      .withValues(alpha: 0.4);
-                                  List<BoxShadow>? boxShadow;
-                                  if (isToday) {
-                                    headerColor = Color.alphaBlend(
-                                      theme.colorScheme.primary.withValues(
-                                        alpha: 0.08,
-                                      ),
-                                      dayHeaderColor,
-                                    );
-                                    borderColor = theme.colorScheme.primary
-                                        .withValues(alpha: 0.55);
-                                    boxShadow = [
-                                      BoxShadow(
-                                        color: theme.colorScheme.primary
-                                            .withValues(alpha: 0.18),
-                                        blurRadius: 18,
-                                        offset: const Offset(0, 6),
-                                      ),
-                                    ];
-                                  } else if (isNextWeekDay) {
-                                    headerColor = Color.alphaBlend(
-                                      theme.colorScheme.secondary.withValues(
-                                        alpha: 0.12,
-                                      ),
-                                      dayHeaderColor,
-                                    );
-                                    borderColor = theme.colorScheme.secondary
-                                        .withValues(alpha: 0.55);
-                                    boxShadow = [
-                                      BoxShadow(
-                                        color: theme.colorScheme.secondary
-                                            .withValues(alpha: 0.16),
-                                        blurRadius: 16,
-                                        offset: const Offset(0, 6),
-                                      ),
-                                    ];
-                                  }
-                                  final totalAppointments = data
-                                      .appointmentsByStaff
-                                      .values
-                                      .fold<int>(
-                                        0,
-                                        (running, list) =>
-                                            running + list.length,
-                                      );
-                                  final dayChecklist = dayChecklists[data.date];
-                                  final hasChecklistItems =
-                                      dayChecklist != null &&
-                                      dayChecklist.items.isNotEmpty;
-                                  final checklistTotal =
-                                      dayChecklist?.items.length ?? 0;
-                                  final checklistCompleted =
-                                      dayChecklist?.items
-                                          .where((item) => item.isCompleted)
-                                          .length ??
-                                      0;
-                                  final showChecklistLauncher =
-                                      hasChecklistItems ||
-                                      onAddChecklistItem != null ||
-                                      onToggleChecklistItem != null ||
-                                      onRenameChecklistItem != null ||
-                                      onDeleteChecklistItem != null;
-                                  final scheduledStaffIds = data
-                                      .shiftsByStaff
-                                      .entries
-                                      .where((entry) => entry.value.isNotEmpty)
-                                      .map((entry) => entry.key)
-                                      .toList(growable: false);
-                                  final absenceStaffIds = data
-                                      .absencesByStaff
-                                      .entries
-                                      .where((entry) => entry.value.isNotEmpty)
-                                      .map((entry) => entry.key)
-                                      .toList(growable: false);
-                                  final scheduledNames = scheduledStaffIds
-                                      .map((id) => staffById[id]?.fullName)
-                                      .whereType<String>()
-                                      .toList(growable: false);
-                                  final absenceNames = absenceStaffIds
-                                      .map((id) => staffById[id]?.fullName)
-                                      .whereType<String>()
-                                      .toList(growable: false);
-
-                                  final summaryChips = <Widget>[];
-                                  if (isNextWeekDay) {
-                                    summaryChips.add(
-                                      _summaryChip(
-                                        theme: theme,
-                                        icon: Icons.north_east_rounded,
-                                        label: 'Settimana prossima',
-                                        background: theme
-                                            .colorScheme
-                                            .secondaryContainer
-                                            .withValues(alpha: 0.7),
-                                        foreground:
-                                            theme
-                                                .colorScheme
-                                                .onSecondaryContainer,
-                                        tooltip:
-                                            onJumpToNextWeek != null
-                                                ? 'Vai alla prossima settimana'
-                                                : null,
-                                        onTap: onJumpToNextWeek,
-                                      ),
-                                    );
-                                  }
-                                  summaryChips.add(
-                                    _summaryChip(
-                                      theme: theme,
-                                      icon: Icons.event_available_rounded,
-                                      label: '$totalAppointments appuntamenti',
-                                      background: theme
-                                          .colorScheme
-                                          .tertiaryContainer
-                                          .withValues(alpha: 0.6),
-                                      foreground:
-                                          theme.colorScheme.onTertiaryContainer,
-                                    ),
-                                  );
-                                  final closures = _closuresForDay(
-                                    day: data.date,
-                                    salonsById: salonsById,
-                                    focusSalonId: selectedSalonId,
-                                    relatedSalonIds: relevantSalonIds,
-                                  );
-                                  final showClosureSalonName =
-                                      closures
-                                          .map((closure) => closure.salonId)
-                                          .toSet()
-                                          .length >
-                                      1;
-
-                                  return Container(
-                                    width: dayWidth,
-                                    margin: EdgeInsets.only(
+                                  return Padding(
+                                    padding: EdgeInsets.only(
                                       right:
                                           dayIndex == dayData.length - 1
                                               ? 0
                                               : dayGap,
                                     ),
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: headerColor,
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(color: borderColor),
-                                      boxShadow: boxShadow,
-                                    ),
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: dayHorizontalPadding,
-                                          ),
-                                          child: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.center,
-                                                children: [
-                                                  if (summaryChips
-                                                      .isNotEmpty) ...[
-                                                    Flexible(
-                                                      flex: 2,
-                                                      child: ScrollConfiguration(
-                                                        behavior:
-                                                            const _CompactMacScrollBehavior(),
-                                                        child: SingleChildScrollView(
-                                                          scrollDirection:
-                                                              Axis.horizontal,
-                                                          child: Row(
-                                                            mainAxisSize:
-                                                                MainAxisSize
-                                                                    .min,
-                                                            children: [
-                                                              for (
-                                                                var i = 0;
-                                                                i <
-                                                                    summaryChips
-                                                                        .length;
-                                                                i++
-                                                              ) ...[
-                                                                if (i != 0)
-                                                                  const SizedBox(
-                                                                    width: 8,
-                                                                  ),
-                                                                summaryChips[i],
-                                                              ],
-                                                            ],
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ),
-                                                    const SizedBox(width: 12),
-                                                  ],
-                                                  Flexible(
-                                                    flex: 3,
-                                                    fit: FlexFit.loose,
-                                                    child: Column(
-                                                      crossAxisAlignment:
-                                                          CrossAxisAlignment
-                                                              .start,
-                                                      mainAxisSize:
-                                                          MainAxisSize.min,
-                                                      children: [
-                                                        Text(
-                                                          dateLabel,
-                                                          style:
-                                                              theme
-                                                                  .textTheme
-                                                                  .titleMedium,
-                                                        ),
-                                                        if (isNextWeekDay)
-                                                          Padding(
-                                                            padding:
-                                                                const EdgeInsets.only(
-                                                                  top: 2,
-                                                                ),
-                                                            child: Text(
-                                                              'Settimana prossima',
-                                                              style: theme
-                                                                  .textTheme
-                                                                  .labelSmall
-                                                                  ?.copyWith(
-                                                                    color:
-                                                                        theme
-                                                                            .colorScheme
-                                                                            .secondary,
-                                                                    fontWeight:
-                                                                        FontWeight
-                                                                            .w600,
-                                                                  ),
-                                                            ),
-                                                          ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                  if (showChecklistLauncher) ...[
-                                                    const SizedBox(width: 8),
-                                                    _ChecklistDialogLauncher(
-                                                      day: data.date,
-                                                      dateLabel: dateLabel,
-                                                      checklist: dayChecklist,
-                                                      total: checklistTotal,
-                                                      completed:
-                                                          checklistCompleted,
-                                                      salonId:
-                                                          dayChecklist?.salonId,
-                                                      onAdd: onAddChecklistItem,
-                                                      onToggle:
-                                                          onToggleChecklistItem,
-                                                      onRename:
-                                                          onRenameChecklistItem,
-                                                      onDelete:
-                                                          onDeleteChecklistItem,
-                                                      compact: true,
-                                                    ),
-                                                  ],
-                                                ],
-                                              ),
-                                              if (closures.isNotEmpty) ...[
-                                                const SizedBox(height: 10),
-                                                for (
-                                                  var i = 0;
-                                                  i < closures.length;
-                                                  i++
-                                                ) ...[
-                                                  if (i != 0)
-                                                    const SizedBox(height: 6),
-                                                  _ClosureBanner(
-                                                    info: closures[i],
-                                                    showSalonName:
-                                                        showClosureSalonName,
-                                                    compact: true,
-                                                  ),
-                                                ],
-                                              ],
-                                              const SizedBox(height: 4),
-                                            ],
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: dayHorizontalPadding,
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              for (
-                                                var columnIndex = 0;
-                                                columnIndex < staff.length;
-                                                columnIndex++
-                                              ) ...[
-                                                SizedBox(
-                                                  width: staffColumnWidth,
-                                                  height: 0,
-                                                ),
-                                                if (columnIndex !=
-                                                    staff.length - 1)
-                                                  SizedBox(width: staffGap),
-                                              ],
-                                            ],
-                                          ),
-                                        ),
-                                      ],
+                                    child: _buildDetailedDayHeaderCard(
+                                      context: context,
+                                      theme: theme,
+                                      data: data,
+                                      isToday: isToday,
+                                      isNextWeekDay: isNextWeekDay,
+                                      borderColor: dayBorderColor,
+                                      dayWidth: dayWidth,
+                                      summaryHorizontalPadding:
+                                          summaryHorizontalPadding,
+                                      staffColumnWidth: staffColumnWidth,
+                                      staffGap: staffGap,
+                                      staffDividerColor: staffColumnBorderColor,
+                                      dayBorderWidth: dayBorderWidth,
+                                      staffDividerWidth: staffDividerWidth,
+                                      dayHeaderColor: dayHeaderColor,
+                                      rolesById: rolesById,
+                                      relevantSalonIds: relevantSalonIds,
                                     ),
                                   );
                                 },
@@ -2723,211 +3037,6 @@ class _WeekSchedule extends StatelessWidget {
                             ],
                           ],
                         ),
-                        if (showStaffHeader) ...[
-                          const SizedBox(height: 6),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              for (
-                                var dayIndex = 0;
-                                dayIndex < dayData.length;
-                                dayIndex++
-                              ) ...[
-                                Builder(
-                                  builder: (context) {
-                                    final day = dayData[dayIndex];
-                                    return Padding(
-                                      padding: EdgeInsets.only(
-                                        right:
-                                            dayIndex == dayData.length - 1
-                                                ? 0
-                                                : dayGap,
-                                        top: 4,
-                                        bottom: 4,
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.center,
-                                        children: [
-                                          SizedBox(
-                                            width: dayWidth,
-                                            child: Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal:
-                                                        dayHorizontalPadding,
-                                                  ),
-                                              child: Row(
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment.start,
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.center,
-                                                children: [
-                                                  for (
-                                                    var staffIndex = 0;
-                                                    staffIndex < staff.length;
-                                                    staffIndex++
-                                                  ) ...[
-                                                    Builder(
-                                                      builder: (context) {
-                                                        final staffMember =
-                                                            staff[staffIndex];
-                                                        final staffShifts =
-                                                            day.shiftsByStaff[staffMember
-                                                                .id] ??
-                                                            const <Shift>[];
-                                                        final staffAbsences =
-                                                            day.absencesByStaff[staffMember
-                                                                .id] ??
-                                                            const <
-                                                              StaffAbsence
-                                                            >[];
-                                                        final canManage =
-                                                            (onCreateShift !=
-                                                                    null ||
-                                                                onEditShift !=
-                                                                    null ||
-                                                                onDeleteShift !=
-                                                                    null) ||
-                                                            (onCreateAbsence !=
-                                                                    null ||
-                                                                onEditAbsence !=
-                                                                    null ||
-                                                                onDeleteAbsence !=
-                                                                    null);
-                                                        return _StaffHeaderButton(
-                                                          enabled: canManage,
-                                                          tooltip:
-                                                              'Gestisci turni e assenze per ${_formatCalendarDayLabel(day.date)}',
-                                                          onPressed: () async {
-                                                            await _handleStaffDayManagement(
-                                                              context,
-                                                              staff:
-                                                                  staffMember,
-                                                              day: day.date,
-                                                              shifts:
-                                                                  staffShifts,
-                                                              absences:
-                                                                  staffAbsences,
-                                                              roomsById:
-                                                                  roomsById,
-                                                              onCreateShift:
-                                                                  onCreateShift,
-                                                              onEditShift:
-                                                                  onEditShift,
-                                                              onDeleteShift:
-                                                                  onDeleteShift,
-                                                              onCreateAbsence:
-                                                                  onCreateAbsence,
-                                                              onEditAbsence:
-                                                                  onEditAbsence,
-                                                              onDeleteAbsence:
-                                                                  onDeleteAbsence,
-                                                            );
-                                                          },
-                                                          child: Container(
-                                                            width:
-                                                                staffColumnWidth,
-                                                            margin: EdgeInsets.only(
-                                                              right:
-                                                                  staffIndex ==
-                                                                          staff.length -
-                                                                              1
-                                                                      ? 0
-                                                                      : staffGap,
-                                                            ),
-                                                            padding:
-                                                                const EdgeInsets.symmetric(
-                                                                  horizontal:
-                                                                      12,
-                                                                  vertical: 8,
-                                                                ),
-                                                            constraints:
-                                                                BoxConstraints(
-                                                                  minHeight:
-                                                                      staffHeaderHeight,
-                                                                ),
-                                                            decoration: BoxDecoration(
-                                                              gradient: LinearGradient(
-                                                                colors: [
-                                                                  theme
-                                                                      .colorScheme
-                                                                      .surfaceVariant
-                                                                      .withValues(
-                                                                        alpha:
-                                                                            0.78,
-                                                                      ),
-                                                                  theme
-                                                                      .colorScheme
-                                                                      .surface,
-                                                                ],
-                                                                begin:
-                                                                    Alignment
-                                                                        .topCenter,
-                                                                end:
-                                                                    Alignment
-                                                                        .bottomCenter,
-                                                              ),
-                                                              borderRadius:
-                                                                  BorderRadius.circular(
-                                                                    14,
-                                                                  ),
-                                                              border: Border.all(
-                                                                color:
-                                                                    staffColumnBorderColor,
-                                                                width: 1.1,
-                                                              ),
-                                                              boxShadow: [
-                                                                BoxShadow(
-                                                                  color:
-                                                                      staffColumnShadowColor,
-                                                                  blurRadius:
-                                                                      18,
-                                                                  offset:
-                                                                      const Offset(
-                                                                        0,
-                                                                        10,
-                                                                      ),
-                                                                ),
-                                                              ],
-                                                            ),
-                                                            child: Text(
-                                                              _firstNameOnly(
-                                                                staffMember
-                                                                    .fullName,
-                                                              ),
-                                                              style:
-                                                                  theme
-                                                                      .textTheme
-                                                                      .titleSmall,
-                                                              textAlign:
-                                                                  TextAlign
-                                                                      .center,
-                                                              maxLines: 1,
-                                                              overflow:
-                                                                  TextOverflow
-                                                                      .ellipsis,
-                                                            ),
-                                                          ),
-                                                        );
-                                                      },
-                                                    ),
-                                                  ],
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ],
-                            ],
-                          ),
-                        ],
                       ],
                     ),
                   ),
@@ -2940,7 +3049,7 @@ class _WeekSchedule extends StatelessWidget {
           child: SingleChildScrollView(
             controller: verticalController,
             child: Padding(
-              padding: const EdgeInsets.only(top: 6, bottom: 12),
+              padding: const EdgeInsets.only(bottom: 12),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -2970,13 +3079,18 @@ class _WeekSchedule extends StatelessWidget {
                                         normalizedExtraDay,
                                         normalizedDay,
                                       );
-                                  final bodyBorderColor =
+                                  final isToday = DateUtils.isSameDay(
+                                    normalizedDay,
+                                    now,
+                                  );
+                                  final dayBorderColor =
                                       isNextWeekDay
                                           ? theme.colorScheme.secondary
-                                              .withValues(alpha: 0.45)
-                                          : theme.dividerColor.withValues(
-                                            alpha: 0.25,
-                                          );
+                                              .withValues(alpha: 0.66)
+                                          : isToday
+                                          ? theme.colorScheme.primary
+                                              .withValues(alpha: 0.7)
+                                          : staffColumnBorderColor;
                                   final bodyColor =
                                       isNextWeekDay
                                           ? Color.alphaBlend(
@@ -3004,144 +3118,140 @@ class _WeekSchedule extends StatelessWidget {
                                               ? 0
                                               : dayGap,
                                     ),
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 12,
-                                    ),
                                     decoration: BoxDecoration(
                                       color: bodyColor,
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                        color: bodyBorderColor,
-                                        width: dayBorderWidth,
+                                      border: Border(
+                                        left: BorderSide(
+                                          color: dayBorderColor,
+                                          width: dayBorderWidth,
+                                        ),
+                                        right: BorderSide(
+                                          color: dayBorderColor,
+                                          width: dayBorderWidth,
+                                        ),
+                                        bottom: BorderSide(
+                                          color: dayBorderColor,
+                                          width: dayBorderWidth,
+                                        ),
                                       ),
                                       boxShadow: bodyShadow,
                                     ),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: dayHorizontalPadding,
-                                      ),
-                                      child: Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          for (
-                                            var staffIndex = 0;
-                                            staffIndex < staff.length;
-                                            staffIndex++
-                                          ) ...[
-                                            Container(
-                                              width: staffColumnWidth,
-                                              margin: EdgeInsets.only(
-                                                right:
-                                                    staffIndex ==
-                                                            staff.length - 1
-                                                        ? 0
-                                                        : staffGap,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                gradient: LinearGradient(
-                                                  colors: [
-                                                    theme.colorScheme.surface,
-                                                    theme
-                                                        .colorScheme
-                                                        .surfaceContainerHighest
-                                                        .withValues(
-                                                          alpha: 0.42,
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        for (
+                                          var staffIndex = 0;
+                                          staffIndex < staff.length;
+                                          staffIndex++
+                                        ) ...[
+                                          Builder(
+                                            builder: (context) {
+                                              final showTrailingDivider =
+                                                  staffIndex !=
+                                                  staff.length - 1;
+                                              return Container(
+                                                width: staffColumnWidth,
+                                                margin: EdgeInsets.only(
+                                                  right:
+                                                      showTrailingDivider
+                                                          ? staffGap
+                                                          : 0,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  border:
+                                                      showTrailingDivider
+                                                          ? Border(
+                                                            right: BorderSide(
+                                                              color:
+                                                                  staffColumnBorderColor,
+                                                              width:
+                                                                  staffDividerWidth,
+                                                            ),
+                                                          )
+                                                          : null,
+                                                ),
+                                                child: SizedBox(
+                                                  height: gridHeight,
+                                                  child: _StaffDayColumn(
+                                                    staffMember:
+                                                        staff[staffIndex],
+                                                    appointments:
+                                                        currentDay
+                                                            .appointmentsByStaff[staff[staffIndex]
+                                                            .id] ??
+                                                        const [],
+                                                    lastMinutePlaceholders:
+                                                        lastMinutePlaceholders,
+                                                    lastMinuteSlots:
+                                                        lastMinuteSlots,
+                                                    allAppointments:
+                                                        allAppointments,
+                                                    shifts:
+                                                        currentDay
+                                                            .shiftsByStaff[staff[staffIndex]
+                                                            .id] ??
+                                                        const [],
+                                                    absences:
+                                                        currentDay
+                                                            .absencesByStaff[staff[staffIndex]
+                                                            .id] ??
+                                                        const [],
+                                                    timelineStart: currentDay
+                                                        .date
+                                                        .add(
+                                                          Duration(
+                                                            minutes: minMinute!,
+                                                          ),
                                                         ),
-                                                  ],
-                                                  begin: Alignment.topCenter,
-                                                  end: Alignment.bottomCenter,
-                                                ),
-                                                borderRadius:
-                                                    BorderRadius.circular(16),
-                                                border: Border.all(
-                                                  color: staffColumnBorderColor,
-                                                  width: 1.05,
-                                                ),
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                    color:
-                                                        staffColumnShadowColor,
-                                                    blurRadius: 24,
-                                                    offset: const Offset(0, 12),
+                                                    timelineEnd: currentDay.date
+                                                        .add(
+                                                          Duration(
+                                                            minutes: maxMinute!,
+                                                          ),
+                                                        ),
+                                                    slotMinutes: slotMinutes,
+                                                    interactionSlotMinutes:
+                                                        interactionSlotMinutes,
+                                                    slotExtent: slotExtent,
+                                                    verticalController:
+                                                        verticalController,
+                                                    horizontalScrollController:
+                                                        horizontalBodyController,
+                                                    clientsWithOutstandingPayments:
+                                                        clientsWithOutstandingPayments,
+                                                    clientsById: clientsById,
+                                                    servicesById: servicesById,
+                                                    categoriesById:
+                                                        categoriesById,
+                                                    categoriesByName:
+                                                        categoriesByName,
+                                                    roomsById: roomsById,
+                                                    salonsById: salonsById,
+                                                    statusColor: statusColor,
+                                                    lockedAppointmentReasons:
+                                                        lockedAppointmentReasons,
+                                                    onReschedule: onReschedule,
+                                                    onEdit: onEdit,
+                                                    onCreate: onCreate,
+                                                    onTapLastMinuteSlot:
+                                                        onTapLastMinuteSlot,
+                                                    anomalies: anomalies,
+                                                    hoverPreviewController:
+                                                        hoverPreviewController,
+                                                    openStart:
+                                                        currentDay.openStart,
+                                                    openEnd: currentDay.openEnd,
+                                                    showSlotStartTimes:
+                                                        showSlotStartTimes,
+                                                    readOnly: readOnly,
                                                   ),
-                                                ],
-                                              ),
-                                              child: SizedBox(
-                                                height: gridHeight,
-                                                child: _StaffDayColumn(
-                                                  staffMember:
-                                                      staff[staffIndex],
-                                                  appointments:
-                                                      currentDay
-                                                          .appointmentsByStaff[staff[staffIndex]
-                                                          .id] ??
-                                                      const [],
-                                                  lastMinutePlaceholders:
-                                                      lastMinutePlaceholders,
-                                                  lastMinuteSlots:
-                                                      lastMinuteSlots,
-                                                  allAppointments:
-                                                      allAppointments,
-                                                  shifts:
-                                                      currentDay
-                                                          .shiftsByStaff[staff[staffIndex]
-                                                          .id] ??
-                                                      const [],
-                                                  absences:
-                                                      currentDay
-                                                          .absencesByStaff[staff[staffIndex]
-                                                          .id] ??
-                                                      const [],
-                                                  timelineStart: currentDay.date
-                                                      .add(
-                                                        Duration(
-                                                          minutes: minMinute!,
-                                                        ),
-                                                      ),
-                                                  timelineEnd: currentDay.date
-                                                      .add(
-                                                        Duration(
-                                                          minutes: maxMinute!,
-                                                        ),
-                                                      ),
-                                                  slotMinutes: slotMinutes,
-                                                  interactionSlotMinutes:
-                                                      interactionSlotMinutes,
-                                                  slotExtent: _slotExtent,
-                                                  verticalController:
-                                                      verticalController,
-                                                  clientsWithOutstandingPayments:
-                                                      clientsWithOutstandingPayments,
-                                                  clientsById: clientsById,
-                                                  servicesById: servicesById,
-                                                  categoriesById:
-                                                      categoriesById,
-                                                  categoriesByName:
-                                                      categoriesByName,
-                                                  roomsById: roomsById,
-                                                  salonsById: salonsById,
-                                                  statusColor: statusColor,
-                                                  lockedAppointmentReasons:
-                                                      lockedAppointmentReasons,
-                                                  onReschedule: onReschedule,
-                                                  onEdit: onEdit,
-                                                  onCreate: onCreate,
-                                                  onTapLastMinuteSlot:
-                                                      onTapLastMinuteSlot,
-                                                  anomalies: anomalies,
-                                                  openStart:
-                                                      currentDay.openStart,
-                                                  openEnd: currentDay.openEnd,
-                                                  showSlotStartTimes:
-                                                      showSlotStartTimes,
-                                                  readOnly: readOnly,
                                                 ),
-                                              ),
-                                            ),
-                                          ],
+                                              );
+                                            },
+                                          ),
                                         ],
-                                      ),
+                                      ],
                                     ),
                                   );
                                 },
@@ -3509,6 +3619,7 @@ class _ChecklistSectionState extends State<_ChecklistSection> {
     final theme = Theme.of(context);
     final allItems =
         widget.checklist?.items ?? const <AppointmentChecklistItem>[];
+    final completed = allItems.where((item) => item.isCompleted).length;
     final maxItems = widget.maxVisibleItems;
     final visibleItems =
         maxItems != null && allItems.length > maxItems
@@ -3561,21 +3672,92 @@ class _ChecklistSectionState extends State<_ChecklistSection> {
         children.add(SizedBox(height: widget.dense ? 12 : 16));
       }
       children.add(
-        Text(
-          'Nessuna attività in elenco',
-          style: (widget.dense
-                  ? theme.textTheme.bodySmall
-                  : theme.textTheme.bodyMedium)
-              ?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant.withValues(
-                  alpha: 0.7,
+        Container(
+          width: double.infinity,
+          padding: EdgeInsets.all(widget.dense ? 12 : 14),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.75),
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.playlist_add_rounded,
+                color: theme.colorScheme.onSurfaceVariant,
+                size: widget.dense ? 18 : 20,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Nessuna attività inserita',
+                      style: (widget.dense
+                              ? theme.textTheme.bodySmall
+                              : theme.textTheme.bodyMedium)
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _canAdd
+                          ? 'Aggiungi la prima attività della giornata.'
+                          : 'Non ci sono attività per questa giornata.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.82,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
+            ],
+          ),
         ),
       );
     } else {
       if (_canAdd) {
         children.add(SizedBox(height: widget.dense ? 12 : 16));
+      }
+      if (!widget.dense && completed == allItems.length) {
+        children.add(
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primaryContainer.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: theme.colorScheme.primary.withValues(alpha: 0.25),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.task_alt_rounded,
+                  color: theme.colorScheme.primary,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Tutte le attività risultano eseguite.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
       }
       for (final item in visibleItems) {
         children.add(_buildItemRow(theme, item));
@@ -3627,6 +3809,8 @@ class _ChecklistDialogLauncher extends StatelessWidget {
     this.onRename,
     this.onDelete,
     this.compact = false,
+    this.showLabel = false,
+    this.forceVisible = false,
   });
 
   final DateTime day;
@@ -3646,11 +3830,14 @@ class _ChecklistDialogLauncher extends StatelessWidget {
   onRename;
   final Future<void> Function(String checklistId, String itemId)? onDelete;
   final bool compact;
+  final bool showLabel;
+  final bool forceVisible;
 
   @override
   Widget build(BuildContext context) {
     final pending = max(total - completed, 0);
     final hasAccess =
+        forceVisible ||
         total > 0 ||
         onAdd != null ||
         onToggle != null ||
@@ -3660,52 +3847,126 @@ class _ChecklistDialogLauncher extends StatelessWidget {
       return const SizedBox.shrink();
     }
     final theme = Theme.of(context);
-    final iconData =
-        pending > 0 ? Icons.checklist_rounded : Icons.checklist_rounded;
-    final iconColor =
-        pending > 0
-            ? theme.colorScheme.primary
-            : theme.colorScheme.onSurfaceVariant;
-    final tooltip =
-        total == 0
-            ? 'Checklist vuota'
-            : pending == 0
-            ? 'Checklist completata'
-            : '$pending attività da completare';
-    final splashRadius = compact ? 20.0 : 24.0;
-    final size = compact ? 28.0 : 32.0;
-    final iconSize = compact ? 22.0 : 26.0;
+    final isCurrentDay = DateUtils.isSameDay(
+      DateUtils.dateOnly(day),
+      DateUtils.dateOnly(DateTime.now()),
+    );
+    final visualState = _resolveChecklistVisualState(
+      theme,
+      total: total,
+      completed: completed,
+      isCurrentDay: isCurrentDay,
+    );
+    final size = compact ? 26.0 : 28.0;
+    final iconSize = compact ? 18.0 : 20.0;
+
+    void onPressed() => _openDialog(context);
+
+    if (showLabel) {
+      return Tooltip(
+        message: visualState.tooltip,
+        waitDuration: const Duration(milliseconds: 250),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onPressed,
+            borderRadius: BorderRadius.circular(999),
+            child: Ink(
+              padding: EdgeInsets.symmetric(
+                horizontal: compact ? 10 : 12,
+                vertical: compact ? 6 : 8,
+              ),
+              decoration: BoxDecoration(
+                color: visualState.background,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: visualState.borderColor),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    visualState.icon,
+                    color: visualState.foreground,
+                    size: compact ? 18 : 20,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    visualState.label,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: visualState.foreground,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (pending > 0 && !isCurrentDay) ...[
+                    const SizedBox(width: 8),
+                    _ChecklistCountBadge(
+                      label: visualState.badgeLabel,
+                      background: visualState.badgeBackground,
+                      foreground: visualState.badgeForeground,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     return Tooltip(
-      message: tooltip,
+      message: visualState.tooltip,
       waitDuration: const Duration(milliseconds: 250),
-      child: IconButton(
-        onPressed: () => _openDialog(context),
-        splashRadius: splashRadius,
-        padding: EdgeInsets.zero,
-        constraints: BoxConstraints(
-          minWidth: compact ? 32 : 40,
-          minHeight: compact ? 32 : 40,
-        ),
-        icon: SizedBox(
-          width: size,
-          height: size,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Align(
-                alignment: Alignment.center,
-                child: Icon(iconData, color: iconColor, size: iconSize),
-              ),
-              Positioned(
-                right: -8,
-                top: -8,
-                child: _ChecklistCountBadge(
-                  label: pending > 99 ? '99+' : '$pending',
-                  highlight: pending > 0,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(compact ? 16 : 18),
+          child: Ink(
+            padding: EdgeInsets.all(compact ? 6 : 8),
+            decoration: BoxDecoration(
+              color: visualState.background,
+              borderRadius: BorderRadius.circular(compact ? 16 : 18),
+              border: Border.all(color: visualState.borderColor),
+              boxShadow: [
+                BoxShadow(
+                  color: theme.colorScheme.shadow.withValues(alpha: 0.08),
+                  blurRadius: compact ? 10 : 14,
+                  offset: const Offset(0, 4),
                 ),
+              ],
+            ),
+            child: SizedBox(
+              width: size,
+              height: size,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Align(
+                    alignment: Alignment.center,
+                    child: Icon(
+                      visualState.icon,
+                      color: visualState.foreground,
+                      size: iconSize,
+                    ),
+                  ),
+                  Positioned(
+                    right: -10,
+                    top: -10,
+                    child: _ChecklistCountBadge(
+                      label: visualState.badgeLabel,
+                      background: visualState.badgeBackground,
+                      foreground: visualState.badgeForeground,
+                      borderColor:
+                          visualState.kind == _ChecklistStateKind.empty
+                              ? theme.colorScheme.outlineVariant.withValues(
+                                alpha: 0.55,
+                              )
+                              : null,
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -3750,17 +4011,13 @@ class _ChecklistDialogLauncher extends StatelessWidget {
             final effectiveChecklist = latestChecklist ?? checklist;
             final currentTotal = effectiveChecklist?.items.length ?? total;
             final currentCompleted =
-                effectiveChecklist?.items
-                    .where((item) => item.isCompleted)
-                    .length ??
-                completed;
-            final currentPending = max(currentTotal - currentCompleted, 0);
-            final summaryText =
-                currentTotal == 0
-                    ? 'Nessuna attività ancora pianificata.'
-                    : currentPending == 0
-                    ? 'Tutte le $currentTotal attività sono completate.'
-                    : '$currentPending attività da completare su $currentTotal.';
+                effectiveChecklist != null
+                    ? _completedChecklistCount(effectiveChecklist)
+                    : completed;
+            final summaryText = _checklistSummaryText(
+              total: currentTotal,
+              completed: currentCompleted,
+            );
 
             return Dialog(
               insetPadding: const EdgeInsets.symmetric(
@@ -3839,17 +4096,13 @@ Future<void> showAppointmentChecklistDialog({
           final effectiveChecklist = latestChecklist ?? checklist;
           final currentTotal = effectiveChecklist?.items.length ?? initialTotal;
           final currentCompleted =
-              effectiveChecklist?.items
-                  .where((item) => item.isCompleted)
-                  .length ??
-              initialCompleted;
-          final currentPending = max(currentTotal - currentCompleted, 0);
-          final summaryText =
-              currentTotal == 0
-                  ? 'Nessuna attività ancora pianificata.'
-                  : currentPending == 0
-                  ? 'Tutte le $currentTotal attività sono completate.'
-                  : '$currentPending attività da completare su $currentTotal.';
+              effectiveChecklist != null
+                  ? _completedChecklistCount(effectiveChecklist)
+                  : initialCompleted;
+          final summaryText = _checklistSummaryText(
+            total: currentTotal,
+            completed: currentCompleted,
+          );
 
           return Dialog(
             insetPadding: const EdgeInsets.symmetric(
@@ -3929,6 +4182,74 @@ class _ChecklistDialogContentState extends State<_ChecklistDialogContent> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final total = widget.checklist?.items.length ?? 0;
+    final completed = _completedChecklistCount(widget.checklist);
+    final pending = max(total - completed, 0);
+    final isCurrentDay = DateUtils.isSameDay(
+      DateUtils.dateOnly(widget.day),
+      DateUtils.dateOnly(DateTime.now()),
+    );
+    final visualState = _resolveChecklistVisualState(
+      theme,
+      total: total,
+      completed: completed,
+      isCurrentDay: isCurrentDay,
+    );
+    final isUrgentPending =
+        visualState.kind == _ChecklistStateKind.pending && isCurrentDay;
+    final summaryBackground =
+        isUrgentPending
+            ? Color.alphaBlend(
+              theme.colorScheme.error.withValues(alpha: 0.04),
+              theme.colorScheme.surface,
+            )
+            : visualState.background;
+    final summaryBorderColor =
+        isUrgentPending
+            ? theme.colorScheme.error.withValues(alpha: 0.18)
+            : visualState.borderColor;
+    final summaryForeground =
+        isUrgentPending ? theme.colorScheme.onSurface : visualState.foreground;
+    final summaryAccent =
+        isUrgentPending ? theme.colorScheme.error : visualState.badgeBackground;
+    final totalChipBackground =
+        isUrgentPending
+            ? theme.colorScheme.surface
+            : theme.colorScheme.surface.withValues(alpha: 0.72);
+    final totalChipForeground = theme.colorScheme.onSurface;
+    final totalChipBorderColor =
+        isUrgentPending
+            ? theme.colorScheme.outlineVariant.withValues(alpha: 0.65)
+            : null;
+    final completedChipBackground =
+        isUrgentPending
+            ? Color.alphaBlend(
+              theme.colorScheme.primary.withValues(alpha: 0.10),
+              theme.colorScheme.surface,
+            )
+            : theme.colorScheme.primary.withValues(alpha: 0.12);
+    final completedChipForeground =
+        isUrgentPending
+            ? theme.colorScheme.onSurface
+            : theme.colorScheme.primary;
+    final completedChipBorderColor =
+        isUrgentPending
+            ? theme.colorScheme.primary.withValues(alpha: 0.24)
+            : null;
+    final pendingChipBackground =
+        pending > 0
+            ? (isUrgentPending
+                ? theme.colorScheme.error
+                : theme.colorScheme.error.withValues(alpha: 0.12))
+            : theme.colorScheme.surface.withValues(alpha: 0.72);
+    final pendingChipForeground =
+        pending > 0
+            ? (isUrgentPending
+                ? theme.colorScheme.onError
+                : theme.colorScheme.error)
+            : theme.colorScheme.onSurfaceVariant;
+    final pendingChipBorderColor =
+        pending > 0 && isUrgentPending ? theme.colorScheme.error : null;
     return ConstrainedBox(
       constraints: BoxConstraints(
         maxWidth: widget.maxWidth,
@@ -3966,13 +4287,98 @@ class _ChecklistDialogContentState extends State<_ChecklistDialogContent> {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 6),
-              Text(
-                widget.summaryText,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant.withValues(
-                    alpha: 0.8,
-                  ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: summaryBackground,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: summaryBorderColor),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: summaryAccent.withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Icon(
+                            visualState.icon,
+                            color: summaryAccent,
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                visualState.bannerTitle,
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  color: summaryForeground,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                widget.summaryText,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: summaryForeground.withValues(
+                                    alpha: 0.80,
+                                  ),
+                                  height: 1.3,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        _ChecklistCountBadge(
+                          label: visualState.badgeLabel,
+                          background: visualState.badgeBackground,
+                          foreground: visualState.badgeForeground,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _ChecklistStatChip(
+                          label:
+                              total == 0
+                                  ? 'Nessun elemento'
+                                  : '$total attività',
+                          background: totalChipBackground,
+                          foreground: totalChipForeground,
+                          borderColor: totalChipBorderColor,
+                        ),
+                        _ChecklistStatChip(
+                          label:
+                              completed == 1
+                                  ? '1 eseguita'
+                                  : '$completed eseguite',
+                          background: completedChipBackground,
+                          foreground: completedChipForeground,
+                          borderColor: completedChipBorderColor,
+                        ),
+                        _ChecklistStatChip(
+                          label:
+                              pending == 1 ? '1 da fare' : '$pending da fare',
+                          background: pendingChipBackground,
+                          foreground: pendingChipForeground,
+                          borderColor: pendingChipBorderColor,
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 16),
@@ -4010,35 +4416,27 @@ class _ChecklistDialogContentState extends State<_ChecklistDialogContent> {
 }
 
 class _ChecklistCountBadge extends StatelessWidget {
-  const _ChecklistCountBadge({required this.label, required this.highlight});
+  const _ChecklistCountBadge({
+    required this.label,
+    required this.background,
+    required this.foreground,
+    this.borderColor,
+  });
 
   final String label;
-  final bool highlight;
+  final Color background;
+  final Color foreground;
+  final Color? borderColor;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final background =
-        highlight
-            ? theme.colorScheme.primary
-            : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.9);
-    final foreground =
-        highlight
-            ? theme.colorScheme.onPrimary
-            : theme.colorScheme.onSurfaceVariant;
-    final border =
-        highlight
-            ? null
-            : Border.all(
-              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
-            );
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(999),
-        border: border,
+        border: borderColor != null ? Border.all(color: borderColor!) : null,
         boxShadow: [
           BoxShadow(
             color: theme.colorScheme.shadow.withValues(alpha: 0.12),
@@ -4053,6 +4451,44 @@ class _ChecklistCountBadge extends StatelessWidget {
           color: foreground,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.2,
+        ),
+      ),
+    );
+  }
+}
+
+class _ChecklistStatChip extends StatelessWidget {
+  const _ChecklistStatChip({
+    required this.label,
+    required this.background,
+    required this.foreground,
+    this.borderColor,
+  });
+
+  final String label;
+  final Color background;
+  final Color foreground;
+  final Color? borderColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color:
+              borderColor ??
+              theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+        ),
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: foreground,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -4077,6 +4513,7 @@ class _WeekCompactView extends StatelessWidget {
   const _WeekCompactView({
     required this.dayData,
     required this.staff,
+    required this.hoverPreviewController,
     required this.roles,
     required this.clientsWithOutstandingPayments,
     required this.clientsById,
@@ -4119,6 +4556,7 @@ class _WeekCompactView extends StatelessWidget {
 
   final List<_WeekDayData> dayData;
   final List<StaffMember> staff;
+  final _AppointmentHoverPreviewController hoverPreviewController;
   final List<StaffRole> roles;
   final Set<String> clientsWithOutstandingPayments;
   final Map<String, Client> clientsById;
@@ -4166,7 +4604,7 @@ class _WeekCompactView extends StatelessWidget {
   final Future<void> Function(StaffAbsence absence)? onDeleteAbsence;
 
   static const double _dayGap = 12;
-  static const double _staffGap = 6;
+  static const double _staffGap = 0;
   static const double _kDayHorizontalPadding = 8;
   static const double _kDayHeaderVerticalPadding = 8;
   static const double _kDayHeaderBottomPadding = 8;
@@ -4216,13 +4654,10 @@ class _WeekCompactView extends StatelessWidget {
           maxWidth - _WeekSchedule._timeScaleExtent - 12 - 2,
         );
         final double dayWidth = _computeDayWidth(contentWidth, dayData.length);
-        final double dayInnerWidth = max(
-          0.0,
-          dayWidth - (_kDayHorizontalPadding * 2),
-        );
+        final double dayGridWidth = max(0.0, dayWidth);
         final bool hasStaff = staff.isNotEmpty;
         final _CompactStaffLayout? staffLayout =
-            hasStaff ? _computeStaffLayout(dayInnerWidth) : null;
+            hasStaff ? _computeStaffLayout(dayGridWidth) : null;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -4237,7 +4672,6 @@ class _WeekCompactView extends StatelessWidget {
               relevantSalonIds,
             ),
             if (staffLayout != null && showStaffHeader) ...[
-              const SizedBox(height: 4),
               _buildOperatorHeaderRow(
                 context,
                 theme,
@@ -4272,7 +4706,7 @@ class _WeekCompactView extends StatelessWidget {
                             ? const ClampingScrollPhysics()
                             : const NeverScrollableScrollPhysics(),
                     child: Padding(
-                      padding: const EdgeInsets.only(top: 8, bottom: 12),
+                      padding: const EdgeInsets.only(top: 0, bottom: 12),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -4297,7 +4731,7 @@ class _WeekCompactView extends StatelessWidget {
                               now,
                               dayBodyColor,
                               dayWidth,
-                              dayInnerWidth,
+                              dayGridWidth,
                               resolvedGridHeight,
                               slotExtent,
                               staffLayout,
@@ -4340,7 +4774,7 @@ class _WeekCompactView extends StatelessWidget {
     Set<String> relevantSalonIds,
   ) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -4416,8 +4850,8 @@ class _WeekCompactView extends StatelessWidget {
 
     final borderColor =
         isToday
-            ? theme.colorScheme.primary.withValues(alpha: 0.55)
-            : theme.colorScheme.outlineVariant.withValues(alpha: 0.45);
+            ? theme.colorScheme.primary.withValues(alpha: 0.72)
+            : theme.colorScheme.outline.withValues(alpha: 0.72);
 
     return Container(
       padding: const EdgeInsets.fromLTRB(
@@ -4435,7 +4869,7 @@ class _WeekCompactView extends StatelessWidget {
                 )
                 : background,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: borderColor, width: 1.05),
+        border: Border.all(color: borderColor, width: _kDayColumnBorderWidth),
         boxShadow:
             isToday
                 ? [
@@ -4519,7 +4953,7 @@ class _WeekCompactView extends StatelessWidget {
     DateTime now,
     Color dayBodyColor,
     double dayWidth,
-    double dayInnerWidth,
+    double dayGridWidth,
     double gridHeight,
     double slotExtent,
     _CompactStaffLayout? staffLayout,
@@ -4540,7 +4974,7 @@ class _WeekCompactView extends StatelessWidget {
               now,
               dayData[dayIndex],
               dayBodyColor,
-              dayInnerWidth,
+              dayGridWidth,
               gridHeight,
               slotExtent,
               staffLayout,
@@ -4624,7 +5058,7 @@ class _WeekCompactView extends StatelessWidget {
     DateTime now,
     _WeekDayData data,
     Color background,
-    double dayInnerWidth,
+    double dayGridWidth,
     double gridHeight,
     double slotExtent,
     _CompactStaffLayout? staffLayout,
@@ -4633,14 +5067,15 @@ class _WeekCompactView extends StatelessWidget {
     final isToday = DateUtils.isSameDay(data.date, now);
     final borderColor =
         isToday
-            ? theme.colorScheme.primary.withValues(alpha: 0.4)
-            : theme.colorScheme.outlineVariant.withValues(alpha: 0.35);
+            ? theme.colorScheme.primary.withValues(alpha: 0.72)
+            : theme.colorScheme.outline.withValues(alpha: 0.72);
     assert(
       staff.isEmpty || staffLayout != null,
       'Staff layout is required when staff members are present.',
     );
 
     return Container(
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color:
             isToday
@@ -4649,20 +5084,19 @@ class _WeekCompactView extends StatelessWidget {
                   background,
                 )
                 : background,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: borderColor, width: 1),
+        border: Border.all(color: borderColor, width: _kDayColumnBorderWidth),
       ),
       padding: const EdgeInsets.fromLTRB(
-        _kDayHorizontalPadding,
+        0,
         _kDayBodyTopPadding,
-        _kDayHorizontalPadding,
+        0,
         _kDayBodyBottomPadding,
       ),
       child: _buildStaffColumns(
         context: context,
         theme: theme,
         data: data,
-        dayInnerWidth: dayInnerWidth,
+        dayGridWidth: dayGridWidth,
         layout: staffLayout,
         gridHeight: gridHeight,
         slotExtent: slotExtent,
@@ -4675,7 +5109,7 @@ class _WeekCompactView extends StatelessWidget {
     required BuildContext context,
     required ThemeData theme,
     required _WeekDayData data,
-    required double dayInnerWidth,
+    required double dayGridWidth,
     required _CompactStaffLayout? layout,
     required double gridHeight,
     required double slotExtent,
@@ -4696,8 +5130,10 @@ class _WeekCompactView extends StatelessWidget {
         ),
       );
     }
-    final columnGap = layout?.columnGap ?? 0.0;
     final enforceMinWidth = layout?.enforceMinWidth ?? false;
+    final dividerColor = theme.colorScheme.outlineVariant.withValues(
+      alpha: 0.5,
+    );
 
     Widget buildStaffColumn(int index) {
       final staffMember = staff[index];
@@ -4705,7 +5141,6 @@ class _WeekCompactView extends StatelessWidget {
           layout != null && index < layout.columnWidths.length
               ? layout.columnWidths[index]
               : 0.0;
-      final columnRadius = width <= 0 ? 8.0 : min(12.0, max(width / 2, 6.0));
       final flex =
           layout != null && index < layout.flexes.length
               ? layout.flexes[index]
@@ -4722,15 +5157,12 @@ class _WeekCompactView extends StatelessWidget {
             height: gridHeight,
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: theme.colorScheme.surface.withValues(
-                  alpha: theme.brightness == Brightness.dark ? 0.25 : 0.85,
-                ),
-                borderRadius: BorderRadius.circular(columnRadius),
-                border: Border.all(
-                  color: theme.colorScheme.outlineVariant.withValues(
-                    alpha: 0.4,
-                  ),
-                ),
+                border:
+                    index == staffCount - 1
+                        ? null
+                        : Border(
+                          right: BorderSide(color: dividerColor, width: 1),
+                        ),
               ),
               child: _StaffDayColumn(
                 staffMember: staffMember,
@@ -4761,6 +5193,7 @@ class _WeekCompactView extends StatelessWidget {
                 onCreate: onCreate,
                 anomalies: anomalies,
                 lockedAppointmentReasons: lockedAppointmentReasons,
+                hoverPreviewController: hoverPreviewController,
                 openStart: data.openStart,
                 openEnd: data.openEnd,
                 compact: true,
@@ -4776,15 +5209,13 @@ class _WeekCompactView extends StatelessWidget {
     return Align(
       alignment: Alignment.topCenter,
       child: SizedBox(
-        width: dayInnerWidth,
+        width: dayGridWidth,
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.max,
           children: [
-            for (var index = 0; index < staffCount; index++) ...[
+            for (var index = 0; index < staffCount; index++)
               buildStaffColumn(index),
-              if (index != staffCount - 1) SizedBox(width: columnGap),
-            ],
           ],
         ),
       ),
@@ -4804,12 +5235,10 @@ class _WeekCompactView extends StatelessWidget {
     final headerBackground = theme.colorScheme.surfaceContainerHigh.withValues(
       alpha: theme.brightness == Brightness.dark ? 0.65 : 0.85,
     );
-    final borderColor = theme.colorScheme.outlineVariant.withValues(
-      alpha: 0.35,
-    );
+    final borderColor = theme.colorScheme.outline.withValues(alpha: 0.72);
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -4834,10 +5263,16 @@ class _WeekCompactView extends StatelessWidget {
                   SizedBox(
                     width: dayWidth,
                     child: Container(
+                      clipBehavior: Clip.antiAlias,
                       decoration: BoxDecoration(
                         color: headerBackground,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: borderColor, width: 1),
+                        borderRadius: BorderRadius.circular(
+                          _kDayHeaderBorderRadius,
+                        ),
+                        border: Border.all(
+                          color: borderColor,
+                          width: _kDayColumnBorderWidth,
+                        ),
                         boxShadow: [
                           BoxShadow(
                             color: theme.shadowColor.withValues(alpha: 0.08),
@@ -4846,12 +5281,7 @@ class _WeekCompactView extends StatelessWidget {
                           ),
                         ],
                       ),
-                      padding: const EdgeInsets.fromLTRB(
-                        _kDayHorizontalPadding,
-                        2,
-                        _kDayHorizontalPadding,
-                        2,
-                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 2),
                       child: _buildStaffHeaderRow(
                         context,
                         theme,
@@ -4891,16 +5321,11 @@ class _WeekCompactView extends StatelessWidget {
             theme,
             data,
             staff[index],
-            index < layout.columnWidths.length
-                ? layout.columnWidths[index]
-                : 0.0,
             layout.enforceMinWidth,
+            index != staffCount - 1,
           ),
         ),
       );
-      if (index != staffCount - 1) {
-        children.add(SizedBox(width: layout.columnGap));
-      }
     }
 
     return SizedBox(
@@ -4917,8 +5342,8 @@ class _WeekCompactView extends StatelessWidget {
     ThemeData theme,
     _WeekDayData data,
     StaffMember staffMember,
-    double width,
     bool enforceMinWidth,
+    bool showTrailingDivider,
   ) {
     final minWidthConstraint = enforceMinWidth ? _kMinStaffColumnWidth : 0.0;
     final canManageDay =
@@ -4957,12 +5382,7 @@ class _WeekCompactView extends StatelessWidget {
       letterSpacing: 0.2,
       color: theme.colorScheme.primary,
     );
-    final borderColor = theme.colorScheme.outlineVariant.withValues(
-      alpha: 0.35,
-    );
-    final backgroundStart = theme.colorScheme.surfaceContainerHighest
-        .withValues(alpha: theme.brightness == Brightness.dark ? 0.45 : 0.75);
-    final backgroundEnd = theme.colorScheme.surface;
+    final borderColor = theme.colorScheme.outline.withValues(alpha: 0.56);
 
     return ConstrainedBox(
       constraints:
@@ -4971,28 +5391,18 @@ class _WeekCompactView extends StatelessWidget {
               : const BoxConstraints(),
       child: SizedBox(
         height: _kStaffHeaderHeight,
-        child: _StaffHeaderButton(
-          enabled: canManageDay,
-          tooltip:
-              'Gestisci turni e assenze per ${_formatCalendarDayLabel(data.date)}',
-          onPressed: manageCallback,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [backgroundStart, backgroundEnd],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-              ),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: borderColor, width: 1),
-              boxShadow: [
-                BoxShadow(
-                  color: theme.colorScheme.shadow.withValues(alpha: 0.08),
-                  blurRadius: 12,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            border:
+                showTrailingDivider
+                    ? Border(right: BorderSide(color: borderColor, width: 1))
+                    : null,
+          ),
+          child: _StaffHeaderButton(
+            enabled: canManageDay,
+            tooltip:
+                'Gestisci turni e assenze per ${_formatCalendarDayLabel(data.date)}',
+            onPressed: manageCallback,
             child: Center(
               child: Tooltip(
                 message: staffMember.fullName,
@@ -5673,6 +6083,7 @@ class _OperatorAppointmentTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final tileBorderRadius = BorderRadius.circular(14);
     final timeLabel =
         '${_timeFormat.format(appointment.start)} - ${_timeFormat.format(appointment.end)}';
     final serviceLabel =
@@ -5681,18 +6092,34 @@ class _OperatorAppointmentTile extends StatelessWidget {
     final issues =
         anomalies.toList()..sort((a, b) => a.index.compareTo(b.index));
     final isCancelled = appointment.status == AppointmentStatus.cancelled;
+    final hasWarnings = issues.isNotEmpty;
+    final baseTileColor =
+        isPlaceholder
+            ? theme.colorScheme.primaryContainer.withValues(alpha: 0.35)
+            : isCancelled
+            ? Colors.transparent
+            : theme.colorScheme.surfaceContainerHighest;
+    final tileColor =
+        hasWarnings
+            ? Color.alphaBlend(
+              theme.colorScheme.errorContainer.withValues(alpha: 0.38),
+              baseTileColor,
+            )
+            : baseTileColor;
+    final borderColor =
+        hasWarnings
+            ? theme.colorScheme.error.withValues(alpha: 0.55)
+            : theme.colorScheme.outlineVariant.withValues(alpha: 0.24);
 
     return Material(
-      color:
-          isPlaceholder
-              ? theme.colorScheme.primaryContainer.withValues(alpha: 0.35)
-              : isCancelled
-              ? Colors.transparent
-              : theme.colorScheme.surfaceContainerHighest,
-      borderRadius: BorderRadius.circular(14),
+      color: tileColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: tileBorderRadius,
+        side: BorderSide(color: borderColor, width: hasWarnings ? 1.4 : 1),
+      ),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: tileBorderRadius,
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -6094,6 +6521,301 @@ class _AppointmentAutoScrollDriver {
   }
 }
 
+class _AppointmentHoverPreviewRequest {
+  const _AppointmentHoverPreviewRequest({
+    required this.layerLink,
+    required this.globalTargetRect,
+    required this.appointment,
+    required this.client,
+    required this.service,
+    required this.staff,
+    required this.categoriesById,
+    required this.categoriesByName,
+    this.services = const <Service>[],
+    this.roomName,
+    this.anomalies = const <AppointmentAnomalyType>{},
+    this.hasOutstandingPayments = false,
+    this.lastMinuteSlot,
+    this.visibleDurationMinutes,
+  });
+
+  final LayerLink layerLink;
+  final Rect globalTargetRect;
+  final Appointment appointment;
+  final Client? client;
+  final Service? service;
+  final List<Service> services;
+  final StaffMember staff;
+  final String? roomName;
+  final Map<String, ServiceCategory> categoriesById;
+  final Map<String, ServiceCategory> categoriesByName;
+  final Set<AppointmentAnomalyType> anomalies;
+  final bool hasOutstandingPayments;
+  final LastMinuteSlot? lastMinuteSlot;
+  final int? visibleDurationMinutes;
+
+  String get appointmentId => appointment.id;
+
+  _AppointmentPreviewPresentation get presentation =>
+      _AppointmentPreviewPresentation.fromContent(
+        appointment: appointment,
+        client: client,
+        service: service,
+        services: services,
+        roomName: roomName,
+        anomalies: anomalies,
+        lastMinuteSlot: lastMinuteSlot,
+        visibleDurationMinutes: visibleDurationMinutes,
+        hasOutstandingPayments: hasOutstandingPayments,
+        showNotes: true,
+      );
+}
+
+class _AppointmentPreviewPresentation {
+  const _AppointmentPreviewPresentation({
+    required this.servicesToDisplay,
+    required this.serviceLabel,
+    required this.clientLabel,
+    required this.contentDurationMinutes,
+    required this.estimatedHeight,
+    this.clientPhone,
+    this.clientNumber,
+    this.noteText,
+    this.attentionText,
+    this.roomName,
+  });
+
+  factory _AppointmentPreviewPresentation.fromContent({
+    required Appointment appointment,
+    required Client? client,
+    required Service? service,
+    required List<Service> services,
+    required String? roomName,
+    required Set<AppointmentAnomalyType> anomalies,
+    required LastMinuteSlot? lastMinuteSlot,
+    required int? visibleDurationMinutes,
+    required bool hasOutstandingPayments,
+    required bool showNotes,
+  }) {
+    final servicesToDisplay =
+        services.isNotEmpty
+            ? List<Service>.unmodifiable(services)
+            : List<Service>.unmodifiable(<Service>[
+              if (service != null) service,
+            ]);
+    final serviceLabel =
+        servicesToDisplay.isNotEmpty
+            ? servicesToDisplay.map((entry) => entry.name).join(' + ')
+            : 'Appuntamento';
+    final clientLabel = _appointmentHoverClientLabel(client);
+    final trimmedClientPhone = client?.phone.trim();
+    final clientPhone =
+        trimmedClientPhone != null && trimmedClientPhone.isNotEmpty
+            ? trimmedClientPhone
+            : null;
+    final trimmedClientNumber = client?.clientNumber?.trim();
+    final clientNumber =
+        trimmedClientNumber != null && trimmedClientNumber.isNotEmpty
+            ? trimmedClientNumber
+            : null;
+    final trimmedNoteText = appointment.notes?.trim();
+    final noteText =
+        showNotes && trimmedNoteText != null && trimmedNoteText.isNotEmpty
+            ? trimmedNoteText
+            : null;
+    final attentionText = _attentionText(
+      isCancelled: appointment.status == AppointmentStatus.cancelled,
+      anomalies: anomalies,
+    );
+    final trimmedRoomName = roomName?.trim();
+    final normalizedRoomName =
+        trimmedRoomName != null && trimmedRoomName.isNotEmpty
+            ? trimmedRoomName
+            : null;
+    final contentDurationMinutes = max(
+      1,
+      visibleDurationMinutes ?? appointment.duration.inMinutes,
+    );
+    final categoryCount =
+        servicesToDisplay
+            .map(
+              (entry) =>
+                  entry.category.trim().isNotEmpty
+                      ? entry.category.trim().toLowerCase()
+                      : entry.name.trim().toLowerCase(),
+            )
+            .where((label) => label.isNotEmpty)
+            .toSet()
+            .length;
+    final indicatorCount =
+        anomalies.length +
+        (hasOutstandingPayments ? 1 : 0) +
+        (_appointmentHasActivePackage(appointment) ? 1 : 0) +
+        (lastMinuteSlot != null ? 1 : 0);
+    final visibleAttentionText = anomalies.isEmpty ? attentionText : null;
+    return _AppointmentPreviewPresentation(
+      servicesToDisplay: servicesToDisplay,
+      serviceLabel: serviceLabel,
+      clientLabel: clientLabel,
+      clientPhone: clientPhone,
+      clientNumber: clientNumber,
+      noteText: noteText,
+      attentionText: visibleAttentionText,
+      roomName: normalizedRoomName,
+      contentDurationMinutes: contentDurationMinutes,
+      estimatedHeight: _estimateAppointmentFigmaPreviewHeight(
+        serviceLabel: serviceLabel,
+        clientLabel: clientLabel,
+        categoryCount: categoryCount,
+        indicatorCount: indicatorCount,
+        hasPhone: clientPhone != null,
+        hasClientNumber: clientNumber != null,
+        hasRoom: normalizedRoomName != null,
+        noteText: noteText,
+        attentionText: visibleAttentionText,
+      ),
+    );
+  }
+
+  final List<Service> servicesToDisplay;
+  final String serviceLabel;
+  final String clientLabel;
+  final String? clientPhone;
+  final String? clientNumber;
+  final String? noteText;
+  final String? attentionText;
+  final String? roomName;
+  final int contentDurationMinutes;
+  final double estimatedHeight;
+}
+
+class _AppointmentHoverAnchor {
+  const _AppointmentHoverAnchor({
+    required this.layerLink,
+    required this.globalTargetRect,
+  });
+
+  final LayerLink layerLink;
+  final Rect globalTargetRect;
+}
+
+class _AppointmentHoverPreviewController extends ChangeNotifier {
+  _AppointmentHoverPreviewRequest? _activeRequest;
+
+  _AppointmentHoverPreviewRequest? get activeRequest => _activeRequest;
+
+  void show(_AppointmentHoverPreviewRequest request) {
+    final current = _activeRequest;
+    if (current != null &&
+        current.appointmentId == request.appointmentId &&
+        current.globalTargetRect == request.globalTargetRect &&
+        identical(current.layerLink, request.layerLink)) {
+      return;
+    }
+    _activeRequest = request;
+    notifyListeners();
+  }
+
+  void dismiss({String? appointmentId}) {
+    final current = _activeRequest;
+    if (current == null) {
+      return;
+    }
+    if (appointmentId != null && current.appointmentId != appointmentId) {
+      return;
+    }
+    _activeRequest = null;
+    notifyListeners();
+  }
+}
+
+class _AppointmentHoverPreviewLayer extends StatelessWidget {
+  const _AppointmentHoverPreviewLayer({required this.controller});
+
+  final _AppointmentHoverPreviewController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final request = controller.activeRequest;
+        if (request == null) {
+          return const SizedBox.shrink();
+        }
+        final preview = request.presentation;
+        final viewportSize = MediaQuery.sizeOf(context);
+        final spaceLeft = request.globalTargetRect.left;
+        final spaceRight = viewportSize.width - request.globalTargetRect.right;
+        var placeRight = spaceRight >= spaceLeft;
+        if (placeRight &&
+            spaceRight < _kHoverPreviewWidth + _kHoverPreviewGap &&
+            spaceLeft > spaceRight) {
+          placeRight = false;
+        } else if (!placeRight &&
+            spaceLeft < _kHoverPreviewWidth + _kHoverPreviewGap &&
+            spaceRight > spaceLeft) {
+          placeRight = true;
+        }
+        final availableWidth =
+            placeRight
+                ? spaceRight - _kHoverPreviewGap
+                : spaceLeft - _kHoverPreviewGap;
+        final hoverWidth = min(_kHoverPreviewWidth, max(0.0, availableWidth));
+        if (hoverWidth <= 0) {
+          return const SizedBox.shrink();
+        }
+        final estimatedHeight = preview.estimatedHeight;
+        final desiredTop = request.globalTargetRect.top;
+        final maxTop = max(
+          0.0,
+          viewportSize.height - estimatedHeight - _kHoverPreviewGap,
+        );
+        final verticalOffset =
+            estimatedHeight.isFinite && estimatedHeight > 0
+                ? desiredTop.clamp(0.0, maxTop).toDouble() - desiredTop
+                : 0.0;
+        final horizontalOffset =
+            placeRight
+                ? request.globalTargetRect.width + _kHoverPreviewGap
+                : -hoverWidth - _kHoverPreviewGap;
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            CompositedTransformFollower(
+              link: request.layerLink,
+              showWhenUnlinked: false,
+              targetAnchor: Alignment.topLeft,
+              followerAnchor: Alignment.topLeft,
+              offset: Offset(horizontalOffset, verticalOffset),
+              child: SizedBox(
+                key: _kAppointmentHoverPreviewKey,
+                width: hoverWidth,
+                child: Material(
+                  color: Colors.transparent,
+                  child: _AppointmentHoverPreviewCard(
+                    appointment: request.appointment,
+                    client: request.client,
+                    service: request.service,
+                    services: request.services,
+                    roomName: request.roomName,
+                    categoriesById: request.categoriesById,
+                    categoriesByName: request.categoriesByName,
+                    anomalies: request.anomalies,
+                    hasOutstandingPayments: request.hasOutstandingPayments,
+                    lastMinuteSlot: request.lastMinuteSlot,
+                    visibleDurationMinutes: preview.contentDurationMinutes,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class _StaffDayColumn extends StatefulWidget {
   const _StaffDayColumn({
     required this.staffMember,
@@ -6109,6 +6831,7 @@ class _StaffDayColumn extends StatefulWidget {
     required this.interactionSlotMinutes,
     required this.slotExtent,
     required this.verticalController,
+    this.horizontalScrollController,
     required this.clientsWithOutstandingPayments,
     required this.clientsById,
     required this.servicesById,
@@ -6123,6 +6846,7 @@ class _StaffDayColumn extends StatefulWidget {
     required this.onCreate,
     required this.onTapLastMinuteSlot,
     required this.anomalies,
+    required this.hoverPreviewController,
     this.openStart,
     this.openEnd,
     this.compact = false,
@@ -6144,6 +6868,7 @@ class _StaffDayColumn extends StatefulWidget {
   final int interactionSlotMinutes;
   final double slotExtent;
   final ScrollController verticalController;
+  final ScrollController? horizontalScrollController;
   final Set<String> clientsWithOutstandingPayments;
   final Map<String, Client> clientsById;
   final Map<String, Service> servicesById;
@@ -6157,6 +6882,7 @@ class _StaffDayColumn extends StatefulWidget {
   final AppointmentTapCallback onEdit;
   final AppointmentSlotSelectionCallback onCreate;
   final Map<String, Set<AppointmentAnomalyType>> anomalies;
+  final _AppointmentHoverPreviewController hoverPreviewController;
   final DateTime? openStart;
   final DateTime? openEnd;
   final bool compact;
@@ -6169,6 +6895,7 @@ class _StaffDayColumn extends StatefulWidget {
 
 class _StaffDayColumnState extends State<_StaffDayColumn> {
   static final DateFormat _timeLabel = DateFormat('HH:mm', 'it_IT');
+
   late final AppointmentInteractionController _interactionController;
   late _AppointmentAutoScrollDriver _autoScrollDriver;
   DateTime? _lastDragUpdateAt;
@@ -6181,21 +6908,37 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
     _autoScrollDriver = _AppointmentAutoScrollDriver(
       verticalController: widget.verticalController,
     );
+    widget.verticalController.addListener(_handleScrollActivity);
+    widget.horizontalScrollController?.addListener(_handleScrollActivity);
   }
 
   @override
   void didUpdateWidget(covariant _StaffDayColumn oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.verticalController != widget.verticalController) {
+      oldWidget.verticalController.removeListener(_handleScrollActivity);
       _autoScrollDriver.dispose();
       _autoScrollDriver = _AppointmentAutoScrollDriver(
         verticalController: widget.verticalController,
       );
+      widget.verticalController.addListener(_handleScrollActivity);
+    }
+    if (oldWidget.horizontalScrollController !=
+        widget.horizontalScrollController) {
+      oldWidget.horizontalScrollController?.removeListener(
+        _handleScrollActivity,
+      );
+      widget.horizontalScrollController?.addListener(_handleScrollActivity);
+    }
+    if (widget.readOnly && !oldWidget.readOnly) {
+      widget.hoverPreviewController.dismiss();
     }
   }
 
   @override
   void dispose() {
+    widget.verticalController.removeListener(_handleScrollActivity);
+    widget.horizontalScrollController?.removeListener(_handleScrollActivity);
     _interactionController.removeListener(_onInteractionChange);
     _interactionController.dispose();
     _autoScrollDriver.dispose();
@@ -6205,13 +6948,147 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
   double get _totalMinutes =>
       widget.timelineEnd.difference(widget.timelineStart).inMinutes.toDouble();
 
-  bool _hasShiftDuring(DateTime start, DateTime end) {
+  bool _hasTimelineGridDuring(DateTime start, DateTime end) {
     for (final shift in widget.shifts) {
       if (_overlapsRange(shift.start, shift.end, start, end)) {
         return true;
       }
     }
+    if (widget.shifts.isNotEmpty) {
+      return false;
+    }
+    final openStart = widget.openStart;
+    final openEnd = widget.openEnd;
+    if (openStart != null && openEnd != null) {
+      return _overlapsRange(openStart, openEnd, start, end);
+    }
     return false;
+  }
+
+  List<_DateSegment> _buildNoShiftSegments() {
+    final rangeStart = widget.openStart ?? widget.timelineStart;
+    final rangeEnd = widget.openEnd ?? widget.timelineEnd;
+    final visibleRange = _segmentWithinTimeline(
+      rangeStart,
+      rangeEnd,
+      widget.timelineStart,
+      widget.timelineEnd,
+    );
+    if (visibleRange == null) {
+      return const <_DateSegment>[];
+    }
+
+    final activeSegments =
+        widget.shifts
+            .map(
+              (shift) => _segmentWithinTimeline(
+                shift.start,
+                shift.end,
+                visibleRange.start,
+                visibleRange.end,
+              ),
+            )
+            .whereType<_DateSegment>()
+            .toList()
+          ..sort((first, second) => first.start.compareTo(second.start));
+
+    if (activeSegments.isEmpty) {
+      return <_DateSegment>[
+        _DateSegment(start: visibleRange.start, end: visibleRange.end),
+      ];
+    }
+
+    final mergedSegments = <_DateSegment>[];
+    for (final segment in activeSegments) {
+      if (mergedSegments.isEmpty) {
+        mergedSegments.add(segment);
+        continue;
+      }
+      final previous = mergedSegments.last;
+      if (!segment.start.isAfter(previous.end)) {
+        mergedSegments[mergedSegments.length - 1] = _DateSegment(
+          start: previous.start,
+          end: segment.end.isAfter(previous.end) ? segment.end : previous.end,
+        );
+        continue;
+      }
+      mergedSegments.add(segment);
+    }
+
+    final noShiftSegments = <_DateSegment>[];
+    var cursor = visibleRange.start;
+    for (final segment in mergedSegments) {
+      if (segment.start.isAfter(cursor)) {
+        noShiftSegments.add(_DateSegment(start: cursor, end: segment.start));
+      }
+      if (segment.end.isAfter(cursor)) {
+        cursor = segment.end;
+      }
+    }
+    if (cursor.isBefore(visibleRange.end)) {
+      noShiftSegments.add(_DateSegment(start: cursor, end: visibleRange.end));
+    }
+    return noShiftSegments;
+  }
+
+  Set<AppointmentAnomalyType> _anomaliesForPlacement(
+    Appointment appointment, {
+    required DateTime start,
+    required DateTime end,
+  }) {
+    final previewed = appointment.copyWith(
+      start: start,
+      end: end,
+      staffId: widget.staffMember.id,
+      salonId:
+          widget.staffMember.salonId.trim().isNotEmpty
+              ? widget.staffMember.salonId.trim()
+              : appointment.salonId,
+    );
+    return calculateAppointmentAnomalies(
+      appointment: previewed,
+      shifts: widget.shifts,
+      absences: widget.absences,
+      now: DateTime.now(),
+    );
+  }
+
+  List<Widget> _buildSegmentSlotDividers({
+    required DateTime segmentStart,
+    required DateTime segmentEnd,
+    required double pixelsPerMinute,
+    required Color hourColor,
+    required Color minorColor,
+  }) {
+    if (!segmentEnd.isAfter(segmentStart)) {
+      return const <Widget>[];
+    }
+
+    final dividers = <Widget>[];
+    var boundary = _ceilToSlot(segmentStart, widget.slotMinutes);
+    if (!boundary.isAfter(segmentStart)) {
+      boundary = boundary.add(Duration(minutes: widget.slotMinutes));
+    }
+
+    while (boundary.isBefore(segmentEnd)) {
+      final isHourBoundary = boundary.minute == 0;
+      final thickness = isHourBoundary ? 1.6 : 1.0;
+      final top = boundary.difference(segmentStart).inMinutes * pixelsPerMinute;
+      dividers.add(
+        Positioned(
+          top: max(0.0, top - (thickness / 2)),
+          left: 0,
+          right: 0,
+          child: Container(
+            height: thickness,
+            color: isHourBoundary ? hourColor : minorColor,
+          ),
+        ),
+      );
+      boundary = boundary.add(Duration(minutes: widget.slotMinutes));
+    }
+
+    return dividers;
   }
 
   void _endDragAfterFrame({bool cancelled = false}) {
@@ -6233,6 +7110,10 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
     if (mounted) {
       setState(() {});
     }
+  }
+
+  void _handleScrollActivity() {
+    widget.hoverPreviewController.dismiss();
   }
 
   void _handleHover(PointerHoverEvent event, double gridHeight) {
@@ -6271,6 +7152,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
     if (_interactionController.state.hoverStart != null) {
       _interactionController.clearHover();
     }
+    widget.hoverPreviewController.dismiss();
   }
 
   void _handleTap(TapUpDetails details, double gridHeight) {
@@ -6494,6 +7376,8 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
     final theme = Theme.of(context);
     final double pixelsPerMinute = widget.slotExtent / widget.slotMinutes;
     final interaction = _interactionController.state;
+    final suppressShiftDecorations = widget.absences.isNotEmpty;
+    final noShiftSegments = _buildNoShiftSegments();
 
     Widget? openOverlay;
     if (widget.openStart != null && widget.openEnd != null) {
@@ -6527,6 +7411,77 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
       }
     }
 
+    final noShiftOverlays = noShiftSegments
+        .map((segment) {
+          final top =
+              segment.start.difference(widget.timelineStart).inMinutes *
+              pixelsPerMinute;
+          final height = max(
+            widget.slotExtent,
+            segment.end.difference(segment.start).inMinutes * pixelsPerMinute,
+          );
+          final showLabel = height >= 34;
+          return Positioned(
+            top: top,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(
+              child: Stack(
+                children: [
+                  Container(
+                    height: height,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.errorContainer.withValues(
+                        alpha:
+                            theme.brightness == Brightness.dark ? 0.16 : 0.22,
+                      ),
+                      border: Border(
+                        top: BorderSide(
+                          color: theme.colorScheme.error.withValues(alpha: 0.3),
+                        ),
+                        bottom: BorderSide(
+                          color: theme.colorScheme.error.withValues(
+                            alpha: 0.22,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (showLabel)
+                    Positioned(
+                      top: 6,
+                      left: 6,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.errorContainer.withValues(
+                            alpha: 0.96,
+                          ),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: theme.colorScheme.error.withValues(
+                              alpha: 0.38,
+                            ),
+                          ),
+                        ),
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: Icon(
+                            Icons.warning_amber_rounded,
+                            key: const ValueKey<String>('no-shift-marker'),
+                            size: 16,
+                            color: theme.colorScheme.onErrorContainer,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          );
+        })
+        .toList(growable: false);
+
     final dragStart = interaction.previewStart;
     final dragDuration =
         interaction.previewDuration ?? interaction.dragAppointment?.duration;
@@ -6549,9 +7504,11 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
           end: dragEnd,
         );
         final client = widget.clientsById[previewed.clientId];
-        final anomalies =
-            widget.anomalies[dragAppointment.id] ??
-            const <AppointmentAnomalyType>{};
+        final anomalies = _anomaliesForPlacement(
+          dragAppointment,
+          start: dragStart,
+          end: dragEnd,
+        );
         final roomName =
             previewed.roomId != null
                 ? widget.roomsById[previewed.roomId!]
@@ -6638,19 +7595,37 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
         final isBusy = isBusyAppointments || isBusyHolds;
         final fillColor =
             isBusy
-                ? theme.colorScheme.error.withValues(alpha: 0.08)
-                : theme.colorScheme.primary.withValues(alpha: 0.08);
+                ? theme.colorScheme.errorContainer.withValues(
+                  alpha: theme.brightness == Brightness.dark ? 0.32 : 0.48,
+                )
+                : theme.colorScheme.primary.withValues(
+                  alpha: theme.brightness == Brightness.dark ? 0.22 : 0.14,
+                );
         final outlineColor =
             isBusy
-                ? theme.colorScheme.error.withValues(alpha: 0.35)
-                : theme.colorScheme.primary.withValues(alpha: 0.25);
+                ? theme.colorScheme.error.withValues(
+                  alpha: theme.brightness == Brightness.dark ? 0.74 : 0.58,
+                )
+                : theme.colorScheme.primary.withValues(alpha: 0.96);
         final labelTextColor =
             isBusy
-                ? theme.colorScheme.error.withValues(alpha: 0.9)
-                : theme.colorScheme.primary.withValues(alpha: 0.85);
-        final labelBackground = theme.colorScheme.surface.withValues(
-          alpha: 0.94,
-        );
+                ? theme.colorScheme.onErrorContainer
+                : theme.colorScheme.onPrimary;
+        final labelBackground =
+            isBusy
+                ? theme.colorScheme.errorContainer.withValues(alpha: 0.98)
+                : theme.colorScheme.primary;
+        final overlayBorderWidth = isBusy ? 1.8 : 2.6;
+        final overlayShadowColor =
+            isBusy
+                ? theme.colorScheme.error.withValues(
+                  alpha: theme.brightness == Brightness.dark ? 0.18 : 0.12,
+                )
+                : theme.colorScheme.primary.withValues(
+                  alpha: theme.brightness == Brightness.dark ? 0.28 : 0.16,
+                );
+        final labelBorderColor =
+            isBusy ? outlineColor.withValues(alpha: 0.7) : outlineColor;
         final slotLabel = _timeLabel.format(hoverStart);
         final hoverDurationMinutes =
             segment.end.difference(segment.start).inMinutes;
@@ -6670,8 +7645,17 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                   height: hoverHeight,
                   decoration: BoxDecoration(
                     color: fillColor,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: outlineColor, width: 1.5),
+                    border: Border.all(
+                      color: outlineColor,
+                      width: overlayBorderWidth,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: overlayShadowColor,
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
                 ),
                 Positioned(
@@ -6681,9 +7665,14 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                     decoration: BoxDecoration(
                       color: labelBackground,
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: outlineColor.withValues(alpha: 0.6),
-                      ),
+                      border: Border.all(color: labelBorderColor),
+                      boxShadow: [
+                        BoxShadow(
+                          color: overlayShadowColor,
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
@@ -6708,14 +7697,14 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
     }
 
     return MouseRegion(
-      onHover:
-          widget.readOnly ? null : (event) => _handleHover(event, gridHeight),
-      onExit: widget.readOnly ? null : _clearHover,
+      onHover: (event) => _handleHover(event, gridHeight),
+      onExit: _clearHover,
       child: SizedBox(
         height: gridHeight,
         child: Stack(
           children: [
             Listener(
+              onPointerDown: (_) => widget.hoverPreviewController.dismiss(),
               onPointerUp: (_) => _endDragAfterFrame(),
               onPointerCancel: (_) => _endDragAfterFrame(cancelled: true),
               child: DragTarget<_AppointmentDragData>(
@@ -6802,8 +7791,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                   final columnBackground = theme.colorScheme.surface.withValues(
                     alpha: 0.96,
                   );
-                  return ClipRRect(
-                    borderRadius: BorderRadius.circular(14),
+                  return ClipRect(
                     child: Container(
                       height: gridHeight,
                       color: columnBackground,
@@ -6837,13 +7825,15 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                                     final DateTime slotEnd = slotStart.add(
                                       Duration(minutes: widget.slotMinutes),
                                     );
-                                    final bool hasShift = _hasShiftDuring(
-                                      slotStart,
-                                      slotEnd,
-                                    );
+                                    final bool hasTimelineGrid =
+                                        _hasTimelineGridDuring(
+                                          slotStart,
+                                          slotEnd,
+                                        ) &&
+                                        !suppressShiftDecorations;
                                     BorderSide topBorder = BorderSide.none;
                                     BorderSide bottomBorder = BorderSide.none;
-                                    if (hasShift) {
+                                    if (hasTimelineGrid) {
                                       final bool isDark =
                                           theme.brightness == Brightness.dark;
                                       final double hourTopAlpha =
@@ -6869,13 +7859,26 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                                           baseMinorColor.withValues(
                                             alpha: minorBottomAlpha,
                                           );
-                                      bottomBorder = BorderSide(
-                                        color:
-                                            isDark
-                                                ? Colors.white24
-                                                : Colors.black26,
-                                        width: 1,
-                                      );
+                                      topBorder =
+                                          isHourBoundary
+                                              ? BorderSide(
+                                                color: baseHourColor,
+                                                width: 1,
+                                              )
+                                              : BorderSide(
+                                                color: baseMinorColor,
+                                                width: 0.75,
+                                              );
+                                      bottomBorder =
+                                          isHourBoundary
+                                              ? BorderSide(
+                                                color: hourBottomColor,
+                                                width: 1,
+                                              )
+                                              : BorderSide(
+                                                color: minorBottomColor,
+                                                width: 0.75,
+                                              );
                                     }
                                     final showSlotLabel =
                                         widget.showSlotStartTimes;
@@ -6932,8 +7935,8 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                             ),
                           ),
                           if (openOverlay != null) openOverlay,
+                          ...noShiftOverlays,
                           if (dragOverlay != null) dragOverlay,
-                          if (hoverOverlay != null) hoverOverlay,
                           // Visual overlay for last-minute holds (blocked slots)
                           ...widget.lastMinuteSlots.expand((slot) {
                             if (!slot.isAvailable) {
@@ -6979,7 +7982,6 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                                             : () => widget.onTapLastMinuteSlot!(
                                               slot,
                                             ),
-                                    borderRadius: BorderRadius.circular(8),
                                     child: Container(
                                       height: height,
                                       decoration: BoxDecoration(
@@ -6987,7 +7989,6 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                                             .colorScheme
                                             .primaryContainer
                                             .withValues(alpha: 0.30),
-                                        borderRadius: BorderRadius.circular(8),
                                         border: Border.all(
                                           color: theme.colorScheme.primary
                                               .withValues(alpha: 0.50),
@@ -7110,7 +8111,6 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                                     decoration: BoxDecoration(
                                       color: theme.colorScheme.errorContainer
                                           .withValues(alpha: 0.5),
-                                      borderRadius: BorderRadius.circular(8),
                                       border: Border.all(
                                         color: theme.colorScheme.error
                                             .withValues(alpha: 0.6),
@@ -7130,125 +8130,156 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                               ),
                             ];
                           }),
-                          ...widget.shifts.expand((shift) {
-                            final segment = _segmentWithinTimeline(
-                              shift.start,
-                              shift.end,
-                              widget.timelineStart,
-                              widget.timelineEnd,
-                            );
-                            if (segment == null) {
-                              return const Iterable<Widget>.empty();
-                            }
+                          if (!suppressShiftDecorations)
+                            ...widget.shifts.expand((shift) {
+                              final segment = _segmentWithinTimeline(
+                                shift.start,
+                                shift.end,
+                                widget.timelineStart,
+                                widget.timelineEnd,
+                              );
+                              if (segment == null) {
+                                return const Iterable<Widget>.empty();
+                              }
 
-                            final baseShiftColor =
-                                Color.lerp(
-                                  Colors.white,
-                                  theme.colorScheme.tertiaryContainer,
+                              final baseShiftColor =
                                   theme.brightness == Brightness.dark
-                                      ? 0.45
-                                      : 0.0,
-                                )!;
-                            final shiftFillColor = baseShiftColor.withValues(
-                              alpha:
-                                  theme.brightness == Brightness.dark
-                                      ? 0.42
-                                      : 0.3,
-                            );
-                            final shiftBorderColor = theme.colorScheme.tertiary
-                                .withValues(
-                                  alpha:
-                                      theme.brightness == Brightness.dark
-                                          ? 0.35
-                                          : 0.2,
-                                );
+                                      ? theme.colorScheme.surfaceBright
+                                      : Colors.white;
+                              final shiftFillColor = baseShiftColor.withValues(
+                                alpha:
+                                    theme.brightness == Brightness.dark
+                                        ? 0.22
+                                        : 0.82,
+                              );
+                              final shiftBorderColor = theme
+                                  .colorScheme
+                                  .outlineVariant
+                                  .withValues(
+                                    alpha:
+                                        theme.brightness == Brightness.dark
+                                            ? 0.48
+                                            : 0.38,
+                                  );
+                              final shiftHourDividerColor = theme
+                                  .colorScheme
+                                  .onSurface
+                                  .withValues(
+                                    alpha:
+                                        theme.brightness == Brightness.dark
+                                            ? 0.42
+                                            : 0.18,
+                                  );
+                              final shiftMinorDividerColor = theme
+                                  .colorScheme
+                                  .onSurface
+                                  .withValues(
+                                    alpha:
+                                        theme.brightness == Brightness.dark
+                                            ? 0.28
+                                            : 0.1,
+                                  );
 
-                            final top =
-                                segment.start
-                                    .difference(widget.timelineStart)
-                                    .inMinutes /
-                                widget.slotMinutes *
-                                widget.slotExtent;
-                            final height = max(
-                              widget.slotExtent,
-                              segment.end.difference(segment.start).inMinutes /
+                              final top =
+                                  segment.start
+                                      .difference(widget.timelineStart)
+                                      .inMinutes /
                                   widget.slotMinutes *
-                                  widget.slotExtent,
-                            );
+                                  widget.slotExtent;
+                              final height = max(
+                                widget.slotExtent,
+                                segment.end
+                                        .difference(segment.start)
+                                        .inMinutes /
+                                    widget.slotMinutes *
+                                    widget.slotExtent,
+                              );
 
-                            final widgets = <Widget>[
-                              Positioned(
-                                top: top,
-                                left: 0,
-                                right: 0,
-                                child: IgnorePointer(
-                                  child: Container(
-                                    height: height,
-                                    decoration: BoxDecoration(
-                                      color: shiftFillColor,
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(
-                                        color: shiftBorderColor,
+                              final widgets = <Widget>[
+                                Positioned(
+                                  top: top,
+                                  left: 0,
+                                  right: 0,
+                                  child: IgnorePointer(
+                                    child: SizedBox(
+                                      height: height,
+                                      child: Stack(
+                                        children: [
+                                          Positioned.fill(
+                                            child: DecoratedBox(
+                                              decoration: BoxDecoration(
+                                                color: shiftFillColor,
+                                                border: Border.all(
+                                                  color: shiftBorderColor,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          ..._buildSegmentSlotDividers(
+                                            segmentStart: segment.start,
+                                            segmentEnd: segment.end,
+                                            pixelsPerMinute: pixelsPerMinute,
+                                            hourColor: shiftHourDividerColor,
+                                            minorColor: shiftMinorDividerColor,
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            ];
+                              ];
 
-                            if (shift.breakStart != null &&
-                                shift.breakEnd != null) {
-                              final breakSegment = _segmentWithinTimeline(
-                                shift.breakStart!,
-                                shift.breakEnd!,
-                                widget.timelineStart,
-                                widget.timelineEnd,
-                              );
-                              if (breakSegment != null) {
-                                final breakTop =
-                                    breakSegment.start
-                                        .difference(widget.timelineStart)
-                                        .inMinutes /
-                                    widget.slotMinutes *
-                                    widget.slotExtent;
-                                final breakHeight = max(
-                                  widget.slotExtent / 2,
-                                  breakSegment.end
-                                          .difference(breakSegment.start)
+                              if (shift.breakStart != null &&
+                                  shift.breakEnd != null) {
+                                final breakSegment = _segmentWithinTimeline(
+                                  shift.breakStart!,
+                                  shift.breakEnd!,
+                                  widget.timelineStart,
+                                  widget.timelineEnd,
+                                );
+                                if (breakSegment != null) {
+                                  final breakTop =
+                                      breakSegment.start
+                                          .difference(widget.timelineStart)
                                           .inMinutes /
                                       widget.slotMinutes *
-                                      widget.slotExtent,
-                                );
-                                widgets.add(
-                                  Positioned(
-                                    top: breakTop,
-                                    left: 0,
-                                    right: 0,
-                                    child: IgnorePointer(
-                                      child: Container(
-                                        height: breakHeight,
-                                        decoration: BoxDecoration(
-                                          color: theme
-                                              .colorScheme
-                                              .errorContainer
-                                              .withValues(alpha: 0.35),
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                          border: Border.all(
-                                            color: theme.colorScheme.error
-                                                .withValues(alpha: 0.4),
+                                      widget.slotExtent;
+                                  final breakHeight = max(
+                                    widget.slotExtent / 2,
+                                    breakSegment.end
+                                            .difference(breakSegment.start)
+                                            .inMinutes /
+                                        widget.slotMinutes *
+                                        widget.slotExtent,
+                                  );
+                                  widgets.add(
+                                    Positioned(
+                                      top: breakTop,
+                                      left: 0,
+                                      right: 0,
+                                      child: IgnorePointer(
+                                        child: Container(
+                                          height: breakHeight,
+                                          decoration: BoxDecoration(
+                                            color: theme
+                                                .colorScheme
+                                                .errorContainer
+                                                .withValues(alpha: 0.35),
+                                            border: Border.all(
+                                              color: theme.colorScheme.error
+                                                  .withValues(alpha: 0.4),
+                                            ),
                                           ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                );
+                                  );
+                                }
                               }
-                            }
 
-                            return widgets;
-                          }),
+                              return widgets;
+                            }),
+                          if (hoverOverlay != null) hoverOverlay,
                           ...widget.appointments.map((appointment) {
                             final segment = _segmentWithinTimeline(
                               appointment.start,
@@ -7308,6 +8339,9 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                                 .clientsWithOutstandingPayments
                                 .contains(appointment.clientId);
                             final card = _AppointmentCard(
+                              key: ValueKey<String>(
+                                'appointment-card-${appointment.id}',
+                              ),
                               appointment: appointment,
                               client: client,
                               service: service,
@@ -7324,6 +8358,32 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                               categoriesByName: widget.categoriesByName,
                               hideContent: widget.compact,
                               hasOutstandingPayments: hasOutstandingPayments,
+                              onHoverOverlayShow:
+                                  (
+                                    anchor,
+                                  ) => widget.hoverPreviewController.show(
+                                    _AppointmentHoverPreviewRequest(
+                                      layerLink: anchor.layerLink,
+                                      globalTargetRect: anchor.globalTargetRect,
+                                      appointment: appointment,
+                                      client: client,
+                                      service: service,
+                                      services: services,
+                                      staff: widget.staffMember,
+                                      roomName: roomName,
+                                      categoriesById: widget.categoriesById,
+                                      categoriesByName: widget.categoriesByName,
+                                      anomalies: issues,
+                                      hasOutstandingPayments:
+                                          hasOutstandingPayments,
+                                      lastMinuteSlot: matchingSlot,
+                                      visibleDurationMinutes: visibleMinutes,
+                                    ),
+                                  ),
+                              onHoverOverlayHide:
+                                  () => widget.hoverPreviewController.dismiss(
+                                    appointmentId: appointment.id,
+                                  ),
                             );
                             if (isLocked || widget.readOnly) {
                               return Positioned(
@@ -7343,10 +8403,12 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                                 ),
                                 maxSimultaneousDrags: 1,
                                 dragAnchorStrategy: pointerDragAnchorStrategy,
-                                onDragStarted:
-                                    () => _interactionController.startDrag(
-                                      appointment,
-                                    ),
+                                onDragStarted: () {
+                                  widget.hoverPreviewController.dismiss(
+                                    appointmentId: appointment.id,
+                                  );
+                                  _interactionController.startDrag(appointment);
+                                },
                                 onDragCompleted: _endDragAfterFrame,
                                 onDragEnd: (_) => _endDragAfterFrame(),
                                 onDraggableCanceled:
@@ -7361,7 +8423,23 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                                     staff: widget.staffMember,
                                     roomName: roomName,
                                     height: height,
-                                    anomalies: issues,
+                                    anomalies:
+                                        interaction.previewStart != null &&
+                                                interaction
+                                                        .dragAppointment
+                                                        ?.id ==
+                                                    appointment.id
+                                            ? _anomaliesForPlacement(
+                                              appointment,
+                                              start: interaction.previewStart!,
+                                              end: interaction.previewStart!
+                                                  .add(
+                                                    interaction
+                                                            .previewDuration ??
+                                                        appointment.duration,
+                                                  ),
+                                            )
+                                            : issues,
                                     previewStart: interaction.previewStart,
                                     previewDuration:
                                         interaction.previewDuration ??
@@ -7422,7 +8500,6 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                                                   .withValues(alpha: 0.2),
                                       width: 2,
                                     ),
-                                    borderRadius: BorderRadius.circular(12),
                                   ),
                                 ),
                               ),
@@ -7490,7 +8567,22 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
                     _endDragAfterFrame();
                     ScaffoldMessenger.of(
                       context,
-                    ).showSnackBar(SnackBar(content: Text(conflictMessage)));
+                    ).showAppSnackBar(SnackBar(content: Text(conflictMessage)));
+                    return;
+                  }
+
+                  final warningAnomalies = _anomaliesForPlacement(
+                    payload.appointment,
+                    start: newStart,
+                    end: newEnd,
+                  );
+                  final confirmed =
+                      await showAppointmentWarningConfirmationDialog(
+                        context: context,
+                        anomalies: warningAnomalies,
+                      );
+                  if (!confirmed) {
+                    _endDragAfterFrame(cancelled: true);
                     return;
                   }
 
@@ -7593,269 +8685,84 @@ Color? _resolveCategoryColor(
   return _categoryAccentColor(fallbackLabel, theme);
 }
 
-Color _serviceBaseColor(
-  Service service,
-  Map<String, ServiceCategory> categoriesById,
-  Map<String, ServiceCategory> categoriesByName,
-  ThemeData theme,
-) {
-  final categoryId = service.categoryId?.trim();
-  if (categoryId != null && categoryId.isNotEmpty) {
-    final category = categoriesById[categoryId];
-    final colorValue = category?.color;
-    if (colorValue != null) {
-      return Color(colorValue);
-    }
-  }
-
-  final normalizedName = service.category.trim().toLowerCase();
-  if (normalizedName.isNotEmpty) {
-    final category = categoriesByName[normalizedName];
-    final colorValue = category?.color;
-    if (colorValue != null) {
-      return Color(colorValue);
-    }
-  }
-
-  final fallbackLabel =
-      service.category.trim().isNotEmpty
-          ? service.category.trim()
-          : service.name.trim();
-  final accentColor = _categoryAccentColor(
-    fallbackLabel.isNotEmpty ? fallbackLabel : null,
-    theme,
-  );
-  return accentColor ?? theme.colorScheme.primary;
-}
-
-List<Color> _serviceStripeTintColors(
+List<Color> _resolveCategoryColors(
   List<Service> services,
   Map<String, ServiceCategory> categoriesById,
   Map<String, ServiceCategory> categoriesByName,
+  String? fallbackLabel,
   ThemeData theme,
 ) {
-  final colors = <Color>[];
+  final resolvedColors = <Color>[];
+  final seenValues = <int>{};
+
+  void addColor(Color? color) {
+    if (color == null) {
+      return;
+    }
+    if (seenValues.add(color.toARGB32())) {
+      resolvedColors.add(color);
+    }
+  }
+
   for (final service in services) {
-    final baseColor = _serviceBaseColor(
-      service,
-      categoriesById,
-      categoriesByName,
-      theme,
-    );
-    colors.add(
-      Color.alphaBlend(
-        baseColor.withValues(
-          alpha: theme.brightness == Brightness.dark ? 0.75 : 0.88,
-        ),
-        theme.colorScheme.surface.withValues(alpha: 0),
+    final label =
+        service.category.trim().isNotEmpty
+            ? service.category.trim()
+            : service.name.trim();
+    addColor(
+      _resolveCategoryColor(
+        [service],
+        categoriesById,
+        categoriesByName,
+        label,
+        theme,
       ),
     );
   }
-  return colors;
-}
 
-List<Color> _serviceIndicatorColors(
-  List<Service> services,
-  Map<String, ServiceCategory> categoriesById,
-  Map<String, ServiceCategory> categoriesByName,
-  ThemeData theme,
-) {
-  final indicatorColors = <Color>[];
-  for (final service in services) {
-    final color = _serviceBaseColor(
-      service,
-      categoriesById,
-      categoriesByName,
-      theme,
-    );
-    if (indicatorColors.any((existing) => existing.value == color.value)) {
-      continue;
-    }
-    indicatorColors.add(color);
-  }
-  return indicatorColors;
-}
-
-class _ServiceGradientSegment {
-  const _ServiceGradientSegment({
-    required this.color,
-    required this.start,
-    required this.end,
-    required this.requiresEquipment,
-    required this.weight,
-  });
-
-  final Color color;
-  final double start;
-  final double end;
-  final bool requiresEquipment;
-  final double weight;
-
-  _ServiceGradientSegment copyWith({
-    Color? color,
-    double? start,
-    double? end,
-    bool? requiresEquipment,
-    double? weight,
-  }) {
-    return _ServiceGradientSegment(
-      color: color ?? this.color,
-      start: start ?? this.start,
-      end: end ?? this.end,
-      requiresEquipment: requiresEquipment ?? this.requiresEquipment,
-      weight: weight ?? this.weight,
-    );
-  }
-}
-
-class _ServiceDurationEntry {
-  const _ServiceDurationEntry({required this.service, required this.duration});
-
-  final Service service;
-  final Duration duration;
-}
-
-List<_ServiceDurationEntry> _serviceDurationEntries(
-  Appointment appointment,
-  List<Service> services,
-  Service? fallbackService,
-) {
-  final entries = <_ServiceDurationEntry>[];
-  if (appointment.serviceAllocations.isNotEmpty) {
-    final serviceQueue = <String, Queue<Service>>{};
-    for (final service in services) {
-      serviceQueue.putIfAbsent(service.id, () => Queue<Service>()).add(service);
-    }
-    for (final allocation in appointment.serviceAllocations) {
-      final serviceId = allocation.serviceId;
-      if (serviceId.isEmpty) {
-        continue;
-      }
-      Service? service;
-      final queue = serviceQueue[serviceId];
-      if (queue != null && queue.isNotEmpty) {
-        service = queue.removeFirst();
-      } else {
-        service = services.firstWhereOrNull(
-          (candidate) => candidate.id == serviceId,
-        );
-      }
-      if (service == null) {
-        continue;
-      }
-      final adjustment = Duration(
-        minutes: allocation.durationAdjustmentMinutes,
-      );
-      final rawDuration = service.totalDuration + adjustment;
-      final duration = rawDuration.isNegative ? Duration.zero : rawDuration;
-      entries.add(_ServiceDurationEntry(service: service, duration: duration));
-    }
-  }
-  if (entries.isEmpty) {
-    final fallback = services.isNotEmpty ? services.first : fallbackService;
-    if (fallback != null) {
-      entries.add(
-        _ServiceDurationEntry(
-          service: fallback,
-          duration: fallback.totalDuration,
-        ),
-      );
-    }
-  }
-  return entries;
-}
-
-List<_ServiceGradientSegment> _serviceGradientSegments(
-  List<_ServiceDurationEntry> serviceEntries,
-  Map<String, ServiceCategory> categoriesById,
-  Map<String, ServiceCategory> categoriesByName,
-  ThemeData theme,
-) {
-  if (serviceEntries.isEmpty) {
-    return const <_ServiceGradientSegment>[];
-  }
-  final validEntries = serviceEntries
-      .where((entry) => entry.duration > Duration.zero)
-      .toList(growable: false);
-  if (validEntries.isEmpty) {
-    return const <_ServiceGradientSegment>[];
-  }
-  final durations = validEntries
-      .map((entry) => max(1, entry.duration.inMinutes))
-      .toList(growable: false);
-  final totalMinutes = durations.fold<int>(0, (sum, value) => sum + value);
-  if (totalMinutes == 0) {
-    return const <_ServiceGradientSegment>[];
-  }
-  double accumulated = 0.0;
-  final segments = <_ServiceGradientSegment>[];
-  for (var index = 0; index < validEntries.length; index++) {
-    final service = validEntries[index].service;
-    final minutes = durations[index];
-    final fraction = minutes / totalMinutes;
-    final start = accumulated;
-    var end = min(1.0, accumulated + fraction);
-    if (index == validEntries.length - 1) {
-      end = 1.0;
-    }
-    if (end <= start) {
-      continue;
-    }
-    accumulated = end;
-    final color = _serviceBaseColor(
-      service,
-      categoriesById,
-      categoriesByName,
-      theme,
-    );
-    segments.add(
-      _ServiceGradientSegment(
-        color: color,
-        start: start,
-        end: end,
-        requiresEquipment: service.requiredEquipmentIds.isNotEmpty,
-        weight: fraction,
+  if (resolvedColors.isEmpty) {
+    addColor(
+      _resolveCategoryColor(
+        services,
+        categoriesById,
+        categoriesByName,
+        fallbackLabel,
+        theme,
       ),
     );
   }
-  if (segments.isNotEmpty) {
-    final last = segments.last;
-    if (last.end < 1.0) {
-      segments[segments.length - 1] = last.copyWith(end: 1.0);
-    }
+
+  return resolvedColors;
+}
+
+Gradient? _segmentedVerticalGradient(List<Color> colors) {
+  if (colors.length <= 1) {
+    return null;
   }
-  return segments;
-}
 
-Color _durationAwareTint(Color base, double fraction) {
-  final normalized = fraction.clamp(0.0, 1.0);
-  final hsl = HSLColor.fromColor(base);
-  final double lightnessAdjustment =
-      (0.18 * (1.0 - normalized)) - (0.08 * normalized);
-  final double saturationAdjustment = (0.08 + normalized * 0.25);
-  return hsl
-      .withLightness((hsl.lightness + lightnessAdjustment).clamp(0.0, 1.0))
-      .withSaturation((hsl.saturation + saturationAdjustment).clamp(0.0, 1.0))
-      .toColor();
-}
+  final gradientColors = <Color>[];
+  final stops = <double>[];
 
-Color _equipmentStripeTint(Color base, ThemeData theme, double alpha) {
-  return Color.alphaBlend(
-    base.withValues(alpha: alpha),
-    theme.colorScheme.surface.withValues(alpha: 0),
+  for (var index = 0; index < colors.length; index++) {
+    final start = index / colors.length;
+    final end = (index + 1) / colors.length;
+    gradientColors.add(colors[index]);
+    stops.add(start);
+    gradientColors.add(colors[index]);
+    stops.add(end);
+  }
+
+  return LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: gradientColors,
+    stops: stops,
   );
-}
-
-Color _onColorFor(Color background, ThemeData theme) {
-  final brightness = ThemeData.estimateBrightnessForColor(background);
-  if (brightness == Brightness.dark) {
-    return Colors.white.withValues(alpha: 0.92);
-  }
-  return theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.92);
 }
 
 class _AppointmentCard extends StatefulWidget {
   const _AppointmentCard({
+    super.key,
     required this.appointment,
     required this.client,
     required this.service,
@@ -7877,6 +8784,8 @@ class _AppointmentCard extends StatefulWidget {
     this.showDuration = true,
     this.expandToContent = false,
     this.showNotes = false,
+    this.onHoverOverlayShow,
+    this.onHoverOverlayHide,
   });
 
   final Appointment appointment;
@@ -7900,6 +8809,8 @@ class _AppointmentCard extends StatefulWidget {
   final bool showDuration;
   final bool expandToContent;
   final bool showNotes;
+  final ValueChanged<_AppointmentHoverAnchor>? onHoverOverlayShow;
+  final VoidCallback? onHoverOverlayHide;
 
   @override
   State<_AppointmentCard> createState() => _AppointmentCardState();
@@ -7971,9 +8882,9 @@ double _contentAwareHeight({
   final int phoneLength =
       showClientPhone ? (clientPhone ?? '').trim().length : 0;
   final int noteLength = hasPreviewNote ? (noteText ?? '').length : 0;
-  final bool hasAttentionText =
-      attentionText != null && attentionText!.trim().isNotEmpty;
-  final int attentionLength = hasAttentionText ? attentionText!.length : 0;
+  final normalizedAttentionText = attentionText?.trim() ?? '';
+  final bool hasAttentionText = normalizedAttentionText.isNotEmpty;
+  final int attentionLength = normalizedAttentionText.length;
   final int estimatedServiceLines =
       showServiceInfo ? max(1, (serviceLength / 26).ceil()) : 0;
   final int estimatedClientLines =
@@ -7996,38 +8907,886 @@ double _contentAwareHeight({
       estimatedPhoneLines +
       estimatedNoteLines +
       estimatedAttentionLines;
-  final double lineHeight = highlight ? 21.0 : 18.0;
-  final double gapUnit = highlight ? 7.0 : 6.0;
+  final double lineHeight = highlight ? 26.0 : 21.0;
+  final double gapUnit = highlight ? 10.0 : 8.0;
   final double gapHeight =
       estimatedLines > 1 ? (estimatedLines - 1) * gapUnit : 0;
-  final bool bottomSectionLikely =
-      roomName != null ||
-      hasOutstandingPayments ||
-      (showDurationChip && highlight);
-  final double baseHeadroom = highlight ? 64 : 56; // time + paddings
+  final bool bottomSectionLikely = roomName != null || showDurationChip;
+  final double baseHeadroom = highlight ? 114 : 86;
   final double bottomAllowance =
-      bottomSectionLikely ? (highlight ? 64 : 52) : (highlight ? 24 : 0);
-  const double safetyBuffer = 8;
+      bottomSectionLikely ? (highlight ? 74 : 54) : (highlight ? 34 : 22);
+  final double indicatorAllowance =
+      hasOutstandingPayments ? (highlight ? 36 : 26) : 22;
+  const double safetyBuffer = 28;
   return max(
     height,
     baseHeadroom +
         estimatedLines * lineHeight +
         gapHeight +
+        indicatorAllowance +
         bottomAllowance +
         safetyBuffer,
   );
 }
 
+String _appointmentHoverClientLabel(Client? client) {
+  final fullName = client?.fullName.trim();
+  if (fullName != null && fullName.isNotEmpty) {
+    return fullName;
+  }
+  return 'Cliente non assegnato';
+}
+
+double _estimateAppointmentFigmaPreviewHeight({
+  required String serviceLabel,
+  required String clientLabel,
+  required int categoryCount,
+  required int indicatorCount,
+  required bool hasPhone,
+  required bool hasClientNumber,
+  required bool hasRoom,
+  required String? noteText,
+  required String? attentionText,
+}) {
+  final int titleLines = min(2, max(1, (serviceLabel.length / 24).ceil()));
+  final int clientLines = max(1, (clientLabel.length / 24).ceil());
+  final int categoryRows =
+      categoryCount == 0 ? 0 : max(1, (categoryCount / 2).ceil());
+  final int indicatorRows =
+      indicatorCount == 0 ? 0 : max(1, (indicatorCount / 2).ceil());
+  final int detailRows =
+      1 + (hasPhone ? 1 : 0) + (hasClientNumber ? 1 : 0) + (hasRoom ? 1 : 0);
+  final int noteLength = noteText?.trim().length ?? 0;
+  final int noteLines =
+      noteLength == 0 ? 0 : min(6, max(2, (noteLength / 34).ceil()));
+  final int attentionLength = attentionText?.trim().length ?? 0;
+  final int attentionLines =
+      attentionLength == 0 ? 0 : min(3, max(1, (attentionLength / 34).ceil()));
+  return max(
+    360.0,
+    178.0 +
+        ((titleLines - 1) * 24.0) +
+        ((clientLines - 1) * 18.0) +
+        (categoryRows * 30.0) +
+        (indicatorRows * 32.0) +
+        (detailRows * 52.0) +
+        (noteLines == 0 ? 0.0 : 34.0 + (noteLines * 18.0)) +
+        (attentionLines == 0 ? 0.0 : 24.0 + (attentionLines * 18.0)),
+  );
+}
+
+class _AppointmentHoverPreviewCard extends StatelessWidget {
+  const _AppointmentHoverPreviewCard({
+    required this.appointment,
+    required this.client,
+    required this.service,
+    required this.categoriesById,
+    required this.categoriesByName,
+    required this.anomalies,
+    this.hasOutstandingPayments = false,
+    this.roomName,
+    this.lastMinuteSlot,
+    this.services = const <Service>[],
+    this.visibleDurationMinutes,
+  });
+
+  final Appointment appointment;
+  final Client? client;
+  final Service? service;
+  final Map<String, ServiceCategory> categoriesById;
+  final Map<String, ServiceCategory> categoriesByName;
+  final Set<AppointmentAnomalyType> anomalies;
+  final bool hasOutstandingPayments;
+  final String? roomName;
+  final LastMinuteSlot? lastMinuteSlot;
+  final List<Service> services;
+  final int? visibleDurationMinutes;
+
+  @override
+  Widget build(BuildContext context) {
+    return _DragFeedback(
+      child: _AppointmentLegacyPreviewCard(
+        appointment: appointment,
+        client: client,
+        service: service,
+        services: services,
+        roomName: roomName,
+        height: _kBasePreviewHeight,
+        visibleDurationMinutes: visibleDurationMinutes,
+        anomalies: anomalies,
+        lastMinuteSlot: lastMinuteSlot,
+        categoriesById: categoriesById,
+        categoriesByName: categoriesByName,
+        hasOutstandingPayments: hasOutstandingPayments,
+        showDuration: true,
+        showNotes: true,
+      ),
+    );
+  }
+}
+
+class _AppointmentLegacyPreviewCard extends StatelessWidget {
+  const _AppointmentLegacyPreviewCard({
+    required this.appointment,
+    required this.client,
+    required this.service,
+    this.services = const <Service>[],
+    required this.height,
+    this.roomName,
+    this.anomalies = const <AppointmentAnomalyType>{},
+    this.lastMinuteSlot,
+    required this.categoriesById,
+    required this.categoriesByName,
+    this.visibleDurationMinutes,
+    this.hasOutstandingPayments = false,
+    this.showDuration = true,
+    this.showNotes = false,
+  });
+
+  static final DateFormat _timeFormat = DateFormat('HH:mm', 'it_IT');
+
+  final Appointment appointment;
+  final Client? client;
+  final Service? service;
+  final List<Service> services;
+  final double height;
+  final String? roomName;
+  final Set<AppointmentAnomalyType> anomalies;
+  final LastMinuteSlot? lastMinuteSlot;
+  final Map<String, ServiceCategory> categoriesById;
+  final Map<String, ServiceCategory> categoriesByName;
+  final int? visibleDurationMinutes;
+  final bool hasOutstandingPayments;
+  final bool showDuration;
+  final bool showNotes;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final bool isDark = theme.brightness == Brightness.dark;
+    final preview = _AppointmentPreviewPresentation.fromContent(
+      appointment: appointment,
+      client: client,
+      service: service,
+      services: services,
+      roomName: roomName,
+      anomalies: anomalies,
+      lastMinuteSlot: lastMinuteSlot,
+      visibleDurationMinutes: visibleDurationMinutes,
+      hasOutstandingPayments: hasOutstandingPayments,
+      showNotes: showNotes,
+    );
+    final servicesToDisplay = preview.servicesToDisplay;
+    final serviceLabel = preview.serviceLabel;
+    final clientLabel = preview.clientLabel;
+    final status = appointment.status;
+    final clientNumber = preview.clientNumber;
+    final clientPhone = preview.clientPhone;
+    final noteText = preview.noteText;
+    final attentionText = preview.attentionText;
+    final contentDurationMinutes = preview.contentDurationMinutes;
+    final Color surfaceColor = isDark ? const Color(0xFF201C19) : Colors.white;
+    final Color primaryContentColor =
+        isDark ? const Color(0xFFF5F1EE) : const Color(0xFF151515);
+    final Color secondaryContentColor =
+        isDark ? const Color(0xFFC9C0BA) : const Color(0xFF6E6661);
+    final Color dividerColor =
+        isDark ? const Color(0xFF3C3530) : const Color(0xFFD0C8C3);
+    final categoryLabel = _primaryCategoryLabel(servicesToDisplay, service);
+    final categoryAccentColor =
+        _resolveCategoryColor(
+          servicesToDisplay,
+          categoriesById,
+          categoriesByName,
+          categoryLabel,
+          theme,
+        ) ??
+        theme.colorScheme.primary;
+    final Color borderColor =
+        isDark
+            ? Color.alphaBlend(
+              categoryAccentColor.withValues(alpha: 0.78),
+              surfaceColor,
+            )
+            : categoryAccentColor.withValues(alpha: 0.9);
+
+    String previewStatusLabel(AppointmentStatus value) {
+      switch (value) {
+        case AppointmentStatus.noShow:
+          return 'No Show';
+        default:
+          return _appointmentStatusLabel(value);
+      }
+    }
+
+    String previewAnomalyLabel(AppointmentAnomalyType issue) {
+      switch (issue) {
+        case AppointmentAnomalyType.outdatedStatus:
+          return 'In ritardo';
+        case AppointmentAnomalyType.noShift:
+          return 'Fuori turno';
+        case AppointmentAnomalyType.breakOverlap:
+          return 'In pausa';
+        case AppointmentAnomalyType.absenceOverlap:
+          return 'Operatore assente';
+      }
+    }
+
+    Color onChipColor(Color color) {
+      final brightness = ThemeData.estimateBrightnessForColor(color);
+      return brightness == Brightness.dark
+          ? Colors.white
+          : const Color(0xFF151515);
+    }
+
+    Widget buildStatusWidget() {
+      final label = previewStatusLabel(status);
+      if (status == AppointmentStatus.scheduled) {
+        return Text(
+          label,
+          style:
+              theme.textTheme.labelLarge?.copyWith(
+                color: primaryContentColor,
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+              ) ??
+              TextStyle(
+                color: primaryContentColor,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+        );
+      }
+
+      final Color background;
+      final Color foreground;
+      switch (status) {
+        case AppointmentStatus.completed:
+          background = const Color(0xFFDFF2E6);
+          foreground = const Color(0xFF1E9C63);
+          break;
+        case AppointmentStatus.cancelled:
+          background = const Color(0xFFE6E1DE);
+          foreground = const Color(0xFF746E6A);
+          break;
+        case AppointmentStatus.noShow:
+          background = const Color(0xFFF6D8DC);
+          foreground = const Color(0xFFE24C5A);
+          break;
+        case AppointmentStatus.scheduled:
+          background = Colors.transparent;
+          foreground = primaryContentColor;
+          break;
+      }
+
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(_appointmentStatusIcon(status), size: 18, color: foreground),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style:
+                  theme.textTheme.labelMedium?.copyWith(
+                    color: foreground,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ) ??
+                  TextStyle(
+                    color: foreground,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    Widget buildCategoryChip({
+      required String label,
+      required Color color,
+      required String tooltip,
+    }) {
+      final background = Color.alphaBlend(
+        color.withValues(alpha: isDark ? 0.72 : 0.88),
+        surfaceColor,
+      );
+      final foreground = onChipColor(background);
+      return Tooltip(
+        message: tooltip,
+        waitDuration: const Duration(milliseconds: 250),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            label,
+            style:
+                theme.textTheme.labelMedium?.copyWith(
+                  color: foreground,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ) ??
+                TextStyle(
+                  color: foreground,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ),
+      );
+    }
+
+    Widget buildInfoBadge({
+      required IconData icon,
+      required String label,
+      required Color background,
+      required Color foreground,
+      required String tooltip,
+    }) {
+      return Tooltip(
+        message: tooltip,
+        waitDuration: const Duration(milliseconds: 250),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: foreground),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style:
+                    theme.textTheme.labelMedium?.copyWith(
+                      color: foreground,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12.5,
+                    ) ??
+                    TextStyle(
+                      color: foreground,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    Widget buildInfoRow({
+      required IconData icon,
+      required Color iconColor,
+      required Color iconBackground,
+      required String title,
+      required String subtitle,
+    }) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: iconBackground,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 19, color: iconColor),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style:
+                      theme.textTheme.titleMedium?.copyWith(
+                        color: primaryContentColor,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                        height: 1.1,
+                      ) ??
+                      TextStyle(
+                        color: primaryContentColor,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  subtitle,
+                  style:
+                      theme.textTheme.bodyMedium?.copyWith(
+                        color: secondaryContentColor,
+                        fontSize: 14,
+                        height: 1.15,
+                      ) ??
+                      TextStyle(color: secondaryContentColor, fontSize: 14),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    final categoryChips = <Widget>[];
+    final seenCategoryLabels = <String>{};
+    for (final entry in servicesToDisplay) {
+      final label =
+          entry.category.trim().isNotEmpty
+              ? entry.category.trim()
+              : entry.name.trim();
+      if (label.isEmpty) {
+        continue;
+      }
+      final normalized = label.toLowerCase();
+      if (!seenCategoryLabels.add(normalized)) {
+        continue;
+      }
+      final color =
+          _resolveCategoryColor(
+            [entry],
+            categoriesById,
+            categoriesByName,
+            label,
+            theme,
+          ) ??
+          theme.colorScheme.primary;
+      categoryChips.add(
+        buildCategoryChip(
+          label: label,
+          color: color,
+          tooltip: 'Categoria: $label',
+        ),
+      );
+    }
+
+    final sortedAnomalies =
+        anomalies.toList()
+          ..sort((first, second) => first.index.compareTo(second.index));
+    final infoBadges = <Widget>[
+      for (final issue in sortedAnomalies)
+        buildInfoBadge(
+          icon: Icons.warning_amber_rounded,
+          label: previewAnomalyLabel(issue),
+          background: const Color(0xFFF8D8DD),
+          foreground: const Color(0xFFE24C5A),
+          tooltip: issue.description,
+        ),
+      if (hasOutstandingPayments)
+        buildInfoBadge(
+          icon: Icons.payments_rounded,
+          label: 'Prorogato',
+          background: const Color(0xFFF9E1B7),
+          foreground: const Color(0xFFEF9F12),
+          tooltip: 'Cliente con saldi da pagare',
+        ),
+      if (_appointmentHasActivePackage(appointment))
+        buildInfoBadge(
+          icon: Icons.inventory_2_rounded,
+          label: 'Pacchetti attivi',
+          background: const Color(0xFFD7F0DE),
+          foreground: const Color(0xFF1E9C63),
+          tooltip: 'Pacchetto attivo',
+        ),
+      if (lastMinuteSlot != null)
+        buildInfoBadge(
+          icon: Icons.flash_on_rounded,
+          label: 'Last-minute',
+          background: const Color(0xFFD9E7FF),
+          foreground: const Color(0xFF2B6BDA),
+          tooltip:
+              lastMinuteSlot!.isAvailable
+                  ? 'Slot last-minute disponibile'
+                  : 'Appuntamento last-minute',
+        ),
+    ];
+
+    final hasClientPhone = clientPhone != null && clientPhone.isNotEmpty;
+    final hasClientNumber = clientNumber != null && clientNumber.isNotEmpty;
+    final trimmedRoomName = preview.roomName;
+    final hasRoom = trimmedRoomName != null && trimmedRoomName.isNotEmpty;
+    final hasNote = noteText != null && noteText.isNotEmpty;
+
+    final detailRows = <Widget>[
+      buildInfoRow(
+        icon: Icons.person_outline_rounded,
+        iconColor: const Color(0xFFC89A22),
+        iconBackground: const Color(0xFFF3ECDD),
+        title: clientLabel,
+        subtitle: 'Cliente',
+      ),
+      if (hasClientPhone)
+        buildInfoRow(
+          icon: Icons.call_rounded,
+          iconColor: const Color(0xFF29A756),
+          iconBackground: const Color(0xFFDDF1E3),
+          title: clientPhone,
+          subtitle: 'Telefono',
+        ),
+      if (hasClientNumber)
+        buildInfoRow(
+          icon: Icons.tag_rounded,
+          iconColor: const Color(0xFFED9D18),
+          iconBackground: const Color(0xFFF7E4C6),
+          title: 'N° $clientNumber',
+          subtitle: 'Codice cliente',
+        ),
+      if (hasRoom)
+        buildInfoRow(
+          icon: Icons.room_outlined,
+          iconColor: const Color(0xFF5A74D9),
+          iconBackground: const Color(0xFFE2E8FB),
+          title: trimmedRoomName,
+          subtitle: 'Stanza',
+        ),
+    ];
+
+    final scheduleValue =
+        '${_timeFormat.format(appointment.start)} - ${_timeFormat.format(appointment.end)}';
+    final durationValue = showDuration ? '($contentDurationMinutes min)' : '';
+    final bool hasAttentionText =
+        attentionText != null &&
+        attentionText.isNotEmpty &&
+        sortedAnomalies.isEmpty;
+
+    return Container(
+      constraints: BoxConstraints(minHeight: height),
+      decoration: BoxDecoration(
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: borderColor, width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: theme.colorScheme.shadow.withValues(alpha: 0.18),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    serviceLabel,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        theme.textTheme.headlineSmall?.copyWith(
+                          color: primaryContentColor,
+                          fontSize: 19,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.3,
+                          height: 1.08,
+                        ) ??
+                        TextStyle(
+                          color: primaryContentColor,
+                          fontSize: 19,
+                          fontWeight: FontWeight.w800,
+                          height: 1.08,
+                        ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                buildStatusWidget(),
+              ],
+            ),
+            if (categoryChips.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(spacing: 6, runSpacing: 6, children: categoryChips),
+            ],
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.access_time_rounded,
+                  size: 20,
+                  color: secondaryContentColor,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    scheduleValue,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        theme.textTheme.titleMedium?.copyWith(
+                          color: primaryContentColor,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 17,
+                          height: 1.2,
+                        ) ??
+                        TextStyle(
+                          color: primaryContentColor,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                          height: 1.2,
+                        ),
+                  ),
+                ),
+                if (showDuration)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 10),
+                    child: Text(
+                      durationValue,
+                      textAlign: TextAlign.right,
+                      style:
+                          theme.textTheme.bodyMedium?.copyWith(
+                            color: secondaryContentColor,
+                            fontSize: 14,
+                            height: 1.2,
+                          ) ??
+                          TextStyle(
+                            color: secondaryContentColor,
+                            fontSize: 14,
+                            height: 1.2,
+                          ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Divider(height: 1, thickness: 1, color: dividerColor),
+            const SizedBox(height: 10),
+            for (var index = 0; index < detailRows.length; index++) ...[
+              if (index != 0) const SizedBox(height: 10),
+              detailRows[index],
+            ],
+            if (infoBadges.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Wrap(spacing: 6, runSpacing: 6, children: infoBadges),
+            ],
+            if (hasAttentionText) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFCE7EA),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  attentionText,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style:
+                      theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFFE24C5A),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        height: 1.25,
+                      ) ??
+                      const TextStyle(
+                        color: Color(0xFFE24C5A),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        height: 1.25,
+                      ),
+                ),
+              ),
+            ],
+            if (hasNote) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color:
+                      isDark
+                          ? const Color(0xFF2B2623)
+                          : const Color(0xFFF7F4F2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.sticky_note_2_outlined,
+                          size: 16,
+                          color: secondaryContentColor,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Note operative',
+                          style:
+                              theme.textTheme.labelMedium?.copyWith(
+                                color: secondaryContentColor,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ) ??
+                              TextStyle(
+                                color: secondaryContentColor,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      noteText,
+                      maxLines: 6,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          theme.textTheme.bodySmall?.copyWith(
+                            color: primaryContentColor,
+                            fontSize: 14,
+                            height: 1.25,
+                          ) ??
+                          TextStyle(
+                            color: primaryContentColor,
+                            fontSize: 14,
+                            height: 1.25,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AppointmentAccentStripePainter extends CustomPainter {
+  const _AppointmentAccentStripePainter({
+    required this.colors,
+    required this.borderRadius,
+    required this.stripeWidth,
+    required this.bottomFadeExtent,
+  });
+
+  final List<Color> colors;
+  final BorderRadius borderRadius;
+  final double stripeWidth;
+  final double bottomFadeExtent;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty || colors.isEmpty) {
+      return;
+    }
+
+    final rect = Offset.zero & size;
+    final rrect = borderRadius.toRRect(rect);
+    final segmentHeight = size.height / colors.length;
+    final paint = Paint();
+
+    canvas.save();
+    canvas.clipRRect(rrect);
+
+    for (var index = 0; index < colors.length; index++) {
+      final top = segmentHeight * index;
+      final bottom =
+          index == colors.length - 1
+              ? size.height
+              : segmentHeight * (index + 1);
+      paint
+        ..shader = null
+        ..color = colors[index];
+      canvas.drawRect(Rect.fromLTRB(0, top, stripeWidth, bottom), paint);
+    }
+
+    if (colors.length == 1) {
+      final tailThickness = stripeWidth * 1.2;
+      final tailTop = max(0.0, size.height - tailThickness - 0.5);
+      final tailBottom = size.height;
+      final tailPath =
+          Path()
+            ..moveTo(0, tailTop)
+            ..lineTo(stripeWidth * 0.55, tailTop)
+            ..cubicTo(
+              stripeWidth * 1.05,
+              tailTop,
+              stripeWidth * 1.45,
+              tailTop + tailThickness * 0.2,
+              stripeWidth * 1.55,
+              tailBottom - tailThickness * 0.25,
+            )
+            ..cubicTo(
+              bottomFadeExtent * 0.42,
+              tailBottom - tailThickness * 0.02,
+              bottomFadeExtent * 0.8,
+              tailBottom - tailThickness * 0.18,
+              bottomFadeExtent,
+              tailBottom - tailThickness * 0.52,
+            )
+            ..lineTo(bottomFadeExtent, tailBottom)
+            ..lineTo(0, tailBottom)
+            ..close();
+      final fadeColor = colors.last;
+      final fadeRect = Rect.fromLTWH(
+        0,
+        tailTop,
+        bottomFadeExtent,
+        tailThickness,
+      );
+      paint.shader = LinearGradient(
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
+        colors: [
+          fadeColor,
+          fadeColor.withValues(alpha: fadeColor.a * 0.82),
+          fadeColor.withValues(alpha: fadeColor.a * 0.35),
+          fadeColor.withValues(alpha: 0),
+        ],
+        stops: const [0, 0.32, 0.7, 1],
+      ).createShader(fadeRect);
+      canvas.drawPath(tailPath, paint);
+    }
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _AppointmentAccentStripePainter oldDelegate) {
+    return !listEquals(oldDelegate.colors, colors) ||
+        oldDelegate.borderRadius != borderRadius ||
+        oldDelegate.stripeWidth != stripeWidth ||
+        oldDelegate.bottomFadeExtent != bottomFadeExtent;
+  }
+}
+
 class _AppointmentCardState extends State<_AppointmentCard> {
   static final DateFormat _timeFormat = DateFormat('HH:mm', 'it_IT');
-  static const double _kHoverPreviewWidth = 320;
-  static const double _kHoverPreviewGap = 12;
-  static OverlayEntry? _activeHoverEntry;
-  static _AppointmentCardState? _activeHoverOwner;
 
+  final LayerLink _hoverLayerLink = LayerLink();
   bool _isHovering = false;
-  final LayerLink _hoverLink = LayerLink();
-  OverlayEntry? _hoverEntry;
 
   void _updateHovering(bool hovering) {
     if (_isHovering == hovering) {
@@ -8038,212 +9797,33 @@ class _AppointmentCardState extends State<_AppointmentCard> {
     });
   }
 
-  @override
-  void dispose() {
-    _removeHoverOverlay();
-    super.dispose();
-  }
-
-  void _removeHoverOverlay() {
-    final entry = _hoverEntry;
-    if (entry == null) {
-      return;
-    }
-    _hoverEntry = null;
-    if (identical(_activeHoverEntry, entry)) {
-      _activeHoverEntry = null;
-      _activeHoverOwner = null;
-    }
-    _removeOverlayEntrySafely(entry);
-  }
-
-  void _removeActiveHoverOverlay() {
-    final entry = _activeHoverEntry;
-    if (entry == null) {
-      return;
-    }
-    final owner = _activeHoverOwner;
-    _activeHoverEntry = null;
-    _activeHoverOwner = null;
-    if (owner != null && identical(owner._hoverEntry, entry)) {
-      owner._hoverEntry = null;
-    }
-    _removeOverlayEntrySafely(entry);
-  }
-
-  static void _removeOverlayEntrySafely(OverlayEntry entry) {
-    try {
-      entry.remove();
-    } catch (error, stackTrace) {
-      debugPrint('[Appointments] Hover overlay remove failed: $error');
-      debugPrintStack(stackTrace: stackTrace);
-    }
-  }
-
   void _showHoverOverlay() {
     if (!widget.enableHoverOverlay) {
       return;
     }
-    if (!mounted) {
-      return;
-    }
-    final overlay = Overlay.of(context);
-    if (overlay == null) {
-      return;
-    }
     final target = context.findRenderObject() as RenderBox?;
-    final overlayBox = overlay.context.findRenderObject() as RenderBox?;
-    if (target == null || overlayBox == null || !target.hasSize) {
+    if (target == null || !target.hasSize) {
       return;
     }
-
-    _removeHoverOverlay();
-    _removeActiveHoverOverlay();
-
-    final targetOffset = target.localToGlobal(
-      Offset.zero,
-      ancestor: overlayBox,
+    widget.onHoverOverlayShow?.call(
+      _AppointmentHoverAnchor(
+        layerLink: _hoverLayerLink,
+        globalTargetRect: target.localToGlobal(Offset.zero) & target.size,
+      ),
     );
-    final targetRect = targetOffset & target.size;
-    final spaceLeft = targetRect.left;
-    final spaceRight = overlayBox.size.width - targetRect.right;
-    var placeRight = spaceRight >= spaceLeft;
-    final desiredWidth = _kHoverPreviewWidth;
-    if (placeRight &&
-        spaceRight < desiredWidth + _kHoverPreviewGap &&
-        spaceLeft > spaceRight) {
-      placeRight = false;
-    } else if (!placeRight &&
-        spaceLeft < desiredWidth + _kHoverPreviewGap &&
-        spaceRight > spaceLeft) {
-      placeRight = true;
+  }
+
+  void _hideHoverOverlay() {
+    if (!widget.enableHoverOverlay) {
+      return;
     }
-    final availableWidth =
-        placeRight
-            ? spaceRight - _kHoverPreviewGap
-            : spaceLeft - _kHoverPreviewGap;
-    final hoverWidth = min(desiredWidth, max(0.0, availableWidth));
-    if (hoverWidth <= 0) return;
-    final top = targetRect.top;
-    final left =
-        placeRight
-            ? (targetRect.right + _kHoverPreviewGap)
-            : (targetRect.left - _kHoverPreviewGap - hoverWidth);
-
-    final previewDurationMinutes = max(
-      1,
-      widget.visibleDurationMinutes ?? widget.appointment.duration.inMinutes,
-    );
-    final previewDuration = Duration(minutes: previewDurationMinutes);
-    final services = widget.services;
-    final service = widget.service;
-    final client = widget.client;
-    final servicesToDisplay =
-        services.isNotEmpty ? services : [if (service != null) service];
-    final serviceLabel =
-        servicesToDisplay.isNotEmpty
-            ? servicesToDisplay
-                .whereType<Service>()
-                .map((service) => service.name)
-                .join(' + ')
-            : null;
-    final attentionText = _attentionText(
-      isCancelled: widget.appointment.status == AppointmentStatus.cancelled,
-      anomalies: widget.anomalies,
-    );
-    final clientNumber =
-        client?.clientNumber != null && client!.clientNumber!.trim().isNotEmpty
-            ? client!.clientNumber!.trim()
-            : null;
-    final clientPhone =
-        client?.phone != null && client!.phone.trim().isNotEmpty
-            ? client!.phone.trim()
-            : null;
-    final noteText = widget.appointment.notes?.trim();
-    final bool hasPreviewNote = noteText != null && noteText.isNotEmpty;
-    final double hoverHeightEstimate = _contentAwareHeight(
-      baseHeight: _kBasePreviewHeight,
-      expandToContent: true,
-      highlight: true,
-      showDurationChip: widget.showDuration,
-      showServiceInfo: true,
-      showClientInfo: true,
-      showClientPhone: clientPhone != null,
-      showClientNumber: clientNumber != null,
-      hasPreviewNote: hasPreviewNote,
-      attentionText: attentionText,
-      hasOutstandingPayments: widget.hasOutstandingPayments,
-      serviceLabel: serviceLabel,
-      clientName: client?.fullName,
-      clientNumber: clientNumber,
-      clientPhone: clientPhone,
-      noteText: noteText,
-      roomName: widget.roomName,
-    );
-
-    _hoverEntry = OverlayEntry(
-      builder: (context) {
-        final clampedLeft = min(
-          max(0.0, left),
-          max(0.0, overlayBox.size.width - hoverWidth),
-        );
-        final desiredTop = targetRect.top;
-        final maxTop = max(
-          0.0,
-          overlayBox.size.height - hoverHeightEstimate - _kHoverPreviewGap,
-        );
-        final clampedTop =
-            hoverHeightEstimate.isFinite && hoverHeightEstimate > 0
-                ? desiredTop.clamp(0.0, maxTop)
-                : desiredTop;
-        return IgnorePointer(
-          child: Stack(
-            children: [
-              Positioned(
-                left: clampedLeft,
-                top: clampedTop,
-                width: hoverWidth,
-                child: Material(
-                  color: Colors.transparent,
-                  child: _DragFeedback(
-                    child: _DragPreviewCard(
-                      appointment: widget.appointment,
-                      client: widget.client,
-                      service: widget.service,
-                      services: widget.services,
-                      staff: widget.staff,
-                      roomName: widget.roomName,
-                      height: widget.height,
-                      anomalies: widget.anomalies,
-                      previewStart: widget.appointment.start,
-                      previewDuration: previewDuration,
-                      slotMinutes: previewDurationMinutes,
-                      lastMinuteSlot: widget.lastMinuteSlot,
-                      categoriesById: widget.categoriesById,
-                      categoriesByName: widget.categoriesByName,
-                      hasOutstandingPayments: widget.hasOutstandingPayments,
-                      enableHoverOverlay: false,
-                      showDuration: true,
-                      expandToContent: true,
-                      showNotes: true,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    overlay.insert(_hoverEntry!);
-    _activeHoverEntry = _hoverEntry;
-    _activeHoverOwner = this;
+    widget.onHoverOverlayHide?.call();
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final bool isDark = theme.brightness == Brightness.dark;
     final appointment = widget.appointment;
     final client = widget.client;
     final service = widget.service;
@@ -8266,62 +9846,51 @@ class _AppointmentCardState extends State<_AppointmentCard> {
     final bool wantsDurationChip = showDuration && highlight;
 
     final status = appointment.status;
-    final now = DateTime.now();
-    final bool hasEnded = !appointment.end.isAfter(now);
-    final bool isCompleted = status == AppointmentStatus.completed;
-    final bool isNoShow = status == AppointmentStatus.noShow;
-    final bool hidePastCompletedContent = hasEnded && (isCompleted || isNoShow);
-    final bool hideNoShowColor = hidePastCompletedContent && isNoShow;
-
-    final startTimeLabel = _timeFormat.format(appointment.start);
-    final timeLabel = startTimeLabel;
+    final timeLabel = _timeFormat.format(appointment.start);
     final hasAnomalies = anomalies.isNotEmpty;
     final isLocked = lockReason != null;
     final servicesToDisplay =
-        services.isNotEmpty ? services : [if (service != null) service!];
+        services.isNotEmpty
+            ? services
+            : [service].whereType<Service>().toList(growable: false);
     final serviceLabel =
         servicesToDisplay.isNotEmpty
             ? servicesToDisplay.map((service) => service.name).join(' + ')
             : null;
-    final serviceIndicatorColors =
-        servicesToDisplay.length > 1
-            ? _serviceIndicatorColors(
-              servicesToDisplay,
-              categoriesById,
-              categoriesByName,
-              theme,
-            )
-            : const <Color>[];
-    final showServiceIndicators = serviceIndicatorColors.length > 1;
-    final serviceDurationEntries = _serviceDurationEntries(
-      appointment,
-      services,
-      service,
-    );
-    final isLastMinute = lastMinuteSlot != null;
     final int contentDurationMinutes = max(
       1,
       visibleDurationMinutes ?? appointment.duration.inMinutes,
     );
+    final bool isVeryShortAppointment = contentDurationMinutes <= 15;
     final bool showServiceInfo =
-        expandToContent || contentDurationMinutes >= 30;
-    final bool showClientInfo =
-        expandToContent || highlight || contentDurationMinutes >= 45;
+        expandToContent || contentDurationMinutes >= 60;
+    final bool showClientInfo = !hideContent;
+    final bool showClientNameInStandardCard =
+        !expandToContent && !hideContent && !isVeryShortAppointment;
+    final String? trimmedClientName = client?.fullName.trim();
+    final String displayClientName =
+        trimmedClientName != null && trimmedClientName.isNotEmpty
+            ? trimmedClientName
+            : 'Cliente';
+    final String? trimmedClientNumber = client?.clientNumber?.trim();
     final String? clientNumber =
-        client?.clientNumber != null && client!.clientNumber!.trim().isNotEmpty
-            ? client!.clientNumber!.trim()
+        trimmedClientNumber != null && trimmedClientNumber.isNotEmpty
+            ? trimmedClientNumber
             : null;
+    final String? trimmedClientPhone = client?.phone.trim();
     final String? clientPhone =
-        client?.phone != null && client!.phone.trim().isNotEmpty
-            ? client!.phone.trim()
+        trimmedClientPhone != null && trimmedClientPhone.isNotEmpty
+            ? trimmedClientPhone
             : null;
     final bool showClientPhone =
         clientPhone != null && (highlight || expandToContent);
-    final bool showClientNumber = clientNumber != null && showClientInfo;
+    final bool showClientNumber = clientNumber != null && expandToContent;
     final noteText = appointment.notes?.trim();
     final bool hasPreviewNote =
         showNotes && noteText != null && noteText.isNotEmpty;
     final bool isCancelled = status == AppointmentStatus.cancelled;
+    final bool isCompleted = status == AppointmentStatus.completed;
+    final bool hasActivePackage = _appointmentHasActivePackage(appointment);
     final attentionText = _attentionText(
       isCancelled: isCancelled,
       anomalies: anomalies,
@@ -8341,7 +9910,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
       attentionText: attentionText,
       hasOutstandingPayments: hasOutstandingPayments,
       serviceLabel: serviceLabel,
-      clientName: client?.fullName,
+      clientName: trimmedClientName,
       clientNumber: clientNumber,
       clientPhone: showClientPhone ? clientPhone : null,
       noteText: noteText,
@@ -8349,7 +9918,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
     );
     if (highlight && !expandToContent) {
       final bool isVeryShort = contentDurationMinutes <= 15;
-      height = max(height, isVeryShort ? 170.0 : 150.0);
+      height = max(height, isVeryShort ? 210.0 : 190.0);
     }
     final categoryLabel = _primaryCategoryLabel(servicesToDisplay, service);
     final categoryColor = _resolveCategoryColor(
@@ -8359,999 +9928,961 @@ class _AppointmentCardState extends State<_AppointmentCard> {
       categoryLabel,
       theme,
     );
-    final baseColor =
-        (isCancelled || hideNoShowColor)
-            ? Colors.transparent
-            : categoryColor ?? theme.colorScheme.primary;
-    Color backgroundColor = baseColor;
-    Color borderBlendColor = baseColor;
-    final bool forceSolidCategoryFill =
-        hideContent &&
-        !isCancelled &&
-        !hideNoShowColor &&
-        baseColor.opacity > 0.0;
-    if (!isCancelled && !hideNoShowColor && baseColor.opacity > 0.0) {
-      final double fillAlpha =
-          theme.brightness == Brightness.dark ? 0.34 : 0.74;
-      final double borderAlpha =
-          theme.brightness == Brightness.dark ? 0.55 : 0.98;
-      if (forceSolidCategoryFill) {
-        backgroundColor = baseColor;
-        borderBlendColor = baseColor;
-      } else {
-        backgroundColor = baseColor.withValues(alpha: fillAlpha);
-        borderBlendColor = baseColor.withValues(alpha: borderAlpha);
-      }
-    }
-    final highlightAnomalies = hasAnomalies && !hideNoShowColor;
-    final double anomalyGradientStartAlpha =
-        theme.brightness == Brightness.dark ? 0.34 : 0.25;
-    final double anomalyGradientEndAlpha =
-        theme.brightness == Brightness.dark ? 0.3 : 0.12;
-    if (highlightAnomalies) {
-      backgroundColor = Color.alphaBlend(
-        theme.colorScheme.error.withValues(alpha: anomalyGradientStartAlpha),
-        backgroundColor,
-      );
-      borderBlendColor = Color.alphaBlend(
-        theme.colorScheme.error.withValues(alpha: anomalyGradientEndAlpha),
-        borderBlendColor,
-      );
-    }
-
-    final Color cardSurface =
-        theme.brightness == Brightness.dark
-            ? theme.colorScheme.surface
-            : theme.colorScheme.surface;
-    final bool hasCategoryTone =
-        !isCancelled && !hideNoShowColor && baseColor.opacity > 0.0;
-    final List<_ServiceGradientSegment> serviceGradientSegments =
-        hasCategoryTone
-            ? _serviceGradientSegments(
-              serviceDurationEntries,
-              categoriesById,
-              categoriesByName,
-              theme,
-            )
-            : const <_ServiceGradientSegment>[];
-    final List<_ServiceGradientSegment> equipmentSegments =
-        serviceGradientSegments
-            .where((segment) => segment.requiresEquipment)
-            .toList(growable: false);
-    final bool showMultiServiceGradient = serviceGradientSegments.length > 1;
-    Color gradientStart = cardSurface;
-    Color gradientEnd = cardSurface;
-    final double primaryTintAlpha =
-        theme.brightness == Brightness.dark ? 0.68 : 1.0;
-    final double secondaryTintAlpha =
-        theme.brightness == Brightness.dark ? 0.42 : 1;
-    if (hasCategoryTone || backgroundColor.opacity > 0.0) {
-      final Color tintSource = hasCategoryTone ? baseColor : borderBlendColor;
-      if (forceSolidCategoryFill && hasCategoryTone) {
-        gradientStart = baseColor;
-        gradientEnd = Color.alphaBlend(
-          Colors.black.withOpacity(
-            theme.brightness == Brightness.dark ? 0.24 : 0.14,
-          ),
-          baseColor,
-        );
-      } else {
-        gradientStart = Color.alphaBlend(
-          tintSource.withValues(alpha: primaryTintAlpha),
-          cardSurface,
-        );
-        gradientEnd = Color.alphaBlend(
-          tintSource.withValues(alpha: secondaryTintAlpha),
-          cardSurface,
-        );
-      }
-    }
-    final Gradient cardGradient;
-    final Color contentSampleColor;
-    if (showMultiServiceGradient) {
-      final gradientColors = <Color>[];
-      final gradientStops = <double>[];
-      final tintedSegmentColors = <Color>[];
-      final double multiServiceTintAlpha =
-          theme.brightness == Brightness.dark ? 0.76 : 0.88;
-      for (final segment in serviceGradientSegments) {
-        final durationAwareColor = _durationAwareTint(
-          segment.color,
-          segment.weight,
-        );
-        var tinted = Color.alphaBlend(
-          durationAwareColor.withValues(alpha: multiServiceTintAlpha),
-          theme.colorScheme.surface.withValues(alpha: 0),
-        );
-        if (highlightAnomalies) {
-          tinted = Color.alphaBlend(
-            theme.colorScheme.error.withValues(
-              alpha: anomalyGradientStartAlpha,
-            ),
-            tinted,
-          );
-        }
-        tintedSegmentColors.add(tinted);
-      }
-      const double blendPortion = 0.2;
-      for (var index = 0; index < serviceGradientSegments.length; index++) {
-        final segment = serviceGradientSegments[index];
-        final color = tintedSegmentColors[index];
-        final start = segment.start;
-        final end = segment.end;
-        final length = max(end - start, 0.0);
-        if (length <= 0.0) {
-          continue;
-        }
-        final bool isFirst = index == 0;
-        final bool isLast = index == serviceGradientSegments.length - 1;
-        final Color startBlendColor =
-            index > 0 ? tintedSegmentColors[index - 1] : color;
-        final Color endBlendColor =
-            index < serviceGradientSegments.length - 1
-                ? tintedSegmentColors[index + 1]
-                : color;
-        if (isFirst) {
-          final double blendStart = (end - length * blendPortion).clamp(
-            start,
-            end,
-          );
-
-          gradientColors.add(color);
-          gradientStops.add(start);
-          gradientColors.add(color);
-
-          gradientStops.add(blendStart);
-          gradientColors.add(endBlendColor);
-          gradientStops.add(end);
-        } else if (isLast) {
-          final double blendEnd = (start + length * blendPortion).clamp(
-            start,
-            end,
-          );
-
-          gradientColors.add(color);
-          gradientStops.add(blendEnd);
-          gradientColors.add(color);
-          gradientStops.add(end);
-        } else {
-          final double topEnd = (start + length * blendPortion).clamp(
-            start,
-            end,
-          );
-          final double bottomStart = (end - length * blendPortion).clamp(
-            start,
-            end,
-          );
-
-          gradientColors.add(color);
-          gradientStops.add(topEnd);
-          gradientColors.add(color);
-          gradientStops.add(bottomStart);
-          gradientColors.add(endBlendColor);
-          gradientStops.add(end);
-        }
-      }
-      cardGradient = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: gradientColors,
-        stops: gradientStops,
-      );
-      final Color firstColor =
-          gradientColors.isNotEmpty ? gradientColors.first : gradientStart;
-      final Color lastColor =
-          gradientColors.isNotEmpty ? gradientColors.last : gradientEnd;
-      contentSampleColor = Color.lerp(firstColor, lastColor, 0.5) ?? firstColor;
-    } else {
-      // Strong color on top/bottom with a bright band around the center.
-      const double highlightThickness = 0.85;
-      const double highlightCenter = 0.5;
-      final double highlightStart = (highlightCenter - highlightThickness * 0.5)
-          .clamp(0.0, 1.0);
-      final double highlightEnd = (highlightCenter + highlightThickness * 0.5)
-          .clamp(0.0, 1.0);
-      final Color highlightColor = Color.lerp(
-        gradientEnd,
-        Colors.white,
-        0.5,
-      )!.withOpacity(0.95);
-      final List<Color> cardColors = [
-        gradientEnd,
-        gradientStart,
-        highlightColor,
-        gradientStart,
-        gradientEnd,
-      ];
-      final List<double> cardStops = [
-        0.0,
-        highlightStart,
-        highlightCenter,
-        highlightEnd,
-        1.0,
-      ];
-      cardGradient = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: cardColors,
-        stops: cardStops,
-      );
-      contentSampleColor =
-          Color.lerp(gradientStart, gradientEnd, 0.5) ?? gradientStart;
-    }
-    final Color surfaceTint = theme.colorScheme.surfaceVariant.withValues(
-      alpha: theme.brightness == Brightness.dark ? 0.28 : 0.16,
+    final categoryColors = _resolveCategoryColors(
+      servicesToDisplay,
+      categoriesById,
+      categoriesByName,
+      categoryLabel,
+      theme,
     );
-    final Color elegantBorder =
-        borderBlendColor.opacity > 0.0
-            ? Color.alphaBlend(borderBlendColor, surfaceTint)
-            : surfaceTint;
-    final baseBorder =
-        isCancelled
-            ? theme.colorScheme.outlineVariant.withValues(
-              alpha: theme.brightness == Brightness.dark ? 0.5 : 0.4,
-            )
-            : hideNoShowColor
-            ? theme.colorScheme.outlineVariant.withValues(
-              alpha: theme.brightness == Brightness.dark ? 0.28 : 0.18,
-            )
-            : elegantBorder;
-    final needsAttention = hasAnomalies || isCancelled;
-    final highlightCompactAttention = hideContent && needsAttention;
-    final borderColor =
-        highlightCompactAttention
-            ? (hasAnomalies
-                ? theme.colorScheme.error
-                : theme.colorScheme.secondary.withValues(
-                  alpha: theme.brightness == Brightness.dark ? 0.9 : 0.8,
-                ))
-            : hasAnomalies
-            ? theme.colorScheme.error.withValues(
-              alpha: theme.brightness == Brightness.dark ? 0.85 : 0.75,
-            )
-            : isCancelled
-            ? theme.colorScheme.outlineVariant.withValues(
-              alpha: theme.brightness == Brightness.dark ? 0.7 : 0.6,
-            )
-            : isLocked
-            ? theme.colorScheme.outline.withValues(alpha: 0.8)
-            : isLastMinute
-            ? theme.colorScheme.primary.withValues(alpha: 0.45)
-            : baseBorder;
-    final borderWidth =
-        highlightCompactAttention
-            ? 2.5
-            : needsAttention
-            ? 2.0
-            : isLocked
-            ? 1.5
-            : 1.2;
-    final showBorder = true;
-    final double verticalPadding;
-    if (expandToContent) {
-      verticalPadding = 12;
-    } else if (height < 72) {
-      verticalPadding = 6;
-    } else if (height < 120) {
-      verticalPadding = 10;
-    } else {
-      verticalPadding = 14;
-    }
-    const double stripeWidth = 8.0;
-    const double stripeGap = 8.0;
-    final bool showEquipmentStripe =
-        !hideContent && equipmentSegments.isNotEmpty;
-    final double horizontalPadding = 14.0;
-    final double leftPadding =
-        horizontalPadding + (showEquipmentStripe ? stripeWidth + stripeGap : 0);
-    final padding = EdgeInsets.only(
-      left: leftPadding,
-      right: horizontalPadding,
-      top: verticalPadding,
-      bottom: verticalPadding,
+    final accentColor = categoryColor ?? const Color(0xFFC7C7C7);
+    final warningAccentColor =
+        hasAnomalies ? const Color(0xFFE24C5A) : accentColor;
+    final borderColor = warningAccentColor;
+    final borderWidth = hasAnomalies ? 2.8 : 1.5;
+    final gradientBorder =
+        hasAnomalies ? null : _segmentedVerticalGradient(categoryColors);
+    final baseBackgroundColor = _appointmentCardBackgroundColor(theme, status);
+    final categoryTintAlpha = switch (status) {
+      AppointmentStatus.scheduled ||
+      AppointmentStatus.completed => isDark ? 0.26 : 0.26,
+      AppointmentStatus.cancelled => isDark ? 0.16 : 0.1,
+      AppointmentStatus.noShow => isDark ? 0.12 : 0.08,
+    };
+    final categoryBackground = Color.alphaBlend(
+      accentColor.withValues(alpha: categoryTintAlpha),
+      baseBackgroundColor,
     );
-    final bool hasTranslucentFill = hasCategoryTone || highlightAnomalies;
-    final borderRadius = BorderRadius.circular(12);
-    final bool isDark = theme.brightness == Brightness.dark;
-    final Color primaryContentColor = isDark ? Colors.white : Colors.black;
+    final backgroundColor =
+        hasAnomalies
+            ? Color.alphaBlend(
+              const Color(0xFFE24C5A).withValues(alpha: isDark ? 0.22 : 0.16),
+              categoryBackground,
+            )
+            : categoryBackground;
+    final Color primaryContentColor =
+        isDark ? const Color(0xFFF5F1EE) : const Color(0xFF141414);
     final Color secondaryContentColor =
+        isDark ? const Color(0xFFD0C6C0) : const Color(0xFF4A4A4A);
+    final Color tertiaryContentColor =
+        isDark ? const Color(0xFFAA9F98) : const Color(0xFF747474);
+    final bool showWarningFilm = hasAnomalies && !expandToContent;
+    final bool showCompletedFilm =
+        isCompleted && !expandToContent && !showWarningFilm;
+    final Color completedFilmColor =
+        isDark ? const Color(0xFF84CFA8) : const Color(0xFFCDEEDB);
+    final Color completedFilmHighlight =
+        isDark ? const Color(0xFFDFF6E8) : const Color(0xFFF8FFFB);
+    final Color completedBadgeBackground =
+        isDark ? const Color(0xFF54B783) : const Color(0xFF5FC28F);
+    final Color completedBadgeBorderColor =
         isDark
-            ? Colors.white.withValues(alpha: 0.85)
-            : Colors.black.withValues(alpha: 0.82);
-    final Color iconContentColor = primaryContentColor;
+            ? Colors.white.withValues(alpha: 0.14)
+            : Colors.white.withValues(alpha: 0.72);
+    const Color completedBadgeForeground = Colors.white;
+    final Color warningFilmColor =
+        isDark ? const Color(0xFFE5909A) : const Color(0xFFF8CDD2);
+    final Color warningFilmHighlight =
+        isDark ? const Color(0xFFF7D5D9) : const Color(0xFFFFF7F8);
+    final Color warningBadgeBackground =
+        isDark ? const Color(0xFFD96172) : const Color(0xFFE16B7C);
+    final Color warningBadgeBorderColor =
+        isDark
+            ? Colors.white.withValues(alpha: 0.14)
+            : Colors.white.withValues(alpha: 0.72);
     final Color infoPillBackgroundColor =
-        isDark
-            ? Colors.white.withValues(alpha: 0.12)
-            : Colors.black.withValues(alpha: 0.08);
+        isDark ? const Color(0xFF2B2623) : const Color(0xFFF4F4F4);
     final Color infoPillTextColor = primaryContentColor;
     final Color infoPillIconColor = primaryContentColor.withValues(alpha: 0.9);
-
-    final card = Container(
-      height: height,
-      decoration: BoxDecoration(
-        boxShadow: [
-          if (hasTranslucentFill)
-            BoxShadow(
-              color: borderBlendColor.withValues(alpha: 0.1),
-              blurRadius: 14,
-              offset: const Offset(0, 6),
-            ),
-          if (highlight)
-            BoxShadow(
-              color: theme.colorScheme.shadow.withValues(alpha: 0.28),
-              blurRadius: 14,
-              offset: const Offset(0, 6),
-            ),
-        ],
-        border:
-            showBorder
-                ? Border.all(color: borderColor, width: borderWidth)
-                : null,
-        borderRadius: borderRadius,
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: cardSurface,
-              gradient: cardGradient, //civi
-            ),
-          ),
-          /* if (showEquipmentStripe)
-            Positioned(
-              left: 0,
-              top: 0,
-              bottom: 0,
-              child: ClipRRect(
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(12),
-                  bottomLeft: Radius.circular(12),
-                ),
-                child: SizedBox(
-                  width: stripeWidth,
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final height = constraints.maxHeight;
-                      if (!height.isFinite || height <= 0) {
-                        return const SizedBox.expand();
-                      }
-                      final double topAlpha =
-                          theme.brightness == Brightness.dark ? 0.9 : 1;
-                      final double bottomAlpha =
-                          theme.brightness == Brightness.dark ? 0.75 : 0.82;
-                      return Stack(
-                        fit: StackFit.expand,
-                        children:
-                            equipmentSegments.map((segment) {
-                              final double segmentTop = (segment.start * height)
-                                  .clamp(0.0, height);
-                              final double segmentEnd = (segment.end * height)
-                                  .clamp(0.0, height);
-                              final double segmentHeight = max(
-                                1.0,
-                                segmentEnd - segmentTop,
-                              );
-                              final Color topTint = _equipmentStripeTint(
-                                segment.color,
-                                theme,
-                                topAlpha,
-                              );
-                              final Color bottomTint = _equipmentStripeTint(
-                                segment.color,
-                                theme,
-                                bottomAlpha,
-                              );
-                              final Color highlightTint =
-                                  Color.lerp(
-                                    topTint,
-                                    Colors.white,
-                                    theme.brightness == Brightness.dark
-                                        ? 0.45
-                                        : 0.6,
-                                  )!;
-                              final Color depthTint =
-                                  Color.lerp(
-                                    bottomTint,
-                                    Colors.black,
-                                    theme.brightness == Brightness.dark
-                                        ? 0.35
-                                        : 0.2,
-                                  )!;
-                              return Positioned(
-                                top: segmentTop,
-                                left: 0,
-                                right: 0,
-                                height: segmentHeight,
-                                child: Stack(
-                                  fit: StackFit.expand,
-                                  children: [
-                                    DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        gradient: LinearGradient(
-                                          begin: Alignment.topCenter,
-                                          end: Alignment.bottomCenter,
-                                          colors: [
-                                            highlightTint,
-                                            topTint,
-                                            bottomTint,
-                                            depthTint,
-                                          ],
-                                          stops: const [0, 0.36, 0.85, 1],
-                                        ),
-                                        border: Border(
-                                          left: BorderSide(
-                                            color: highlightTint.withOpacity(
-                                              0.8,
-                                            ),
-                                            width: 0.85,
-                                          ),
-                                          right: BorderSide(
-                                            color: depthTint.withOpacity(0.8),
-                                            width: 0.85,
-                                          ),
-                                        ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: depthTint.withOpacity(
-                                              theme.brightness ==
-                                                      Brightness.dark
-                                                  ? 0.45
-                                                  : 0.25,
-                                            ),
-                                            blurRadius: 4,
-                                            offset: const Offset(1.2, 0),
-                                          ),
-                                        ],
-                                      ),
-                                      child: const SizedBox.expand(),
-                                    ),
-                                    Align(
-                                      alignment: Alignment.centerRight,
-                                      child: FractionallySizedBox(
-                                        widthFactor: 0.18,
-                                        child: DecoratedBox(
-                                          decoration: BoxDecoration(
-                                            gradient: LinearGradient(
-                                              begin: Alignment.topCenter,
-                                              end: Alignment.bottomCenter,
-                                              colors: [
-                                                Colors.white.withOpacity(0.32),
-                                                Colors.white.withOpacity(0.08),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }).toList(),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),*/
-          //civi stripe striscia
-          Padding(
-            padding: padding,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final availableHeight =
-                    constraints.hasBoundedHeight
-                        ? constraints.maxHeight
-                        : double.infinity;
-                final availableWidth =
-                    constraints.hasBoundedWidth
-                        ? constraints.maxWidth
-                        : double.infinity;
-                if (constraints.hasBoundedHeight && availableHeight <= 0) {
-                  return const SizedBox.shrink();
-                }
-
-                if (hidePastCompletedContent && !highlight) {
-                  if (hideContent) {
-                    return Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        "",
-                        style: theme.textTheme.bodySmall,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    );
-                  }
-                  final IconData iconData;
-                  final Color iconColor;
-                  if (isNoShow) {
-                    iconData = Icons.close_rounded;
-                    iconColor = theme.colorScheme.error;
-                  } else {
-                    iconData = Icons.check;
-                    iconColor = Colors.white;
-                  }
-                  final double iconSize =
-                      availableHeight < 48
-                          ? 20
-                          : availableHeight < 80
-                          ? 26
-                          : 32;
-                  return Center(
-                    child: Icon(iconData, color: iconColor, size: iconSize),
-                  );
-                }
-
-                final showRoomInfo =
-                    roomName != null &&
-                    (expandToContent || availableHeight >= 120);
-                final showOutstandingChip =
-                    hasOutstandingPayments &&
-                    (expandToContent || availableHeight >= 72);
-                final showDurationChip =
-                    wantsDurationChip &&
-                    (expandToContent || availableHeight >= 60);
-                final hasBottomSection =
-                    showRoomInfo || showOutstandingChip || showDurationChip;
-                const double _minInfoPillWidth = 40.0;
-                final bool canShowBottomSection =
-                    hasBottomSection &&
-                    (expandToContent ||
-                        !availableWidth.isFinite ||
-                        availableWidth >= _minInfoPillWidth);
-
-                final timeStyle =
-                    theme.textTheme.bodyMedium?.copyWith(
-                      color: primaryContentColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ) ??
-                    TextStyle(
-                      color: primaryContentColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    );
-                final detailStyle =
-                    theme.textTheme.bodySmall?.copyWith(
-                      color: secondaryContentColor,
-                      fontSize: 12,
-                    ) ??
-                    TextStyle(color: secondaryContentColor, fontSize: 12);
-                final double baseDetailSize = detailStyle.fontSize ?? 12;
-                final serviceStyle =
-                    highlight
-                        ? detailStyle.copyWith(
-                          fontSize: baseDetailSize + 8,
-                          fontWeight: FontWeight.w600,
-                        )
-                        : detailStyle.copyWith(
-                          fontSize: baseDetailSize + 1,
-                          fontWeight: FontWeight.w700,
-                        );
-                final clientStyle =
-                    highlight
-                        ? detailStyle.copyWith(
-                          fontSize: baseDetailSize + 9,
-                          fontWeight: FontWeight.w800,
-                        )
-                        : detailStyle.copyWith(
-                          fontSize: baseDetailSize + 1,
-                          fontWeight: FontWeight.w700,
-                        );
-                final TextStyle phoneStyle =
-                    highlight
-                        ? detailStyle.copyWith(
-                          fontSize: baseDetailSize + 8,
-                          fontWeight: FontWeight.w700,
-                        )
-                        : detailStyle;
-                final TextStyle clientNumberStyle =
-                    highlight
-                        ? detailStyle.copyWith(
-                          fontSize: baseDetailSize + 6,
-                          fontWeight: FontWeight.w700,
-                        )
-                        : detailStyle.copyWith(fontWeight: FontWeight.w700);
-                final List<Widget> children = [];
-                final bool showInfoPillLabels = !hideContent;
-                final bool showDetails = !hideContent;
-                final note = noteText;
-                final bool showNoteLine = hasPreviewNote;
-                final bool showAttentionText =
-                    expandToContent && attentionText != null;
-
-                void addDetail(
-                  String? value,
-                  TextStyle style, {
-                  double gap = 2.0,
-                  int? maxLines,
-                  TextOverflow? overflow,
-                }) {
-                  final text = value?.trim();
-                  if (text == null || text.isEmpty) {
-                    return;
-                  }
-                  final effectiveGap = expandToContent ? max(gap, 4.0) : gap;
-                  if (children.isNotEmpty) {
-                    children.add(SizedBox(height: effectiveGap));
-                  }
-                  children.add(
-                    Text(
-                      text,
-                      style: style,
-                      maxLines: maxLines ?? (expandToContent ? null : 1),
-                      overflow:
-                          overflow ??
-                          (expandToContent
-                              ? TextOverflow.visible
-                              : TextOverflow.ellipsis),
-                      softWrap:
-                          expandToContent || (maxLines != null && maxLines > 1),
-                    ),
-                  );
-                }
-
-                if (showDetails) {
-                  addDetail(timeLabel, timeStyle);
-                  if (showServiceInfo) {
-                    addDetail(serviceLabel, serviceStyle);
-                  }
-                  if (showClientInfo) {
-                    if (clientNumber != null) {
-                      addDetail('N° $clientNumber', clientNumberStyle);
-                    }
-                    addDetail(client?.fullName, clientStyle);
-                    if (showClientPhone) {
-                      addDetail(clientPhone, phoneStyle);
-                    }
-                    if (showNoteLine) {
-                      addDetail(
-                        'Note: $note',
-                        detailStyle,
-                        gap: expandToContent ? 8 : 4,
-                        maxLines: expandToContent ? null : 2,
-                      );
-                    }
-                    if (showAttentionText) {
-                      final attentionLabel =
-                          attentionText!.contains('\n')
-                              ? 'Attenzione:\n$attentionText'
-                              : 'Attenzione: $attentionText';
-                      addDetail(
-                        attentionLabel,
-                        detailStyle.copyWith(
-                          color: theme.colorScheme.error,
-                          fontWeight: FontWeight.w700,
-                        ),
-                        gap: expandToContent ? 10 : 6,
-                        maxLines: expandToContent ? null : 3,
-                        overflow:
-                            expandToContent
-                                ? TextOverflow.visible
-                                : TextOverflow.ellipsis,
-                      );
-                    }
-                  }
-                }
-
-                if (canShowBottomSection) {
-                  if (children.isNotEmpty) {
-                    children.add(
-                      SizedBox(
-                        height:
-                            expandToContent
-                                ? 10
-                                : (availableHeight >= 76 ? 4 : 2),
-                      ),
-                    );
-                  }
-
-                  final List<Widget> bottomWidgets = [];
-
-                  Widget buildInfoPill({
-                    required IconData icon,
-                    required String label,
-                    String? tooltip,
-                    Color? background,
-                    Color? iconColor,
-                    Color? textColor,
-                    TextStyle? labelStyle,
-                    EdgeInsets padding = const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                  }) {
-                    final Color defaultIconColor =
-                        iconColor ?? infoPillIconColor;
-                    final Color defaultTextColor =
-                        textColor ?? infoPillTextColor;
-                    final Color pillBackground =
-                        background ?? infoPillBackgroundColor;
-                    final trimmedLabel = label.trim();
-                    final bool hasLabel =
-                        showInfoPillLabels && trimmedLabel.isNotEmpty;
-                    final pill = Container(
-                      padding: padding,
-                      decoration: BoxDecoration(
-                        color: pillBackground,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(icon, size: 14, color: defaultIconColor),
-                          if (hasLabel) ...[
-                            const SizedBox(width: 4),
-                            Text(
-                              trimmedLabel,
-                              style:
-                                  labelStyle ??
-                                  theme.textTheme.labelSmall?.copyWith(
-                                    color: defaultTextColor,
-                                    fontWeight: FontWeight.w600,
-                                  ) ??
-                                  TextStyle(
-                                    color: defaultTextColor,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                              overflow: TextOverflow.ellipsis,
-                              maxLines: 1,
-                            ),
-                          ],
-                        ],
-                      ),
-                    );
-                    final tooltipMessage = tooltip?.trim();
-                    if (tooltipMessage?.isNotEmpty == true) {
-                      return Tooltip(
-                        message: tooltipMessage!,
-                        waitDuration: const Duration(milliseconds: 250),
-                        child: pill,
-                      );
-                    }
-                    return pill;
-                  }
-
-                  if (showRoomInfo) {
-                    bottomWidgets.add(
-                      buildInfoPill(
-                        icon: Icons.room_outlined,
-                        label: 'Stanza: $roomName',
-                        tooltip: 'Stanza: $roomName',
-                      ),
-                    );
-                  }
-
-                  if (showDurationChip) {
-                    final durationStyle =
-                        highlight
-                            ? theme.textTheme.labelMedium?.copyWith(
-                                  color: infoPillTextColor,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w800,
-                                ) ??
-                                TextStyle(
-                                  color: infoPillTextColor,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w800,
-                                )
-                            : null;
-                    final durationLabel =
-                        highlight
-                            ? '${contentDurationMinutes}m'
-                            : '$contentDurationMinutes min';
-                    bottomWidgets.add(
-                      buildInfoPill(
-                        icon: Icons.access_time_rounded,
-                        label: durationLabel,
-                        tooltip:
-                            'Durata appuntamento: $contentDurationMinutes minuti',
-                        labelStyle: durationStyle,
-                        padding:
-                            highlight
-                                ? const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 3,
-                                )
-                                : const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                      ),
-                    );
-                  }
-
-                  if (showOutstandingChip) {
-                    bottomWidgets.add(
-                      buildInfoPill(
-                        icon: Icons.payments_outlined,
-                        label: '',
-                        tooltip: 'Pagamenti da saldare',
-                        background: theme.colorScheme.tertiaryContainer
-                            .withValues(
-                              alpha:
-                                  theme.brightness == Brightness.dark
-                                      ? 0.8
-                                      : 0.9,
-                            ),
-                        iconColor: theme.colorScheme.onTertiaryContainer,
-                        textColor: theme.colorScheme.onTertiaryContainer,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                      ),
-                    );
-                  }
-
-                  if (bottomWidgets.isNotEmpty) {
-                    children.add(
-                      Wrap(spacing: 8, runSpacing: 4, children: bottomWidgets),
-                    );
-                  }
-                }
-
-                if (children.isEmpty) {
-                  return const SizedBox.shrink();
-                }
-
-                Widget content = Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: children,
-                );
-
-                if (constraints.hasBoundedHeight && availableHeight.isFinite) {
-                  final bool enableScrolling = availableHeight < 140;
-                  content = ClipRect(
-                    child: SingleChildScrollView(
-                      padding: EdgeInsets.zero,
-                      primary: false,
-                      physics:
-                          enableScrolling
-                              ? const ClampingScrollPhysics()
-                              : const NeverScrollableScrollPhysics(),
-                      child: content,
-                    ),
-                  );
-                }
-
-                return content;
-              },
-            ),
-          ),
-        ],
-      ),
+    const double smallCornerRadius = 2.0;
+    const double largeCornerRadius = 18.0;
+    final borderRadius = BorderRadius.only(
+      topLeft: const Radius.circular(smallCornerRadius),
+      topRight: const Radius.circular(largeCornerRadius),
+      bottomRight: const Radius.circular(smallCornerRadius),
+      bottomLeft: const Radius.circular(largeCornerRadius),
     );
+    final innerBorderRadius = BorderRadius.only(
+      topLeft: Radius.circular(max(0.0, smallCornerRadius - borderWidth)),
+      topRight: Radius.circular(max(0.0, largeCornerRadius - borderWidth)),
+      bottomRight: Radius.circular(max(0.0, smallCornerRadius - borderWidth)),
+      bottomLeft: Radius.circular(max(0.0, largeCornerRadius - borderWidth)),
+    );
+    final stripeBorderRadius = BorderRadius.only(
+      topLeft: innerBorderRadius.topLeft,
+      bottomLeft: innerBorderRadius.bottomLeft,
+    );
+    const double stripeWidth = 6.0;
+    const double stripeBottomFadeExtent = 28.0;
+    final statusColor = _appointmentStatusColor(theme.colorScheme, status);
+    final bool showStatusIcon =
+        status != AppointmentStatus.scheduled &&
+        !showCompletedFilm &&
+        !showWarningFilm;
+    final bool showRoomInfo = roomName != null && expandToContent;
+    final bool showDurationChip = wantsDurationChip && expandToContent;
+    final stripeColors =
+        hasAnomalies
+            ? <Color>[
+              warningAccentColor,
+              ...categoryColors.where((color) => color != warningAccentColor),
+            ]
+            : categoryColors.isNotEmpty
+            ? categoryColors
+            : <Color>[accentColor];
+    final bool useShortStandardIcons =
+        isVeryShortAppointment && !expandToContent;
+    final double standardIndicatorIconSize = useShortStandardIcons ? 14 : 20;
+    final double standardStatusIconSize = useShortStandardIcons ? 13 : 18;
+    final sortedAnomalies =
+        anomalies.toList()..sort((a, b) => a.index.compareTo(b.index));
 
-    final overlayWidgets = <Widget>[];
-    if (!hideContent) {
-      Widget? attentionBadge;
-      if (needsAttention) {
-        final overlayColor =
-            hasAnomalies
-                ? theme.colorScheme.error
-                : theme.colorScheme.outlineVariant.withValues(
-                  alpha: theme.brightness == Brightness.dark ? 0.75 : 0.55,
-                );
-        final iconData =
-            hasAnomalies
-                ? AppointmentAnomalyType.noShift.icon
-                : Icons.cancel_rounded;
-        final iconColor =
-            hasAnomalies
-                ? theme.colorScheme.onError
-                : theme.colorScheme.onSurfaceVariant;
-        final shadowColor =
-            hasAnomalies
-                ? theme.colorScheme.error.withValues(alpha: 0.45)
-                : theme.colorScheme.outlineVariant.withValues(alpha: 0.25);
-        final badgeContent = DecoratedBox(
+    Widget buildIconIndicator({
+      required IconData icon,
+      required Color color,
+      required String tooltip,
+      double size = 20,
+    }) {
+      return Tooltip(
+        message: tooltip,
+        waitDuration: const Duration(milliseconds: 250),
+        child: Icon(icon, size: size, color: color),
+      );
+    }
+
+    Widget buildStatusIcon({double size = 18}) {
+      return buildIconIndicator(
+        icon: _appointmentStatusIcon(status),
+        color: statusColor,
+        tooltip: 'Stato: ${_appointmentStatusLabel(status)}',
+        size: size,
+      );
+    }
+
+    Widget buildWarningMarker({required bool compact}) {
+      final tooltip =
+          _attentionText(isCancelled: false, anomalies: anomalies) ??
+          'Avvertenze';
+      return Tooltip(
+        message: tooltip,
+        waitDuration: const Duration(milliseconds: 250),
+        child: Container(
+          width: compact ? 20 : 24,
+          height: compact ? 20 : 24,
           decoration: BoxDecoration(
-            color: overlayColor,
+            color: const Color(0xFFE24C5A),
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: shadowColor,
-                blurRadius: 8,
+                color: const Color(
+                  0xFFE24C5A,
+                ).withValues(alpha: isDark ? 0.22 : 0.18),
+                blurRadius: 10,
                 offset: const Offset(0, 2),
               ),
             ],
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(6),
-            child: Icon(iconData, color: iconColor, size: 24),
-          ),
-        );
-        attentionBadge = badgeContent;
-      }
-
-      Widget? lastMinuteBadge;
-      if (isLastMinute) {
-        final slot = lastMinuteSlot;
-        if (slot != null) {
-          lastMinuteBadge = Tooltip(
-            message:
-                slot.isAvailable
-                    ? 'Slot last-minute disponibile'
-                    : 'Appuntamento last-minute',
-            waitDuration: const Duration(milliseconds: 250),
-            child: Container(
-              padding:
-                  hideContent
-                      ? const EdgeInsets.all(6)
-                      : const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withValues(alpha: 0.18),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child:
-                  hideContent
-                      ? Icon(
-                        Icons.flash_on_rounded,
-                        size: 16,
-                        color: theme.colorScheme.primary,
-                      )
-                      : Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.flash_on_rounded,
-                            size: 14,
-                            color: theme.colorScheme.primary,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Last-minute',
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: theme.colorScheme.primary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-            ),
-          );
-        }
-      }
-
-      final positionedChildren = <Widget>[];
-      if (lastMinuteBadge != null) {
-        positionedChildren.add(lastMinuteBadge);
-      }
-      if (attentionBadge != null) {
-        if (positionedChildren.isNotEmpty) {
-          positionedChildren.add(const SizedBox(height: 8));
-        }
-        positionedChildren.add(attentionBadge);
-      }
-
-      if (positionedChildren.isNotEmpty) {
-        overlayWidgets.add(
-          Positioned(
-            bottom: 8,
-            right: 8,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: positionedChildren,
+          child: Center(
+            child: Icon(
+              Icons.warning_amber_rounded,
+              size: compact ? 13 : 15,
+              color: Colors.white,
             ),
           ),
-        );
-      }
+        ),
+      );
     }
 
-    Widget decoratedCard =
-        overlayWidgets.isEmpty
-            ? card
-            : Stack(children: [card, ...overlayWidgets]);
+    Widget buildCompletedCenterBadge({required bool compact}) {
+      return Container(
+        width: compact ? 28 : 32,
+        height: compact ? 28 : 32,
+        decoration: BoxDecoration(
+          color: completedBadgeBackground,
+          shape: BoxShape.circle,
+          border: Border.all(color: completedBadgeBorderColor),
+          boxShadow: [
+            BoxShadow(
+              color: completedBadgeBackground.withValues(
+                alpha: isDark ? 0.16 : 0.12,
+              ),
+              blurRadius: compact ? 8 : 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Icon(
+            Icons.check_rounded,
+            size: compact ? 16 : 18,
+            color: completedBadgeForeground,
+          ),
+        ),
+      );
+    }
+
+    Widget buildWarningCenterBadge({required bool compact}) {
+      return Container(
+        width: compact ? 28 : 32,
+        height: compact ? 28 : 32,
+        decoration: BoxDecoration(
+          color: warningBadgeBackground,
+          shape: BoxShape.circle,
+          border: Border.all(color: warningBadgeBorderColor),
+          boxShadow: [
+            BoxShadow(
+              color: warningBadgeBackground.withValues(
+                alpha: isDark ? 0.18 : 0.14,
+              ),
+              blurRadius: compact ? 8 : 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Icon(
+            Icons.warning_amber_rounded,
+            size: compact ? 15 : 17,
+            color: Colors.white,
+          ),
+        ),
+      );
+    }
+
+    final indicatorWidgets = <Widget>[
+      if (hasAnomalies && !showWarningFilm)
+        buildIconIndicator(
+          icon: AppointmentAnomalyType.noShift.icon,
+          color: const Color(0xFFE24C5A),
+          tooltip: 'Avvertenze',
+          size: standardIndicatorIconSize,
+        ),
+      if (hasOutstandingPayments)
+        buildIconIndicator(
+          icon: Icons.payments_rounded,
+          color: const Color(0xFFC77F00),
+          tooltip: 'Saldi da pagare',
+          size: standardIndicatorIconSize,
+        ),
+      if (hasActivePackage)
+        buildIconIndicator(
+          icon: Icons.inventory_2_rounded,
+          color: const Color(0xFF1E9C63),
+          tooltip: 'Pacchetto attivo',
+          size: standardIndicatorIconSize,
+        ),
+    ];
+
+    final cardBody = DecoratedBox(
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: gradientBorder == null ? borderRadius : innerBorderRadius,
+        border:
+            gradientBorder == null
+                ? Border.all(color: borderColor, width: borderWidth)
+                : null,
+        boxShadow:
+            hasAnomalies
+                ? [
+                  BoxShadow(
+                    color: borderColor.withValues(alpha: isDark ? 0.28 : 0.22),
+                    blurRadius: 22,
+                    offset: const Offset(0, 5),
+                  ),
+                ]
+                : null,
+      ),
+      child: ClipRRect(
+        borderRadius: gradientBorder == null ? borderRadius : innerBorderRadius,
+        child: SizedBox(
+          height: height,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    painter: _AppointmentAccentStripePainter(
+                      colors: stripeColors,
+                      borderRadius: stripeBorderRadius,
+                      stripeWidth: stripeWidth,
+                      bottomFadeExtent: stripeBottomFadeExtent,
+                    ),
+                  ),
+                ),
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(width: stripeWidth),
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        10,
+                        expandToContent
+                            ? 10
+                            : useShortStandardIcons
+                            ? 6
+                            : 8,
+                        10,
+                        expandToContent
+                            ? 10
+                            : useShortStandardIcons
+                            ? 6
+                            : 8,
+                      ),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final availableHeight =
+                              constraints.hasBoundedHeight
+                                  ? constraints.maxHeight
+                                  : double.infinity;
+                          final availableWidth =
+                              constraints.hasBoundedWidth
+                                  ? constraints.maxWidth
+                                  : double.infinity;
+                          if (constraints.hasBoundedHeight &&
+                              availableHeight <= 0) {
+                            return const SizedBox.shrink();
+                          }
+
+                          final bool isUltraCompactStandardCard =
+                              !expandToContent &&
+                              (availableWidth < 76 || availableHeight < 58);
+                          final bool showInlineWarningMarker =
+                              hasAnomalies &&
+                              !showWarningFilm &&
+                              (expandToContent || availableWidth >= 74);
+                          final bool showInlineStatusIcon =
+                              showStatusIcon &&
+                              (expandToContent ||
+                                  availableWidth >=
+                                      (showInlineWarningMarker ? 98 : 76));
+                          final bool useDenseStandardLayout =
+                              !expandToContent &&
+                              (useShortStandardIcons ||
+                                  availableHeight < 62 ||
+                                  availableWidth < 96);
+                          final bool hasStandardServiceLine =
+                              serviceLabel != null &&
+                              serviceLabel.trim().isNotEmpty;
+                          final bool showStandardServiceLine =
+                              hasStandardServiceLine &&
+                              !isUltraCompactStandardCard &&
+                              availableWidth >=
+                                  (useDenseStandardLayout ? 68 : 80) &&
+                              availableHeight >=
+                                  (useDenseStandardLayout ? 30 : 44);
+                          final bool showStandardClientLine =
+                              !isUltraCompactStandardCard &&
+                              (showClientNameInStandardCard ||
+                                  availableHeight >=
+                                      (useDenseStandardLayout ? 38 : 56)) &&
+                              (!hasStandardServiceLine ||
+                                  showStandardServiceLine);
+                          final bool showStandardIndicators =
+                              indicatorWidgets.isNotEmpty &&
+                              availableHeight >=
+                                  ((showStandardClientLine ||
+                                          showStandardServiceLine)
+                                      ? 52
+                                      : 34);
+
+                          if (hideContent) {
+                            final bool showCompactFallback =
+                                !showStatusIcon && indicatorWidgets.isEmpty;
+                            return Stack(
+                              children: [
+                                if (showStatusIcon)
+                                  Positioned(
+                                    top: 0,
+                                    right: 0,
+                                    child: buildStatusIcon(size: 18),
+                                  ),
+                                if (indicatorWidgets.isNotEmpty)
+                                  Positioned(
+                                    left: 0,
+                                    bottom: 0,
+                                    child: Wrap(
+                                      spacing: 6,
+                                      runSpacing: 4,
+                                      children: indicatorWidgets,
+                                    ),
+                                  ),
+                                if (showCompactFallback)
+                                  Align(
+                                    alignment: Alignment.center,
+                                    child: buildIconIndicator(
+                                      icon: Icons.schedule_rounded,
+                                      color: tertiaryContentColor,
+                                      tooltip: 'Appuntamento programmato',
+                                      size: 22,
+                                    ),
+                                  ),
+                              ],
+                            );
+                          }
+
+                          final double timeFontSize =
+                              expandToContent
+                                  ? 22
+                                  : highlight
+                                  ? 17
+                                  : useDenseStandardLayout
+                                  ? 13
+                                  : 15;
+                          final double clientFontSize =
+                              expandToContent
+                                  ? 17
+                                  : useDenseStandardLayout
+                                  ? 11
+                                  : 13;
+                          final double serviceFontSize =
+                              expandToContent
+                                  ? 15
+                                  : useDenseStandardLayout
+                                  ? 9.5
+                                  : 11.5;
+                          final timeStyle =
+                              theme.textTheme.titleSmall?.copyWith(
+                                color: primaryContentColor,
+                                fontSize: timeFontSize,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.2,
+                              ) ??
+                              TextStyle(
+                                color: primaryContentColor,
+                                fontSize: timeFontSize,
+                                fontWeight: FontWeight.w800,
+                              );
+                          final clientStyle =
+                              theme.textTheme.bodyMedium?.copyWith(
+                                color: primaryContentColor,
+                                fontSize: clientFontSize,
+                                fontWeight: FontWeight.w600,
+                                height: 1.15,
+                              ) ??
+                              TextStyle(
+                                color: primaryContentColor,
+                                fontSize: clientFontSize,
+                                fontWeight: FontWeight.w600,
+                              );
+                          final detailStyle =
+                              theme.textTheme.bodySmall?.copyWith(
+                                color: secondaryContentColor,
+                                fontSize: serviceFontSize,
+                                fontWeight: FontWeight.w500,
+                                height: 1.2,
+                              ) ??
+                              TextStyle(
+                                color: secondaryContentColor,
+                                fontSize: serviceFontSize,
+                                fontWeight: FontWeight.w500,
+                              );
+                          final metaStyle = detailStyle.copyWith(
+                            color: tertiaryContentColor,
+                            fontWeight: FontWeight.w600,
+                          );
+
+                          final trailingTopWidgets = <Widget>[
+                            if (showInlineWarningMarker)
+                              buildWarningMarker(
+                                compact: useShortStandardIcons,
+                              ),
+                            if (showInlineStatusIcon)
+                              buildStatusIcon(
+                                size:
+                                    expandToContent
+                                        ? 22
+                                        : standardStatusIconSize,
+                              ),
+                          ];
+                          final topRow =
+                              expandToContent
+                                  ? Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          timeLabel,
+                                          style: timeStyle,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      if (trailingTopWidgets.isNotEmpty) ...[
+                                        const SizedBox(width: 6),
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            for (
+                                              var index = 0;
+                                              index < trailingTopWidgets.length;
+                                              index++
+                                            ) ...[
+                                              if (index > 0)
+                                                const SizedBox(width: 6),
+                                              trailingTopWidgets[index],
+                                            ],
+                                          ],
+                                        ),
+                                      ],
+                                    ],
+                                  )
+                                  : SizedBox(
+                                    height:
+                                        useDenseStandardLayout
+                                            ? 18
+                                            : useShortStandardIcons
+                                            ? 22
+                                            : 24,
+                                    child: Stack(
+                                      children: [
+                                        Positioned.fill(
+                                          child: Padding(
+                                            padding: EdgeInsets.only(
+                                              right:
+                                                  trailingTopWidgets.isNotEmpty
+                                                      ? (showInlineWarningMarker
+                                                              ? (useShortStandardIcons
+                                                                  ? 24.0
+                                                                  : 28.0)
+                                                              : 0.0) +
+                                                          (showInlineStatusIcon
+                                                              ? standardStatusIconSize +
+                                                                  (showInlineWarningMarker
+                                                                      ? 10.0
+                                                                      : 4.0)
+                                                              : 0.0)
+                                                      : 0.0,
+                                            ),
+                                            child: Align(
+                                              alignment: Alignment.topLeft,
+                                              child: Text(
+                                                timeLabel,
+                                                style: timeStyle,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        if (trailingTopWidgets.isNotEmpty)
+                                          Positioned(
+                                            top: 0,
+                                            right: 0,
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                for (
+                                                  var index = 0;
+                                                  index <
+                                                      trailingTopWidgets.length;
+                                                  index++
+                                                ) ...[
+                                                  if (index > 0)
+                                                    const SizedBox(width: 6),
+                                                  trailingTopWidgets[index],
+                                                ],
+                                              ],
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  );
+
+                          Widget buildInfoPill({
+                            required IconData icon,
+                            required String label,
+                            required String tooltip,
+                          }) {
+                            return Tooltip(
+                              message: tooltip,
+                              waitDuration: const Duration(milliseconds: 250),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: infoPillBackgroundColor,
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      icon,
+                                      size: expandToContent ? 18 : 14,
+                                      color: infoPillIconColor,
+                                    ),
+                                    if (label.isNotEmpty) ...[
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        label,
+                                        style:
+                                            theme.textTheme.labelSmall
+                                                ?.copyWith(
+                                                  color: infoPillTextColor,
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize:
+                                                      expandToContent
+                                                          ? 13.5
+                                                          : 11,
+                                                ) ??
+                                            TextStyle(
+                                              color: infoPillTextColor,
+                                              fontSize:
+                                                  expandToContent ? 13.5 : 11,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            );
+                          }
+
+                          void addPreviewLine(
+                            List<Widget> children,
+                            String? value,
+                            TextStyle style, {
+                            double gap = 4,
+                            int? maxLines = 2,
+                          }) {
+                            final text = value?.trim();
+                            if (text == null || text.isEmpty) {
+                              return;
+                            }
+                            if (children.isNotEmpty) {
+                              children.add(SizedBox(height: gap));
+                            }
+                            children.add(
+                              Text(
+                                text,
+                                style: style,
+                                maxLines: maxLines,
+                                overflow:
+                                    maxLines == null
+                                        ? null
+                                        : TextOverflow.ellipsis,
+                              ),
+                            );
+                          }
+
+                          if (!expandToContent) {
+                            final standardChildren = <Widget>[topRow];
+                            if (showStandardServiceLine) {
+                              standardChildren.add(
+                                SizedBox(
+                                  height: useDenseStandardLayout ? 1 : 4,
+                                ),
+                              );
+                              standardChildren.add(
+                                Text(
+                                  serviceLabel,
+                                  style: detailStyle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              );
+                            }
+                            if (showStandardClientLine) {
+                              standardChildren.add(
+                                SizedBox(
+                                  height: useDenseStandardLayout ? 2 : 6,
+                                ),
+                              );
+                              standardChildren.add(
+                                Text(
+                                  displayClientName,
+                                  style: clientStyle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              );
+                            }
+                            if (showStandardIndicators) {
+                              standardChildren.add(const Spacer());
+                              standardChildren.add(
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 4,
+                                  children: indicatorWidgets,
+                                ),
+                              );
+                            }
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: standardChildren,
+                            );
+                          }
+
+                          final previewChildren = <Widget>[topRow];
+                          addPreviewLine(
+                            previewChildren,
+                            trimmedClientName,
+                            clientStyle.copyWith(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              height: 1.2,
+                            ),
+                            gap: 6,
+                            maxLines: null,
+                          );
+                          if (serviceLabel != null &&
+                              serviceLabel.trim().isNotEmpty) {
+                            addPreviewLine(
+                              previewChildren,
+                              serviceLabel,
+                              detailStyle.copyWith(fontSize: 15, height: 1.25),
+                              gap: 4,
+                              maxLines: null,
+                            );
+                          }
+                          if (indicatorWidgets.isNotEmpty) {
+                            previewChildren.add(const SizedBox(height: 8));
+                            previewChildren.add(
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 6,
+                                children: indicatorWidgets,
+                              ),
+                            );
+                          }
+                          if (lastMinuteSlot != null) {
+                            addPreviewLine(
+                              previewChildren,
+                              'Slot last-minute',
+                              metaStyle.copyWith(fontSize: 14.5, height: 1.2),
+                              gap: 8,
+                              maxLines: null,
+                            );
+                          }
+                          if (showClientNumber) {
+                            addPreviewLine(
+                              previewChildren,
+                              'N° $clientNumber',
+                              metaStyle.copyWith(fontSize: 14.5, height: 1.2),
+                              gap: 8,
+                              maxLines: null,
+                            );
+                          }
+                          if (showClientPhone) {
+                            addPreviewLine(
+                              previewChildren,
+                              clientPhone,
+                              metaStyle.copyWith(fontSize: 14.5, height: 1.2),
+                              gap: 4,
+                              maxLines: null,
+                            );
+                          }
+                          if (hasPreviewNote) {
+                            addPreviewLine(
+                              previewChildren,
+                              'Note: $noteText',
+                              detailStyle.copyWith(fontSize: 15, height: 1.25),
+                              gap: 8,
+                              maxLines: null,
+                            );
+                          }
+                          if (attentionText != null) {
+                            addPreviewLine(
+                              previewChildren,
+                              'Avvertenze: $attentionText',
+                              detailStyle.copyWith(
+                                color: const Color(0xFFE24C5A),
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                                height: 1.25,
+                              ),
+                              gap: 8,
+                              maxLines: null,
+                            );
+                          }
+                          if (isLocked) {
+                            addPreviewLine(
+                              previewChildren,
+                              'Bloccato: ${lockReason.trim()}',
+                              metaStyle.copyWith(fontSize: 14.5, height: 1.2),
+                              gap: 8,
+                              maxLines: null,
+                            );
+                          }
+
+                          final bottomWidgets = <Widget>[];
+                          if (showRoomInfo) {
+                            bottomWidgets.add(
+                              buildInfoPill(
+                                icon: Icons.room_outlined,
+                                label: roomName,
+                                tooltip: 'Stanza: $roomName',
+                              ),
+                            );
+                          }
+                          if (showDurationChip) {
+                            bottomWidgets.add(
+                              buildInfoPill(
+                                icon: Icons.access_time_rounded,
+                                label: '$contentDurationMinutes min',
+                                tooltip:
+                                    'Durata appuntamento: $contentDurationMinutes minuti',
+                              ),
+                            );
+                          }
+                          if (bottomWidgets.isNotEmpty) {
+                            previewChildren.add(const SizedBox(height: 10));
+                            previewChildren.add(
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 4,
+                                children: bottomWidgets,
+                              ),
+                            );
+                          }
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: previewChildren,
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: borderWidth),
+                ],
+              ),
+              if (showWarningFilm)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            warningFilmHighlight.withValues(
+                              alpha: isDark ? 0.05 : 0.10,
+                            ),
+                            warningFilmColor.withValues(
+                              alpha: isDark ? 0.10 : 0.18,
+                            ),
+                            warningFilmColor.withValues(
+                              alpha: isDark ? 0.14 : 0.22,
+                            ),
+                          ],
+                          stops: const [0.0, 0.45, 1.0],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (showWarningFilm)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: useShortStandardIcons ? 10 : 14,
+                  child: IgnorePointer(
+                    child: Center(
+                      child: buildWarningCenterBadge(
+                        compact: useShortStandardIcons || height < 74,
+                      ),
+                    ),
+                  ),
+                ),
+              if (showWarningFilm)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: warningFilmColor.withValues(
+                            alpha: isDark ? 0.18 : 0.22,
+                          ),
+                          width: 1.1,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (showCompletedFilm)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            completedFilmHighlight.withValues(
+                              alpha: isDark ? 0.04 : 0.10,
+                            ),
+                            completedFilmColor.withValues(
+                              alpha: isDark ? 0.10 : 0.18,
+                            ),
+                            completedFilmColor.withValues(
+                              alpha: isDark ? 0.14 : 0.22,
+                            ),
+                          ],
+                          stops: const [0.0, 0.45, 1.0],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (showCompletedFilm)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: useShortStandardIcons ? 10 : 14,
+                  child: IgnorePointer(
+                    child: Center(
+                      child: buildCompletedCenterBadge(
+                        compact: useShortStandardIcons || height < 74,
+                      ),
+                    ),
+                  ),
+                ),
+              if (showCompletedFilm)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: completedFilmColor.withValues(
+                            alpha: isDark ? 0.18 : 0.22,
+                          ),
+                          width: 1.1,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final card =
+        gradientBorder == null
+            ? cardBody
+            : DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: gradientBorder,
+                borderRadius: borderRadius,
+              ),
+              child: Padding(
+                padding: EdgeInsets.all(borderWidth),
+                child: cardBody,
+              ),
+            );
 
     final bool enableScale = onTap != null;
     Widget interactiveCard = Listener(
-      onPointerDown: (_) => _removeHoverOverlay(),
+      onPointerDown: (_) => _hideHoverOverlay(),
       child: MouseRegion(
         cursor: enableScale ? SystemMouseCursors.click : MouseCursor.defer,
         onEnter: (_) {
@@ -9364,7 +10895,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
           if (enableScale) {
             _updateHovering(false);
           }
-          _removeHoverOverlay();
+          _hideHoverOverlay();
         },
         child: AnimatedScale(
           scale: enableScale && _isHovering ? 1.06 : 1.0,
@@ -9373,22 +10904,26 @@ class _AppointmentCardState extends State<_AppointmentCard> {
           child: Material(
             color: Colors.transparent,
             child: InkWell(
+              onTapDown: (_) => _hideHoverOverlay(),
               onTap:
                   onTap != null
                       ? () {
-                        _removeHoverOverlay();
+                        _hideHoverOverlay();
                         onTap();
                       }
                       : null,
               borderRadius: borderRadius,
-              child: decoratedCard,
+              child: card,
             ),
           ),
         ),
       ),
     );
 
-    return CompositedTransformTarget(link: _hoverLink, child: interactiveCard);
+    return CompositedTransformTarget(
+      link: _hoverLayerLink,
+      child: interactiveCard,
+    );
   }
 }
 
@@ -9469,6 +11004,24 @@ class _DragPreviewCard extends StatelessWidget {
     final visibleMinutes =
         previewDuration?.inMinutes ?? previewed.duration.inMinutes;
     final baseHeight = expandToContent ? _kBasePreviewHeight : height;
+    if (expandToContent) {
+      return _AppointmentLegacyPreviewCard(
+        appointment: previewed,
+        client: client,
+        service: service,
+        services: services,
+        roomName: roomName,
+        height: baseHeight,
+        visibleDurationMinutes: visibleMinutes,
+        anomalies: anomalies,
+        lastMinuteSlot: lastMinuteSlot,
+        categoriesById: categoriesById,
+        categoriesByName: categoriesByName,
+        hasOutstandingPayments: hasOutstandingPayments,
+        showDuration: showDuration,
+        showNotes: showNotes,
+      );
+    }
     return _AppointmentCard(
       appointment: previewed,
       client: client,

@@ -81,135 +81,113 @@ class _ServiceCategoryManagerSheetState
             .firstWhereOrNull((salon) => salon.id == _selectedSalonId)
             ?.name;
 
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          24,
-          24,
-          24,
-          24 + MediaQuery.of(context).viewInsets.bottom,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Gestione categorie',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Chiudi',
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close_rounded),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (_selectedSalonId == null || salonName == null)
-              const Padding(
-                padding: EdgeInsets.only(bottom: 16),
+    return DialogActionLayout(
+      title: 'Gestione categorie',
+      subtitle:
+          salonName == null
+              ? null
+              : 'Configura e ordina le categorie del salone $salonName.',
+      scrollBody: false,
+      body: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (_selectedSalonId == null || salonName == null)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 16),
+              child: Text(
+                'Nessun salone associato. Apri questa schermata dal salone che vuoi gestire.',
+              ),
+            )
+          else if (categories.isEmpty)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
                 child: Text(
-                  'Nessun salone associato. Apri questa schermata dal salone che vuoi gestire.',
-                ),
-              )
-            else if (categories.isEmpty)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    'Nessuna categoria configurata per questo salone.',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                ),
-              )
-            else
-              Expanded(
-                child: ListView.separated(
-                  padding: EdgeInsets.zero,
-                  itemCount: categories.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
-                    final category = categories[index];
-                    final serviceCount =
-                        serviceCountByCategoryId[category.id] ?? 0;
-                    return Card(
-                      child: ListTile(
-                        leading:
-                            category.color != null
-                                ? _CategoryColorDot(colorValue: category.color!)
-                                : null,
-                        title: Text(category.name),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              serviceCount == 1
-                                  ? '1 servizio collegato'
-                                  : '$serviceCount servizi collegati',
-                            ),
-                            if (category.zoneServiceIds.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Text(
-                                  '${category.zoneServiceIds.length} zone configurate',
-                                ),
-                              ),
-                            if (category.description != null &&
-                                category.description!.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Text(category.description!),
-                              ),
-                          ],
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              tooltip: 'Configura zone corpo',
-                              onPressed:
-                                  () => _configureZones(
-                                    category,
-                                    servicesForSalon,
-                                  ),
-                              icon: const Icon(Icons.map_rounded),
-                            ),
-                            IconButton(
-                              tooltip: 'Modifica categoria',
-                              onPressed: () => _editCategory(category),
-                              icon: const Icon(Icons.edit_rounded),
-                            ),
-                            IconButton(
-                              tooltip: 'Elimina categoria',
-                              onPressed:
-                                  serviceCount == 0
-                                      ? () => _deleteCategory(category)
-                                      : null,
-                              icon: const Icon(Icons.delete_outline_rounded),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
+                  'Nessuna categoria configurata per questo salone.',
+                  style: Theme.of(context).textTheme.bodyMedium,
                 ),
               ),
-            const SizedBox(height: 16),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton.icon(
-                onPressed: _selectedSalonId == null ? null : _createCategory,
-                icon: const Icon(Icons.add_rounded),
-                label: const Text('Nuova categoria'),
+            )
+          else
+            Expanded(
+              child: ListView.separated(
+                padding: EdgeInsets.zero,
+                itemCount: categories.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final category = categories[index];
+                  final serviceCount =
+                      serviceCountByCategoryId[category.id] ?? 0;
+                  return Card(
+                    child: ListTile(
+                      leading:
+                          category.color != null
+                              ? _CategoryColorDot(colorValue: category.color!)
+                              : null,
+                      title: Text(category.name),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            serviceCount == 1
+                                ? '1 servizio collegato'
+                                : '$serviceCount servizi collegati',
+                          ),
+                          if (category.zoneServiceIds.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                '${category.zoneServiceIds.length} zone configurate',
+                              ),
+                            ),
+                          if (category.description != null &&
+                              category.description!.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(category.description!),
+                            ),
+                        ],
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: 'Configura zone corpo',
+                            onPressed:
+                                () =>
+                                    _configureZones(category, servicesForSalon),
+                            icon: const Icon(Icons.map_rounded),
+                          ),
+                          IconButton(
+                            tooltip: 'Modifica categoria',
+                            onPressed: () => _editCategory(category),
+                            icon: const Icon(Icons.edit_rounded),
+                          ),
+                          IconButton(
+                            tooltip: 'Elimina categoria',
+                            onPressed:
+                                serviceCount == 0
+                                    ? () => _deleteCategory(category)
+                                    : null,
+                            icon: const Icon(Icons.delete_outline_rounded),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
-          ],
-        ),
+        ],
       ),
+      actions: [
+        FilledButton.icon(
+          onPressed: _selectedSalonId == null ? null : _createCategory,
+          icon: const Icon(Icons.add_rounded),
+          label: const Text('Nuova categoria'),
+        ),
+      ],
     );
   }
 
@@ -249,6 +227,7 @@ class _ServiceCategoryManagerSheetState
     final nextSortOrder = existing.isEmpty ? 100 : existing.last.sortOrder + 10;
     final category = await showAppModalSheet<ServiceCategory?>(
       context: context,
+      includeCloseButton: false,
       builder:
           (ctx) => ServiceCategoryFormSheet(
             salons: salons,
@@ -269,11 +248,11 @@ class _ServiceCategoryManagerSheetState
               : 'Errore durante il salvataggio della categoria: ${error.message}';
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ).showAppSnackBar(SnackBar(content: Text(message)));
       return;
     }
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(content: Text('Categoria "${category.name}" salvata.')),
     );
   }
@@ -282,6 +261,7 @@ class _ServiceCategoryManagerSheetState
     final salons = widget.salons;
     final updated = await showAppModalSheet<ServiceCategory?>(
       context: context,
+      includeCloseButton: false,
       builder:
           (ctx) => ServiceCategoryFormSheet(
             salons: salons,
@@ -303,11 +283,11 @@ class _ServiceCategoryManagerSheetState
               : 'Errore durante il salvataggio della categoria: ${error.message}';
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ).showAppSnackBar(SnackBar(content: Text(message)));
       return;
     }
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(content: Text('Categoria "${updated.name}" aggiornata.')),
     );
   }
@@ -342,7 +322,7 @@ class _ServiceCategoryManagerSheetState
           .read(appDataProvider.notifier)
           .deleteServiceCategory(category.id);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Categoria "${category.name}" eliminata.')),
       );
     } on StateError catch (error) {
@@ -358,7 +338,7 @@ class _ServiceCategoryManagerSheetState
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ).showAppSnackBar(SnackBar(content: Text(message)));
     }
   }
 

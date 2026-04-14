@@ -326,7 +326,7 @@ class _ClientSalonDiscoveryScreenState
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Logout non riuscito: $error')));
+      ).showAppSnackBar(SnackBar(content: Text('Logout non riuscito: $error')));
     }
   }
 
@@ -338,7 +338,7 @@ class _ClientSalonDiscoveryScreenState
     final session = ref.read(sessionControllerProvider);
     final userId = session.uid;
     if (userId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Sessione scaduta. Accedi nuovamente per proseguire.'),
         ),
@@ -427,7 +427,7 @@ class _ClientSalonDiscoveryScreenState
     if (messenger == null || !messenger.mounted) {
       return;
     }
-    messenger.showSnackBar(
+    messenger.showAppSnackBar(
       SnackBar(
         content: Text(
           'Richiesta inviata a ${salon.name}. Riceverai una notifica quando verrà approvata.',
@@ -715,7 +715,7 @@ class _ClientSalonDiscoveryScreenState
         return;
       }
       if (!navigator.mounted) {
-        ScaffoldMessenger.maybeOf(rootContext)?.showSnackBar(
+        ScaffoldMessenger.maybeOf(rootContext)?.showAppSnackBar(
           SnackBar(content: Text('Cambio salone non riuscito: $error')),
         );
         return;
@@ -1482,7 +1482,7 @@ class _SalonAccessRequestSheetState
     final user = session.user;
     final userId = session.uid;
     if (userId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Sessione scaduta. Accedi nuovamente per proseguire.'),
         ),
@@ -1580,7 +1580,7 @@ class _SalonAccessRequestSheetState
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Impossibile inviare la richiesta: $error')),
       );
     } finally {

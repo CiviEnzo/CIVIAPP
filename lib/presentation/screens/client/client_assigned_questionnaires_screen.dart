@@ -139,7 +139,7 @@ class ClientAssignedQuestionnairesScreen extends ConsumerWidget {
                                     if (saved == true && context.mounted) {
                                       ScaffoldMessenger.of(
                                         context,
-                                      ).showSnackBar(
+                                      ).showAppSnackBar(
                                         const SnackBar(
                                           content: Text(
                                             'Questionario salvato.',
@@ -606,7 +606,7 @@ class _ClientQuestionnaireEditorPageState
       setState(() => _isSaving = false);
       final code = error is FirebaseException ? error.code : 'unknown';
       final message = error is FirebaseException ? error.message : '$error';
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Salvataggio non riuscito [$code]: $message')),
       );
     }

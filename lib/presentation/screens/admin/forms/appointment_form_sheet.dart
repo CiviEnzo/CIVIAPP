@@ -19,10 +19,12 @@ import 'package:you_book/domain/entities/staff_absence.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/screens/admin/modules/client_detail_page.dart';
+import 'package:you_book/presentation/screens/admin/forms/client_search_sheet.dart';
+import 'package:you_book/presentation/screens/admin/forms/client_search_utils.dart';
+import 'package:you_book/presentation/screens/admin/forms/client_save_feedback.dart';
 import 'package:you_book/presentation/shared/client_package_purchase.dart';
 import 'package:you_book/presentation/shared/widgets/client_notes_section.dart';
 import 'package:you_book/presentation/screens/admin/forms/client_form_sheet.dart';
-import 'package:you_book/presentation/screens/admin/forms/client_search_utils.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -35,6 +37,139 @@ import 'package:uuid/uuid.dart';
 enum AppointmentFormAction { save, copy, delete }
 
 enum _ClientSearchMode { general, number }
+
+enum _AppointmentMobileAction { copy, delete }
+
+const Color _kFigmaModalBg = Color(0xFFF4F4F6);
+const Color _kFigmaCardBg = Color(0xFFF6F6F8);
+const Color _kFigmaInputBg = Color(0xFFF9F9FA);
+const Color _kFigmaBorder = Color(0xFFCDCDD2);
+const Color _kFigmaTextPrimary = Color(0xFF1F1F22);
+const Color _kFigmaTextSecondary = Color(0xFF717178);
+const Color _kFigmaGold = Color(0xFFD3AE2C);
+const Color _kFigmaGoldStrong = Color(0xFFF2A007);
+const Color _kFigmaSuccess = Color(0xFF1BC46A);
+const Color _kFigmaDanger = Color(0xFFE05A5A);
+
+Color _blendWithSurface(Color surface, Color tint, double alpha) {
+  return Color.alphaBlend(tint.withValues(alpha: alpha), surface);
+}
+
+class _AppointmentFormPalette {
+  const _AppointmentFormPalette({
+    required this.modalBg,
+    required this.cardBg,
+    required this.inputBg,
+    required this.border,
+    required this.textPrimary,
+    required this.textSecondary,
+    required this.accent,
+    required this.accentStrong,
+    required this.accentSoftBg,
+    required this.accentSectionBg,
+    required this.accentOnSection,
+    required this.success,
+    required this.successBg,
+    required this.danger,
+    required this.dangerBg,
+    required this.summaryGradient,
+    required this.packageBg,
+    required this.selectedItemBg,
+    required this.controlBg,
+    required this.controlDisabledBg,
+  });
+
+  factory _AppointmentFormPalette.fromTheme(ThemeData theme) {
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    return _AppointmentFormPalette(
+      modalBg: isDark ? scheme.surface : _kFigmaModalBg,
+      cardBg: isDark ? scheme.surfaceContainerLow : _kFigmaCardBg,
+      inputBg: isDark ? scheme.surfaceContainerHigh : _kFigmaInputBg,
+      border:
+          isDark
+              ? scheme.outlineVariant.withValues(alpha: 0.78)
+              : _kFigmaBorder,
+      textPrimary: scheme.onSurface,
+      textSecondary: scheme.onSurfaceVariant,
+      accent: _kFigmaGold,
+      accentStrong: _kFigmaGoldStrong,
+      accentSoftBg:
+          isDark
+              ? _kFigmaGold.withValues(alpha: 0.18)
+              : const Color(0x1AD3AE2C),
+      accentSectionBg:
+          isDark ? _kFigmaGold.withValues(alpha: 0.18) : _kFigmaGold,
+      accentOnSection: isDark ? _kFigmaGold : _kFigmaTextPrimary,
+      success: isDark ? scheme.tertiary : _kFigmaSuccess,
+      successBg:
+          isDark
+              ? scheme.tertiaryContainer.withValues(alpha: 0.38)
+              : const Color(0x1A1BC46A),
+      danger: scheme.error,
+      dangerBg:
+          isDark
+              ? scheme.errorContainer.withValues(alpha: 0.32)
+              : const Color(0xFFFFE9E9),
+      summaryGradient:
+          isDark
+              ? LinearGradient(
+                colors: [
+                  _blendWithSurface(
+                    scheme.surfaceContainerHigh,
+                    _kFigmaGold,
+                    0.08,
+                  ),
+                  scheme.surface,
+                ],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+              )
+              : const LinearGradient(
+                colors: [Color(0xFFF5F0DF), Color(0xFFF8F8F9)],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+              ),
+      packageBg:
+          isDark
+              ? _blendWithSurface(scheme.surfaceContainerLow, _kFigmaGold, 0.06)
+              : const Color(0xFFFFFAEF),
+      selectedItemBg:
+          isDark
+              ? _blendWithSurface(
+                scheme.surfaceContainerHigh,
+                _kFigmaGoldStrong,
+                0.10,
+              )
+              : Colors.white,
+      controlBg:
+          isDark ? scheme.surfaceContainerHighest : const Color(0xFFEEEEF1),
+      controlDisabledBg:
+          isDark ? scheme.surfaceContainerLow : const Color(0xFFF4F4F6),
+    );
+  }
+
+  final Color modalBg;
+  final Color cardBg;
+  final Color inputBg;
+  final Color border;
+  final Color textPrimary;
+  final Color textSecondary;
+  final Color accent;
+  final Color accentStrong;
+  final Color accentSoftBg;
+  final Color accentSectionBg;
+  final Color accentOnSection;
+  final Color success;
+  final Color successBg;
+  final Color danger;
+  final Color dangerBg;
+  final Gradient summaryGradient;
+  final Color packageBg;
+  final Color selectedItemBg;
+  final Color controlBg;
+  final Color controlDisabledBg;
+}
 
 class AppointmentFormResult {
   const AppointmentFormResult({
@@ -61,6 +196,7 @@ class AppointmentFormSheet extends ConsumerStatefulWidget {
     this.suggestedEnd,
     this.suggestedStaffId,
     this.enableDelete = false,
+    this.showSheetHeader = true,
     this.onSaved,
   });
 
@@ -76,6 +212,7 @@ class AppointmentFormSheet extends ConsumerStatefulWidget {
   final DateTime? suggestedEnd;
   final String? suggestedStaffId;
   final bool enableDelete;
+  final bool showSheetHeader;
   final void Function(AppointmentFormResult result)? onSaved;
 
   @override
@@ -130,6 +267,13 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         widget.defaultSalonId ??
         (widget.salons.isNotEmpty ? widget.salons.first.id : null);
     _clientId = initial?.clientId ?? widget.defaultClientId;
+    final initialClient = widget.clients.firstWhereOrNull(
+      (client) => client.id == _clientId,
+    );
+    if (initialClient != null) {
+      _clientSearchController.text = initialClient.fullName;
+      _clientNumberSearchController.text = initialClient.clientNumber ?? '';
+    }
     _staffId = initial?.staffId ?? widget.suggestedStaffId;
     final initialServiceIds = initial?.serviceIds ?? const <String>[];
     final fallbackServiceId = initial?.serviceId;
@@ -252,6 +396,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final palette = _AppointmentFormPalette.fromTheme(theme);
     final bookingDateFormat = DateFormat('EEEE d MMMM yyyy', 'it_IT');
     final timeFormat = DateFormat('HH:mm', 'it_IT');
     final formattedBookingDate = bookingDateFormat.format(_start);
@@ -288,12 +433,11 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     final selectedStaffMember = staffMembers.firstWhereOrNull(
       (member) => member.id == _staffId,
     );
-    final bool hasLockedStaffSelection =
-        widget.initial?.staffId != null && selectedStaffMember != null;
-    final bool showStaffDropdown = !hasLockedStaffSelection;
     final operatorSectionTitle = 'Cliente';
     final lastClient = clients.firstWhereOrNull(
-      (client) => client.id == _lastSavedClientId,
+      (client) =>
+          client.id == _lastSavedClientId &&
+          (_salonId == null || client.salonId == _salonId),
     );
     final canApplyLastClient = lastClient != null && lastClient.id != _clientId;
     final Widget? lastClientButton =
@@ -304,7 +448,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                   canApplyLastClient
                       ? () {
                         FocusScope.of(context).unfocus();
-                        _applyClientSelection(lastClient!);
+                        _applyClientSelection(lastClient);
                       }
                       : null,
               icon: const Icon(Icons.history_rounded),
@@ -436,8 +580,13 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                       _statusIcon(status),
                       color: _statusColor(theme.colorScheme, status),
                     ),
-                    SizedBox(width: 4),
-                    Text(_statusLabel(status)),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        _statusLabel(status),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                   ],
                 ),
               );
@@ -481,752 +630,690 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isCompactWidth = constraints.maxWidth < 640;
+        final isCompactWidth = constraints.maxWidth < 720;
+        final isSingleColumnLayout = constraints.maxWidth < 1060;
+        final isPhoneLayout = isAppSheetPhoneLayout(context);
+        final isEditing = widget.initial != null;
+        final appointmentTitle =
+            isEditing ? 'Modifica appuntamento' : 'Nuovo appuntamento';
+        final mobileStandalone = isPhoneLayout && widget.showSheetHeader;
+
         final titleSection = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              widget.initial == null
-                  ? 'Nuovo appuntamento'
-                  : 'Modifica appuntamento',
-              style: theme.textTheme.titleLarge,
+              appointmentTitle,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: palette.textPrimary,
+              ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Text(
               bookingDateLabel,
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+                color: palette.textSecondary,
               ),
             ),
           ],
         );
+
         final Widget staffField = SizedBox(
-          width: isCompactWidth ? double.infinity : 280,
-          child:
-              showStaffDropdown
-                  ? DropdownButtonFormField<String>(
-                    value: staffFieldValue,
-                    decoration: const InputDecoration(
-                      labelText: 'Operatore',
-                      floatingLabelBehavior: FloatingLabelBehavior.always,
-                    ),
-                    isExpanded: true,
-                    items:
-                        filteredStaff
-                            .map(
-                              (member) => DropdownMenuItem(
-                                value: member.id,
-                                child: Text(member.fullName),
-                              ),
-                            )
-                            .toList(),
-                    onChanged: (value) {
-                      final staffMember =
-                          value == null
-                              ? null
-                              : staffMembers.firstWhereOrNull(
-                                (member) => member.id == value,
-                              );
-                      final previousSalonId = _salonId;
-                      final newSalonId = staffMember?.salonId;
-                      final salonChanged = previousSalonId != newSalonId;
+          width: isSingleColumnLayout ? double.infinity : 280,
+          child: DropdownButtonFormField<String>(
+            initialValue: staffFieldValue,
+            decoration: InputDecoration(
+              hintText: 'Seleziona operatore',
+              filled: true,
+              fillColor: palette.inputBg,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 14,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: palette.border),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: palette.accent, width: 1.3),
+              ),
+            ),
+            isExpanded: true,
+            items:
+                filteredStaff
+                    .map(
+                      (member) => DropdownMenuItem(
+                        value: member.id,
+                        child: Text(member.fullName),
+                      ),
+                    )
+                    .toList(),
+            onChanged: (value) {
+              final staffMember =
+                  value == null
+                      ? null
+                      : staffMembers.firstWhereOrNull(
+                        (member) => member.id == value,
+                      );
+              final previousSalonId = _salonId;
+              final newSalonId = staffMember?.salonId;
+              final salonChanged = previousSalonId != newSalonId;
 
-                      setState(() {
-                        _staffId = value;
-                        _salonId = newSalonId;
+              setState(() {
+                _staffId = value;
+                _salonId = newSalonId;
 
-                        if (salonChanged) {
-                          _clientId = null;
-                          _clientSearchController.clear();
-                          _clientSuggestions = const <Client>[];
-                          _serviceIds = const [];
-                          _serviceQuantities.clear();
-                          _clearAllPackageSelections();
-                        }
+                if (salonChanged) {
+                  _clientId = null;
+                  _clientSearchController.clear();
+                  _clientNumberSearchController.clear();
+                  _clientSearchMode = _ClientSearchMode.general;
+                  _clientSuggestions = const <Client>[];
+                  _serviceIds = const [];
+                  _serviceQuantities.clear();
+                  _clearAllPackageSelections();
+                }
 
-                        if (staffMember == null) {
-                          if (!salonChanged) {
-                            _serviceIds = const [];
-                            _serviceQuantities.clear();
-                            _clearAllPackageSelections();
+                if (staffMember == null) {
+                  if (!salonChanged) {
+                    _serviceIds = const [];
+                    _serviceQuantities.clear();
+                    _clearAllPackageSelections();
+                  }
+                  _ensureServiceState(_serviceIds);
+                  _lastSuggestionKey = '';
+                  _latestSuggestion = null;
+                  return;
+                }
+
+                final allowedServiceIds =
+                    services
+                        .where((service) {
+                          final roles = service.staffRoles;
+                          if (roles.isEmpty) {
+                            return true;
                           }
-                          _ensureServiceState(_serviceIds);
-                          _lastSuggestionKey = '';
-                          _latestSuggestion = null;
-                          return;
-                        }
+                          return staffMember.roleIds.any(
+                            (roleId) => roles.contains(roleId),
+                          );
+                        })
+                        .map((service) => service.id)
+                        .toSet();
+                final filteredSelections =
+                    _serviceIds.where(allowedServiceIds.contains).toList();
+                if (filteredSelections.length != _serviceIds.length) {
+                  _serviceIds = filteredSelections;
+                  _ensureServiceState(_serviceIds);
+                  _manualPackageSelections.removeWhere(
+                    (serviceId) => !_serviceIds.contains(serviceId),
+                  );
+                  _lastSuggestionKey = '';
+                  _latestSuggestion = null;
+                }
+              });
 
-                        final allowedServiceIds =
-                            services
-                                .where((service) {
-                                  final roles = service.staffRoles;
-                                  if (roles.isEmpty) {
-                                    return true;
-                                  }
-                                  return staffMember.roleIds.any(
-                                    (roleId) => roles.contains(roleId),
-                                  );
-                                })
-                                .map((service) => service.id)
-                                .toSet();
-                        final filteredSelections =
-                            _serviceIds
-                                .where(allowedServiceIds.contains)
-                                .toList();
-                        if (filteredSelections.length != _serviceIds.length) {
-                          _serviceIds = filteredSelections;
+              _clearInlineError();
+
+              if (salonChanged) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _clientFieldKey.currentState?.didChange(_clientId);
+                });
+              }
+            },
+            validator: (value) => value == null ? 'Scegli un operatore' : null,
+          ),
+        );
+
+        final summaryCard = Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: palette.accent.withValues(alpha: 0.7),
+              width: 1,
+            ),
+            gradient: palette.summaryGradient,
+          ),
+          child:
+              isPhoneLayout
+                  ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        bookingDateLabel,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: palette.textSecondary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        'OPERATORE',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: palette.accent,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      staffField,
+                    ],
+                  )
+                  : isSingleColumnLayout
+                  ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      titleSection,
+                      const SizedBox(height: 14),
+                      Text(
+                        'OPERATORE',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: palette.accent,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      staffField,
+                    ],
+                  )
+                  : Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: titleSection),
+                      const SizedBox(width: 18),
+                      SizedBox(
+                        width: 320,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'OPERATORE',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: palette.accent,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 1.0,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            staffField,
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+        );
+
+        final clientSection = _buildDetailSectionCard(
+          icon: Icons.group_rounded,
+          title: operatorSectionTitle,
+          trailing: lastClientButton,
+          child: _buildClientSelectionBody(filteredClients),
+        );
+
+        final serviceSection = _buildDetailSectionCard(
+          icon: Icons.calendar_today_rounded,
+          title: 'Servizi e pacchetti',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              FormField<List<String>>(
+                validator:
+                    (_) =>
+                        _serviceIds.isEmpty
+                            ? 'Scegli almeno un servizio'
+                            : null,
+                builder: (state) {
+                  final theme = Theme.of(context);
+                  final selectedNames =
+                      selectedServices.map((service) => service.name).toList();
+                  return InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () async {
+                      final selection = await _openServicePicker(
+                        context,
+                        services: filteredServices,
+                        categories: _categoriesForCurrentSalon(),
+                        selectedStaff: staffMembers.firstWhereOrNull(
+                          (member) => member.id == _staffId,
+                        ),
+                      );
+                      if (selection != null) {
+                        setState(() {
+                          _serviceIds = selection;
                           _ensureServiceState(_serviceIds);
                           _manualPackageSelections.removeWhere(
                             (serviceId) => !_serviceIds.contains(serviceId),
                           );
-                          _lastSuggestionKey = '';
-                          _latestSuggestion = null;
-                        }
-                      });
-
-                      _clearInlineError();
-
-                      if (salonChanged) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          _clientFieldKey.currentState?.didChange(_clientId);
+                          if (_serviceIds.isEmpty) {
+                            _clearAllPackageSelections();
+                          } else {
+                            _lastSuggestionKey = '';
+                            _latestSuggestion = null;
+                            final baseSelectedServices =
+                                _selectedServicesInOrder(services);
+                            final adjustedServices = _applyDurationAdjustments(
+                              baseSelectedServices,
+                            );
+                            final totalDuration = _sumServiceDurations(
+                              adjustedServices,
+                            );
+                            if (totalDuration > Duration.zero) {
+                              _end = _start.add(totalDuration);
+                            }
+                          }
                         });
+                        _clearInlineError();
+                        state.didChange(_serviceIds);
                       }
                     },
-                    validator:
-                        (value) => value == null ? 'Scegli un operatore' : null,
-                  )
-                  : FormField<String>(
-                    initialValue:
-                        selectedStaffMember?.id ?? widget.initial?.staffId,
-                    validator:
-                        (_) =>
-                            selectedStaffMember == null
-                                ? 'Scegli un operatore'
-                                : null,
-                    builder: (state) {
-                      final theme = Theme.of(context);
-                      return InputDecorator(
-                        decoration: InputDecoration(
-                          labelText: 'Operatore',
-                          floatingLabelBehavior: FloatingLabelBehavior.always,
-                          errorText: state.errorText,
+                    child: InputDecorator(
+                      decoration: InputDecoration(
+                        labelText: 'SERVIZI',
+                        floatingLabelBehavior: FloatingLabelBehavior.always,
+                        errorText: state.errorText,
+                        labelStyle: theme.textTheme.labelSmall?.copyWith(
+                          color: palette.accent,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.7,
                         ),
-                        child: Text(
-                          selectedStaffMember?.fullName ??
-                              'Operatore non disponibile',
-                          style: theme.textTheme.bodyLarge,
+                        filled: true,
+                        fillColor: palette.inputBg,
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(color: palette.border),
                         ),
-                      );
-                    },
-                  ),
-        );
-        return SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    child: CustomScrollView(
-                      slivers: [
-                        SliverToBoxAdapter(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(
+                            color: palette.accent,
+                            width: 1.2,
+                          ),
+                        ),
+                        prefixIcon: Icon(
+                          Icons.chevron_left_rounded,
+                          color: palette.textPrimary,
+                        ),
+                        suffixIcon: SizedBox(
+                          width: 86,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              SizedBox(height: 8),
-                              if (isCompactWidth) ...[
-                                titleSection,
-                                const SizedBox(height: 12),
-                                staffField,
-                              ] else
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(child: titleSection),
-                                    const SizedBox(width: 16),
-                                    staffField,
-                                  ],
+                              Icon(
+                                Icons.chevron_right_rounded,
+                                color: palette.textPrimary,
+                              ),
+                              const SizedBox(width: 6),
+                              Container(
+                                margin: const EdgeInsets.only(right: 8),
+                                width: 30,
+                                height: 30,
+                                decoration: BoxDecoration(
+                                  color: palette.accentSectionBg,
+                                  shape: BoxShape.circle,
                                 ),
-                              if (_inlineErrorMessage != null) ...[
-                                const SizedBox(height: 16),
-                                Material(
-                                  color: colorScheme.errorContainer,
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 12,
-                                    ),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Icon(
-                                          Icons.warning_rounded,
-                                          color: colorScheme.onErrorContainer,
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Text(
-                                            _inlineErrorMessage!,
-                                            style: theme.textTheme.bodyMedium
-                                                ?.copyWith(
-                                                  color:
-                                                      colorScheme
-                                                          .onErrorContainer,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                          ),
-                                        ),
-                                        IconButton(
-                                          tooltip: 'Chiudi avviso',
-                                          onPressed: _clearInlineError,
-                                          visualDensity: VisualDensity.compact,
-                                          icon: Icon(
-                                            Icons.close_rounded,
-                                            color: colorScheme.onErrorContainer,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
+                                child: Icon(
+                                  Icons.segment_rounded,
+                                  size: 17,
+                                  color: palette.accentOnSection,
                                 ),
-                              ],
-                              const SizedBox(height: 12),
-                              _buildSectionHeader(
-                                icon: Icons.group_add_rounded,
-                                title: operatorSectionTitle,
-                                subtitle:
-                                    "Seleziona l'operatore e collega il cliente per l'appuntamento",
-                                trailing: lastClientButton,
                               ),
-                              const SizedBox(height: 12),
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    flex: 2,
-                                    child: FormField<String>(
-                                      key: _clientFieldKey,
-                                      validator:
-                                          (_) =>
-                                              _clientId == null
-                                                  ? 'Scegli un cliente'
-                                                  : null,
-                                      builder: (state) {
-                                        final selectedClient = clients
-                                            .firstWhereOrNull(
-                                              (client) =>
-                                                  client.id == _clientId,
-                                            );
-                                        if (selectedClient != null &&
-                                            _clientSearchController.text !=
-                                                selectedClient.fullName) {
-                                          _clientSearchController.text =
-                                              selectedClient.fullName;
-                                        }
-                                        final hasSelection =
-                                            selectedClient != null;
-                                        final suggestions =
-                                            hasSelection
-                                                ? const <Client>[]
-                                                : _clientSuggestions;
-                                        final theme = Theme.of(context);
-                                        final colorScheme = theme.colorScheme;
-                                        final clientNumberText =
-                                            selectedClient?.clientNumber;
-                                        final isCompactWidth =
-                                            MediaQuery.sizeOf(context).width <
-                                            640;
-
-                                        Widget buildClientField({
-                                          required bool inlineAddButton,
-                                        }) {
-                                          if (hasSelection &&
-                                              selectedClient != null) {
-                                            return InputDecorator(
-                                              decoration: InputDecoration(
-                                                labelText: 'Cliente',
-                                                floatingLabelBehavior:
-                                                    FloatingLabelBehavior
-                                                        .always,
-                                                errorText: state.errorText,
-                                                suffixIcon: Row(
-                                                  mainAxisSize:
-                                                      MainAxisSize.min,
-                                                  children: [
-                                                    IconButton(
-                                                      tooltip:
-                                                          'Apri scheda cliente',
-                                                      icon: const Icon(
-                                                        Icons
-                                                            .open_in_new_rounded,
-                                                      ),
-                                                      onPressed: () async {
-                                                        await _openClientDetails(
-                                                          selectedClient,
-                                                        );
-                                                      },
-                                                    ),
-                                                    IconButton(
-                                                      tooltip: 'Lista note',
-                                                      icon: const Icon(
-                                                        Icons
-                                                            .sticky_note_2_rounded,
-                                                      ),
-                                                      onPressed: () {
-                                                        _openClientNotes(
-                                                          selectedClient,
-                                                        );
-                                                      },
-                                                    ),
-                                                    IconButton(
-                                                      tooltip:
-                                                          'Rimuovi cliente',
-                                                      icon: const Icon(
-                                                        Icons.close_rounded,
-                                                      ),
-                                                      onPressed:
-                                                          _clearClientSelection,
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                              isEmpty: false,
-                                              child: Padding(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      vertical: 12,
-                                                    ),
-                                                child: Column(
-                                                  crossAxisAlignment:
-                                                      CrossAxisAlignment.start,
-                                                  mainAxisSize:
-                                                      MainAxisSize.min,
-                                                  children: [
-                                                    Text(
-                                                      selectedClient.fullName,
-                                                      style:
-                                                          theme
-                                                              .textTheme
-                                                              .bodyLarge ??
-                                                          theme
-                                                              .textTheme
-                                                              .bodyMedium,
-                                                    ),
-                                                    if (selectedClient.phone
-                                                        .trim()
-                                                        .isNotEmpty)
-                                                      Padding(
-                                                        padding:
-                                                            const EdgeInsets.only(
-                                                              top: 4,
-                                                            ),
-                                                        child: Text(
-                                                          selectedClient.phone,
-                                                          style:
-                                                              theme
-                                                                  .textTheme
-                                                                  .bodyMedium
-                                                                  ?.copyWith(
-                                                                    color:
-                                                                        colorScheme
-                                                                            .onSurfaceVariant,
-                                                                  ) ??
-                                                              theme
-                                                                  .textTheme
-                                                                  .bodyMedium,
-                                                        ),
-                                                      ),
-                                                  ],
-                                                ),
-                                              ),
-                                            );
-                                          }
-
-                                          final suffixIcons = <Widget>[
-                                            if (_clientSearchController
-                                                .text
-                                                .isEmpty)
-                                              const Icon(
-                                                Icons.search_rounded,
-                                                size: 20,
-                                              )
-                                            else
-                                              IconButton(
-                                                tooltip: 'Pulisci ricerca',
-                                                icon: const Icon(
-                                                  Icons.clear_rounded,
-                                                ),
-                                                onPressed: _clearClientSearch,
-                                              ),
-                                          ];
-                                          if (inlineAddButton &&
-                                              _clientId == null) {
-                                            suffixIcons.add(
-                                              IconButton(
-                                                tooltip: 'Nuovo cliente',
-                                                icon: const Icon(
-                                                  Icons
-                                                      .person_add_alt_1_rounded,
-                                                ),
-                                                onPressed: _createClient,
-                                              ),
-                                            );
-                                          }
-
-                                          return TextField(
-                                            controller: _clientSearchController,
-                                            focusNode: _clientSearchFocusNode,
-                                            decoration: InputDecoration(
-                                              labelText: 'Cliente',
-                                              floatingLabelBehavior:
-                                                  FloatingLabelBehavior.always,
-                                              hintText:
-                                                  'Nome, cognome, telefono o email',
-                                              errorText: state.errorText,
-                                              suffixIcon: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: suffixIcons,
-                                              ),
-                                            ),
-                                            keyboardType: TextInputType.text,
-                                            textInputAction:
-                                                TextInputAction.search,
-                                            onChanged:
-                                                (value) =>
-                                                    _onClientSearchChanged(
-                                                      value,
-                                                      filteredClients,
-                                                      _ClientSearchMode.general,
-                                                    ),
-                                          );
-                                        }
-
-                                        Widget buildClientNumberField() {
-                                          if (hasSelection &&
-                                              selectedClient != null) {
-                                            return InputDecorator(
-                                              decoration: const InputDecoration(
-                                                labelText: 'Numero cliente',
-                                                floatingLabelBehavior:
-                                                    FloatingLabelBehavior
-                                                        .always,
-                                              ),
-                                              child: Padding(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      vertical: 12,
-                                                    ),
-                                                child: Text(
-                                                  (clientNumberText != null &&
-                                                          clientNumberText
-                                                              .isNotEmpty)
-                                                      ? clientNumberText
-                                                      : 'Numero non disponibile',
-                                                  style:
-                                                      theme
-                                                          .textTheme
-                                                          .bodyLarge ??
-                                                      theme
-                                                          .textTheme
-                                                          .bodyMedium,
-                                                ),
-                                              ),
-                                            );
-                                          }
-
-                                          return TextField(
-                                            controller:
-                                                _clientNumberSearchController,
-                                            focusNode:
-                                                _clientNumberSearchFocusNode,
-                                            decoration: InputDecoration(
-                                              labelText: 'Numero cliente',
-                                              floatingLabelBehavior:
-                                                  FloatingLabelBehavior.always,
-                                              hintText: 'Numero cliente',
-                                              suffixIcon:
-                                                  _clientNumberSearchController
-                                                          .text
-                                                          .isEmpty
-                                                      ? const Icon(
-                                                        Icons.search_rounded,
-                                                        size: 20,
-                                                      )
-                                                      : IconButton(
-                                                        tooltip:
-                                                            'Pulisci ricerca',
-                                                        icon: const Icon(
-                                                          Icons.clear_rounded,
-                                                        ),
-                                                        onPressed:
-                                                            _clearClientNumberSearch,
-                                                      ),
-                                            ),
-                                            keyboardType: TextInputType.number,
-                                            textInputAction:
-                                                TextInputAction.search,
-                                            inputFormatters: [
-                                              FilteringTextInputFormatter
-                                                  .digitsOnly,
-                                            ],
-                                            onChanged:
-                                                (value) =>
-                                                    _onClientSearchChanged(
-                                                      value,
-                                                      filteredClients,
-                                                      _ClientSearchMode.number,
-                                                    ),
-                                          );
-                                        }
-
-                                        return Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            if (isCompactWidth) ...[
-                                              buildClientField(
-                                                inlineAddButton: true,
-                                              ),
-                                              if (!hasSelection) ...[
-                                                const SizedBox(height: 8),
-                                                _buildClientSuggestions(
-                                                  suggestions,
-                                                ),
-                                              ],
-                                              const SizedBox(height: 12),
-                                              buildClientNumberField(),
-                                            ] else
-                                              Row(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Expanded(
-                                                    flex: 3,
-                                                    child: Column(
-                                                      crossAxisAlignment:
-                                                          CrossAxisAlignment
-                                                              .start,
-                                                      children: [
-                                                        Row(
-                                                          crossAxisAlignment:
-                                                              CrossAxisAlignment
-                                                                  .start,
-                                                          children: [
-                                                            Expanded(
-                                                              child: buildClientField(
-                                                                inlineAddButton:
-                                                                    false,
-                                                              ),
-                                                            ),
-                                                            if (_clientId ==
-                                                                null) ...[
-                                                              const SizedBox(
-                                                                width: 8,
-                                                              ),
-                                                              IconButton(
-                                                                onPressed:
-                                                                    _createClient,
-                                                                tooltip:
-                                                                    'Nuovo cliente',
-                                                                icon: const Icon(
-                                                                  Icons
-                                                                      .person_add_alt_1_rounded,
-                                                                ),
-                                                              ),
-                                                            ],
-                                                          ],
-                                                        ),
-                                                        if (!hasSelection) ...[
-                                                          const SizedBox(
-                                                            height: 8,
-                                                          ),
-                                                          _buildClientSuggestions(
-                                                            suggestions,
-                                                          ),
-                                                        ],
-                                                      ],
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 12),
-                                                  Flexible(
-                                                    flex: 2,
-                                                    child:
-                                                        buildClientNumberField(),
-                                                  ),
-                                                ],
-                                              ),
-                                          ],
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              _buildSectionHeader(
-                                icon: Icons.design_services_rounded,
-                                title: 'Servizi e pacchetti',
-                                subtitle:
-                                    'Scegli i trattamenti e decidi se scalare sessioni da un pacchetto',
-                              ),
-                              const SizedBox(height: 12),
-                              FormField<List<String>>(
-                                validator:
-                                    (_) =>
-                                        _serviceIds.isEmpty
-                                            ? 'Scegli almeno un servizio'
-                                            : null,
-                                builder: (state) {
-                                  final theme = Theme.of(context);
-                                  final selectedNames =
-                                      selectedServices
-                                          .map((service) => service.name)
-                                          .toList();
-                                  return Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      InkWell(
-                                        borderRadius: BorderRadius.circular(8),
-                                        onTap: () async {
-                                          final selection =
-                                              await _openServicePicker(
-                                                context,
-                                                services: filteredServices,
-                                                categories:
-                                                    _categoriesForCurrentSalon(),
-                                                selectedStaff: staffMembers
-                                                    .firstWhereOrNull(
-                                                      (member) =>
-                                                          member.id == _staffId,
-                                                    ),
-                                              );
-                                          if (selection != null) {
-                                            setState(() {
-                                              _serviceIds = selection;
-                                              _ensureServiceState(_serviceIds);
-                                              _manualPackageSelections
-                                                  .removeWhere(
-                                                    (serviceId) =>
-                                                        !_serviceIds.contains(
-                                                          serviceId,
-                                                        ),
-                                                  );
-                                              if (_serviceIds.isEmpty) {
-                                                _clearAllPackageSelections();
-                                              } else {
-                                                _lastSuggestionKey = '';
-                                                _latestSuggestion = null;
-                                                final baseSelectedServices =
-                                                    _selectedServicesInOrder(
-                                                      services,
-                                                    );
-                                                final adjustedServices =
-                                                    _applyDurationAdjustments(
-                                                      baseSelectedServices,
-                                                    );
-                                                final totalDuration =
-                                                    _sumServiceDurations(
-                                                      adjustedServices,
-                                                    );
-                                                if (totalDuration >
-                                                    Duration.zero) {
-                                                  _end = _start.add(
-                                                    totalDuration,
-                                                  );
-                                                }
-                                              }
-                                            });
-                                            _clearInlineError();
-                                            state.didChange(_serviceIds);
-                                          }
-                                        },
-                                        child: InputDecorator(
-                                          decoration: InputDecoration(
-                                            labelText: 'Servizi',
-                                            floatingLabelBehavior:
-                                                FloatingLabelBehavior.always,
-                                            errorText: state.errorText,
-                                            suffixIcon: const Icon(
-                                              Icons.segment_rounded,
-                                            ),
-                                          ),
-                                          isEmpty: selectedNames.isEmpty,
-                                          child:
-                                              selectedNames.isEmpty
-                                                  ? Text(
-                                                    'Seleziona uno o più servizi',
-                                                    style: theme
-                                                        .textTheme
-                                                        .bodyMedium
-                                                        ?.copyWith(
-                                                          color:
-                                                              theme.hintColor,
-                                                        ),
-                                                  )
-                                                  : _buildReorderableServiceChips(
-                                                    theme,
-                                                    selectedServices,
-                                                  ),
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                },
-                              ),
-                              if (showPackageSection)
-                                _buildPackageSection(
-                                  theme: theme,
-                                  selectedServices: selectedServices,
-                                  packagesByService: packagesByService,
-                                  allClientPackages: allClientPackages,
-                                ),
-                              const SizedBox(height: 24),
-
-                              _buildScheduleCard(
-                                bookingDateLabel: bookingDateLabel,
-                                startTimeLabel: startTimeLabel,
-                                endTimeLabel: endTimeLabel,
-                                baseServices: baseSelectedServices,
-                              ),
-                              _buildServiceDurationAdjustmentPanel(
-                                baseServices: baseSelectedServices,
-                                adjustedServices: selectedServices,
-                              ),
-
-                              if (closureConflicts.isNotEmpty) ...[
-                                const SizedBox(height: 16),
-                                ...closureConflicts.map(
-                                  (closure) => _buildClosureNotice(
-                                    context: context,
-                                    message: _describeClosure(closure),
-                                  ),
-                                ),
-                              ],
                             ],
                           ),
                         ),
-                        const SliverToBoxAdapter(child: SizedBox(height: 16)),
+                      ),
+                      isEmpty: selectedNames.isEmpty,
+                      child:
+                          selectedNames.isEmpty
+                              ? Text(
+                                'Seleziona uno o più servizi',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: palette.textPrimary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              )
+                              : _buildReorderableServiceChips(
+                                theme,
+                                selectedServices,
+                              ),
+                    ),
+                  );
+                },
+              ),
+              if (showPackageSection) ...[
+                const SizedBox(height: 12),
+                _buildPackageSection(
+                  theme: theme,
+                  selectedServices: selectedServices,
+                  packagesByService: packagesByService,
+                  allClientPackages: allClientPackages,
+                ),
+              ],
+            ],
+          ),
+        );
+
+        final scheduleSection = _buildDetailSectionCard(
+          icon: Icons.schedule_rounded,
+          title: 'Orario',
+          trailing: _buildDurationBadge(durationMinutes: durationMinutes),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildScheduleCard(
+                startTimeLabel: startTimeLabel,
+                endTimeLabel: endTimeLabel,
+                baseServices: baseSelectedServices,
+              ),
+              if (baseSelectedServices.length > 1) ...[
+                const SizedBox(height: 12),
+                _buildServiceDurationAdjustmentPanel(
+                  baseServices: baseSelectedServices,
+                  adjustedServices: selectedServices,
+                ),
+              ],
+              if (closureConflicts.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                ...closureConflicts.map(
+                  (closure) => _buildClosureNotice(
+                    context: context,
+                    message: _describeClosure(closure),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+
+        final notesSection = _buildDetailSectionCard(
+          icon: Icons.sticky_note_2_rounded,
+          title: 'Note appuntamento',
+          child: TextField(
+            controller: _notes,
+            minLines: 6,
+            maxLines: 6,
+            textInputAction: TextInputAction.newline,
+            keyboardType: TextInputType.multiline,
+            decoration: InputDecoration(
+              hintText: 'Aggiungi note o dettagli aggiuntivi...',
+              alignLabelWithHint: true,
+              filled: true,
+              fillColor: palette.inputBg,
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: palette.border),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: palette.accent, width: 1.2),
+              ),
+            ),
+          ),
+        );
+        final formContent = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            summaryCard,
+            if (_inlineErrorMessage != null) ...[
+              const SizedBox(height: 12),
+              Material(
+                color: colorScheme.errorContainer,
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.warning_rounded,
+                        color: colorScheme.onErrorContainer,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _inlineErrorMessage!,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: colorScheme.onErrorContainer,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Chiudi avviso',
+                        onPressed: _clearInlineError,
+                        visualDensity: VisualDensity.compact,
+                        icon: Icon(
+                          Icons.close_rounded,
+                          color: colorScheme.onErrorContainer,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 14),
+            if (isSingleColumnLayout)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  clientSection,
+                  const SizedBox(height: 12),
+                  serviceSection,
+                  const SizedBox(height: 12),
+                  scheduleSection,
+                  const SizedBox(height: 12),
+                  notesSection,
+                ],
+              )
+            else
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        clientSection,
+                        const SizedBox(height: 12),
+                        scheduleSection,
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  Material(
-                    color: theme.colorScheme.surface,
-                    child: _buildActionButtons(
-                      context,
-                      statusItems,
-                      isFutureStart,
-                      isCompactWidth: isCompactWidth,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        serviceSection,
+                        const SizedBox(height: 12),
+                        notesSection,
+                      ],
                     ),
                   ),
                 ],
+              ),
+            const SizedBox(height: 10),
+          ],
+        );
+        final actionButtons = _buildActionButtons(
+          context,
+          statusItems,
+          isFutureStart,
+          isCompactWidth: isCompactWidth,
+          isEditing: isEditing,
+        );
+        final mobileStatusSection = _buildDetailSectionCard(
+          icon: Icons.flag_rounded,
+          title: 'Stato appuntamento',
+          child: _buildStatusField(statusItems, isFutureStart),
+        );
+
+        if (mobileStandalone) {
+          final mobileActions = <Widget>[
+            if (isEditing)
+              PopupMenuButton<_AppointmentMobileAction>(
+                tooltip: 'Azioni',
+                onSelected: (value) {
+                  switch (value) {
+                    case _AppointmentMobileAction.copy:
+                      _copy();
+                      break;
+                    case _AppointmentMobileAction.delete:
+                      _confirmDelete();
+                      break;
+                  }
+                },
+                itemBuilder: (context) {
+                  return [
+                    const PopupMenuItem(
+                      value: _AppointmentMobileAction.copy,
+                      child: Text('Copia appuntamento'),
+                    ),
+                    if (widget.enableDelete && widget.initial != null)
+                      const PopupMenuItem(
+                        value: _AppointmentMobileAction.delete,
+                        child: Text('Elimina appuntamento'),
+                      ),
+                  ];
+                },
+              ),
+            TextButton(
+              onPressed: _isDeleting ? null : _submit,
+              child: const Text('Salva'),
+            ),
+          ];
+          return AppMobileSheetPageScaffold(
+            title: appointmentTitle,
+            subtitle: bookingDateLabel,
+            backgroundColor: palette.modalBg,
+            actions: mobileActions,
+            body: Form(
+              key: _formKey,
+              child: ListView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                children: [
+                  summaryCard,
+                  if (_inlineErrorMessage != null) ...[
+                    const SizedBox(height: 12),
+                    Material(
+                      color: colorScheme.errorContainer,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.warning_rounded,
+                              color: colorScheme.onErrorContainer,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                _inlineErrorMessage!,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: colorScheme.onErrorContainer,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Chiudi avviso',
+                              onPressed: _clearInlineError,
+                              visualDensity: VisualDensity.compact,
+                              icon: Icon(
+                                Icons.close_rounded,
+                                color: colorScheme.onErrorContainer,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  mobileStatusSection,
+                  const SizedBox(height: 12),
+                  clientSection,
+                  const SizedBox(height: 12),
+                  serviceSection,
+                  const SizedBox(height: 12),
+                  scheduleSection,
+                  const SizedBox(height: 12),
+                  notesSection,
+                  const SizedBox(height: 24),
+                ],
+              ),
+            ),
+          );
+        }
+
+        if (isPhoneLayout) {
+          final inlineActionButtons = Container(
+            padding: const EdgeInsets.only(top: 12),
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: palette.border)),
+            ),
+            child: actionButtons,
+          );
+          return ColoredBox(
+            color: palette.modalBg,
+            child: SizedBox.expand(
+              child: Form(
+                key: _formKey,
+                child: ListView(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                  children: [
+                    formContent,
+                    const SizedBox(height: 16),
+                    inlineActionButtons,
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+        return SafeArea(
+          top: false,
+          child: Container(
+            color: palette.modalBg,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: ListView(
+                        padding: EdgeInsets.zero,
+                        children: [formContent],
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.only(top: 12),
+                      decoration: BoxDecoration(
+                        border: Border(top: BorderSide(color: palette.border)),
+                      ),
+                      child: actionButtons,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -1240,13 +1327,164 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     List<DropdownMenuItem<AppointmentStatus>> statusItems,
     bool isFutureStart, {
     required bool isCompactWidth,
+    required bool isEditing,
   }) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
     final deleteEnabled = widget.enableDelete && widget.initial != null;
-    final statusField = DropdownButtonFormField<AppointmentStatus>(
-      value: _status,
-      decoration: const InputDecoration(labelText: 'Stato'),
+    final statusField = _buildStatusField(statusItems, isFutureStart);
+    final primaryActionStyle = FilledButton.styleFrom(
+      backgroundColor: _kFigmaGoldStrong,
+      foregroundColor: Colors.white,
+      elevation: 0,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+    );
+    final copyLabel = _copyJustCompleted ? 'Copiato!' : 'Copia';
+    final copyIcon =
+        _copyJustCompleted ? Icons.check_rounded : Icons.content_copy_rounded;
+    final copyButton = FilledButton.icon(
+      style: primaryActionStyle,
+      onPressed: _isDeleting ? null : _copy,
+      icon: Icon(copyIcon),
+      label: Text(copyLabel),
+    );
+    final saveButton = FilledButton.icon(
+      style: primaryActionStyle,
+      onPressed: _isDeleting ? null : _submit,
+      icon: const Icon(Icons.save_outlined),
+      label: const Text('Salva'),
+    );
+    final footerActions = <Widget>[
+      if (!isEditing)
+        ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _notes,
+          builder: (context, value, _) {
+            return FilledButton.icon(
+              style: primaryActionStyle,
+              onPressed: _isDeleting ? null : _showNotesDialog,
+              icon: const Icon(Icons.note_alt_rounded),
+              label: const Text('Nota'),
+            );
+          },
+        ),
+      copyButton,
+      saveButton,
+    ];
+
+    if (isCompactWidth) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 280),
+                  child: statusField,
+                ),
+              ),
+              if (deleteEnabled)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: IconButton(
+                    tooltip: 'Elimina',
+                    color: _kFigmaDanger,
+                    onPressed: _isDeleting ? null : _confirmDelete,
+                    icon:
+                        _isDeleting
+                            ? SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                            : const Icon(Icons.delete_outline_rounded),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.end,
+            children: footerActions,
+          ),
+        ],
+      );
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child:
+                deleteEnabled
+                    ? TextButton.icon(
+                      onPressed: _isDeleting ? null : _confirmDelete,
+                      icon:
+                          _isDeleting
+                              ? SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                              : const Icon(Icons.delete_outline_rounded),
+                      label: Text(_isDeleting ? 'Eliminazione...' : 'Elimina'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: _kFigmaDanger,
+                      ),
+                    )
+                    : const SizedBox.shrink(),
+          ),
+        ),
+        Expanded(
+          child: Center(child: SizedBox(width: 240, child: statusField)),
+        ),
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              alignment: WrapAlignment.end,
+              children: footerActions,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatusField(
+    List<DropdownMenuItem<AppointmentStatus>> statusItems,
+    bool isFutureStart,
+  ) {
+    final palette = _AppointmentFormPalette.fromTheme(Theme.of(context));
+    return DropdownButtonFormField<AppointmentStatus>(
+      initialValue: _status,
+      decoration: InputDecoration(
+        labelText: 'Stato',
+        floatingLabelBehavior: FloatingLabelBehavior.always,
+        labelStyle: TextStyle(
+          color: palette.accent,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.7,
+        ),
+        filled: true,
+        fillColor: palette.inputBg,
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: palette.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: palette.accent, width: 1.2),
+        ),
+      ),
       isExpanded: true,
       items: statusItems,
       onChanged: (value) {
@@ -1262,133 +1500,6 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         _clearInlineError();
         setState(() => _status = value);
       },
-    );
-
-    if (isCompactWidth) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(child: statusField),
-              if (deleteEnabled) ...[
-                const SizedBox(width: 8),
-                IconButton(
-                  tooltip: 'Elimina',
-                  color: colorScheme.error,
-                  onPressed: _isDeleting ? null : _confirmDelete,
-                  icon:
-                      _isDeleting
-                          ? SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                          : const Icon(Icons.delete_outline_rounded),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            alignment: WrapAlignment.end,
-            children: [
-              ValueListenableBuilder<TextEditingValue>(
-                valueListenable: _notes,
-                builder: (context, value, _) {
-                  return IconButton(
-                    tooltip: 'Nota',
-                    onPressed: _isDeleting ? null : _showNotesDialog,
-                    icon: const Icon(Icons.note_alt_rounded),
-                  );
-                },
-              ),
-              IconButton(
-                tooltip: _copyJustCompleted ? 'Copiato!' : 'Copia',
-                onPressed: _isDeleting ? null : _copy,
-                color: _copyJustCompleted ? colorScheme.primary : null,
-                icon:
-                    _copyJustCompleted
-                        ? const Icon(Icons.check_rounded)
-                        : const Icon(Icons.copy_rounded),
-              ),
-              FilledButton(
-                onPressed: _isDeleting ? null : _submit,
-                child: const Text('Salva'),
-              ),
-            ],
-          ),
-        ],
-      );
-    }
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        SizedBox(width: 220, child: statusField),
-        const SizedBox(width: 12),
-        if (deleteEnabled)
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: TextButton.icon(
-              onPressed: _isDeleting ? null : _confirmDelete,
-              icon:
-                  _isDeleting
-                      ? SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                      : const Icon(Icons.delete_outline_rounded),
-              label: Text(_isDeleting ? 'Eliminazione...' : 'Elimina'),
-              style: TextButton.styleFrom(foregroundColor: colorScheme.error),
-            ),
-          )
-        else
-          const SizedBox.shrink(),
-        Expanded(
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: Wrap(
-              spacing: 12,
-              runSpacing: 8,
-              alignment: WrapAlignment.end,
-              children: [
-                ValueListenableBuilder<TextEditingValue>(
-                  valueListenable: _notes,
-                  builder: (context, value, _) {
-                    return FilledButton.tonalIcon(
-                      onPressed: _isDeleting ? null : _showNotesDialog,
-                      icon: const Icon(Icons.note_alt_rounded),
-                      label: const Text('Nota'),
-                    );
-                  },
-                ),
-                FilledButton.tonal(
-                  onPressed: _isDeleting ? null : _copy,
-                  child:
-                      _copyJustCompleted
-                          ? Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: const [
-                              Icon(Icons.check_rounded),
-                              SizedBox(width: 8),
-                              Text('Copiato!'),
-                            ],
-                          )
-                          : const Text('Copia'),
-                ),
-                FilledButton(
-                  onPressed: _isDeleting ? null : _submit,
-                  child: const Text('Salva'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
     );
   }
 
@@ -1407,44 +1518,97 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     });
   }
 
-  Widget _buildSectionHeader({
+  Widget _buildDetailSectionCard({
     required IconData icon,
     required String title,
-    String? subtitle,
+    required Widget child,
     Widget? trailing,
   }) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final textTheme = theme.textTheme;
+    final palette = _AppointmentFormPalette.fromTheme(theme);
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
+        color: palette.cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: palette.border),
       ),
-      child: Row(
-        crossAxisAlignment:
-            subtitle == null
-                ? CrossAxisAlignment.center
-                : CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: colorScheme.onSurfaceVariant),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final shouldStackTrailing =
+              trailing != null && constraints.maxWidth < 720;
+          final titleRow = Row(
+            children: [
+              Container(
+                width: 31,
+                height: 31,
+                decoration: BoxDecoration(
+                  color: palette.accentSectionBg,
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: Icon(icon, size: 16, color: palette.accentOnSection),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
                   title,
-                  style: textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: palette.textPrimary,
                   ),
                 ),
+              ),
+              if (!shouldStackTrailing && trailing != null) ...[
+                const SizedBox(width: 8),
+                Flexible(child: trailing),
               ],
+            ],
+          );
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              titleRow,
+              if (shouldStackTrailing) ...[
+                const SizedBox(height: 12),
+                SizedBox(width: double.infinity, child: trailing),
+              ],
+              const SizedBox(height: 12),
+              child,
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildDurationBadge({required int durationMinutes}) {
+    final theme = Theme.of(context);
+    final palette = _AppointmentFormPalette.fromTheme(theme);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: palette.accentSectionBg,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.schedule_rounded,
+            size: 16,
+            color: palette.accentOnSection,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            '$durationMinutes min',
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: palette.accentOnSection,
+              fontWeight: FontWeight.w700,
             ),
           ),
-          if (trailing != null) ...[const SizedBox(width: 12), trailing],
         ],
       ),
     );
@@ -1456,19 +1620,33 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     required Map<String, List<ClientPackagePurchase>> packagesByService,
     required List<ClientPackagePurchase> allClientPackages,
   }) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 16),
+    final palette = _AppointmentFormPalette.fromTheme(theme);
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+      decoration: BoxDecoration(
+        color: palette.packageBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: palette.accent.withValues(alpha: 0.8)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.layers_rounded, color: theme.colorScheme.primary),
+              Icon(Icons.info_outline_rounded, color: palette.accentStrong),
               const SizedBox(width: 8),
-              Text('Pacchetti disponibili', style: theme.textTheme.titleMedium),
+              Text(
+                'Pacchetti disponibili',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: palette.accentStrong,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           if (selectedServices.isEmpty)
             allClientPackages.isNotEmpty
                 ? _ClientPackageSummaryList(packages: allClientPackages)
@@ -1536,16 +1714,14 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
   }
 
   Widget _buildScheduleCard({
-    required String bookingDateLabel,
     required String startTimeLabel,
     required String endTimeLabel,
     required List<Service> baseServices,
   }) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final palette = _AppointmentFormPalette.fromTheme(theme);
     final adjustedServices = _applyDurationAdjustments(baseServices);
     final totalDuration = _sumServiceDurations(adjustedServices);
-    final durationMinutes = totalDuration.inMinutes;
     final canDecreaseDuration = totalDuration > _minTotalDuration;
     final lastAdjustableIndex = adjustedServices.lastIndexWhere(
       (service) => service.totalDuration > Duration.zero,
@@ -1574,58 +1750,24 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.4),
-            ),
-            color: colorScheme.surfaceContainerLowest,
+            border: Border.all(color: palette.border),
+            color: palette.inputBg,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: Text(
-                      bookingDateLabel,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.timelapse_rounded,
-                        size: 18,
-                        color: colorScheme.primary,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '$durationMinutes min',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: colorScheme.primary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
                 children: [
                   Expanded(
                     child: _TimelineInfoBox(
-                      label: 'Ora di inizio',
+                      label: 'ORA DI INIZIO',
                       value: startTimeLabel,
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: _TimelineInfoBox(
-                      label: 'Ora di fine',
+                      label: 'ORA DI FINE',
                       value: endTimeLabel,
                     ),
                   ),
@@ -1637,66 +1779,93 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                   Text(
                     'Regola durata complessiva',
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
+                      color: palette.textPrimary,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                   const Spacer(),
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                          minWidth: 32,
-                          minHeight: 32,
-                        ),
-                        icon: const Icon(Icons.remove_circle_outline_rounded),
-                        tooltip: '-$_slotIntervalMinutes min',
+                      _buildDurationAdjustButton(
+                        icon: Icons.remove_rounded,
+                        enabled: canDecreaseLastService,
                         onPressed:
-                            canDecreaseLastService
-                                ? () => adjustLastService(-_slotIntervalMinutes)
-                                : null,
+                            () => adjustLastService(-_slotIntervalMinutes),
                       ),
                       const SizedBox(width: 4),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                          minWidth: 32,
-                          minHeight: 32,
-                        ),
-                        icon: const Icon(Icons.add_circle_outline_rounded),
-                        tooltip: '+$_slotIntervalMinutes min',
+                      _buildDurationAdjustButton(
+                        icon: Icons.add_rounded,
+                        enabled: canIncreaseLastService,
                         onPressed:
-                            canIncreaseLastService
-                                ? () => adjustLastService(_slotIntervalMinutes)
-                                : null,
+                            () => adjustLastService(_slotIntervalMinutes),
                       ),
                     ],
                   ),
                 ],
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Icon(
-                    Icons.touch_app_rounded,
-                    size: 18,
-                    color: colorScheme.primary,
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: palette.accent.withValues(alpha: 0.9),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Tocca per scegliere un altro slot disponibile',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.primary,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.touch_app_rounded,
+                      size: 18,
+                      color: palette.accent,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Tocca per scegliere un altro slot disponibile',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: palette.accent,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDurationAdjustButton({
+    required IconData icon,
+    required bool enabled,
+    required VoidCallback onPressed,
+  }) {
+    final palette = _AppointmentFormPalette.fromTheme(Theme.of(context));
+    return Material(
+      color: enabled ? palette.controlBg : palette.controlDisabledBg,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: enabled ? onPressed : null,
+        child: SizedBox(
+          width: 32,
+          height: 32,
+          child: Icon(
+            icon,
+            size: 17,
+            color:
+                enabled
+                    ? palette.textPrimary
+                    : palette.textSecondary.withValues(alpha: 0.5),
           ),
         ),
       ),
@@ -1707,6 +1876,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     required List<Service> baseServices,
     required List<Service> adjustedServices,
   }) {
+    final palette = _AppointmentFormPalette.fromTheme(Theme.of(context));
     if (baseServices.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -1718,23 +1888,28 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     return Padding(
       padding: const EdgeInsets.only(top: 16),
       child: Material(
-        color: Theme.of(context).colorScheme.surfaceVariant,
-        borderRadius: BorderRadius.circular(16),
+        color: palette.inputBg,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: palette.border),
+        ),
         child: Theme(
-          data: Theme.of(context).copyWith(
-            dividerColor: Theme.of(context).dividerColor.withOpacity(0.4),
-          ),
+          data: Theme.of(context).copyWith(dividerColor: palette.border),
           child: ExpansionTile(
-            collapsedTextColor: Theme.of(context).colorScheme.onSurfaceVariant,
+            collapsedTextColor: palette.textSecondary,
             tilePadding: const EdgeInsets.symmetric(horizontal: 16),
             childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            leading: Icon(
-              Icons.timeline,
-              color: Theme.of(context).colorScheme.primary,
+            leading: Icon(Icons.timeline, color: palette.accent),
+            title: Text(
+              'Regola durata servizi',
+              style: TextStyle(
+                color: palette.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-            title: const Text('Regola durata servizi'),
             subtitle: Text(
               'Modifica ogni servizio di ±$_slotIntervalMinutes min',
+              style: TextStyle(color: palette.textSecondary),
             ),
             children: [
               for (var index = 0; index < baseServices.length; index++) ...[
@@ -2152,44 +2327,30 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     return showAppModalSheet<DateTime>(
       context: context,
       builder: (ctx) {
-        final bottomPadding = 16.0 + MediaQuery.of(ctx).viewInsets.bottom;
-        return SafeArea(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(24, 24, 24, bottomPadding),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Orari disponibili',
-                  style: Theme.of(ctx).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 8),
-                Text(_capitalize(dayFormat.format(day))),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children:
-                      slots
-                          .map(
-                            (slot) => ChoiceChip(
-                              label: Text(
-                                '${timeFormat.format(slot.start)} - ${timeFormat.format(slot.end)}',
-                              ),
-                              selected:
-                                  initialSelection != null &&
-                                  slot.start == initialSelection,
-                              onSelected: (selected) {
-                                if (!selected) return;
-                                Navigator.of(ctx).pop(slot.start);
-                              },
-                            ),
-                          )
-                          .toList(),
-                ),
-              ],
-            ),
+        return DialogActionLayout(
+          title: 'Orari disponibili',
+          subtitle: _capitalize(dayFormat.format(day)),
+          actions: const [],
+          body: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children:
+                slots
+                    .map(
+                      (slot) => ChoiceChip(
+                        label: Text(
+                          '${timeFormat.format(slot.start)} - ${timeFormat.format(slot.end)}',
+                        ),
+                        selected:
+                            initialSelection != null &&
+                            slot.start == initialSelection,
+                        onSelected: (selected) {
+                          if (!selected) return;
+                          Navigator.of(ctx).pop(slot.start);
+                        },
+                      ),
+                    )
+                    .toList(),
           ),
         );
       },
@@ -2439,13 +2600,15 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             .where((name) => name.isNotEmpty)
             .toSet();
 
-    final searchController = TextEditingController();
     var query = '';
+    var searchFieldVersion = 0;
     var workingSelection = List<String>.from(initialSelection);
     var selectedZoneCategoryId =
         zoneCategories.isNotEmpty ? zoneCategories.first.category.id : '';
+    var activeTabIndex = 0;
     final result = await showAppModalSheet<List<String>>(
       context: context,
+      includeCloseButton: false,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
@@ -2496,13 +2659,48 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
             final categories =
                 grouped.keys.toList()
                   ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+            final mediaQuery = MediaQuery.of(context);
+            final modalMaxHeight =
+                mediaQuery.size.height *
+                (mediaQuery.size.width < 600 ? 0.9 : 0.82);
+            final bodyMaxHeight =
+                (modalMaxHeight - 190.0).clamp(240.0, 620.0).toDouble();
+            const serviceSearchFieldHeight = kMinInteractiveDimension;
+            const serviceSearchSpacing = 16.0;
+            const emptyServiceStateHeight = 120.0;
+            const minServiceTabHeight = 168.0;
+            final serviceTabChromeHeight =
+                serviceSearchFieldHeight + serviceSearchSpacing;
+            final maxListViewportHeight =
+                (bodyMaxHeight - serviceTabChromeHeight)
+                    .clamp(emptyServiceStateHeight, bodyMaxHeight)
+                    .toDouble();
+            final estimatedListHeight =
+                (categories.length * 36.0) + (filtered.length * 72.0);
+            final listViewportHeight =
+                (filtered.isEmpty
+                        ? emptyServiceStateHeight
+                        : estimatedListHeight)
+                    .clamp(emptyServiceStateHeight, maxListViewportHeight)
+                    .toDouble();
+            final serviceTabHeight =
+                (serviceTabChromeHeight + listViewportHeight)
+                    .clamp(minServiceTabHeight, bodyMaxHeight)
+                    .toDouble();
+            final zoneTabHeight = bodyMaxHeight;
+            final activeTabHeight =
+                hasZoneTab && activeTabIndex == 1
+                    ? zoneTabHeight
+                    : serviceTabHeight;
 
             Widget buildServiceListTab() {
               return Column(
+                mainAxisSize: MainAxisSize.max,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  TextField(
-                    controller: searchController,
+                  TextFormField(
+                    key: ValueKey(searchFieldVersion),
+                    initialValue: query,
                     decoration: InputDecoration(
                       labelText: 'Cerca servizio',
                       prefixIcon: const Icon(Icons.search_rounded),
@@ -2512,80 +2710,84 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                               : IconButton(
                                 tooltip: 'Pulisci ricerca',
                                 icon: const Icon(Icons.clear_rounded),
-                                onPressed: () {
-                                  searchController.clear();
-                                  setModalState(() => query = '');
-                                },
+                                onPressed:
+                                    () => setModalState(() {
+                                      query = '';
+                                      searchFieldVersion += 1;
+                                    }),
                               ),
                     ),
                     onChanged: (value) => setModalState(() => query = value),
                   ),
                   const SizedBox(height: 16),
-                  if (filtered.isEmpty)
-                    Expanded(
-                      child: Center(
-                        child: Text(
-                          'Nessun servizio trovato',
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                      ),
-                    )
-                  else
-                    Expanded(
-                      child: ListView.builder(
-                        itemCount: categories.length,
-                        itemBuilder: (context, index) {
-                          final category = categories[index];
-                          final categoryServices =
-                              grouped[category] ?? const [];
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (categoryServices.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 8,
-                                  ),
-                                  child: Text(
-                                    category,
-                                    style: theme.textTheme.titleMedium,
-                                  ),
-                                ),
-                              ...categoryServices.map((service) {
-                                final selected = workingSelection.contains(
-                                  service.id,
+                  Expanded(
+                    child:
+                        filtered.isEmpty
+                            ? Center(
+                              child: Text(
+                                'Nessun servizio trovato',
+                                style: theme.textTheme.bodyMedium,
+                              ),
+                            )
+                            : ListView.builder(
+                              padding: EdgeInsets.zero,
+                              shrinkWrap: true,
+                              physics: const ClampingScrollPhysics(),
+                              itemCount: categories.length,
+                              itemBuilder: (context, index) {
+                                final category = categories[index];
+                                final categoryServices =
+                                    grouped[category] ?? const [];
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (categoryServices.isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 8,
+                                        ),
+                                        child: Text(
+                                          category,
+                                          style: theme.textTheme.titleMedium,
+                                        ),
+                                      ),
+                                    ...categoryServices.map((service) {
+                                      final selected = workingSelection
+                                          .contains(service.id);
+                                      final subtitleParts = <String>[];
+                                      final durationMinutes =
+                                          service.totalDuration.inMinutes;
+                                      if (durationMinutes > 0) {
+                                        subtitleParts.add(
+                                          'Durata $durationMinutes min',
+                                        );
+                                      }
+                                      if (service.price > 0) {
+                                        subtitleParts.add(
+                                          '€ ${service.price.toStringAsFixed(2)}',
+                                        );
+                                      }
+                                      final subtitle =
+                                          subtitleParts.isEmpty
+                                              ? null
+                                              : subtitleParts.join(' • ');
+                                      return CheckboxListTile(
+                                        value: selected,
+                                        onChanged:
+                                            (_) => toggleSelection(service.id),
+                                        dense: true,
+                                        title: Text(service.name),
+                                        subtitle:
+                                            subtitle != null
+                                                ? Text(subtitle)
+                                                : null,
+                                      );
+                                    }),
+                                  ],
                                 );
-                                final subtitleParts = <String>[];
-                                final durationMinutes =
-                                    service.totalDuration.inMinutes;
-                                if (durationMinutes > 0) {
-                                  subtitleParts.add(
-                                    'Durata $durationMinutes min',
-                                  );
-                                }
-                                if (service.price > 0) {
-                                  subtitleParts.add(
-                                    '€ ${service.price.toStringAsFixed(2)}',
-                                  );
-                                }
-                                final subtitle =
-                                    subtitleParts.isEmpty
-                                        ? null
-                                        : subtitleParts.join(' • ');
-                                return CheckboxListTile(
-                                  value: selected,
-                                  onChanged: (_) => toggleSelection(service.id),
-                                  dense: true,
-                                  title: Text(service.name),
-                                  subtitle:
-                                      subtitle != null ? Text(subtitle) : null,
-                                );
-                              }),
-                            ],
-                          );
-                        },
-                      ),
-                    ),
+                              },
+                            ),
+                  ),
                 ],
               );
             }
@@ -2643,7 +2845,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                                               isActive
                                                   ? theme.colorScheme.primary
                                                   : theme.colorScheme.primary
-                                                      .withOpacity(0.6),
+                                                      .withValues(alpha: 0.6),
                                           child: Text(
                                             count.toString(),
                                             style: theme.textTheme.labelSmall
@@ -2737,94 +2939,92 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
 
             return DefaultTabController(
               length: hasZoneTab ? 2 : 1,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Seleziona servizi',
-                              style: theme.textTheme.titleLarge,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: modalMaxHeight),
+                child: DialogActionLayout(
+                  title: 'Seleziona servizi',
+                  subtitle:
+                      selectedStaff == null
+                          ? null
+                          : 'Operatore: ${selectedStaff.fullName}',
+                  trailing: TextButton(
+                    onPressed:
+                        workingSelection.isEmpty
+                            ? null
+                            : () => setModalState(
+                              () => workingSelection = const [],
                             ),
-                            if (selectedStaff != null)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Text(
-                                  'Operatore: ${selectedStaff.fullName}',
-                                  style: theme.textTheme.bodySmall,
-                                ),
-                              ),
-                          ],
-                        ),
-                        TextButton(
-                          onPressed:
-                              workingSelection.isEmpty
-                                  ? null
-                                  : () => setModalState(
-                                    () => workingSelection = const [],
+                    child: const Text('Pulisci'),
+                  ),
+                  scrollBody: false,
+                  bodyPadding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+                  body: SizedBox(
+                    width: double.infinity,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (hasZoneTab)
+                          Material(
+                            color: theme.colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(12),
+                            child: TabBar(
+                              onTap:
+                                  (index) => setModalState(
+                                    () => activeTabIndex = index,
                                   ),
-                          child: const Text('Pulisci'),
+                              labelColor: theme.colorScheme.primary,
+                              indicatorColor: theme.colorScheme.primary,
+                              unselectedLabelColor: theme.colorScheme.onSurface
+                                  .withValues(alpha: 0.7),
+                              tabs: const [
+                                Tab(text: 'Elenco servizi'),
+                                Tab(text: 'Servizi a zona'),
+                              ],
+                            ),
+                          ),
+                        if (hasZoneTab) const SizedBox(height: 12),
+                        Expanded(
+                          child: SizedBox(
+                            height: activeTabHeight,
+                            child:
+                                hasZoneTab
+                                    ? TabBarView(
+                                      physics:
+                                          const NeverScrollableScrollPhysics(),
+                                      children: [
+                                        buildServiceListTab(),
+                                        buildZoneTab(),
+                                      ],
+                                    )
+                                    : buildServiceListTab(),
+                          ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    if (hasZoneTab)
-                      Material(
-                        color: theme.colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(12),
-                        child: TabBar(
-                          labelColor: theme.colorScheme.primary,
-                          indicatorColor: theme.colorScheme.primary,
-                          unselectedLabelColor: theme.colorScheme.onSurface
-                              .withOpacity(0.7),
-                          tabs: const [
-                            Tab(text: 'Elenco servizi'),
-                            Tab(text: 'Servizi a zona'),
-                          ],
+                  ),
+                  footer: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const Text('Annulla'),
                         ),
                       ),
-                    if (hasZoneTab) const SizedBox(height: 12),
-                    Expanded(
-                      child:
-                          hasZoneTab
-                              ? TabBarView(
-                                children: [
-                                  buildServiceListTab(),
-                                  buildZoneTab(),
-                                ],
-                              )
-                              : buildServiceListTab(),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            child: const Text('Annulla'),
-                          ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: () {
+                            Navigator.of(
+                              context,
+                            ).pop<List<String>>(workingSelection);
+                          },
+                          child: const Text('Conferma'),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: () {
-                              Navigator.of(
-                                context,
-                              ).pop<List<String>>(workingSelection);
-                            },
-                            child: const Text('Conferma'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
+                  actions: const [],
                 ),
               ),
             );
@@ -2832,42 +3032,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
         );
       },
     );
-    searchController.dispose();
     return result;
-  }
-
-  Future<void> _pickEnd() async {
-    final selectedDate = await showDatePicker(
-      context: context,
-      initialDate: _end,
-      firstDate: _start,
-      lastDate: _start.add(const Duration(days: 7)),
-    );
-    if (selectedDate == null) return;
-    if (!mounted) return;
-    final selectedTime = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(_end),
-    );
-    if (selectedTime == null) return;
-    if (!mounted) return;
-    setState(() {
-      _end = DateTime(
-        selectedDate.year,
-        selectedDate.month,
-        selectedDate.day,
-        selectedTime.hour,
-        selectedTime.minute,
-      );
-      if (_end.isBefore(_start)) {
-        _end = _start.add(const Duration(hours: 1));
-      }
-      if (_start.isAfter(DateTime.now()) &&
-          _status == AppointmentStatus.completed) {
-        _status = AppointmentStatus.scheduled;
-      }
-    });
-    _clearInlineError();
   }
 
   Appointment? _buildAppointment({required bool skipAvailabilityChecks}) {
@@ -3050,6 +3215,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     final copied = appointment.copyWith(
       id: _uuid.v4(),
       status: AppointmentStatus.scheduled,
+      notes: null,
     );
     ref.read(appointmentClipboardProvider.notifier).state =
         AppointmentClipboard(appointment: copied, copiedAt: DateTime.now());
@@ -3115,7 +3281,7 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       if (!mounted) {
         return;
       }
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(
           content: Text('Appuntamento del $appointmentLabel eliminato.'),
         ),
@@ -3134,27 +3300,27 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
               : (error.message?.isNotEmpty == true
                   ? error.message!
                   : 'Impossibile eliminare l\'appuntamento. Riprova.');
-      messenger.showSnackBar(SnackBar(content: Text(message)));
+      messenger.showAppSnackBar(SnackBar(content: Text(message)));
       setState(() => _isDeleting = false);
     } on StateError catch (error) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+      messenger.showAppSnackBar(SnackBar(content: Text(error.message)));
       setState(() => _isDeleting = false);
     } catch (error) {
       if (!mounted) return;
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(content: Text('Errore durante l\'eliminazione: $error')),
       );
       setState(() => _isDeleting = false);
     }
   }
 
-  Future<void> _createClient() async {
+  Future<Client?> _createClient() async {
     if (_salonId == null) {
       _showInlineError(
         'Seleziona un operatore per determinare il salone prima di creare un cliente',
       );
-      return;
+      return null;
     }
 
     final data = ref.read(appDataProvider);
@@ -3163,6 +3329,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
 
     final newClient = await showAppModalSheet<Client>(
       context: context,
+      includeCloseButton: false,
+      desktopMaxWidth: 980,
       builder:
           (ctx) => ClientFormSheet(
             salons: salons,
@@ -3171,34 +3339,625 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
           ),
     );
 
-    if (newClient != null) {
-      _applyClientSelection(newClient);
-      final messenger = ScaffoldMessenger.of(context);
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Cliente aggiunto. Salvataggio in corso...'),
-        ),
-      );
-      final notifier = ref.read(appDataProvider.notifier);
-      Future<void> persistClient() async {
-        try {
-          await notifier.upsertClient(newClient);
-          if (!mounted) return;
-          messenger.hideCurrentSnackBar();
-          messenger.showSnackBar(
-            const SnackBar(content: Text('Cliente salvato con successo.')),
-          );
-        } catch (error) {
-          if (!mounted) return;
-          messenger.hideCurrentSnackBar();
-          messenger.showSnackBar(
-            SnackBar(content: Text('Impossibile salvare il cliente: $error')),
+    if (newClient == null) {
+      return null;
+    }
+    if (!mounted) {
+      return null;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showAppSnackBar(
+      const SnackBar(
+        content: Text('Cliente aggiunto. Salvataggio in corso...'),
+      ),
+    );
+    final notifier = ref.read(appDataProvider.notifier);
+    Future<void> persistClient() async {
+      try {
+        final saveResult = await notifier.upsertClient(newClient);
+        if (!mounted) return;
+        messenger.hideCurrentAppSnackBar();
+        final warningMessage = saveResult.warningMessage?.trim();
+        messenger.showAppSnackBar(
+          SnackBar(
+            content: Text(
+              warningMessage?.isNotEmpty == true
+                  ? warningMessage!
+                  : 'Cliente salvato con successo.',
+            ),
+          ),
+        );
+      } catch (error) {
+        if (!mounted) return;
+        messenger.hideCurrentAppSnackBar();
+        messenger.showAppSnackBar(
+          SnackBar(content: Text(formatClientSaveError(error))),
+        );
+      }
+    }
+
+    unawaited(persistClient());
+    return newClient;
+  }
+
+  Future<void> _selectClient(List<Client> clients) async {
+    FocusScope.of(context).unfocus();
+    final selectedClient = await showClientSearchSheet(
+      context: context,
+      clients: clients,
+      activeSalonId: _salonId,
+      selectedClientId: _clientId,
+      allowCreate: true,
+      onCreateRequested: _createClient,
+    );
+    if (!mounted || selectedClient == null) {
+      return;
+    }
+    _applyClientSelection(selectedClient);
+  }
+
+  bool _usesDesktopInlineClientSearch(BuildContext context) {
+    return MediaQuery.sizeOf(context).width >= 1024;
+  }
+
+  Widget _buildClientSelectionBody(List<Client> clients) {
+    return FormField<String>(
+      key: _clientFieldKey,
+      validator: (_) => _clientId == null ? 'Scegli un cliente' : null,
+      builder: (state) {
+        final selectedClient = widget.clients.firstWhereOrNull(
+          (client) => client.id == _clientId,
+        );
+        if (_usesDesktopInlineClientSearch(context)) {
+          return _buildDesktopClientSelection(
+            clients: clients,
+            selectedClient: selectedClient,
+            errorText: state.errorText,
           );
         }
-      }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (selectedClient == null)
+              _buildEmptyClientState(
+                errorText: state.errorText,
+                clients: clients,
+              )
+            else
+              _buildSelectedClientState(
+                selectedClient,
+                errorText: state.errorText,
+                clients: clients,
+              ),
+          ],
+        );
+      },
+    );
+  }
 
-      unawaited(persistClient());
+  Widget _buildDesktopClientSelection({
+    required List<Client> clients,
+    required Client? selectedClient,
+    String? errorText,
+  }) {
+    final theme = Theme.of(context);
+    final hasSelection = selectedClient != null;
+    final clientNumberText = selectedClient?.clientNumber?.trim() ?? '';
+    final clientField =
+        hasSelection
+            ? InputDecorator(
+              decoration: InputDecoration(
+                labelText: 'Cliente',
+                floatingLabelBehavior: FloatingLabelBehavior.always,
+                errorText: errorText,
+                isDense: true,
+                filled: true,
+                fillColor: _kFigmaInputBg,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: _kFigmaBorder),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: _kFigmaGold, width: 1.2),
+                ),
+              ),
+              isEmpty: false,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          selectedClient.fullName,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: _kFigmaTextPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Apri scheda cliente',
+                        icon: const Icon(Icons.open_in_new_rounded),
+                        onPressed: () => _openClientDetails(selectedClient),
+                      ),
+                      IconButton(
+                        tooltip: 'Note cliente',
+                        icon: const Icon(Icons.sticky_note_2_outlined),
+                        onPressed: () => _openClientNotes(selectedClient),
+                      ),
+                      IconButton(
+                        tooltip: 'Rimuovi cliente',
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: _clearClientSelection,
+                      ),
+                    ],
+                  ),
+                  if (selectedClient.phone.trim().isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        selectedClient.phone.trim(),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: _kFigmaTextSecondary,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            )
+            : TextField(
+              controller: _clientSearchController,
+              focusNode: _clientSearchFocusNode,
+              decoration: InputDecoration(
+                labelText: 'Cliente',
+                floatingLabelBehavior: FloatingLabelBehavior.always,
+                hintText: 'Nome, cognome, telefono o email',
+                errorText: errorText,
+                filled: true,
+                fillColor: _kFigmaInputBg,
+                suffixIcon:
+                    _clientSearchController.text.isEmpty
+                        ? const Icon(Icons.search_rounded, size: 20)
+                        : IconButton(
+                          tooltip: 'Pulisci ricerca',
+                          icon: const Icon(Icons.clear_rounded),
+                          onPressed: _clearClientSearch,
+                        ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: _kFigmaBorder),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: _kFigmaGold, width: 1.2),
+                ),
+              ),
+              keyboardType: TextInputType.text,
+              textInputAction: TextInputAction.search,
+              onChanged:
+                  (value) => _onClientSearchChanged(
+                    value,
+                    clients,
+                    _ClientSearchMode.general,
+                  ),
+            );
+
+    final clientNumberField =
+        hasSelection
+            ? InputDecorator(
+              decoration: InputDecoration(
+                labelText: 'Numero cliente',
+                floatingLabelBehavior: FloatingLabelBehavior.always,
+                isDense: true,
+                filled: true,
+                fillColor: _kFigmaInputBg,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: _kFigmaBorder),
+                ),
+              ),
+              child: SizedBox(
+                height: 48,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    clientNumberText.isNotEmpty
+                        ? clientNumberText
+                        : 'Numero non disponibile',
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: _kFigmaTextPrimary,
+                    ),
+                  ),
+                ),
+              ),
+            )
+            : TextField(
+              controller: _clientNumberSearchController,
+              focusNode: _clientNumberSearchFocusNode,
+              decoration: InputDecoration(
+                labelText: 'Numero cliente',
+                floatingLabelBehavior: FloatingLabelBehavior.always,
+                hintText: 'Numero cliente',
+                filled: true,
+                fillColor: _kFigmaInputBg,
+                suffixIcon:
+                    _clientNumberSearchController.text.isEmpty
+                        ? const Icon(Icons.search_rounded, size: 20)
+                        : IconButton(
+                          tooltip: 'Pulisci ricerca',
+                          icon: const Icon(Icons.clear_rounded),
+                          onPressed: _clearClientNumberSearch,
+                        ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: _kFigmaBorder),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: _kFigmaGold, width: 1.2),
+                ),
+              ),
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.search,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              onChanged:
+                  (value) => _onClientSearchChanged(
+                    value,
+                    clients,
+                    _ClientSearchMode.number,
+                  ),
+            );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 640;
+        final fields =
+            isNarrow
+                ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    clientField,
+                    const SizedBox(height: 12),
+                    clientNumberField,
+                  ],
+                )
+                : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: clientField),
+                    const SizedBox(width: 12),
+                    SizedBox(width: 220, child: clientNumberField),
+                  ],
+                );
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            fields,
+            if (!hasSelection) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final createdClient = await _createClient();
+                  if (!mounted || createdClient == null) {
+                    return;
+                  }
+                  _applyClientSelection(createdClient);
+                },
+                icon: const Icon(Icons.person_add_alt_1_rounded),
+                label: const Text('Nuovo cliente'),
+              ),
+              const SizedBox(height: 8),
+              _buildDesktopClientSuggestions(),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildEmptyClientState({
+    required List<Client> clients,
+    String? errorText,
+  }) {
+    final theme = Theme.of(context);
+    final palette = _AppointmentFormPalette.fromTheme(theme);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+      decoration: BoxDecoration(
+        color: palette.inputBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: errorText != null ? palette.danger : palette.border,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Nessun cliente selezionato',
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: palette.textPrimary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Apri la ricerca dedicata per selezionare un cliente esistente oppure creane uno nuovo senza comprimere il form.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: palette.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              FilledButton.icon(
+                onPressed: () => _selectClient(clients),
+                icon: const Icon(Icons.person_search_rounded),
+                label: const Text('Seleziona cliente'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final createdClient = await _createClient();
+                  if (!mounted || createdClient == null) {
+                    return;
+                  }
+                  _applyClientSelection(createdClient);
+                },
+                icon: const Icon(Icons.person_add_alt_1_rounded),
+                label: const Text('Nuovo cliente'),
+              ),
+            ],
+          ),
+          if (errorText != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              errorText,
+              style: theme.textTheme.bodySmall?.copyWith(color: palette.danger),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSelectedClientState(
+    Client selectedClient, {
+    required List<Client> clients,
+    String? errorText,
+  }) {
+    final theme = Theme.of(context);
+    final palette = _AppointmentFormPalette.fromTheme(theme);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+      decoration: BoxDecoration(
+        color: palette.inputBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: errorText != null ? palette.danger : palette.success,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                backgroundColor: palette.successBg,
+                foregroundColor: palette.success,
+                child: Text(_clientInitials(selectedClient)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          selectedClient.fullName,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: palette.textPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (selectedClient.clientNumber != null &&
+                            selectedClient.clientNumber!.isNotEmpty)
+                          _buildClientInfoPill(
+                            label: 'N° ${selectedClient.clientNumber}',
+                          ),
+                      ],
+                    ),
+                    if (selectedClient.phone.trim().isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          selectedClient.phone.trim(),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: palette.textSecondary,
+                          ),
+                        ),
+                      ),
+                    if (selectedClient.email != null &&
+                        selectedClient.email!.trim().isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          selectedClient.email!.trim(),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: palette.textSecondary,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () => _selectClient(clients),
+                icon: const Icon(Icons.swap_horiz_rounded),
+                label: const Text('Cambia'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => _openClientDetails(selectedClient),
+                icon: const Icon(Icons.open_in_new_rounded),
+                label: const Text('Apri scheda'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => _openClientNotes(selectedClient),
+                icon: const Icon(Icons.sticky_note_2_outlined),
+                label: const Text('Note'),
+              ),
+              TextButton.icon(
+                onPressed: _clearClientSelection,
+                icon: const Icon(Icons.close_rounded),
+                label: const Text('Rimuovi'),
+                style: TextButton.styleFrom(foregroundColor: palette.danger),
+              ),
+            ],
+          ),
+          if (errorText != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              errorText,
+              style: theme.textTheme.bodySmall?.copyWith(color: palette.danger),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildClientInfoPill({required String label}) {
+    final palette = _AppointmentFormPalette.fromTheme(Theme.of(context));
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: palette.accentSoftBg,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: palette.accentStrong,
+          fontWeight: FontWeight.w700,
+          fontSize: 11,
+        ),
+      ),
+    );
+  }
+
+  String _clientInitials(Client client) {
+    final trimmed = client.fullName.trim();
+    if (trimmed.isEmpty) {
+      return '?';
     }
+    return String.fromCharCode(trimmed.runes.first).toUpperCase();
+  }
+
+  Widget _buildDesktopClientSuggestions() {
+    final isClientNumberMode = _clientSearchMode == _ClientSearchMode.number;
+    final query =
+        isClientNumberMode
+            ? _clientNumberSearchController.text.trim()
+            : _clientSearchController.text.trim();
+    if (query.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    if (ClientSearchUtils.hasShortQueryForMode(
+      query: query,
+      isClientNumber: isClientNumberMode,
+    )) {
+      return Card(
+        margin: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          child: Text(
+            ClientSearchUtils.minSearchCriteriaMessage,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ),
+      );
+    }
+    if (_clientSuggestions.isEmpty) {
+      return Card(
+        margin: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          child: Text(
+            'Nessun cliente trovato. Prova a modificare la ricerca.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ),
+      );
+    }
+
+    return Card(
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < _clientSuggestions.length; i++) ...[
+            _buildDesktopClientSuggestionTile(_clientSuggestions[i]),
+            if (i != _clientSuggestions.length - 1)
+              const Divider(height: 1, thickness: 1),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDesktopClientSuggestionTile(Client client) {
+    final subtitle = _buildDesktopClientSubtitle(client);
+    return ListTile(
+      onTap: () => _handleClientSuggestionTap(client),
+      leading: CircleAvatar(child: Text(_clientInitials(client))),
+      title: Text(client.fullName),
+      subtitle: subtitle.isNotEmpty ? Text(subtitle) : null,
+      trailing: const Icon(Icons.chevron_right_rounded),
+    );
+  }
+
+  String _buildDesktopClientSubtitle(Client client) {
+    final parts = <String>[];
+    if (client.clientNumber != null && client.clientNumber!.isNotEmpty) {
+      parts.add('N° ${client.clientNumber}');
+    }
+    if (client.phone.trim().isNotEmpty) {
+      parts.add(client.phone.trim());
+    }
+    if (client.email != null && client.email!.trim().isNotEmpty) {
+      parts.add(client.email!.trim());
+    }
+    return parts.join(' · ');
   }
 
   void _clearClientSearch() {
@@ -3231,7 +3990,11 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     _ClientSearchMode mode,
   ) {
     final query = value.trim();
-    if (query.isEmpty) {
+    final isClientNumberMode = mode == _ClientSearchMode.number;
+    if (!ClientSearchUtils.hasSearchableQueryForMode(
+      query: query,
+      isClientNumber: isClientNumberMode,
+    )) {
       setState(() {
         _clientSearchMode = mode;
         _clientSuggestions = const <Client>[];
@@ -3239,17 +4002,18 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       return;
     }
 
-    final filtered = ClientSearchUtils.filterClients(
+    final filtered = ClientSearchUtils.rankedClients(
       clients: clients,
       generalQuery: mode == _ClientSearchMode.general ? query : '',
       clientNumberQuery: mode == _ClientSearchMode.number ? query : '',
+      activeSalonId: _salonId,
       exactNumberMatch: mode == _ClientSearchMode.number,
-    )..sort((a, b) => a.lastName.compareTo(b.lastName));
+      limit: 8,
+    );
 
     setState(() {
       _clientSearchMode = mode;
-      _clientSuggestions =
-          filtered.length > 8 ? filtered.sublist(0, 8) : filtered;
+      _clientSuggestions = filtered;
     });
   }
 
@@ -3272,6 +4036,9 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
   }
 
   void _clearClientSelection() {
+    if (_clientId == null) {
+      return;
+    }
     setState(() {
       _clientId = null;
       _clientSearchController.clear();
@@ -3282,10 +4049,14 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       _ensureServiceState(_serviceIds);
     });
     _clientFieldKey.currentState?.didChange(null);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      FocusScope.of(context).requestFocus(_clientSearchFocusNode);
-    });
+    if (_usesDesktopInlineClientSearch(context)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        FocusScope.of(context).requestFocus(_clientSearchFocusNode);
+      });
+    }
   }
 
   Future<void> _openClientDetails(Client client) async {
@@ -3307,6 +4078,9 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
       popCurrent: true,
       compactOnly: true,
     );
+    if (!mounted) {
+      return;
+    }
     if (!opened) {
       Navigator.of(context).maybePop();
     }
@@ -3316,90 +4090,15 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
     FocusScope.of(context).unfocus();
     await showAppModalSheet<void>(
       context: context,
+      includeCloseButton: false,
       builder: (ctx) {
-        final bottomPadding = 16.0 + MediaQuery.of(ctx).viewInsets.bottom;
-        return SafeArea(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(24, 24, 24, bottomPadding),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Note cliente', style: Theme.of(ctx).textTheme.titleLarge),
-                const SizedBox(height: 12),
-                ClientNotesSection(client: client),
-              ],
-            ),
-          ),
+        return DialogActionLayout(
+          title: 'Note cliente',
+          body: ClientNotesSection(client: client),
+          actions: const [],
         );
       },
     );
-  }
-
-  Widget _buildClientSuggestions(List<Client> suggestions) {
-    final query =
-        _clientSearchMode == _ClientSearchMode.number
-            ? _clientNumberSearchController.text.trim()
-            : _clientSearchController.text.trim();
-    if (query.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    if (suggestions.isEmpty) {
-      return Card(
-        margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-          child: Text(
-            'Nessun cliente trovato. Prova a modificare la ricerca.',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-        ),
-      );
-    }
-
-    return Card(
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (var i = 0; i < suggestions.length; i++) ...[
-            _buildClientSuggestionTile(suggestions[i]),
-            if (i != suggestions.length - 1)
-              const Divider(height: 1, thickness: 1),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildClientSuggestionTile(Client client) {
-    final subtitle = _buildClientSubtitle(client);
-    final initials =
-        client.firstName.characters.firstOrNull?.toUpperCase() ??
-        client.lastName.characters.firstOrNull?.toUpperCase() ??
-        '?';
-    return ListTile(
-      onTap: () => _handleClientSuggestionTap(client),
-      leading: CircleAvatar(child: Text(initials)),
-      title: Text(client.fullName),
-      subtitle: subtitle.isNotEmpty ? Text(subtitle) : null,
-      trailing: const Icon(Icons.chevron_right_rounded),
-    );
-  }
-
-  String _buildClientSubtitle(Client client) {
-    final parts = <String>[];
-    if (client.clientNumber != null && client.clientNumber!.isNotEmpty) {
-      parts.add('N° ${client.clientNumber}');
-    }
-    if (client.phone.isNotEmpty) {
-      parts.add(client.phone);
-    }
-    if (client.email != null && client.email!.isNotEmpty) {
-      parts.add(client.email!);
-    }
-    return parts.join(' · ');
   }
 
   void _clearAllPackageSelections() {
@@ -3567,8 +4266,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                           : null,
                   icon: Icon(
                     Icons.arrow_back_ios_new_rounded,
-                    color: theme.iconTheme.color?.withOpacity(
-                      index > 0 ? 1 : 0.35,
+                    color: theme.iconTheme.color?.withValues(
+                      alpha: index > 0 ? 1 : 0.35,
                     ),
                   ),
                 ),
@@ -3587,8 +4286,8 @@ class _AppointmentFormSheetState extends ConsumerState<AppointmentFormSheet> {
                           : null,
                   icon: Icon(
                     Icons.arrow_forward_ios_rounded,
-                    color: theme.iconTheme.color?.withOpacity(
-                      index < selectedServices.length - 1 ? 1 : 0.35,
+                    color: theme.iconTheme.color?.withValues(
+                      alpha: index < selectedServices.length - 1 ? 1 : 0.35,
                     ),
                   ),
                 ),
@@ -3855,81 +4554,98 @@ class _ServicePackageSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    return Card(
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
+    final palette = _AppointmentFormPalette.fromTheme(theme);
+    return Container(
+      decoration: BoxDecoration(
+        color: palette.inputBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: palette.border),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  service.name,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: palette.textPrimary,
+                  ),
+                ),
+              ),
+              if (uncoveredQuantity > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: palette.dangerBg,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                   child: Text(
-                    service.name,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
+                    '$uncoveredQuantity fuori pacchetto',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: palette.danger,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
-                if (uncoveredQuantity > 0)
-                  Chip(
-                    label: Text('$uncoveredQuantity fuori pacchetto'),
-                    backgroundColor: colorScheme.errorContainer,
-                    labelStyle: theme.textTheme.labelSmall?.copyWith(
-                      color: colorScheme.onErrorContainer,
-                    ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (packages.isEmpty)
+            Text(
+              'Nessun pacchetto compatibile.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: palette.textSecondary,
+              ),
+            )
+          else
+            Column(
+              children: [
+                for (final purchase in packages) ...[
+                  _PackageSelectionCard(
+                    title: purchase.displayName,
+                    subtitle: _packageSubtitle(purchase, service.id),
+                    selected: selectedPackageId == purchase.item.referenceId,
+                    enabled:
+                        purchase.remainingSessionsForService(service.id) > 0 ||
+                        selectedPackageId == purchase.item.referenceId,
+                    recommended:
+                        suggestedPackageId == purchase.item.referenceId,
+                    onTap:
+                        purchase.remainingSessionsForService(service.id) > 0 ||
+                                selectedPackageId == purchase.item.referenceId
+                            ? () {
+                              final packageId = purchase.item.referenceId;
+                              final isSelected = selectedPackageId == packageId;
+                              onSelect(isSelected ? null : packageId);
+                            }
+                            : null,
                   ),
+                  if (purchase != packages.last) const SizedBox(height: 10),
+                ],
               ],
             ),
-            const SizedBox(height: 10),
-            if (packages.isEmpty)
-              Text(
-                'Nessun pacchetto compatibile.',
-                style: theme.textTheme.bodyMedium,
-              )
-            else
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  ...packages.map((purchase) {
-                    final packageId = purchase.item.referenceId;
-                    final remaining = purchase.remainingSessionsForService(
-                      service.id,
-                    );
-                    final enabled = remaining > 0;
-                    final isSelected = selectedPackageId == packageId;
-                    final isSuggested = suggestedPackageId == packageId;
-                    final expiration = purchase.expirationDate;
-                    final detailsBuffer = StringBuffer(
-                      '$remaining sessioni disponibili',
-                    );
-                    if (expiration != null) {
-                      detailsBuffer
-                        ..write(' • Scade il ')
-                        ..write(DateFormat('dd/MM/yyyy').format(expiration));
-                    }
-                    return _PackageSelectionCard(
-                      title: purchase.displayName,
-                      subtitle: detailsBuffer.toString(),
-                      selected: isSelected,
-                      enabled: enabled || isSelected,
-                      recommended: isSuggested,
-                      onTap:
-                          enabled || isSelected
-                              ? () => onSelect(isSelected ? null : packageId)
-                              : null,
-                    );
-                  }),
-                ],
-              ),
-          ],
-        ),
+        ],
       ),
     );
+  }
+
+  String _packageSubtitle(ClientPackagePurchase purchase, String serviceId) {
+    final remaining = purchase.remainingSessionsForService(serviceId);
+    final buffer = StringBuffer('$remaining sessioni disponibili');
+    final expiration = purchase.expirationDate;
+    if (expiration != null) {
+      buffer
+        ..write(' • Scade il ')
+        ..write(DateFormat('dd/MM/yyyy').format(expiration));
+    }
+    return buffer.toString();
   }
 }
 
@@ -3953,79 +4669,85 @@ class _PackageSelectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final palette = _AppointmentFormPalette.fromTheme(theme);
     final borderColor =
-        selected
-            ? colorScheme.primary
-            : colorScheme.outlineVariant.withValues(alpha: 0.4);
-    final backgroundColor =
-        selected
-            ? colorScheme.primary.withValues(alpha: 0.08)
-            : colorScheme.surfaceContainerLowest;
+        selected ? palette.accentStrong : palette.border.withValues(alpha: 0.9);
+    final backgroundColor = selected ? palette.selectedItemBg : palette.inputBg;
     final foregroundColor =
         enabled
-            ? colorScheme.onSurface
-            : colorScheme.onSurfaceVariant.withValues(alpha: 0.5);
+            ? palette.textPrimary
+            : palette.textSecondary.withValues(alpha: 0.65);
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: enabled ? onTap : null,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         child: Container(
           width: double.infinity,
-          constraints: const BoxConstraints(minWidth: 200),
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+          constraints: const BoxConstraints(minHeight: 72),
+          padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 12),
           decoration: BoxDecoration(
             color: backgroundColor,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: borderColor, width: selected ? 2 : 1),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: borderColor, width: selected ? 1.3 : 1),
           ),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Icon(
-                selected
-                    ? Icons.radio_button_checked
-                    : Icons.radio_button_unchecked,
-                color:
-                    enabled
-                        ? (selected
-                            ? colorScheme.primary
-                            : colorScheme.onSurfaceVariant)
-                        : colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
-              ),
-              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
                       title,
                       style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w700,
                         color: foregroundColor,
                       ),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
                     Text(
                       subtitle,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: foregroundColor,
                       ),
                     ),
-                    if (recommended && !selected)
+                    if (recommended && !selected) ...[
                       Padding(
-                        padding: const EdgeInsets.only(top: 6),
+                        padding: const EdgeInsets.only(top: 4),
                         child: Text(
                           'Suggerito',
                           style: theme.textTheme.labelSmall?.copyWith(
-                            color: colorScheme.primary,
+                            color: palette.accentStrong,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
+                    ],
                   ],
                 ),
+              ),
+              const SizedBox(width: 12),
+              Container(
+                width: 20,
+                height: 20,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color:
+                        selected
+                            ? palette.accentStrong
+                            : palette.textSecondary.withValues(alpha: 0.45),
+                    width: 2,
+                  ),
+                  color: selected ? palette.accentStrong : Colors.transparent,
+                ),
+                child:
+                    selected
+                        ? const Icon(Icons.circle, size: 8, color: Colors.white)
+                        : null,
               ),
             ],
           ),
@@ -4036,44 +4758,41 @@ class _PackageSelectionCard extends StatelessWidget {
 }
 
 class _TimelineInfoBox extends StatelessWidget {
-  const _TimelineInfoBox({
-    required this.label,
-    required this.value,
-    this.trailing,
-  });
+  const _TimelineInfoBox({required this.label, required this.value});
 
   final String label;
   final String value;
-  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final borderColor = theme.colorScheme.outline.withValues(alpha: 0.5);
-    final valueStyle = theme.textTheme.titleMedium;
-    final Widget valueContent =
-        trailing == null
-            ? Text(value, style: valueStyle)
-            : Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(child: Text(value, style: valueStyle)),
-                const SizedBox(width: 8),
-                trailing!,
-              ],
-            );
+    final palette = _AppointmentFormPalette.fromTheme(theme);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: borderColor),
+        color: palette.inputBg,
+        border: Border.all(color: palette.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: theme.textTheme.labelSmall),
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: palette.textPrimary,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
+            ),
+          ),
           const SizedBox(height: 4),
-          valueContent,
+          Text(
+            value,
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: palette.textPrimary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ],
       ),
     );
@@ -4106,10 +4825,13 @@ class _NotesDialogState extends State<_NotesDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final dialogWidth =
+        (MediaQuery.sizeOf(context).width - 48).clamp(280.0, 520.0).toDouble();
+
     return AlertDialog(
       title: const Text('Note'),
       content: SizedBox(
-        width: double.maxFinite,
+        width: dialogWidth,
         child: TextField(
           controller: _controller,
           autofocus: true,

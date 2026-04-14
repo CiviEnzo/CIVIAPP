@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -22,7 +23,7 @@ const _functionsRegionOverride = String.fromEnvironment(
 );
 const _merchantDisplayNameDefine = String.fromEnvironment(
   'STRIPE_MERCHANT_NAME',
-  defaultValue: 'CIVIAPP',
+  defaultValue: 'You Book',
 );
 const _merchantCountryCodeDefine = String.fromEnvironment(
   'STRIPE_MERCHANT_COUNTRY_CODE',
@@ -100,7 +101,10 @@ class StripePaymentsService {
     if (customerId != null && customerId.isNotEmpty) {
       final keyResponse = await _postJson(
         path: 'createStripeEphemeralKey',
-        body: <String, dynamic>{'customerId': customerId},
+        body: <String, dynamic>{
+          'customerId': customerId,
+          'clientId': cart.clientId,
+        },
         headers: const <String, String>{'Stripe-Version': '2024-06-20'},
       );
       ephemeralKeySecret = keyResponse['secret'] as String?;
@@ -168,8 +172,8 @@ class StripePaymentsService {
         quoteTitle?.trim().isNotEmpty == true
             ? quoteTitle!.trim()
             : (quoteNumber != null && quoteNumber.isNotEmpty)
-                ? 'Preventivo $quoteNumber'
-                : 'Preventivo $quoteId';
+            ? 'Preventivo $quoteNumber'
+            : 'Preventivo $quoteId';
     metadata['description'] = descriptionSource;
 
     final requestBody = <String, dynamic>{
@@ -203,7 +207,7 @@ class StripePaymentsService {
     if (customerId != null && customerId.isNotEmpty) {
       final keyResponse = await _postJson(
         path: 'createStripeEphemeralKey',
-        body: <String, dynamic>{'customerId': customerId},
+        body: <String, dynamic>{'customerId': customerId, 'clientId': clientId},
         headers: const <String, String>{'Stripe-Version': '2024-06-20'},
       );
       ephemeralKeySecret = keyResponse['secret'] as String?;
@@ -229,10 +233,12 @@ class StripePaymentsService {
     Map<String, String>? headers,
   }) async {
     final url = _resolveFunctionUrl(path);
+    final authHeaders = await _buildAuthHeaders();
     final response = await _client.post(
       url,
       headers: <String, String>{
         'Content-Type': 'application/json',
+        ...authHeaders,
         if (headers != null) ...headers,
       },
       body: jsonEncode(body),
@@ -245,6 +251,18 @@ class StripePaymentsService {
     throw StripePaymentsException.failed(
       message: 'Errore Stripe ${response.statusCode}: ${response.body}',
     );
+  }
+
+  Future<Map<String, String>> _buildAuthHeaders() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw StateError('Utente non autenticato. Effettua di nuovo il login.');
+    }
+    final token = await user.getIdToken();
+    if (token == null || token.isEmpty) {
+      throw StateError('Token di autenticazione non disponibile.');
+    }
+    return <String, String>{'Authorization': 'Bearer $token'};
   }
 
   Future<void> _initPaymentSheet({

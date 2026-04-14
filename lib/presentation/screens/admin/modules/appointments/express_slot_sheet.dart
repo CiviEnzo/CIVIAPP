@@ -8,7 +8,6 @@ import 'package:you_book/domain/entities/last_minute_slot.dart';
 import 'package:you_book/domain/entities/reminder_settings.dart';
 import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
-import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/common/hybrid_image_picker.dart';
 import 'package:collection/collection.dart';
@@ -32,7 +31,6 @@ class ExpressSlotSheet extends ConsumerStatefulWidget {
     required this.initialEnd,
     required this.services,
     required this.staff,
-    required this.rooms,
     this.initialStaffId,
     this.initialSlot,
     this.clients = const <Client>[],
@@ -44,7 +42,6 @@ class ExpressSlotSheet extends ConsumerStatefulWidget {
   final DateTime initialEnd;
   final List<Service> services;
   final List<StaffMember> staff;
-  final List<SalonRoom> rooms;
   final String? initialStaffId;
   final LastMinuteSlot? initialSlot;
   final List<Client> clients;
@@ -64,14 +61,11 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
   late final TextEditingController _basePriceController;
   late final TextEditingController _discountController;
   late final TextEditingController _priceNowController;
-  late final TextEditingController _loyaltyController;
-  late final TextEditingController _seatsController;
   late final TextEditingController _windowLeadController;
   late final TextEditingController _windowExtendController;
 
   String? _selectedServiceId;
   String? _selectedStaffId;
-  String? _selectedRoomId;
   late final String _slotId;
   LastMinuteSlot? _editing;
   late LastMinutePaymentMode _paymentMode;
@@ -101,8 +95,6 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
     _basePriceController = TextEditingController();
     _discountController = TextEditingController(text: '20');
     _priceNowController = TextEditingController();
-    _loyaltyController = TextEditingController(text: '0');
-    _seatsController = TextEditingController(text: '1');
     _windowLeadController = TextEditingController(text: '60');
     _windowExtendController = TextEditingController(text: '0');
     _labelController = TextEditingController();
@@ -117,8 +109,6 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
       _basePriceController.text = slot.basePrice.toStringAsFixed(2);
       _discountController.text = slot.discountPercentage.toString();
       _priceNowController.text = slot.priceNow.toStringAsFixed(2);
-      _loyaltyController.text = slot.loyaltyPoints.toString();
-      _seatsController.text = slot.availableSeats.toString();
       final lead =
           slot.effectiveWindowStart
               .difference(slot.start)
@@ -131,7 +121,6 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
       _windowExtendController.text = ext;
       _selectedServiceId = slot.serviceId;
       _selectedStaffId = slot.operatorId;
-      _selectedRoomId = slot.roomId;
     } else if (widget.services.isNotEmpty) {
       _selectedServiceId = widget.services.first.id;
       _applyServiceDefaults(widget.services.first);
@@ -185,8 +174,6 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
     _basePriceController.dispose();
     _discountController.dispose();
     _priceNowController.dispose();
-    _loyaltyController.dispose();
-    _seatsController.dispose();
     _windowLeadController.dispose();
     _windowExtendController.dispose();
     super.dispose();
@@ -196,294 +183,297 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
   Widget build(BuildContext context) {
     final services = widget.services;
     final staff = widget.staff;
-    final rooms = widget.rooms;
+    final title =
+        widget.initialSlot == null
+            ? 'Crea slot express'
+            : 'Modifica slot express';
+
+    if (isAppSheetPhoneLayout(context)) {
+      return AppMobileSheetPageScaffold(
+        title: title,
+        actions: [
+          TextButton(
+            onPressed: _submit,
+            child: Text(widget.initialSlot == null ? 'Crea' : 'Salva'),
+          ),
+        ],
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: [
+              _buildPrimaryColumn(services: services),
+              const SizedBox(height: 24),
+              _buildDetailsColumn(context, staff: staff),
+            ],
+          ),
+        ),
+      );
+    }
 
     return Padding(
       padding: MediaQuery.of(context).viewInsets,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                widget.initialSlot == null
-                    ? 'Crea slot express'
-                    : 'Modifica slot express',
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String?>(
-                isExpanded: true,
-                value: _selectedServiceId,
-                decoration: const InputDecoration(labelText: 'Servizio'),
-                items: [
-                  const DropdownMenuItem<String?>(
-                    value: null,
-                    child: Text('Senza servizio (inserisci un nome)'),
-                  ),
-                  ...services.map(
-                    (service) => DropdownMenuItem<String?>(
-                      value: service.id,
-                      child: Text(service.name),
-                    ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWideLayout = constraints.maxWidth >= 920;
+          final primaryColumn = _buildPrimaryColumn(services: services);
+          final detailsColumn = _buildDetailsColumn(context, staff: staff);
+
+          return SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(title, style: Theme.of(context).textTheme.headlineSmall),
+                  const SizedBox(height: 20),
+                  if (isWideLayout)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: primaryColumn),
+                        const SizedBox(width: 24),
+                        Expanded(child: detailsColumn),
+                      ],
+                    )
+                  else ...[
+                    primaryColumn,
+                    const SizedBox(height: 24),
+                    detailsColumn,
+                  ],
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('Annulla'),
+                      ),
+                      const SizedBox(width: 12),
+                      FilledButton(
+                        onPressed: _submit,
+                        child: Text(
+                          widget.initialSlot == null ? 'Crea slot' : 'Salva',
+                        ),
+                      ),
+                    ],
                   ),
                 ],
-                onChanged: (value) {
-                  setState(() {
-                    _selectedServiceId = value;
-                    if (value != null) {
-                      final service = services.firstWhereOrNull(
-                        (s) => s.id == value,
-                      );
-                      if (service != null) {
-                        _applyServiceDefaults(service);
-                      }
-                    }
-                  });
-                },
               ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _labelController,
-                decoration: const InputDecoration(
-                  labelText: 'Nome slot *',
-                  helperText: 'Mostrato ai clienti nella sezione last-minute',
-                ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildPrimaryColumn({required List<Service> services}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DropdownButtonFormField<String?>(
+          isExpanded: true,
+          initialValue: _selectedServiceId,
+          decoration: const InputDecoration(labelText: 'Servizio'),
+          items: [
+            const DropdownMenuItem<String?>(
+              value: null,
+              child: Text('Senza servizio (inserisci un nome)'),
+            ),
+            ...services.map(
+              (service) => DropdownMenuItem<String?>(
+                value: service.id,
+                child: Text(service.name),
+              ),
+            ),
+          ],
+          onChanged: (value) {
+            setState(() {
+              _selectedServiceId = value;
+              if (value != null) {
+                final service = services.firstWhereOrNull((s) => s.id == value);
+                if (service != null) {
+                  _applyServiceDefaults(service);
+                }
+              }
+            });
+          },
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _labelController,
+          decoration: const InputDecoration(
+            labelText: 'Nome slot *',
+            helperText: 'Mostrato ai clienti nella sezione last-minute',
+          ),
+          validator:
+              (value) =>
+                  value == null || value.trim().isEmpty
+                      ? 'Inserisci un nome per lo slot'
+                      : null,
+        ),
+        const SizedBox(height: 12),
+        _SlotImageField(
+          imageUrl: _imageUrl,
+          isUploading: _isUploadingImage,
+          error: _imageUploadError,
+          onPickImage: _pickSlotImage,
+          onRemoveImage:
+              _imageUrl != null && !_isUploadingImage ? _removeSlotImage : null,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDetailsColumn(
+    BuildContext context, {
+    required List<StaffMember> staff,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DropdownButtonFormField<LastMinutePaymentMode>(
+          isExpanded: true,
+          initialValue: _paymentMode,
+          decoration: const InputDecoration(
+            labelText: 'Pagamento disponibile per il cliente',
+            helperText:
+                'Scegli se richiedere il pagamento immediato o in salone',
+          ),
+          items: const [
+            DropdownMenuItem<LastMinutePaymentMode>(
+              value: LastMinutePaymentMode.online,
+              child: Text('Pagamento immediato con Stripe'),
+            ),
+            DropdownMenuItem<LastMinutePaymentMode>(
+              value: LastMinutePaymentMode.onSite,
+              child: Text('Paga in sede'),
+            ),
+          ],
+          onChanged: (value) {
+            if (value == null) {
+              return;
+            }
+            setState(() => _paymentMode = value);
+          },
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: TextFormField(
+                controller: _durationController,
+                decoration: const InputDecoration(labelText: 'Durata (min)'),
+                keyboardType: TextInputType.number,
+                validator: _positiveIntValidator,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                isExpanded: true,
+                initialValue: _selectedStaffId,
+                decoration: const InputDecoration(labelText: 'Operatore *'),
+                items:
+                    staff
+                        .map(
+                          (member) => DropdownMenuItem<String>(
+                            value: member.id,
+                            child: Text(member.fullName),
+                          ),
+                        )
+                        .toList(),
                 validator:
                     (value) =>
-                        value == null || value.trim().isEmpty
-                            ? 'Inserisci un nome per lo slot'
+                        value == null || value.isEmpty
+                            ? 'Seleziona un operatore'
                             : null,
+                onChanged: (value) => setState(() => _selectedStaffId = value),
               ),
-              const SizedBox(height: 12),
-              _SlotImageField(
-                imageUrl: _imageUrl,
-                isUploading: _isUploadingImage,
-                error: _imageUploadError,
-                onPickImage: _pickSlotImage,
-                onRemoveImage:
-                    _imageUrl != null && !_isUploadingImage
-                        ? _removeSlotImage
-                        : null,
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<LastMinutePaymentMode>(
-                isExpanded: true,
-                value: _paymentMode,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: TextFormField(
+                controller: _basePriceController,
                 decoration: const InputDecoration(
-                  labelText: 'Pagamento disponibile per il cliente',
-                  helperText:
-                      'Scegli se richiedere il pagamento immediato o in salone',
-                ),
-                items: const [
-                  DropdownMenuItem<LastMinutePaymentMode>(
-                    value: LastMinutePaymentMode.online,
-                    child: Text('Pagamento immediato con Stripe'),
-                  ),
-                  DropdownMenuItem<LastMinutePaymentMode>(
-                    value: LastMinutePaymentMode.onSite,
-                    child: Text('Paga in sede'),
-                  ),
-                ],
-                onChanged: (value) {
-                  if (value == null) {
-                    return;
-                  }
-                  setState(() => _paymentMode = value);
-                },
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _durationController,
-                      decoration: const InputDecoration(
-                        labelText: 'Durata (min)',
-                      ),
-                      keyboardType: TextInputType.number,
-                      validator: _positiveIntValidator,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      isExpanded: true,
-                      value: _selectedStaffId,
-                      decoration: const InputDecoration(
-                        labelText: 'Operatore *',
-                      ),
-                      items:
-                          staff
-                              .map(
-                                (member) => DropdownMenuItem<String>(
-                                  value: member.id,
-                                  child: Text(member.fullName),
-                                ),
-                              )
-                              .toList(),
-                      validator:
-                          (value) =>
-                              value == null || value.isEmpty
-                                  ? 'Seleziona un operatore'
-                                  : null,
-                      onChanged:
-                          (value) => setState(() => _selectedStaffId = value),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String?>(
-                isExpanded: true,
-                value: _selectedRoomId,
-                decoration: const InputDecoration(labelText: 'Cabina'),
-                items: [
-                  const DropdownMenuItem<String?>(
-                    value: null,
-                    child: Text('Nessuna cabina'),
-                  ),
-                  ...rooms.map(
-                    (room) => DropdownMenuItem<String?>(
-                      value: room.id,
-                      child: Text(room.name),
-                    ),
-                  ),
-                ],
-                onChanged: (value) => setState(() => _selectedRoomId = value),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _basePriceController,
-                      decoration: const InputDecoration(
-                        labelText: 'Prezzo di listino €',
-                      ),
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      validator: _positiveDoubleValidator,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _discountController,
-                      decoration: const InputDecoration(labelText: 'Sconto %'),
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return null;
-                        }
-                        final parsed = double.tryParse(
-                          value.replaceAll(',', '.'),
-                        );
-                        if (parsed == null || parsed < 0 || parsed > 100) {
-                          return '0 - 100';
-                        }
-                        return null;
-                      },
-                      onChanged: (_) => _recalculatePriceNow(),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _priceNowController,
-                decoration: const InputDecoration(
-                  labelText: 'Prezzo scontato € *',
+                  labelText: 'Prezzo di listino €',
                 ),
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
                 validator: _positiveDoubleValidator,
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _loyaltyController,
-                      decoration: const InputDecoration(
-                        labelText: 'Punti fedeltà',
-                      ),
-                      keyboardType: TextInputType.number,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _seatsController,
-                      decoration: const InputDecoration(
-                        labelText: 'Posti disponibili',
-                      ),
-                      keyboardType: TextInputType.number,
-                      validator: _positiveIntValidator,
-                    ),
-                  ),
-                ],
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: TextFormField(
+                controller: _discountController,
+                decoration: const InputDecoration(labelText: 'Sconto %'),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return null;
+                  }
+                  final parsed = double.tryParse(value.replaceAll(',', '.'));
+                  if (parsed == null || parsed < 0 || parsed > 100) {
+                    return '0 - 100';
+                  }
+                  return null;
+                },
+                onChanged: (_) => _recalculatePriceNow(),
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _windowLeadController,
-                      decoration: const InputDecoration(
-                        labelText: 'Anticipo visibilità (min)',
-                        helperText:
-                            'Quando mostrare lo slot prima dell\'inizio',
-                      ),
-                      keyboardType: TextInputType.number,
-                      validator: _nonNegativeIntValidator,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _windowExtendController,
-                      decoration: const InputDecoration(
-                        labelText: 'Estensione visibilità (min)',
-                        helperText:
-                            'Quanto tempo dopo l\'inizio mantenerlo prenotabile',
-                      ),
-                      keyboardType: TextInputType.number,
-                      validator: _nonNegativeIntValidator,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              _buildNotificationSection(context),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Annulla'),
-                  ),
-                  const SizedBox(width: 12),
-                  FilledButton(
-                    onPressed: _submit,
-                    child: Text(
-                      widget.initialSlot == null ? 'Crea slot' : 'Salva',
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
-      ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _priceNowController,
+          decoration: const InputDecoration(labelText: 'Prezzo scontato € *'),
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          validator: _positiveDoubleValidator,
+        ),
+        const SizedBox(height: 12),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: TextFormField(
+                controller: _windowLeadController,
+                decoration: const InputDecoration(
+                  labelText: 'Anticipo visibilità (min)',
+                  helperText: 'Quando mostrare lo slot prima dell\'inizio',
+                ),
+                keyboardType: TextInputType.number,
+                validator: _nonNegativeIntValidator,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: TextFormField(
+                controller: _windowExtendController,
+                decoration: const InputDecoration(
+                  labelText: 'Estensione visibilità (min)',
+                  helperText:
+                      'Quanto tempo dopo l\'inizio mantenerlo prenotabile',
+                ),
+                keyboardType: TextInputType.number,
+                validator: _nonNegativeIntValidator,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        _buildNotificationSection(context),
+      ],
     );
   }
 
@@ -515,7 +505,7 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
         if (_sendNotification) ...[
           DropdownButtonFormField<LastMinuteNotificationAudience>(
             isExpanded: true,
-            value: _notificationAudience,
+            initialValue: _notificationAudience,
             decoration: const InputDecoration(labelText: 'Destinatari'),
             items: const [
               DropdownMenuItem<LastMinuteNotificationAudience>(
@@ -757,8 +747,8 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
             LastMinuteNotificationAudience.ownerSelection &&
         _selectedClientIds.isEmpty) {
       ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
+        ..hideCurrentAppSnackBar()
+        ..showAppSnackBar(
           const SnackBar(
             content: Text('Seleziona almeno un destinatario per la notifica.'),
           ),
@@ -776,8 +766,8 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
     );
     final discount =
         double.tryParse(_discountController.text.replaceAll(',', '.')) ?? 0.0;
-    final loyaltyPoints = int.tryParse(_loyaltyController.text) ?? 0;
-    final seats = int.tryParse(_seatsController.text) ?? 1;
+    final loyaltyPoints = _editing?.loyaltyPoints ?? 0;
+    final seats = _editing?.availableSeats ?? 1;
     final windowLead = int.tryParse(_windowLeadController.text) ?? 60;
     final windowExtend = int.tryParse(_windowExtendController.text) ?? 0;
     final staffId = _selectedStaffId;
@@ -810,11 +800,8 @@ class _ExpressSlotSheetState extends ConsumerState<ExpressSlotSheet> {
       basePrice: basePrice,
       discountPercentage: discount,
       priceNow: priceNow,
-      roomId: _selectedRoomId,
-      roomName:
-          widget.rooms
-              .firstWhereOrNull((room) => room.id == _selectedRoomId)
-              ?.name,
+      roomId: _editing?.roomId,
+      roomName: _editing?.roomName,
       operatorId: staffId,
       operatorName:
           widget.staff
@@ -886,7 +873,7 @@ class _SlotImageField extends StatelessWidget {
                       fit: BoxFit.cover,
                       errorBuilder:
                           (_, __, ___) => Container(
-                            color: scheme.surfaceVariant,
+                            color: scheme.surfaceContainerHighest,
                             child: const Icon(
                               Icons.broken_image_outlined,
                               size: 40,
@@ -907,7 +894,9 @@ class _SlotImageField extends StatelessWidget {
                       child: Icon(
                         Icons.photo_outlined,
                         size: 48,
-                        color: scheme.onSecondaryContainer.withOpacity(0.6),
+                        color: scheme.onSecondaryContainer.withValues(
+                          alpha: 0.6,
+                        ),
                       ),
                     ),
           ),

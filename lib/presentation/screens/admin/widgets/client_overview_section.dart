@@ -85,8 +85,18 @@ class ClientOverviewSection extends StatelessWidget {
             SizedBox(
               width: cardWidth,
               child: Card(
+                elevation: 0,
+                surfaceTintColor: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  side: BorderSide(
+                    color: theme.colorScheme.outlineVariant.withValues(
+                      alpha: 0.8,
+                    ),
+                  ),
+                ),
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(20),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -106,8 +116,18 @@ class ClientOverviewSection extends StatelessWidget {
             SizedBox(
               width: cardWidth,
               child: Card(
+                elevation: 0,
+                surfaceTintColor: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  side: BorderSide(
+                    color: theme.colorScheme.outlineVariant.withValues(
+                      alpha: 0.8,
+                    ),
+                  ),
+                ),
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(20),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -149,11 +169,19 @@ class ClientOverviewSection extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Text(
-                        hasNotes
-                            ? notes
-                            : 'Nessuna nota presente per questo cliente.',
-                        style: theme.textTheme.bodyMedium,
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surfaceContainerLow,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Text(
+                          hasNotes
+                              ? notes
+                              : 'Nessuna nota presente per questo cliente.',
+                          style: theme.textTheme.bodyMedium,
+                        ),
                       ),
                       if (hasConsents) ...[
                         const SizedBox(height: 16),
@@ -248,15 +276,21 @@ List<Widget> _buildPreferenceChips(
 ) {
   Widget buildChip(bool enabled, String label, IconData icon) {
     final theme = Theme.of(context);
-    final selectedBackground = theme.colorScheme.secondary;
-    final selectedForeground = theme.colorScheme.onPrimary;
-    final disabledBackground = theme.colorScheme.surfaceVariant;
+    final selectedBackground = theme.colorScheme.onSurface;
+    final selectedForeground = theme.colorScheme.surface;
+    final disabledBackground = theme.colorScheme.surface;
     final disabledForeground = theme.colorScheme.onSurfaceVariant;
     return Chip(
       avatar: Icon(
         icon,
         size: 16,
         color: enabled ? selectedForeground : disabledForeground,
+      ),
+      side: BorderSide(
+        color:
+            enabled
+                ? theme.colorScheme.onSurface
+                : theme.colorScheme.outlineVariant,
       ),
       label: Text(
         label,
@@ -291,6 +325,7 @@ class _ReadonlyField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return TextFormField(
       readOnly: true,
       initialValue: value,
@@ -298,7 +333,25 @@ class _ReadonlyField extends StatelessWidget {
       maxLines: null,
       decoration: InputDecoration(
         labelText: label,
-        border: const OutlineInputBorder(),
+        floatingLabelBehavior: FloatingLabelBehavior.always,
+        labelStyle: theme.textTheme.labelMedium?.copyWith(
+          color: theme.colorScheme.primary,
+          fontWeight: FontWeight.w600,
+        ),
+        filled: true,
+        fillColor: theme.colorScheme.surfaceContainerLow,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
         isDense: true,
       ),
     );

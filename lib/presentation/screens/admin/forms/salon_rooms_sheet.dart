@@ -1,6 +1,7 @@
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:flutter/material.dart';
+import 'package:you_book/presentation/common/app_notice.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
@@ -63,7 +64,7 @@ class _SalonRoomsSheetState extends State<SalonRoomsSheet> {
     for (final room in _rooms) {
       final capacity = int.tryParse(room.capacity.text.trim()) ?? 0;
       if (capacity <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('La capienza deve essere maggiore di 0.'),
           ),
@@ -95,20 +96,18 @@ class _SalonRoomsSheetState extends State<SalonRoomsSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return DialogActionLayout(
+      title: 'Gestione cabine e stanze',
       body: Form(
         key: _formKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Gestione cabine e stanze', style: theme.textTheme.titleLarge),
-            const SizedBox(height: 16),
             if (_rooms.isEmpty)
               Text(
                 'Nessuna cabina configurata. Aggiungi una cabina per iniziare.',
-                style: theme.textTheme.bodyMedium,
+                style: Theme.of(context).textTheme.bodyMedium,
               ),
             ..._rooms.map(
               (room) =>

@@ -1209,7 +1209,7 @@ class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Seleziona due foto prima di salvare il collage.'),
         ),
@@ -1220,7 +1220,7 @@ class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
     final boundary =
         _canvasKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
     if (boundary == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Anteprima collage non pronta per il salvataggio.'),
         ),
@@ -1291,7 +1291,7 @@ class _CollageEditorDialogState extends ConsumerState<CollageEditorDialog> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Salvataggio collage non riuscito: $error')),
       );
     } finally {

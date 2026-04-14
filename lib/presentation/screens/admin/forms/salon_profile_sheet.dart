@@ -1,6 +1,7 @@
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:flutter/material.dart';
+import 'package:you_book/presentation/common/app_notice.dart';
 
 class SalonProfileSheet extends StatefulWidget {
   const SalonProfileSheet({super.key, required this.salon});
@@ -89,19 +90,17 @@ class _SalonProfileSheetState extends State<SalonProfileSheet> {
   void _showError(String message) {
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ).showAppSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return DialogActionLayout(
+      title: 'Profilo salone',
       body: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Profilo salone', style: theme.textTheme.titleLarge),
-          const SizedBox(height: 16),
           TextField(
             controller: _address,
             decoration: const InputDecoration(

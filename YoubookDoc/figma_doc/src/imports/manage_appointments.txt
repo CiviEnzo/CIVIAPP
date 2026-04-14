@@ -1,0 +1,94 @@
+Gestione e spiegazione prenotazione appuntamento
+
+    OBIETTIVO
+    gestire la disponibilità di uno slot per la prenotazione di un appuntamento
+
+VINCOLI
+
+- quando viene preso un appuntamento che coinvolge un macchinario, quel macchinario per la durata di quello slot è da considerare non utilizzabile per lo slot di un altra operatrice 
+
+
+
+ESEMPIO :
+
+3 operatori Anna , chiara, maria 
+2 Clienti Tina e Pino 
+3 servizi [ epilazione, trattamento corpo, massaggio] (nella creazione del servizio, indico se per quel servizio è necessario un macchianrio) 
+3 macchianari : luce pulsata x 2, radiofrequenza x 1, vacuum  ( nella creazione  del salone inserisco i macchianari)
+
+
+
+
+ESEMPI VINCOLI STAFF
+
+-Anna può usare solo  la radio frequenza e massaggio (indicata alla creazione dello staff)
+-Chiara può usare solo  massaggio e la luce pulsata
+-Maria può usare solo la radio frequenza e la luce pulsata e massaggio
+
+ESEMPI VINCOLI SERVIZIO
+
+- per il servizio di epilazione è necessario l' utilizzo del macchinario luce pulsata + chiara o maria
+- per il servizio di trammento corpo è necessario l' utilizzo del macchinario radio frequenza + anna  o maria
+- per il servizio di massagio non è necessario nessun macchianario + chiara o maria o anna
+
+
+SCENARIO 1: giorno 24 settembre 2025 alle ore 10:30
+
+ Tina vuole prenotare per il servizio di  epilazione
+
+Chiara è occupata, Anna è libera, Maria è libera
+
+Il cliente vede:
+    - Chiara non visibile perchè è occupata
+    - Anna non è visibile perchè non può usare la luce pulsata
+    - Maria è visibile perchè è libera e può usare la luce pulsata
+
+
+
+SCENARIO 2 : 27 settembre 2025 alle ore 11:00
+
+Tina vuole prenotare un trammento corpo
+Pino vuole prenotare un trammento corpo
+
+Anna è libera, Maria è libera, Chiara è libera
+
+Tina prenota per prima e vede
+Anna e Maria > sceglie Anna
+
+Pino cerca di prenotare ma non può perchè anche se maria è libera il macchinario di radiofrequenza è occupato
+
+
+SCENARIO 3:  28 settembre 2025 alle ore 15:00
+ 
+Tina vuole prenotare un epilazione
+Pino vuole prenotare un epilazione
+
+Anna è libera, Maria è libera, Chiara è libera
+
+Tina prenota per prima e vede
+Anna e Maria > sceglie Anna
+
+Anna è libera, Maria è libera, Chiara è libera
+
+Pino prenota per secondo e vede:
+ Maria > sceglie Maria ( abbiamo due macchianari di luce pulsata e due operatrici che la possono usare)
+
+
+SCENARIO 4 : 30 settembre 2025 alle ore 15:00
+
+Tina vuole prenotare un massaggio
+Pino vuole prenota epilazione
+
+Chiara è occupata, Maria è libera, Anna è libera
+
+Tina vede: 
+Anna e Maria
+sceglie > Anna
+
+Pino vede:
+Maria 
+sceglie > Maria
+
+
+
+

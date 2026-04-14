@@ -30,6 +30,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+export 'package:you_book/presentation/common/app_notice.dart';
+export 'package:you_book/data/repositories/app_data_store.dart'
+    show ClientUpsertResult;
+
 final appDataProvider = StateNotifierProvider<AppDataStore, AppDataState>((
   ref,
 ) {
@@ -197,6 +201,32 @@ class AppointmentsModuleIntent {
   final DateTime focusDateTime;
 }
 
+class AppointmentsModuleAppBarState {
+  const AppointmentsModuleAppBarState({required this.rangeLabel});
+
+  final String rangeLabel;
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
+      return true;
+    }
+    return other is AppointmentsModuleAppBarState &&
+        other.rangeLabel == rangeLabel;
+  }
+
+  @override
+  int get hashCode => rangeLabel.hashCode;
+}
+
+enum AppointmentsModuleAppBarCommand {
+  previousRange,
+  nextRange,
+  goToToday,
+  pickDate,
+  openVision,
+}
+
 final clientDashboardIntentProvider = StateProvider<ClientDashboardIntent?>(
   (ref) => null,
 );
@@ -211,6 +241,12 @@ final clientsModuleIntentProvider = StateProvider<ClientsModuleIntent?>(
 
 final appointmentsModuleIntentProvider =
     StateProvider<AppointmentsModuleIntent?>((ref) => null);
+
+final appointmentsModuleAppBarStateProvider =
+    StateProvider<AppointmentsModuleAppBarState?>((ref) => null);
+
+final appointmentsModuleAppBarCommandProvider =
+    StateProvider<AppointmentsModuleAppBarCommand?>((ref) => null);
 
 final clientPhotosProvider = Provider.family<List<ClientPhoto>, String?>((
   ref,
@@ -277,7 +313,24 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 final cartControllerProvider = StateNotifierProvider<CartController, CartState>(
   (ref) {
     final paymentsService = ref.watch(stripePaymentsServiceProvider);
-    return CartController(paymentsService: paymentsService);
+    final cartDraftScope = ref.watch(
+      sessionControllerProvider.select((state) {
+        final uid = state.uid?.trim();
+        final userId = state.userId?.trim();
+        final salonId = state.salonId?.trim();
+        final normalizedUid = (uid != null && uid.isNotEmpty) ? uid : 'anon';
+        final normalizedUserId =
+            (userId != null && userId.isNotEmpty) ? userId : 'no-user';
+        final normalizedSalonId =
+            (salonId != null && salonId.isNotEmpty) ? salonId : 'no-salon';
+        return '$normalizedUid:$normalizedUserId:$normalizedSalonId';
+      }),
+    );
+    return CartController(
+      paymentsService: paymentsService,
+      sharedPreferencesLoader: SharedPreferences.getInstance,
+      localDraftKey: 'client_cart_draft_v1:$cartDraftScope',
+    );
   },
 );
 

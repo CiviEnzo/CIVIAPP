@@ -1,7 +1,6 @@
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/data/repositories/app_data_state.dart';
@@ -14,6 +13,7 @@ import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/service_category.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/screens/admin/forms/appointment_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/sale_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_save_utils.dart';
@@ -137,7 +137,7 @@ class _AppointmentSaleFlowSheetState
       }
     }
     final matchedService =
-        ticket.serviceId == null || ticket.serviceId!.isEmpty
+        ticket.serviceId.isEmpty
             ? null
             : services.firstWhereOrNull(
               (service) => service.id == ticket.serviceId,
@@ -213,67 +213,25 @@ class _AppointmentSaleFlowSheetState
         .toList(growable: false);
   }
 
-  Widget _buildTicketSummary(AppDataState data, PaymentTicket ticket) {
-    final clientName =
-        data.clients
-            .firstWhereOrNull((client) => client.id == ticket.clientId)
-            ?.fullName ??
-        'Cliente';
-    final serviceName =
-        data.services
-            .firstWhereOrNull((service) => service.id == ticket.serviceId)
-            ?.name ??
-        ticket.serviceName ??
-        'Servizio';
-    final amount = ticket.expectedTotal;
-    final ticketDate = DateFormat(
-      'dd/MM/yyyy HH:mm',
-      'it_IT',
-    ).format(ticket.appointmentStart);
-    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
-
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ListTile(
-        title: Text(clientName),
-        subtitle: Text('$serviceName · $ticketDate'),
-        trailing: amount != null ? Text(currency.format(amount)) : null,
-      ),
-    );
-  }
-
   Widget _buildHeader(BuildContext context) {
     final title = _showSaleStep ? 'Gestisci ticket' : 'Dettaglio appuntamento';
     final subtitle = _showSaleStep ? 'Passaggio 2 di 2' : 'Passaggio 1 di 2';
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-      child: Row(
-        children: [
-          if (_showSaleStep)
-            IconButton(
-              onPressed: () {
-                setState(() => _showSaleStep = false);
-              },
-              icon: const Icon(Icons.chevron_left_rounded),
-            )
-          else
-            const SizedBox(width: 48),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Text(title, style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 4),
-                Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
-              ],
-            ),
-          ),
-          IconButton(
-            onPressed: _closeFlow,
-            icon: const Icon(Icons.close_rounded),
-          ),
-        ],
-      ),
+    return AppSheetHeader(
+      title: title,
+      subtitle: subtitle,
+      leading:
+          _showSaleStep
+              ? IconButton(
+                tooltip: 'Indietro',
+                visualDensity: VisualDensity.compact,
+                splashRadius: 20,
+                onPressed: () {
+                  setState(() => _showSaleStep = false);
+                },
+                icon: const Icon(Icons.chevron_left_rounded),
+              )
+              : null,
+      onClose: _closeFlow,
     );
   }
 
@@ -292,6 +250,7 @@ class _AppointmentSaleFlowSheetState
       suggestedEnd: widget.suggestedEnd,
       suggestedStaffId: widget.suggestedStaffId,
       enableDelete: widget.enableDelete,
+      showSheetHeader: false,
       onSaved: _handleAppointmentSaved,
     );
   }
@@ -311,13 +270,15 @@ class _AppointmentSaleFlowSheetState
       packages: data.packages,
       inventoryItems: data.inventoryItems,
       sales: data.sales,
-      defaultSalonId: ticket.salonId ?? widget.defaultSalonId,
+      defaultSalonId:
+          ticket.salonId.isEmpty ? widget.defaultSalonId : ticket.salonId,
       initialClientId: ticket.clientId,
       initialItems: initialItems,
       initialNotes: ticket.notes,
       initialDate: ticket.appointmentEnd,
       initialStaffId: ticket.staffId,
       lockServiceOperator: true,
+      showSheetHeader: false,
       onSaved: _handleSaleSaved,
       onSkipTicket: _closeFlow,
     );
@@ -328,6 +289,24 @@ class _AppointmentSaleFlowSheetState
     final data = ref.watch(appDataProvider);
     final content =
         _showSaleStep ? _buildSaleStep(data) : _buildAppointmentStep(data);
+    if (isAppSheetPhoneLayout(context)) {
+      return AppMobileSheetPageScaffold(
+        title: _showSaleStep ? 'Gestisci ticket' : 'Dettaglio appuntamento',
+        subtitle: _showSaleStep ? 'Passaggio 2 di 2' : 'Passaggio 1 di 2',
+        leadingMode:
+            _showSaleStep
+                ? AppMobileSheetLeadingMode.back
+                : AppMobileSheetLeadingMode.close,
+        onLeadingPressed:
+            _showSaleStep
+                ? () => setState(() => _showSaleStep = false)
+                : _closeFlow,
+        body: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 250),
+          child: content,
+        ),
+      );
+    }
     return Material(
       color: Colors.transparent,
       child: SafeArea(
@@ -335,7 +314,6 @@ class _AppointmentSaleFlowSheetState
           mainAxisSize: MainAxisSize.min,
           children: [
             _buildHeader(context),
-            const SizedBox(height: 4),
             Flexible(
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 250),

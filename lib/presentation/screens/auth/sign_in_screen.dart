@@ -61,7 +61,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
         return;
       }
       final messenger = ScaffoldMessenger.maybeOf(context);
-      messenger?.showSnackBar(SnackBar(content: Text(message)));
+      messenger?.showAppSnackBar(SnackBar(content: Text(message)));
     });
   }
 
@@ -238,7 +238,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(_friendlyError(error))));
+      ).showAppSnackBar(SnackBar(content: Text(_friendlyError(error))));
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -286,7 +286,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
       return;
     }
     if (session.role == UserRole.admin && session.user?.isEnabled == false) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Account in attesa di abilitazione.')),
       );
       _closeSessionSubscription();

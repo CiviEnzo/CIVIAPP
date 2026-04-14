@@ -4,6 +4,33 @@ export interface ReminderSettingsData {
   salonId: string;
   appointmentOffsetsMinutes: number[];
   birthdayEnabled: boolean;
+  birthdayDeliveryMode: 'push' | 'whatsapp' | 'both';
+  birthdayWhatsappTemplateId?: string;
+  birthdayWhatsappTemplateName?: string;
+}
+
+function normalizeReminderDeliveryMode(
+  value: unknown,
+): ReminderSettingsData['birthdayDeliveryMode'] {
+  if (typeof value !== 'string') {
+    return 'push';
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'whatsapp') {
+    return 'whatsapp';
+  }
+  if (normalized === 'both') {
+    return 'both';
+  }
+  return 'push';
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 export const MIN_REMINDER_OFFSET_MINUTES = 15;
@@ -77,6 +104,15 @@ export function parseReminderSettingsDoc(
         : docId,
     appointmentOffsetsMinutes,
     birthdayEnabled: data.birthdayEnabled !== false,
+    birthdayDeliveryMode: normalizeReminderDeliveryMode(
+      data.birthdayDeliveryMode,
+    ),
+    birthdayWhatsappTemplateId: normalizeOptionalString(
+      data.birthdayWhatsappTemplateId,
+    ),
+    birthdayWhatsappTemplateName: normalizeOptionalString(
+      data.birthdayWhatsappTemplateName,
+    ),
   };
 }
 

@@ -1,6 +1,8 @@
 import 'package:you_book/domain/entities/inventory_item.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:flutter/material.dart';
+import 'package:you_book/presentation/common/app_notice.dart';
+import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:uuid/uuid.dart';
 
 class InventoryFormSheet extends StatefulWidget {
@@ -68,6 +70,69 @@ class _InventoryFormSheetState extends State<InventoryFormSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final title =
+        widget.initial == null ? 'Nuovo articolo' : 'Modifica articolo';
+    final formFields = <Widget>[
+      TextFormField(
+        controller: _name,
+        decoration: const InputDecoration(labelText: 'Nome'),
+        validator:
+            (value) =>
+                value == null || value.trim().isEmpty
+                    ? 'Inserisci il nome'
+                    : null,
+      ),
+      const SizedBox(height: 12),
+      TextFormField(
+        controller: _category,
+        decoration: const InputDecoration(labelText: 'Categoria'),
+      ),
+      const SizedBox(height: 12),
+      TextFormField(
+        controller: _quantity,
+        decoration: const InputDecoration(labelText: 'Quantità'),
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      ),
+      const SizedBox(height: 12),
+      TextFormField(
+        controller: _unit,
+        decoration: const InputDecoration(labelText: 'Unità di misura'),
+      ),
+      const SizedBox(height: 12),
+      TextFormField(
+        controller: _threshold,
+        decoration: const InputDecoration(labelText: 'Soglia minima'),
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      ),
+      const SizedBox(height: 12),
+      TextFormField(
+        controller: _cost,
+        decoration: const InputDecoration(labelText: 'Costo unitario (€)'),
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      ),
+      const SizedBox(height: 12),
+      TextFormField(
+        controller: _price,
+        decoration: const InputDecoration(labelText: 'Prezzo vendita (€)'),
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      ),
+    ];
+
+    if (isAppSheetPhoneLayout(context)) {
+      return AppMobileSheetPageScaffold(
+        title: title,
+        actions: [TextButton(onPressed: _submit, child: const Text('Salva'))],
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: formFields,
+          ),
+        ),
+      );
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Form(
@@ -76,67 +141,9 @@ class _InventoryFormSheetState extends State<InventoryFormSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              widget.initial == null ? 'Nuovo articolo' : 'Modifica articolo',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
+            Text(title, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 16),
-            TextFormField(
-              controller: _name,
-              decoration: const InputDecoration(labelText: 'Nome'),
-              validator:
-                  (value) =>
-                      value == null || value.trim().isEmpty
-                          ? 'Inserisci il nome'
-                          : null,
-            ),
-            const SizedBox(height: 12),
-
-            TextFormField(
-              controller: _category,
-              decoration: const InputDecoration(labelText: 'Categoria'),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _quantity,
-              decoration: const InputDecoration(labelText: 'Quantità'),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _unit,
-              decoration: const InputDecoration(labelText: 'Unità di misura'),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _threshold,
-              decoration: const InputDecoration(labelText: 'Soglia minima'),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _cost,
-              decoration: const InputDecoration(
-                labelText: 'Costo unitario (€)',
-              ),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _price,
-              decoration: const InputDecoration(
-                labelText: 'Prezzo vendita (€)',
-              ),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-            ),
+            ...formFields,
             const SizedBox(height: 24),
             Align(
               alignment: Alignment.centerRight,
@@ -158,7 +165,7 @@ class _InventoryFormSheetState extends State<InventoryFormSheet> {
     if (_salonId == null) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Seleziona un salone')));
+      ).showAppSnackBar(const SnackBar(content: Text('Seleziona un salone')));
       return;
     }
 

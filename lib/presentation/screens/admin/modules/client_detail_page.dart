@@ -1,9 +1,6 @@
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:you_book/app/providers.dart';
-import 'package:you_book/domain/availability/appointment_conflicts.dart';
-import 'package:you_book/domain/availability/equipment_availability.dart';
 import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/appointment_clipboard.dart';
 import 'package:you_book/domain/entities/cash_flow_entry.dart';
@@ -25,6 +22,7 @@ import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/screens/admin/forms/appointment_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/appointment_sale_flow_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/client_form_sheet.dart';
+import 'package:you_book/presentation/screens/admin/forms/client_save_feedback.dart';
 import 'package:you_book/presentation/screens/admin/forms/outstanding_payment_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/package_deposit_form_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/package_form_sheet.dart';
@@ -38,6 +36,7 @@ import 'package:you_book/presentation/screens/admin/modules/collage_editor_dialo
 import 'package:you_book/presentation/screens/admin/modules/sales/sale_helpers.dart';
 import 'package:you_book/presentation/shared/client_package_purchase.dart';
 import 'package:you_book/presentation/shared/widgets/client_notes_section.dart';
+import 'package:you_book/widgets/shared/badge/status_badge.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -47,8 +46,10 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
+import 'package:flutter/services.dart';
 
 const double _clientStandaloneWidthThreshold = 900;
+const double _clientDetailEmbeddedMinHeight = 620;
 
 bool isCompactClientLayout(BuildContext context) {
   final mediaQuery = MediaQuery.maybeOf(context);
@@ -246,8 +247,6 @@ class _ClientDetailViewState extends ConsumerState<ClientDetailView> {
     final salon = data.salons.firstWhereOrNull(
       (element) => element.id == client.salonId,
     );
-    final salonName = salon?.name;
-
     final tabDefinitions = _buildTabDefinitions();
     final tabViews = [
       _ProfileTab(client: client, salon: salon),
@@ -261,66 +260,202 @@ class _ClientDetailViewState extends ConsumerState<ClientDetailView> {
 
     final initialTabIndex =
         widget.initialTabIndex.clamp(0, tabDefinitions.length - 1).toInt();
+    final theme = Theme.of(context);
+    final embeddedHeight = math.max(
+      _clientDetailEmbeddedMinHeight,
+      MediaQuery.of(context).size.height * 0.68,
+    );
+
+    final shell = DefaultTabController(
+      initialIndex: initialTabIndex,
+      length: tabDefinitions.length,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(24, widget.showAppBar ? 20 : 0, 24, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildHeader(context, client: client, salonName: salon?.name),
+                const SizedBox(height: 18),
+                _buildTabBar(context, tabDefinitions),
+                const SizedBox(height: 16),
+                Divider(
+                  height: 1,
+                  color: theme.colorScheme.outlineVariant.withValues(
+                    alpha: 0.75,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          if (widget.showAppBar)
+            Expanded(child: TabBarView(children: tabViews))
+          else
+            SizedBox(
+              height: embeddedHeight,
+              child: TabBarView(children: tabViews),
+            ),
+        ],
+      ),
+    );
 
     if (widget.showAppBar) {
-      return DefaultTabController(
-        initialIndex: initialTabIndex,
-        length: tabDefinitions.length,
-        child: Scaffold(
-          appBar: AppBar(
-            title: Text(client.fullName),
-            bottom: _buildTabBar(context, tabDefinitions),
-            actions: [
-              IconButton(
-                tooltip: 'Modifica scheda',
-                icon: const Icon(Icons.edit_rounded),
-                onPressed: () => _editClient(context, client),
-              ),
-            ],
-          ),
-          body: TabBarView(children: tabViews),
-        ),
+      return Scaffold(
+        backgroundColor: theme.colorScheme.surface,
+        body: SafeArea(child: shell),
       );
     }
 
-    final theme = Theme.of(context);
-    final embeddedHeight = math.max(
-      420.0,
-      MediaQuery.of(context).size.height * 0.6,
-    );
+    return shell;
+  }
 
-    return DefaultTabController(
-      initialIndex: initialTabIndex,
-      length: tabDefinitions.length,
-      child: Card(
-        color: theme.colorScheme.surface,
-        elevation: 2,
-        surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
+  Widget _buildHeader(
+    BuildContext context, {
+    required Client client,
+    String? salonName,
+  }) {
+    final theme = Theme.of(context);
+    final subtitleParts = <String>[];
+    final clientNumber = client.clientNumber?.trim();
+    if (clientNumber != null && clientNumber.isNotEmpty) {
+      subtitleParts.add('Cliente #$clientNumber');
+    }
+    if (salonName != null && salonName.trim().isNotEmpty) {
+      subtitleParts.add(salonName.trim());
+    }
+    final subtitle =
+        subtitleParts.isEmpty ? 'Scheda cliente' : subtitleParts.join(' · ');
+    final canOpenContacts =
+        client.phone.trim().isNotEmpty ||
+        (client.email?.trim().isNotEmpty ?? false);
+    final closeAction = _resolveCloseAction(context);
+
+    final titleBlock = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        IconButton(
+          tooltip: 'Torna indietro',
+          onPressed: closeAction,
+          icon: const Icon(Icons.arrow_back_rounded),
+          style: IconButton.styleFrom(
+            backgroundColor: theme.colorScheme.surfaceContainerLow,
+            foregroundColor: theme.colorScheme.onSurface,
+            side: BorderSide(color: theme.colorScheme.outlineVariant),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildTabBar(context, tabDefinitions),
-              const SizedBox(height: 16),
-              SizedBox(
-                height: embeddedHeight,
-                child: TabBarView(children: tabViews),
+              Text(
+                client.fullName,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),
         ),
-      ),
+      ],
     );
+
+    final actions = Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      alignment: WrapAlignment.end,
+      children: [
+        OutlinedButton.icon(
+          onPressed:
+              canOpenContacts ? () => _showContactSheet(context, client) : null,
+          icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+          label: const Text('Messaggio'),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size(0, 42),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            side: BorderSide(color: theme.colorScheme.outlineVariant),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+        ),
+        FilledButton.icon(
+          onPressed: () => _editClient(context, client),
+          icon: const Icon(Icons.edit_rounded, size: 18),
+          label: const Text('Modifica'),
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(0, 42),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+        ),
+      ],
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 760;
+        if (compact) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              titleBlock,
+              const SizedBox(height: 14),
+              Align(alignment: Alignment.centerRight, child: actions),
+            ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: titleBlock),
+            const SizedBox(width: 16),
+            actions,
+          ],
+        );
+      },
+    );
+  }
+
+  VoidCallback? _resolveCloseAction(BuildContext context) {
+    if (widget.onClose != null) {
+      return widget.onClose;
+    }
+    final navigator = Navigator.maybeOf(context);
+    final rootNavigator = Navigator.maybeOf(context, rootNavigator: true);
+    if (navigator != null && navigator.canPop()) {
+      return () => navigator.maybePop();
+    }
+    if (rootNavigator != null &&
+        rootNavigator != navigator &&
+        rootNavigator.canPop()) {
+      return () => rootNavigator.maybePop();
+    }
+    return null;
   }
 
   Future<void> _editClient(BuildContext context, Client client) async {
     final data = ref.read(appDataProvider);
     final salons = data.salons;
     final clients = data.clients;
+    final messenger = ScaffoldMessenger.of(context);
     final updated = await showAppModalSheet<Client>(
       context: context,
+      includeCloseButton: false,
+      desktopMaxWidth: 980,
       builder:
           (ctx) => ClientFormSheet(
             salons: salons,
@@ -329,9 +464,201 @@ class _ClientDetailViewState extends ConsumerState<ClientDetailView> {
             defaultSalonId: client.salonId,
           ),
     );
-    if (updated != null) {
-      await ref.read(appDataProvider.notifier).upsertClient(updated);
+    if (!mounted || updated == null) {
+      return;
     }
+
+    try {
+      final saveResult = await ref
+          .read(appDataProvider.notifier)
+          .upsertClient(updated);
+      final warningMessage = saveResult.warningMessage?.trim();
+      if (!mounted || warningMessage == null || warningMessage.isEmpty) {
+        return;
+      }
+      messenger.showAppSnackBar(SnackBar(content: Text(warningMessage)));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      messenger.showAppSnackBar(
+        SnackBar(content: Text(formatClientSaveError(error))),
+      );
+    }
+  }
+
+  Future<void> _showContactSheet(BuildContext context, Client client) async {
+    final preferences = client.channelPreferences;
+    final channels = <({IconData icon, String label, bool enabled})>[
+      (
+        icon: Icons.phone_android_rounded,
+        label: 'Push',
+        enabled: preferences.push,
+      ),
+      (icon: Icons.email_outlined, label: 'Email', enabled: preferences.email),
+      (
+        icon: Icons.chat_bubble_outline_rounded,
+        label: 'WhatsApp',
+        enabled: preferences.whatsapp,
+      ),
+      (icon: Icons.sms_outlined, label: 'SMS', enabled: preferences.sms),
+    ];
+    final phone = client.phone.trim();
+    final email = client.email?.trim();
+
+    Widget buildSheetContent(
+      BuildContext sheetContext, {
+      required bool showHeader,
+    }) {
+      final theme = Theme.of(sheetContext);
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (showHeader) ...[
+            Text(
+              'Contatti cliente',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              client.fullName,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+          if (phone.isNotEmpty)
+            _buildContactRow(
+              sheetContext,
+              icon: Icons.phone_outlined,
+              label: 'Telefono',
+              value: phone,
+            ),
+          if (email != null && email.isNotEmpty) ...[
+            if (phone.isNotEmpty) const SizedBox(height: 10),
+            _buildContactRow(
+              sheetContext,
+              icon: Icons.alternate_email_rounded,
+              label: 'Email',
+              value: email,
+            ),
+          ],
+          const SizedBox(height: 16),
+          Text(
+            'Canali preferiti',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: channels
+                .map(
+                  (channel) => Chip(
+                    avatar: Icon(
+                      channel.icon,
+                      size: 16,
+                      color:
+                          channel.enabled
+                              ? theme.colorScheme.onPrimary
+                              : theme.colorScheme.onSurfaceVariant,
+                    ),
+                    label: Text(channel.label),
+                    backgroundColor:
+                        channel.enabled
+                            ? theme.colorScheme.primary
+                            : theme.colorScheme.surfaceContainerLow,
+                    labelStyle: TextStyle(
+                      color:
+                          channel.enabled
+                              ? theme.colorScheme.onPrimary
+                              : theme.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                )
+                .toList(growable: false),
+          ),
+        ],
+      );
+    }
+
+    await showAppModalSheet<void>(
+      context: context,
+      builder: (ctx) {
+        if (isAppSheetPhoneLayout(ctx)) {
+          return AppMobileSheetPageScaffold(
+            title: 'Contatti cliente',
+            subtitle: client.fullName,
+            body: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              child: buildSheetContent(ctx, showHeader: false),
+            ),
+          );
+        }
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+            child: buildSheetContent(ctx, showHeader: true),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildContactRow(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Copia',
+            onPressed: () => Clipboard.setData(ClipboardData(text: value)),
+            icon: const Icon(Icons.content_copy_rounded, size: 18),
+          ),
+        ],
+      ),
+    );
   }
 
   List<_ClientTabDefinition> _buildTabDefinitions() => const [
@@ -350,14 +677,19 @@ class _ClientDetailViewState extends ConsumerState<ClientDetailView> {
     ),
   ];
 
-  TabBar _buildTabBar(BuildContext context, List<_ClientTabDefinition> tabs) {
+  Widget _buildTabBar(BuildContext context, List<_ClientTabDefinition> tabs) {
     final theme = Theme.of(context);
     return TabBar(
       isScrollable: true,
-      indicatorColor: theme.colorScheme.primary,
-      indicatorWeight: 3,
-      indicatorPadding: const EdgeInsets.symmetric(horizontal: 12),
-      labelColor: theme.colorScheme.primary,
+      tabAlignment: TabAlignment.start,
+      dividerColor: Colors.transparent,
+      padding: EdgeInsets.zero,
+      indicatorSize: TabBarIndicatorSize.label,
+      indicator: BoxDecoration(
+        color: theme.colorScheme.primary,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      labelColor: theme.colorScheme.onPrimary,
       unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
       labelStyle: theme.textTheme.labelLarge?.copyWith(
         fontWeight: FontWeight.w600,
@@ -366,7 +698,23 @@ class _ClientDetailViewState extends ConsumerState<ClientDetailView> {
       tabs:
           tabs
               .map(
-                (tab) => Tab(icon: Icon(tab.icon, size: 20), text: tab.label),
+                (tab) => Tab(
+                  height: 44,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(tab.icon, size: 16),
+                        const SizedBox(width: 6),
+                        Text(tab.label),
+                      ],
+                    ),
+                  ),
+                ),
               )
               .toList(),
     );
@@ -435,7 +783,10 @@ class _ProfileTab extends ConsumerWidget {
     children.add(const SizedBox(height: 16));
     children.add(ClientNotesSection(client: client));
 
-    return ListView(padding: const EdgeInsets.all(16), children: children);
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+      children: children,
+    );
   }
 }
 
@@ -500,7 +851,7 @@ class _QuestionnaireTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
       children: [_ClientQuestionnaireCard(client: client)],
     );
   }
@@ -514,7 +865,7 @@ class _PhotoArchiveTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
       children: [_ClientPhotosCard(client: client)],
     );
   }
@@ -542,13 +893,15 @@ class _ClientQuestionnaireCard extends ConsumerStatefulWidget {
 class _ClientQuestionnaireCardState
     extends ConsumerState<_ClientQuestionnaireCard> {
   final _uuid = const Uuid();
-  final Set<String> _selectedTemplateIdsForAssignment = <String>{};
   String? _selectedTemplateId;
   Map<String, _QuestionAnswerEditor> _answers =
       <String, _QuestionAnswerEditor>{};
   bool _initialized = false;
   bool _isSaving = false;
   bool _isAssigningQuestionnaires = false;
+  bool _showQuestionnaireEditor = false;
+  _QuestionnaireDashboardFilter _dashboardFilter =
+      _QuestionnaireDashboardFilter.assigned;
   String? _currentQuestionnaireId;
   DateTime? _currentCreatedAt;
   DateTime? _currentUpdatedAt;
@@ -580,8 +933,16 @@ class _ClientQuestionnaireCardState
 
     if (templates.isEmpty) {
       return Card(
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.8),
+          ),
+        ),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -600,588 +961,1047 @@ class _ClientQuestionnaireCardState
       (template) => template.id == _selectedTemplateId,
     );
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
+    final summaries = {
+      for (final template in templates)
+        template.id: _summarizeQuestionnaireTemplate(template, questionnaires),
+    };
+    final filteredTemplates = _filterTemplatesForDashboard(
+      templates,
+      summaries,
+      _dashboardFilter,
+    );
+    final effectiveTemplates =
+        filteredTemplates.isEmpty ? templates : filteredTemplates;
+    final activeTemplate =
+        effectiveTemplates.firstWhereOrNull(
+          (template) => template.id == selectedTemplate?.id,
+        ) ??
+        effectiveTemplates.firstOrNull;
+    final activeSummary =
+        activeTemplate == null ? null : summaries[activeTemplate.id];
 
-    final content = <Widget>[
-      _buildQuestionnaireOverview(
-        templates: templates,
-        questionnaires: questionnaires,
-        dateFormat: dateFormat,
-      ),
-      const SizedBox(height: 16),
-      DropdownButtonFormField<String>(
-        isExpanded: true,
-        value: _selectedTemplateId,
-        decoration: const InputDecoration(labelText: 'Modello questionario'),
-        items:
-            templates
-                .map(
-                  (template) => DropdownMenuItem(
-                    value: template.id,
-                    child: Text(
-                      template.isDefault
-                          ? '${template.name} (predefinito)'
-                          : template.name,
-                    ),
-                  ),
-                )
-                .toList(),
-        onChanged:
-            (value) => _handleTemplateChange(value, templates, questionnaires),
-      ),
-    ];
-
-    if (selectedTemplate?.description != null) {
-      content
-        ..add(const SizedBox(height: 8))
-        ..add(Text(selectedTemplate!.description!));
-    }
-
-    if (_currentUpdatedAt != null) {
-      content
-        ..add(const SizedBox(height: 8))
-        ..add(
-          Text(
-            'Ultimo aggiornamento: ${dateFormat.format(_currentUpdatedAt!)}',
-            style: theme.textTheme.bodySmall,
-          ),
-        );
-    } else if (_currentCreatedAt != null) {
-      content
-        ..add(const SizedBox(height: 8))
-        ..add(
-          Text(
-            'Compilato il: ${dateFormat.format(_currentCreatedAt!)}',
-            style: theme.textTheme.bodySmall,
-          ),
-        );
-    }
-
-    if (selectedTemplate != null) {
-      content
-        ..add(const SizedBox(height: 16))
-        ..add(
-          _buildQuestionnaireForm(
-            template: selectedTemplate,
-            questionnaires: questionnaires,
-          ),
-        );
-    } else {
-      content.add(
-        Padding(
-          padding: const EdgeInsets.only(top: 16),
-          child: Text(
-            'Seleziona un modello per compilare il questionario.',
-            style: theme.textTheme.bodyMedium,
-          ),
-        ),
-      );
+    if (activeTemplate != null &&
+        activeTemplate.id != _selectedTemplateId &&
+        !_isSaving &&
+        !_isAssigningQuestionnaires) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        _selectTemplate(activeTemplate.id, templates, questionnaires);
+      });
     }
 
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [...content],
+      elevation: 0,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.8),
         ),
       ),
-    );
-  }
-
-  Widget _buildQuestionnaireOverview({
-    required List<ClientQuestionnaireTemplate> templates,
-    required List<ClientQuestionnaire> questionnaires,
-    required DateFormat dateFormat,
-  }) {
-    final theme = Theme.of(context);
-    final assignableTemplates = templates
-        .where((template) => template.clientCanSelfComplete)
-        .toList(growable: false);
-    final openAppAssignments =
-        questionnaires
-            .where((item) => item.assignedToClientApp && item.isPending)
-            .length;
-    final globalAdminQuestionnaires =
-        questionnaires.where((item) => !item.assignedToClientApp).length;
-    final completedQuestionnaires =
-        questionnaires.where((item) => item.isCompleted).length;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Panoramica questionari',
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Vedi subito assegnati in app, questionari globali compilati dall\'admin e completati.',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _buildOverviewMetricChip(
-              icon: Icons.pending_actions_rounded,
-              label: 'Assegnati in app',
-              value: openAppAssignments,
-            ),
-            _buildOverviewMetricChip(
-              icon: Icons.admin_panel_settings_rounded,
-              label: 'Globali (admin)',
-              value: globalAdminQuestionnaires,
-            ),
-            _buildOverviewMetricChip(
-              icon: Icons.verified_rounded,
-              label: 'Completati',
-              value: completedQuestionnaires,
-            ),
-          ],
-        ),
-        if (assignableTemplates.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          _buildBulkAssignmentPanel(
-            templates: assignableTemplates,
-            allTemplates: templates,
-            questionnaires: questionnaires,
-          ),
-        ],
-        const SizedBox(height: 12),
-        LayoutBuilder(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: LayoutBuilder(
           builder: (context, constraints) {
-            const spacing = 8.0;
-            final maxWidth =
-                constraints.hasBoundedWidth ? constraints.maxWidth : 360.0;
-            final columns =
-                maxWidth >= 1080
-                    ? 3
-                    : maxWidth >= 720
-                    ? 2
-                    : 1;
-            final cardWidth =
-                columns == 1
-                    ? maxWidth
-                    : (maxWidth - (spacing * (columns - 1))) / columns;
+            final wide = constraints.maxWidth >= 1120;
+            final managementHeader = _buildQuestionnaireManagementHeader(
+              templates: templates,
+              filteredTemplates: effectiveTemplates,
+              activeTemplate: activeTemplate,
+              activeSummary: activeSummary,
+              summaries: summaries,
+              questionnaires: questionnaires,
+              dateFormat: dateFormat,
+            );
 
-            return Wrap(
-              spacing: spacing,
-              runSpacing: spacing,
-              children: templates
-                  .map(
-                    (template) => SizedBox(
-                      width: cardWidth,
-                      child: _buildTemplateStatusCard(
-                        template: template,
-                        templates: templates,
-                        questionnaires: questionnaires,
-                        dateFormat: dateFormat,
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                managementHeader,
+                const SizedBox(height: 20),
+                if (wide)
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 280,
+                        child: _buildQuestionnaireTemplateList(
+                          templates: effectiveTemplates,
+                          allTemplates: templates,
+                          questionnaires: questionnaires,
+                          summaries: summaries,
+                          dateFormat: dateFormat,
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 20),
+                      Expanded(
+                        child: _buildQuestionnaireDetailPanel(
+                          template: activeTemplate,
+                          summary: activeSummary,
+                          allTemplates: templates,
+                          questionnaires: questionnaires,
+                          dateFormat: dateFormat,
+                        ),
+                      ),
+                    ],
                   )
-                  .toList(growable: false),
+                else ...[
+                  _buildQuestionnaireTemplateList(
+                    templates: effectiveTemplates,
+                    allTemplates: templates,
+                    questionnaires: questionnaires,
+                    summaries: summaries,
+                    dateFormat: dateFormat,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildQuestionnaireDetailPanel(
+                    template: activeTemplate,
+                    summary: activeSummary,
+                    allTemplates: templates,
+                    questionnaires: questionnaires,
+                    dateFormat: dateFormat,
+                  ),
+                ],
+                if (_showQuestionnaireEditor && activeTemplate != null) ...[
+                  const SizedBox(height: 24),
+                  Text(
+                    'Editor questionario',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildQuestionnaireForm(
+                    template: activeTemplate,
+                    questionnaires: questionnaires,
+                  ),
+                ],
+              ],
             );
           },
         ),
-      ],
-    );
-  }
-
-  Widget _buildBulkAssignmentPanel({
-    required List<ClientQuestionnaireTemplate> templates,
-    required List<ClientQuestionnaireTemplate> allTemplates,
-    required List<ClientQuestionnaire> questionnaires,
-  }) {
-    final theme = Theme.of(context);
-    final selectableTemplateIds =
-        templates
-            .where(
-              (template) =>
-                  !_hasOpenPendingAppAssignment(questionnaires, template.id),
-            )
-            .map((template) => template.id)
-            .toSet();
-    final selectedCount =
-        _selectedTemplateIdsForAssignment
-            .where(selectableTemplateIds.contains)
-            .length;
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-        color: theme.colorScheme.surfaceContainerLowest,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Assegnazione rapida in app',
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Seleziona uno o più template e assegnali al cliente in un solo passaggio.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: templates
-                  .map((template) {
-                    final alreadyAssigned = _hasOpenPendingAppAssignment(
-                      questionnaires,
-                      template.id,
-                    );
-                    final selected = _selectedTemplateIdsForAssignment.contains(
-                      template.id,
-                    );
-                    return FilterChip(
-                      avatar: Icon(
-                        alreadyAssigned
-                            ? Icons.hourglass_top_rounded
-                            : Icons.smartphone_rounded,
-                        size: 18,
-                      ),
-                      label: Text(
-                        alreadyAssigned
-                            ? '${template.name} (già assegnato)'
-                            : template.name,
-                      ),
-                      selected: selected,
-                      onSelected:
-                          alreadyAssigned ||
-                                  _isSaving ||
-                                  _isAssigningQuestionnaires
-                              ? null
-                              : (value) {
-                                setState(() {
-                                  if (value) {
-                                    _selectedTemplateIdsForAssignment.add(
-                                      template.id,
-                                    );
-                                  } else {
-                                    _selectedTemplateIdsForAssignment.remove(
-                                      template.id,
-                                    );
-                                  }
-                                });
-                              },
-                    );
-                  })
-                  .toList(growable: false),
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                TextButton.icon(
-                  onPressed:
-                      _isSaving || _isAssigningQuestionnaires
-                          ? null
-                          : () {
-                            setState(() {
-                              _selectedTemplateIdsForAssignment
-                                ..clear()
-                                ..addAll(selectableTemplateIds);
-                            });
-                          },
-                  icon: const Icon(Icons.select_all_rounded, size: 18),
-                  label: const Text('Seleziona disponibili'),
-                ),
-                TextButton.icon(
-                  onPressed:
-                      _selectedTemplateIdsForAssignment.isEmpty ||
-                              _isSaving ||
-                              _isAssigningQuestionnaires
-                          ? null
-                          : () {
-                            setState(_selectedTemplateIdsForAssignment.clear);
-                          },
-                  icon: const Icon(Icons.clear_all_rounded, size: 18),
-                  label: const Text('Pulisci'),
-                ),
-                FilledButton.icon(
-                  onPressed:
-                      selectedCount == 0 ||
-                              _isSaving ||
-                              _isAssigningQuestionnaires
-                          ? null
-                          : () => _assignSelectedQuestionnairesToViewedClient(
-                            templates: allTemplates,
-                            questionnaires: questionnaires,
-                          ),
-                  icon:
-                      _isAssigningQuestionnaires
-                          ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                          : const Icon(Icons.assignment_ind_rounded, size: 18),
-                  label: Text(
-                    _isAssigningQuestionnaires
-                        ? 'Assegnazione...'
-                        : 'Assegna selezionati ($selectedCount)',
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
       ),
     );
   }
 
-  Widget _buildOverviewMetricChip({
-    required IconData icon,
-    required String label,
-    required int value,
-  }) {
-    return Chip(avatar: Icon(icon, size: 18), label: Text('$label: $value'));
-  }
-
-  Widget _buildTemplateStatusCard({
-    required ClientQuestionnaireTemplate template,
+  Widget _buildQuestionnaireManagementHeader({
     required List<ClientQuestionnaireTemplate> templates,
+    required List<ClientQuestionnaireTemplate> filteredTemplates,
+    required ClientQuestionnaireTemplate? activeTemplate,
+    required _QuestionnaireTemplateSummary? activeSummary,
+    required Map<String, _QuestionnaireTemplateSummary> summaries,
     required List<ClientQuestionnaire> questionnaires,
     required DateFormat dateFormat,
   }) {
     final theme = Theme.of(context);
-    final isBusy = _isSaving || _isAssigningQuestionnaires;
-    final latest = _latestQuestionnaireForTemplate(questionnaires, template.id);
-    final isSelected = _selectedTemplateId == template.id;
-    final openAssignments =
-        questionnaires
-            .where(
-              (item) =>
-                  item.templateId == template.id &&
-                  item.assignedToClientApp &&
-                  item.isPending,
-            )
+    final assignedCount =
+        summaries.values
+            .where((summary) => summary.latestQuestionnaire != null)
             .length;
-    final globalAdminCount =
-        questionnaires
-            .where(
-              (item) =>
-                  item.templateId == template.id && !item.assignedToClientApp,
-            )
+    final availableCount =
+        summaries.values
+            .where((summary) => summary.latestQuestionnaire == null)
             .length;
-    final completedCount =
-        questionnaires
-            .where((item) => item.templateId == template.id && item.isCompleted)
-            .length;
-    final canAssign =
-        template.clientCanSelfComplete && openAssignments == 0 && !isBusy;
+    final allCount = templates.length;
+    final canAssignCurrent =
+        activeTemplate != null &&
+        activeTemplate.clientCanSelfComplete &&
+        !(activeSummary?.hasOpenAppAssignment ?? true) &&
+        !_isAssigningQuestionnaires;
+    final canExportCurrent =
+        activeTemplate != null &&
+        activeSummary?.latestQuestionnaire != null &&
+        (activeSummary?.answeredQuestions ?? 0) > 0;
 
-    final stats = <String>[];
-    if (openAssignments > 0) {
-      stats.add(
-        openAssignments == 1
-            ? '1 assegnazione in app aperta'
-            : '$openAssignments assegnazioni in app aperte',
-      );
-    }
-    if (globalAdminCount > 0) {
-      stats.add(
-        globalAdminCount == 1
-            ? '1 globale (admin)'
-            : '$globalAdminCount globali (admin)',
-      );
-    }
-    if (completedCount > 0) {
-      stats.add(
-        completedCount == 1 ? '1 completato' : '$completedCount completati',
-      );
-    }
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 980;
+          final actions = Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            alignment: WrapAlignment.end,
+            children: [
+              OutlinedButton.icon(
+                onPressed:
+                    canExportCurrent
+                        ? () {
+                          final template = activeTemplate;
+                          final questionnaire =
+                              activeSummary!.latestQuestionnaire!;
+                          _exportQuestionnaireAnswers(
+                            template: template,
+                            questionnaire: questionnaire,
+                          );
+                        }
+                        : null,
+                icon: const Icon(Icons.download_rounded, size: 18),
+                label: const Text('Esporta risposte'),
+              ),
+              FilledButton.icon(
+                onPressed:
+                    canAssignCurrent
+                        ? () {
+                          final template = activeTemplate;
+                          _assignQuestionnaireToViewedClient(
+                            templateId: template.id,
+                            templates: templates,
+                            questionnaires: questionnaires,
+                          );
+                        }
+                        : null,
+                icon:
+                    _isAssigningQuestionnaires
+                        ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                        : const Icon(Icons.add_rounded, size: 18),
+                label: const Text('Assegna nuovo'),
+              ),
+            ],
+          );
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap:
-            isBusy
-                ? null
-                : () => _selectTemplate(template.id, templates, questionnaires),
-        child: Ink(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color:
-                  isSelected
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.outlineVariant,
-            ),
-            color:
-                isSelected
-                    ? theme.colorScheme.primaryContainer.withValues(alpha: 0.28)
-                    : theme.colorScheme.surfaceContainerHighest.withValues(
-                      alpha: 0.22,
-                    ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      template.name,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (template.isDefault || isSelected) ...[
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: [
-                          if (template.isDefault)
-                            const Chip(label: Text('Predefinito')),
-                          if (isSelected)
-                            const Chip(
-                              avatar: Icon(Icons.edit_note_rounded, size: 18),
-                              label: Text('In modifica'),
-                            ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _buildQuestionnaireStatusChips(latest),
-                ),
-                const SizedBox(height: 8),
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (compact) ...[
                 Text(
-                  latest == null
-                      ? 'Nessun questionario ancora assegnato o compilato.'
-                      : 'Ultima attività: ${dateFormat.format(latest.updatedAt)}',
+                  'Gestione questionari',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Assegna e monitora i questionari compilati dal cliente.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
-                if (stats.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    stats.join(' • '),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+                const SizedBox(height: 14),
+                Align(alignment: Alignment.centerRight, child: actions),
+              ] else
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    TextButton.icon(
-                      onPressed:
-                          isBusy
-                              ? null
-                              : () => _selectTemplate(
-                                template.id,
-                                templates,
-                                questionnaires,
-                              ),
-                      icon: const Icon(Icons.description_outlined, size: 18),
-                      label: const Text('Apri'),
-                    ),
-                    if (template.clientCanSelfComplete)
-                      OutlinedButton.icon(
-                        onPressed:
-                            canAssign
-                                ? () => _assignQuestionnaireToViewedClient(
-                                  templateId: template.id,
-                                  templates: templates,
-                                  questionnaires: questionnaires,
-                                )
-                                : null,
-                        icon: const Icon(Icons.smartphone_rounded, size: 18),
-                        label: Text(
-                          openAssignments > 0
-                              ? 'Già assegnato'
-                              : 'Assegna in app',
-                        ),
-                      )
-                    else
-                      const Chip(
-                        avatar: Icon(Icons.block_rounded, size: 18),
-                        label: Text('Solo admin'),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Gestione questionari',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Assegna e monitora i questionari compilati dal cliente.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
                       ),
+                    ),
+                    const SizedBox(width: 16),
+                    actions,
                   ],
                 ),
+              const SizedBox(height: 18),
+              Wrap(
+                spacing: 20,
+                runSpacing: 12,
+                children: [
+                  _buildQuestionnaireFilterTab(
+                    label: 'Assegnati',
+                    count: assignedCount,
+                    filter: _QuestionnaireDashboardFilter.assigned,
+                  ),
+                  _buildQuestionnaireFilterTab(
+                    label: 'Disponibili',
+                    count: availableCount,
+                    filter: _QuestionnaireDashboardFilter.available,
+                  ),
+                  _buildQuestionnaireFilterTab(
+                    label: 'Tutti',
+                    count: allCount,
+                    filter: _QuestionnaireDashboardFilter.all,
+                  ),
+                ],
+              ),
+              if (filteredTemplates.isEmpty) ...[
+                const SizedBox(height: 14),
+                Text(
+                  'Nessun questionario in questa vista.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildQuestionnaireFilterTab({
+    required String label,
+    required int count,
+    required _QuestionnaireDashboardFilter filter,
+  }) {
+    final theme = Theme.of(context);
+    final selected = _dashboardFilter == filter;
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () {
+        if (_dashboardFilter == filter) {
+          return;
+        }
+        setState(() {
+          _dashboardFilter = filter;
+          _showQuestionnaireEditor = false;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: selected ? theme.colorScheme.primary : Colors.transparent,
+              width: 2,
             ),
+          ),
+        ),
+        child: Text(
+          '$label ($count)',
+          style: theme.textTheme.labelLarge?.copyWith(
+            color:
+                selected
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
           ),
         ),
       ),
     );
   }
 
-  List<Widget> _buildQuestionnaireStatusChips(
-    ClientQuestionnaire? questionnaire,
-  ) {
-    if (questionnaire == null) {
-      return const [
-        Chip(
-          avatar: Icon(Icons.inbox_outlined, size: 18),
-          label: Text('Nessun record'),
-        ),
-      ];
+  Widget _buildQuestionnaireTemplateList({
+    required List<ClientQuestionnaireTemplate> templates,
+    required List<ClientQuestionnaireTemplate> allTemplates,
+    required List<ClientQuestionnaire> questionnaires,
+    required Map<String, _QuestionnaireTemplateSummary> summaries,
+    required DateFormat dateFormat,
+  }) {
+    if (templates.isEmpty) {
+      return const SizedBox.shrink();
     }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: templates.indexed
+          .map((entry) {
+            final template = entry.$2;
+            final summary = summaries[template.id]!;
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: entry.$1 == templates.length - 1 ? 0 : 12,
+              ),
+              child: _buildQuestionnaireTemplateCard(
+                template: template,
+                summary: summary,
+                allTemplates: allTemplates,
+                questionnaires: questionnaires,
+                dateFormat: dateFormat,
+              ),
+            );
+          })
+          .toList(growable: false),
+    );
+  }
 
-    final chips = <Widget>[
-      Chip(
-        avatar: Icon(
-          questionnaire.assignedToClientApp
-              ? Icons.smartphone_rounded
-              : Icons.admin_panel_settings_rounded,
-          size: 18,
-        ),
-        label: Text(
-          questionnaire.assignedToClientApp
-              ? 'Assegnato in app'
-              : 'Globale (admin)',
+  Widget _buildQuestionnaireTemplateCard({
+    required ClientQuestionnaireTemplate template,
+    required _QuestionnaireTemplateSummary summary,
+    required List<ClientQuestionnaireTemplate> allTemplates,
+    required List<ClientQuestionnaire> questionnaires,
+    required DateFormat dateFormat,
+  }) {
+    final theme = Theme.of(context);
+    final selected = template.id == _selectedTemplateId;
+    final progressColor = _progressColorForSummary(summary, theme);
+    final statusLabel = _summaryStatusLabel(summary);
+    final statusColor = _summaryStatusForeground(summary, theme);
+    final latestEvent =
+        summary.latestQuestionnaire?.assignedAt ??
+        summary.latestQuestionnaire?.updatedAt ??
+        summary.latestQuestionnaire?.createdAt;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () => _selectTemplate(template.id, allTemplates, questionnaires),
+        child: Ink(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color:
+                  selected
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.outlineVariant,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      template.name,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if (summary.progressPercent == 100)
+                    Icon(
+                      Icons.check_circle_rounded,
+                      size: 18,
+                      color: Colors.green.shade600,
+                    )
+                  else if (selected)
+                    Icon(
+                      Icons.circle,
+                      size: 10,
+                      color: theme.colorScheme.primary,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  if (template.isDefault)
+                    _buildQuestionnaireBadge(
+                      label: 'Predefinito',
+                      foreground: Colors.green.shade700,
+                      background: Colors.green.shade50,
+                    ),
+                  _buildQuestionnaireBadge(
+                    label: statusLabel,
+                    foreground: statusColor,
+                    background: statusColor.withValues(alpha: 0.12),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Text(
+                    'Progresso',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '${summary.progressPercent}%',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: LinearProgressIndicator(
+                  value: summary.progressPercent / 100,
+                  minHeight: 4,
+                  backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                  valueColor: AlwaysStoppedAnimation<Color>(progressColor),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                latestEvent == null
+                    ? 'Nessuna assegnazione'
+                    : 'Assegnato: ${dateFormat.format(latestEvent)}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-    ];
+    );
+  }
 
-    if (questionnaire.isCompleted) {
-      chips.add(
-        const Chip(
-          avatar: Icon(Icons.verified_rounded, size: 18),
-          label: Text('Completato'),
+  Widget _buildQuestionnaireDetailPanel({
+    required ClientQuestionnaireTemplate? template,
+    required _QuestionnaireTemplateSummary? summary,
+    required List<ClientQuestionnaireTemplate> allTemplates,
+    required List<ClientQuestionnaire> questionnaires,
+    required DateFormat dateFormat,
+  }) {
+    final theme = Theme.of(context);
+    if (template == null || summary == null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: theme.colorScheme.outlineVariant),
         ),
-      );
-    } else {
-      chips.add(
-        const Chip(
-          avatar: Icon(Icons.hourglass_top_rounded, size: 18),
-          label: Text('In attesa'),
+        child: Text(
+          'Seleziona un questionario per vedere il dettaglio.',
+          style: theme.textTheme.bodyMedium,
         ),
       );
     }
 
-    return chips;
+    final canAssign =
+        template.clientCanSelfComplete &&
+        !summary.hasOpenAppAssignment &&
+        !_isAssigningQuestionnaires;
+    final progressColor = _progressColorForSummary(summary, theme);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      template.name,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        if (template.isDefault)
+                          _buildQuestionnaireBadge(
+                            label: 'Predefinito',
+                            foreground: Colors.green.shade700,
+                            background: Colors.green.shade50,
+                          ),
+                        _buildQuestionnaireBadge(
+                          label: _summaryStatusLabel(summary),
+                          foreground: _summaryStatusForeground(summary, theme),
+                          background: _summaryStatusForeground(
+                            summary,
+                            theme,
+                          ).withValues(alpha: 0.12),
+                        ),
+                        _buildQuestionnaireBadge(
+                          label: '${summary.progressPercent}%',
+                          foreground: progressColor,
+                          background: progressColor.withValues(alpha: 0.12),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Wrap(
+                spacing: 4,
+                children: [
+                  IconButton(
+                    tooltip: 'Apri questionario',
+                    onPressed:
+                        () => setState(
+                          () =>
+                              _showQuestionnaireEditor =
+                                  !_showQuestionnaireEditor,
+                        ),
+                    icon: Icon(
+                      _showQuestionnaireEditor
+                          ? Icons.visibility_off_outlined
+                          : Icons.edit_rounded,
+                    ),
+                  ),
+                  if (template.clientCanSelfComplete)
+                    IconButton(
+                      tooltip:
+                          summary.hasOpenAppAssignment
+                              ? 'Già assegnato in app'
+                              : 'Invia in app',
+                      onPressed:
+                          canAssign
+                              ? () => _assignQuestionnaireToViewedClient(
+                                templateId: template.id,
+                                templates: allTemplates,
+                                questionnaires: questionnaires,
+                              )
+                              : null,
+                      icon: const Icon(Icons.near_me_outlined),
+                    ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const spacing = 10.0;
+              final columns =
+                  constraints.maxWidth >= 860
+                      ? 3
+                      : constraints.maxWidth >= 540
+                      ? 2
+                      : 1;
+              final itemWidth =
+                  columns == 1
+                      ? constraints.maxWidth
+                      : (constraints.maxWidth - spacing * (columns - 1)) /
+                          columns;
+              return Wrap(
+                spacing: spacing,
+                runSpacing: spacing,
+                children: [
+                  SizedBox(
+                    width: itemWidth,
+                    child: _buildQuestionnaireStatCard(
+                      value: '${summary.totalSections}',
+                      label: 'Sezioni',
+                    ),
+                  ),
+                  SizedBox(
+                    width: itemWidth,
+                    child: _buildQuestionnaireStatCard(
+                      value: '${summary.totalQuestions}',
+                      label: 'Domande',
+                    ),
+                  ),
+                  SizedBox(
+                    width: itemWidth,
+                    child: _buildQuestionnaireStatCard(
+                      value: '${summary.answeredQuestions}',
+                      label: 'Risposte',
+                      valueColor: progressColor,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'Sezioni questionario',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 12),
+          ...summary.sectionSummaries.indexed.map(
+            (entry) => Padding(
+              padding: EdgeInsets.only(
+                bottom:
+                    entry.$1 == summary.sectionSummaries.length - 1 ? 0 : 10,
+              ),
+              child: _buildQuestionnaireSectionTile(
+                index: entry.$1 + 1,
+                section: entry.$2,
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed:
+                      () => setState(
+                        () =>
+                            _showQuestionnaireEditor =
+                                !_showQuestionnaireEditor,
+                      ),
+                  child: Text(
+                    _showQuestionnaireEditor
+                        ? 'Chiudi questionario'
+                        : 'Apri questionario',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton(
+                  onPressed:
+                      canAssign
+                          ? () => _assignQuestionnaireToViewedClient(
+                            templateId: template.id,
+                            templates: allTemplates,
+                            questionnaires: questionnaires,
+                          )
+                          : null,
+                  child: Text(
+                    summary.hasOpenAppAssignment
+                        ? 'Già assegnato'
+                        : 'Invia in app',
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (summary.latestQuestionnaire != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              summary.latestQuestionnaire!.assignedAt != null
+                  ? 'Assegnato: ${dateFormat.format(summary.latestQuestionnaire!.assignedAt!)}'
+                  : 'Ultimo aggiornamento: ${dateFormat.format(summary.latestQuestionnaire!.updatedAt)}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuestionnaireBadge({
+    required String label,
+    required Color foreground,
+    required Color background,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: foreground,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuestionnaireStatCard({
+    required String value,
+    required String label,
+    Color? valueColor,
+  }) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: valueColor,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuestionnaireSectionTile({
+    required int index,
+    required _QuestionnaireSectionSummary section,
+  }) {
+    final theme = Theme.of(context);
+    final color = _progressColorForPercent(section.progressPercent, theme);
+    final completed = section.progressPercent == 100;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 26,
+            height: 26,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child:
+                completed
+                    ? Icon(Icons.check_rounded, size: 16, color: color)
+                    : Text(
+                      '$index',
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  section.group.title,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${section.answeredQuestions} / ${section.totalQuestions} risposte completate',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          SizedBox(
+            width: 120,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: section.progressPercent / 100,
+                minHeight: 6,
+                backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                valueColor: AlwaysStoppedAnimation<Color>(color),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Icon(
+            Icons.keyboard_arrow_down_rounded,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<ClientQuestionnaireTemplate> _filterTemplatesForDashboard(
+    List<ClientQuestionnaireTemplate> templates,
+    Map<String, _QuestionnaireTemplateSummary> summaries,
+    _QuestionnaireDashboardFilter filter,
+  ) {
+    return templates
+        .where((template) {
+          final summary = summaries[template.id];
+          if (summary == null) {
+            return filter == _QuestionnaireDashboardFilter.all;
+          }
+          switch (filter) {
+            case _QuestionnaireDashboardFilter.assigned:
+              return summary.latestQuestionnaire != null;
+            case _QuestionnaireDashboardFilter.available:
+              return summary.latestQuestionnaire == null;
+            case _QuestionnaireDashboardFilter.all:
+              return true;
+          }
+        })
+        .toList(growable: false);
+  }
+
+  _QuestionnaireTemplateSummary _summarizeQuestionnaireTemplate(
+    ClientQuestionnaireTemplate template,
+    List<ClientQuestionnaire> questionnaires,
+  ) {
+    final latest = _latestQuestionnaireForTemplate(questionnaires, template.id);
+    final sections = <_QuestionnaireSectionSummary>[];
+    var totalQuestions = 0;
+    var answeredQuestions = 0;
+
+    for (final group in template.groups) {
+      final groupTotal = group.questions.length;
+      final groupAnswered =
+          group.questions.where((question) {
+            final answer = latest?.answerFor(question.id);
+            return answer?.hasValue ?? false;
+          }).length;
+      totalQuestions += groupTotal;
+      answeredQuestions += groupAnswered;
+      sections.add(
+        _QuestionnaireSectionSummary(
+          group: group,
+          totalQuestions: groupTotal,
+          answeredQuestions: groupAnswered,
+        ),
+      );
+    }
+
+    final progressPercent =
+        totalQuestions == 0
+            ? 0
+            : ((answeredQuestions / totalQuestions) * 100).round();
+    final hasOpenAppAssignment =
+        latest?.assignedToClientApp == true && latest!.isPending;
+
+    return _QuestionnaireTemplateSummary(
+      template: template,
+      latestQuestionnaire: latest,
+      totalSections: template.groups.length,
+      totalQuestions: totalQuestions,
+      answeredQuestions: answeredQuestions,
+      progressPercent: progressPercent,
+      hasOpenAppAssignment: hasOpenAppAssignment,
+      sectionSummaries: sections,
+    );
+  }
+
+  Color _progressColorForSummary(
+    _QuestionnaireTemplateSummary summary,
+    ThemeData theme,
+  ) {
+    return _progressColorForPercent(summary.progressPercent, theme);
+  }
+
+  Color _progressColorForPercent(int percent, ThemeData theme) {
+    if (percent >= 100) {
+      return Colors.green.shade600;
+    }
+    if (percent > 0) {
+      return theme.colorScheme.primary;
+    }
+    return theme.colorScheme.outline;
+  }
+
+  String _summaryStatusLabel(_QuestionnaireTemplateSummary summary) {
+    if (summary.progressPercent >= 100) {
+      return 'Completato';
+    }
+    if (summary.latestQuestionnaire != null || summary.hasOpenAppAssignment) {
+      return 'In modifica';
+    }
+    return 'Da compilare';
+  }
+
+  Color _summaryStatusForeground(
+    _QuestionnaireTemplateSummary summary,
+    ThemeData theme,
+  ) {
+    if (summary.progressPercent >= 100) {
+      return Colors.green.shade700;
+    }
+    if (summary.latestQuestionnaire != null || summary.hasOpenAppAssignment) {
+      return theme.colorScheme.primary;
+    }
+    return theme.colorScheme.onSurfaceVariant;
+  }
+
+  Future<void> _exportQuestionnaireAnswers({
+    required ClientQuestionnaireTemplate template,
+    required ClientQuestionnaire questionnaire,
+  }) async {
+    final buffer =
+        StringBuffer()
+          ..writeln('Questionario: ${template.name}')
+          ..writeln('Cliente: ${widget.client.fullName}');
+    for (final group in template.groups) {
+      buffer
+        ..writeln()
+        ..writeln(group.title);
+      for (final question in group.questions) {
+        final answer = questionnaire.answerFor(question.id);
+        buffer.writeln(
+          '- ${question.label}: ${_formatAnswerForExport(question, answer)}',
+        );
+      }
+    }
+
+    await Clipboard.setData(ClipboardData(text: buffer.toString()));
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showAppSnackBar(
+      const SnackBar(content: Text('Risposte copiate negli appunti.')),
+    );
+  }
+
+  String _formatAnswerForExport(
+    ClientQuestionDefinition question,
+    ClientQuestionAnswer? answer,
+  ) {
+    if (answer == null || !answer.hasValue) {
+      return 'Non compilato';
+    }
+    switch (question.type) {
+      case ClientQuestionType.boolean:
+        return answer.boolValue == true
+            ? 'Si'
+            : answer.boolValue == false
+            ? 'No'
+            : 'Non compilato';
+      case ClientQuestionType.text:
+      case ClientQuestionType.textarea:
+        return answer.textValue?.trim().isNotEmpty == true
+            ? answer.textValue!.trim()
+            : 'Non compilato';
+      case ClientQuestionType.singleChoice:
+      case ClientQuestionType.multiChoice:
+        final labels = question.options
+            .where((option) => answer.optionIds.contains(option.id))
+            .map((option) => option.label)
+            .toList(growable: false);
+        return labels.isEmpty ? 'Non compilato' : labels.join(', ');
+      case ClientQuestionType.number:
+        return answer.numberValue?.toString() ?? 'Non compilato';
+      case ClientQuestionType.date:
+        return answer.dateValue == null
+            ? 'Non compilato'
+            : DateFormat('dd/MM/yyyy').format(answer.dateValue!);
+    }
   }
 
   bool _hasOpenPendingAppAssignment(
@@ -1194,112 +2014,6 @@ class _ClientQuestionnaireCardState
           item.templateId == templateId &&
           item.assignedToClientApp &&
           item.isPending,
-    );
-  }
-
-  Future<void> _assignSelectedQuestionnairesToViewedClient({
-    required List<ClientQuestionnaireTemplate> templates,
-    required List<ClientQuestionnaire> questionnaires,
-  }) async {
-    final templatesById = <String, ClientQuestionnaireTemplate>{
-      for (final template in templates) template.id: template,
-    };
-
-    final selectedTemplateIds = _selectedTemplateIdsForAssignment
-        .where((templateId) {
-          final template = templatesById[templateId];
-          return template != null &&
-              template.clientCanSelfComplete &&
-              !_hasOpenPendingAppAssignment(questionnaires, templateId);
-        })
-        .toList(growable: false);
-
-    if (selectedTemplateIds.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Seleziona almeno un template disponibile da assegnare.',
-          ),
-        ),
-      );
-      return;
-    }
-
-    setState(() => _isAssigningQuestionnaires = true);
-
-    var assignedCount = 0;
-    final failedTemplates = <String>[];
-    final now = DateTime.now();
-    final assignedByUserId = ref.read(sessionControllerProvider).userId;
-
-    for (final templateId in selectedTemplateIds) {
-      final template = templatesById[templateId];
-      if (template == null || !template.clientCanSelfComplete) {
-        continue;
-      }
-      if (_hasOpenPendingAppAssignment(questionnaires, templateId)) {
-        continue;
-      }
-
-      final questionnaire = ClientQuestionnaire(
-        id: _uuid.v4(),
-        clientId: widget.client.id,
-        salonId: widget.client.salonId,
-        templateId: templateId,
-        answers: const <ClientQuestionAnswer>[],
-        createdAt: now,
-        updatedAt: now,
-        status: ClientQuestionnaireStatus.assigned,
-        assignedToClientApp: true,
-        assignedAt: now,
-        assignedByUserId: assignedByUserId,
-      );
-
-      try {
-        await ref
-            .read(appDataProvider.notifier)
-            .upsertClientQuestionnaire(questionnaire);
-        assignedCount++;
-      } catch (_) {
-        failedTemplates.add(template.name);
-      }
-    }
-
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      _isAssigningQuestionnaires = false;
-      for (final templateId in selectedTemplateIds) {
-        _selectedTemplateIdsForAssignment.remove(templateId);
-      }
-    });
-
-    final messages = <String>[];
-    if (assignedCount > 0) {
-      messages.add(
-        assignedCount == 1
-            ? '1 questionario assegnato'
-            : '$assignedCount questionari assegnati',
-      );
-    }
-    if (failedTemplates.isNotEmpty) {
-      messages.add(
-        failedTemplates.length == 1
-            ? '1 assegnazione non riuscita'
-            : '${failedTemplates.length} assegnazioni non riuscite',
-      );
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          messages.isEmpty
-              ? 'Nessun questionario assegnato.'
-              : messages.join(' • '),
-        ),
-      ),
     );
   }
 
@@ -1326,30 +2040,88 @@ class _ClientQuestionnaireCardState
     ) {
       final group = template.groups[groupIndex];
       children.add(
-        ExpansionTile(
-          key: ValueKey(group.id),
-          title: Text(group.title),
+        _buildQuestionGroupCard(
+          group: group,
           initiallyExpanded: groupIndex == 0,
-          subtitle: group.description == null ? null : Text(group.description!),
-          children:
-              group.questions
-                  .map(
-                    (question) => Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      child: _buildQuestionField(question),
-                    ),
-                  )
-                  .toList(),
         ),
       );
     }
 
     children.add(_buildFormActions(template, questionnaires));
 
-    return Column(children: children);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 16.0;
+        final maxWidth =
+            constraints.hasBoundedWidth ? constraints.maxWidth : 640.0;
+        final columns =
+            maxWidth >= 1500
+                ? 3
+                : maxWidth >= 980
+                ? 2
+                : 1;
+        final groupWidth =
+            columns == 1
+                ? maxWidth
+                : (maxWidth - spacing * (columns - 1)) / columns;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          crossAxisAlignment: WrapCrossAlignment.start,
+          children: [
+            ...children
+                .take(children.length - 1)
+                .map((child) => SizedBox(width: groupWidth, child: child)),
+            SizedBox(width: maxWidth, child: children.last),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildQuestionGroupCard({
+    required ClientQuestionGroup group,
+    required bool initiallyExpanded,
+  }) {
+    final theme = Theme.of(context);
+    return Card(
+      elevation: 0,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.8),
+        ),
+      ),
+      child: ExpansionTile(
+        key: ValueKey(group.id),
+        tilePadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+        childrenPadding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+        initiallyExpanded: initiallyExpanded,
+        title: Text(
+          group.title,
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        subtitle:
+            group.description == null
+                ? null
+                : Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(group.description!),
+                ),
+        children: group.questions
+            .map(
+              (question) => Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: _buildQuestionField(question),
+              ),
+            )
+            .toList(growable: false),
+      ),
+    );
   }
 
   Widget _buildFormActions(
@@ -1361,9 +2133,6 @@ class _ClientQuestionnaireCardState
         .clientQuestionnaireTemplates
         .where((item) => item.salonId == widget.client.salonId)
         .toList(growable: false);
-    final assignableTemplates = templatesForSalon
-        .where((item) => item.clientCanSelfComplete)
-        .toList(growable: false);
     final openAppAssignments =
         questionnaires
             .where((item) => item.assignedToClientApp && item.isPending)
@@ -1372,15 +2141,14 @@ class _ClientQuestionnaireCardState
       questionnaires,
       template.id,
     );
-    final theme = Theme.of(context);
     final isBusy = _isSaving || _isAssigningQuestionnaires;
 
     return Padding(
       padding: const EdgeInsets.only(top: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Wrap(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final wide = constraints.maxWidth >= 980;
+          final statusRow = Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
@@ -1394,53 +2162,69 @@ class _ClientQuestionnaireCardState
                   label: Text('Template corrente già assegnato in app'),
                 ),
             ],
-          ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              alignment: WrapAlignment.end,
-              children: [
-                TextButton(
-                  onPressed:
-                      isBusy
-                          ? null
-                          : () => _selectTemplate(
-                            template.id,
-                            templatesForSalon,
-                            questionnaires,
-                          ),
-                  child: const Text('Reimposta'),
-                ),
-                FilledButton(
-                  onPressed:
-                      isBusy ? null : () => _save(template, questionnaires),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_isSaving) ...[
-                        const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+          );
+          final actions = Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            alignment: WrapAlignment.end,
+            children: [
+              TextButton(
+                onPressed:
+                    isBusy
+                        ? null
+                        : () => _selectTemplate(
+                          template.id,
+                          templatesForSalon,
+                          questionnaires,
                         ),
-                        const SizedBox(width: 8),
-                        const Text('Salvataggio...'),
-                      ] else ...[
-                        const Icon(Icons.save_rounded),
-                        const SizedBox(width: 8),
-                        const Text('Salva questionario'),
-                      ],
+                child: const Text('Reimposta'),
+              ),
+              FilledButton(
+                onPressed:
+                    isBusy ? null : () => _save(template, questionnaires),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_isSaving) ...[
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text('Salvataggio...'),
+                    ] else ...[
+                      const Icon(Icons.save_rounded),
+                      const SizedBox(width: 8),
+                      const Text('Salva questionario'),
                     ],
-                  ),
+                  ],
                 ),
+              ),
+            ],
+          );
+
+          if (wide) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: statusRow),
+                const SizedBox(width: 16),
+                actions,
               ],
-            ),
-          ),
-        ],
+            );
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              statusRow,
+              const SizedBox(height: 12),
+              Align(alignment: Alignment.centerRight, child: actions),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1457,7 +2241,7 @@ class _ClientQuestionnaireCardState
       (item) => item.id == templateId,
     );
     if (template == null || !template.clientCanSelfComplete) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Template non disponibile per assegnazione in app.'),
         ),
@@ -1465,7 +2249,7 @@ class _ClientQuestionnaireCardState
       return;
     }
     if (_hasOpenPendingAppAssignment(questionnaires, templateId)) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             'Esiste gia un\'assegnazione aperta per "${template.name}".',
@@ -1490,6 +2274,8 @@ class _ClientQuestionnaireCardState
       assignedByUserId: ref.read(sessionControllerProvider).userId,
     );
 
+    setState(() => _isAssigningQuestionnaires = true);
+
     try {
       await ref
           .read(appDataProvider.notifier)
@@ -1498,16 +2284,18 @@ class _ClientQuestionnaireCardState
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Assegnazione non riuscita: $error')),
       );
+      setState(() => _isAssigningQuestionnaires = false);
       return;
     }
 
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
+    setState(() => _isAssigningQuestionnaires = false);
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(
         content: Text(
           'Questionario "${template.name}" assegnato a ${widget.client.fullName}.',
@@ -2165,17 +2953,6 @@ class _ClientQuestionnaireCardState
     }
   }
 
-  void _handleTemplateChange(
-    String? value,
-    List<ClientQuestionnaireTemplate> templates,
-    List<ClientQuestionnaire> questionnaires,
-  ) {
-    if (value == null) {
-      return;
-    }
-    _selectTemplate(value, templates, questionnaires);
-  }
-
   void _syncState(
     List<ClientQuestionnaireTemplate> templates,
     List<ClientQuestionnaire> questionnaires,
@@ -2280,6 +3057,7 @@ class _ClientQuestionnaireCardState
       _currentQuestionnaireId = latest?.id;
       _currentCreatedAt = latest?.createdAt;
       _currentUpdatedAt = latest?.updatedAt;
+      _showQuestionnaireEditor = false;
       _initialized = true;
     });
   }
@@ -2299,7 +3077,7 @@ class _ClientQuestionnaireCardState
     if (error != null) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(error)));
+      ).showAppSnackBar(SnackBar(content: Text(error)));
       return;
     }
 
@@ -2340,15 +3118,15 @@ class _ClientQuestionnaireCardState
         _currentCreatedAt = questionnaire.createdAt;
         _currentUpdatedAt = questionnaire.updatedAt;
       });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Questionario aggiornato.')));
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        const SnackBar(content: Text('Questionario aggiornato.')),
+      );
     } catch (error) {
       if (!mounted) {
         return;
       }
       setState(() => _isSaving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Errore durante il salvataggio: $error')),
       );
     }
@@ -2511,13 +3289,56 @@ class _QuestionAnswerEditor {
   }
 }
 
+enum _QuestionnaireDashboardFilter { assigned, available, all }
+
+class _QuestionnaireTemplateSummary {
+  const _QuestionnaireTemplateSummary({
+    required this.template,
+    required this.latestQuestionnaire,
+    required this.totalSections,
+    required this.totalQuestions,
+    required this.answeredQuestions,
+    required this.progressPercent,
+    required this.hasOpenAppAssignment,
+    required this.sectionSummaries,
+  });
+
+  final ClientQuestionnaireTemplate template;
+  final ClientQuestionnaire? latestQuestionnaire;
+  final int totalSections;
+  final int totalQuestions;
+  final int answeredQuestions;
+  final int progressPercent;
+  final bool hasOpenAppAssignment;
+  final List<_QuestionnaireSectionSummary> sectionSummaries;
+}
+
+class _QuestionnaireSectionSummary {
+  const _QuestionnaireSectionSummary({
+    required this.group,
+    required this.totalQuestions,
+    required this.answeredQuestions,
+  });
+
+  final ClientQuestionGroup group;
+  final int totalQuestions;
+  final int answeredQuestions;
+
+  int get progressPercent {
+    if (totalQuestions == 0) {
+      return 0;
+    }
+    return ((answeredQuestions / totalQuestions) * 100).round();
+  }
+}
+
 class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
   final Set<String> _deleting = <String>{};
   final Set<String> _deletingCollages = <String>{};
   final Set<String> _updatingNotes = <String>{};
   final TextEditingController _noteController = TextEditingController();
   bool _isUploading = false;
-  ClientPhotoSetType _selectedSetType = ClientPhotoSetType.front;
+  bool _areCollagesExpanded = false;
   final Uuid _uuid = const Uuid();
   static const int _maxUploadBytes = 10 * 1024 * 1024;
   static const List<ClientPhotoSetType> _orderedPhotoSets =
@@ -2575,106 +3396,135 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
     }
 
     return Card(
+      elevation: 0,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.8),
+        ),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final compact = constraints.maxWidth < 760;
+                final actions = Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  alignment: WrapAlignment.end,
+                  children: [
+                    IconButton(
+                      tooltip: 'Aggiorna elenco foto',
+                      onPressed:
+                          _isUploading
+                              ? null
+                              : () => ref.invalidate(
+                                clientPhotosProvider(widget.client.id),
+                              ),
+                      icon: const Icon(Icons.refresh_rounded),
+                    ),
+                    FilledButton.icon(
+                      onPressed: () => _openCollageEditor(),
+                      icon: const Icon(Icons.auto_awesome_motion, size: 18),
+                      label: const Text('Crea collage'),
+                    ),
+                  ],
+                );
+                final title = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Archivio fotografico',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(subtitle, style: theme.textTheme.bodySmall),
+                  ],
+                );
+                if (compact) {
+                  return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Archivio fotografico',
-                        style: theme.textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(subtitle, style: theme.textTheme.bodySmall),
+                      title,
+                      const SizedBox(height: 14),
+                      Align(alignment: Alignment.centerRight, child: actions),
                     ],
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: title),
+                    const SizedBox(width: 12),
+                    actions,
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 20),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                const spacing = 14.0;
+                final columns =
+                    constraints.maxWidth >= 1040
+                        ? 4
+                        : constraints.maxWidth >= 720
+                        ? 2
+                        : 1;
+                final tileWidth =
+                    (constraints.maxWidth - spacing * (columns - 1)) / columns;
+                return Wrap(
+                  spacing: spacing,
+                  runSpacing: spacing,
+                  children: _orderedPhotoSets
+                      .map((type) {
+                        final setPhotos =
+                            grouped[type] ?? const <ClientPhoto>[];
+                        final activePhoto = _resolveActivePhoto(setPhotos);
+                        return SizedBox(
+                          width: tileWidth,
+                          child: _ClientPhotoSetPreview(
+                            label: _setLabel(type),
+                            isComplete: activePhoto != null,
+                            activePhoto: activePhoto,
+                            isUploading: _isUploading,
+                            onUpload: () => _pickAndUpload(type),
+                            onShowHistory: () => _showSetHistory(type),
+                            onPreviewActive:
+                                activePhoto == null
+                                    ? null
+                                    : () => _previewPhoto(activePhoto),
+                          ),
+                        );
+                      })
+                      .toList(growable: false),
+                );
+              },
+            ),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _isUploading ? null : () => _pickAndUploadFullSet(),
+                icon: const Icon(Icons.grid_on_outlined, size: 18),
+                label: const Text('Carica set completo'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
                   ),
                 ),
-                IconButton(
-                  tooltip: 'Aggiorna elenco foto',
-                  onPressed:
-                      _isUploading
-                          ? null
-                          : () => ref.invalidate(
-                            clientPhotosProvider(widget.client.id),
-                          ),
-                  icon: const Icon(Icons.refresh_rounded),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                FilledButton.icon(
-                  onPressed: () => _openCollageEditor(),
-                  icon: const Icon(Icons.auto_awesome_motion),
-                  label: const Text('Crea collage'),
-                ),
-                OutlinedButton.icon(
-                  onPressed:
-                      _isUploading ? null : () => _pickAndUploadFullSet(),
-                  icon: const Icon(Icons.grid_on_outlined),
-                  label: const Text('Carica set completo'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                children: _orderedPhotoSets
-                    .map((type) {
-                      final setPhotos = grouped[type] ?? const <ClientPhoto>[];
-                      final activePhoto = _resolveActivePhoto(setPhotos);
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 12),
-                        child: _ClientPhotoSetPreview(
-                          label: _setLabel(type),
-                          isComplete: activePhoto != null,
-                          activePhoto: activePhoto,
-                          isUploading: _isUploading,
-                          onUpload: () => _pickAndUpload(type),
-                          onShowHistory: () => _showSetHistory(type),
-                          onPreviewActive:
-                              activePhoto == null
-                                  ? null
-                                  : () => _previewPhoto(activePhoto),
-                        ),
-                      );
-                    })
-                    .toList(growable: false),
               ),
             ),
             if (sortedCollages.isNotEmpty) ...[
               const SizedBox(height: 24),
-              Text('Collage salvati', style: theme.textTheme.titleSmall),
-              const SizedBox(height: 8),
-              ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: sortedCollages.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
-                itemBuilder: (context, index) {
-                  final collage = sortedCollages[index];
-                  final isDeleting = _deletingCollages.contains(collage.id);
-                  return _ClientCollageTile(
-                    collage: collage,
-                    isDeleting: isDeleting,
-                    onPreview: () => _previewCollage(collage),
-                    onDelete: () => _deleteCollage(collage),
-                  );
-                },
-              ),
+              _buildCollagesSection(theme, sortedCollages),
             ],
             if (otherPhotos.isNotEmpty) ...[
               const SizedBox(height: 24),
@@ -2712,6 +3562,104 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildCollagesSection(
+    ThemeData theme,
+    List<ClientPhotoCollage> sortedCollages,
+  ) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        children: [
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap:
+                  () => setState(
+                    () => _areCollagesExpanded = !_areCollagesExpanded,
+                  ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Collage salvati',
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${sortedCollages.length} collage',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    AnimatedRotation(
+                      turns: _areCollagesExpanded ? 0.5 : 0,
+                      duration: const Duration(milliseconds: 180),
+                      child: Icon(
+                        Icons.expand_more_rounded,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          ClipRect(
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              child:
+                  _areCollagesExpanded
+                      ? Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: sortedCollages.length,
+                          separatorBuilder:
+                              (_, __) => const SizedBox(height: 8),
+                          itemBuilder: (context, index) {
+                            final collage = sortedCollages[index];
+                            final isDeleting = _deletingCollages.contains(
+                              collage.id,
+                            );
+                            return _ClientCollageTile(
+                              collage: collage,
+                              isDeleting: isDeleting,
+                              onPreview: () => _previewCollage(collage),
+                              onDelete: () => _deleteCollage(collage),
+                            );
+                          },
+                        ),
+                      )
+                      : const SizedBox.shrink(),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2800,7 +3748,7 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
         return;
       }
       if (uploadedCount > 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(
             content: Text(
               uploadedCount == 1
@@ -2822,12 +3770,12 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
         }
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(messages.join('\n'))));
+        ).showAppSnackBar(SnackBar(content: Text(messages.join('\n'))));
       }
       if (uploadedCount == 0 &&
           skippedTooLarge.isEmpty &&
           skippedUnreadable.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(content: Text('Nessun file valido selezionato.')),
         );
       }
@@ -2835,7 +3783,7 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Impossibile caricare le foto: $error')),
       );
     } finally {
@@ -2882,7 +3830,7 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
       if (!mounted) {
         return const <_PickedClientImage>[];
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             'Puoi selezionare al massimo $maxSelection foto per questa operazione.',
@@ -3001,12 +3949,12 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
               : 'Foto eliminata. Versione precedente impostata come attiva.';
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(successMessage)));
+      ).showAppSnackBar(SnackBar(content: Text(successMessage)));
     } catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text('Non è stato possibile eliminare la foto: $error'),
         ),
@@ -3071,12 +4019,12 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Nota aggiornata.')));
+      ).showAppSnackBar(const SnackBar(content: Text('Nota aggiornata.')));
     } catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Aggiornamento nota non riuscito: $error')),
       );
     } finally {
@@ -3089,41 +4037,182 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
   void _previewPhoto(ClientPhoto photo) {
     showDialog<void>(
       context: context,
+      barrierColor: Colors.black87,
       builder: (dialogContext) {
         final theme = Theme.of(dialogContext);
+        final mediaQuery = MediaQuery.of(dialogContext);
+        final uploadedAtLabel = DateFormat(
+          'dd/MM/yyyy HH:mm',
+        ).format(photo.uploadedAt.toLocal());
+        final titleParts = <String>[
+          if (photo.setType != null) _setLabel(photo.setType!),
+          if (photo.setVersionIndex != null) 'v${photo.setVersionIndex}',
+        ];
+        final title =
+            titleParts.isEmpty
+                ? (photo.fileName?.trim().isNotEmpty ?? false)
+                    ? photo.fileName!.trim()
+                    : 'Anteprima foto'
+                : titleParts.join(' • ');
         return Dialog(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 600, maxHeight: 600),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Expanded(
-                  child: InteractiveViewer(
-                    child: Image.network(
-                      photo.downloadUrl,
-                      fit: BoxFit.contain,
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(18),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: math.min(mediaQuery.size.width - 36, 920),
+                maxHeight: mediaQuery.size.height * 0.92,
+              ),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.24),
+                      blurRadius: 32,
+                      offset: const Offset(0, 18),
                     ),
-                  ),
+                  ],
                 ),
-                if (photo.notes != null && photo.notes!.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        photo.notes!,
-                        style: theme.textTheme.bodyMedium,
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 18, 12, 16),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  title,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Caricata il $uploadedAtLabel',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Chiudi',
+                            onPressed: () => Navigator.of(dialogContext).pop(),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
                       ),
                     ),
-                  ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: () => Navigator.of(dialogContext).pop(),
-                    child: const Text('Chiudi'),
-                  ),
+                    Expanded(
+                      child: Container(
+                        width: double.infinity,
+                        color: Colors.black,
+                        alignment: Alignment.center,
+                        child: InteractiveViewer(
+                          minScale: 1,
+                          maxScale: 4,
+                          child: SizedBox.expand(
+                            child: Center(
+                              child: Image.network(
+                                photo.downloadUrl,
+                                fit: BoxFit.contain,
+                                loadingBuilder: (
+                                  context,
+                                  child,
+                                  loadingProgress,
+                                ) {
+                                  if (loadingProgress == null) {
+                                    return child;
+                                  }
+                                  final expectedBytes =
+                                      loadingProgress.expectedTotalBytes;
+                                  final loadedBytes =
+                                      loadingProgress.cumulativeBytesLoaded;
+                                  final value =
+                                      expectedBytes == null
+                                          ? null
+                                          : loadedBytes / expectedBytes;
+                                  return Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      CircularProgressIndicator(value: value),
+                                      const SizedBox(height: 12),
+                                      Text(
+                                        'Caricamento foto…',
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(color: Colors.white70),
+                                      ),
+                                    ],
+                                  );
+                                },
+                                errorBuilder:
+                                    (_, __, ___) => Padding(
+                                      padding: const EdgeInsets.all(24),
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(
+                                            Icons.broken_image_outlined,
+                                            color: Colors.white70,
+                                            size: 40,
+                                          ),
+                                          const SizedBox(height: 12),
+                                          Text(
+                                            'Impossibile mostrare la foto.',
+                                            style: theme.textTheme.bodyMedium
+                                                ?.copyWith(
+                                                  color: Colors.white70,
+                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (photo.notes != null && photo.notes!.isNotEmpty)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surface,
+                          border: Border(
+                            top: BorderSide(
+                              color: theme.colorScheme.outlineVariant,
+                            ),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Note foto',
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              photo.notes!,
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         );
@@ -3198,7 +4287,6 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
                     ),
                   );
                 }
-
                 return SizedBox(
                   height: sheetHeight,
                   child: Column(
@@ -3280,7 +4368,7 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
       }
       final versionSuffix =
           photo.setVersionIndex == null ? '' : ' (v${photo.setVersionIndex})';
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             '${_setLabel(setType)} aggiornato$versionSuffix come versione attiva.',
@@ -3291,7 +4379,7 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text('Impossibile impostare la versione attiva: $error'),
         ),
@@ -3358,78 +4446,212 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
     final message = result;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ).showAppSnackBar(SnackBar(content: Text(message)));
   }
 
   void _previewCollage(ClientPhotoCollage collage) {
     final imageUrl = collage.downloadUrl ?? collage.thumbnailUrl;
     if (imageUrl == null || imageUrl.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Anteprima collage non disponibile.')),
       );
       return;
     }
     showDialog<void>(
       context: context,
+      barrierColor: Colors.black87,
       builder: (dialogContext) {
         final theme = Theme.of(dialogContext);
+        final mediaQuery = MediaQuery.of(dialogContext);
         final titleDate = DateFormat(
           'dd/MM/yyyy HH:mm',
         ).format(collage.createdAt.toLocal());
-        return Dialog.fullscreen(
-          child: Scaffold(
-            appBar: AppBar(
-              title: Text('Collage del $titleDate'),
-              leading: IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.of(dialogContext).pop(),
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(18),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: math.min(mediaQuery.size.width - 36, 920),
+                maxHeight: mediaQuery.size.height * 0.92,
               ),
-            ),
-            body: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  child: Container(
-                    color: theme.colorScheme.surfaceVariant,
-                    child: InteractiveViewer(
-                      maxScale: 4,
-                      child: Center(
-                        child: Image.network(imageUrl, fit: BoxFit.contain),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.24),
+                      blurRadius: 32,
+                      offset: const Offset(0, 18),
+                    ),
+                  ],
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 18, 12, 16),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Collage del $titleDate',
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _orientationLabel(collage.orientation),
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Chiudi',
+                            onPressed: () => Navigator.of(dialogContext).pop(),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
                       ),
                     ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 16,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Orientamento: ${_orientationLabel(collage.orientation)}',
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Prima: ${collage.primaryPlacement.photoId}\nFoto B: ${collage.secondaryPlacement.photoId}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      if (collage.notes != null && collage.notes!.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 12),
-                          child: Text(
-                            collage.notes!,
-                            style: theme.textTheme.bodyMedium,
+                    Expanded(
+                      child: Container(
+                        width: double.infinity,
+                        color: Colors.black,
+                        alignment: Alignment.center,
+                        child: InteractiveViewer(
+                          minScale: 1,
+                          maxScale: 4,
+                          child: SizedBox.expand(
+                            child: Center(
+                              child: Image.network(
+                                imageUrl,
+                                fit: BoxFit.contain,
+                                loadingBuilder: (
+                                  context,
+                                  child,
+                                  loadingProgress,
+                                ) {
+                                  if (loadingProgress == null) {
+                                    return child;
+                                  }
+                                  final expectedBytes =
+                                      loadingProgress.expectedTotalBytes;
+                                  final loadedBytes =
+                                      loadingProgress.cumulativeBytesLoaded;
+                                  final value =
+                                      expectedBytes == null
+                                          ? null
+                                          : loadedBytes / expectedBytes;
+                                  return Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      CircularProgressIndicator(value: value),
+                                      const SizedBox(height: 12),
+                                      Text(
+                                        'Caricamento collage…',
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(color: Colors.white70),
+                                      ),
+                                    ],
+                                  );
+                                },
+                                errorBuilder:
+                                    (_, __, ___) => Padding(
+                                      padding: const EdgeInsets.all(24),
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(
+                                            Icons.broken_image_outlined,
+                                            color: Colors.white70,
+                                            size: 40,
+                                          ),
+                                          const SizedBox(height: 12),
+                                          Text(
+                                            'Impossibile mostrare il collage.',
+                                            style: theme.textTheme.bodyMedium
+                                                ?.copyWith(
+                                                  color: Colors.white70,
+                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                              ),
+                            ),
                           ),
                         ),
-                    ],
-                  ),
+                      ),
+                    ),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surface,
+                        border: Border(
+                          top: BorderSide(
+                            color: theme.colorScheme.outlineVariant,
+                          ),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Dettagli collage',
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Orientamento: ${_orientationLabel(collage.orientation)}',
+                            style: theme.textTheme.bodyMedium,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Prima: ${collage.primaryPlacement.photoId}\nFoto B: ${collage.secondaryPlacement.photoId}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          if (collage.notes != null &&
+                              collage.notes!.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Note collage',
+                                    style: theme.textTheme.labelLarge?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    collage.notes!,
+                                    style: theme.textTheme.bodyMedium,
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         );
@@ -3480,12 +4702,12 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Collage eliminato.')));
+      ).showAppSnackBar(const SnackBar(content: Text('Collage eliminato.')));
     } catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Impossibile eliminare il collage: $error')),
       );
     } finally {
@@ -3501,7 +4723,7 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
       return;
     }
     if (files.length < _orderedPhotoSets.length) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text(
             'Seleziona quattro foto per coprire Frontale, Dietro, Destra e Sinistra.',
@@ -3591,7 +4813,7 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
         return;
       }
       if (uploadedCount > 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(
             content: Text(
               uploadedCount == _orderedPhotoSets.length
@@ -3613,12 +4835,12 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
         }
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(messages.join('\n'))));
+        ).showAppSnackBar(SnackBar(content: Text(messages.join('\n'))));
       }
       if (uploadedCount == 0 &&
           skippedTooLarge.isEmpty &&
           skippedUnreadable.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(content: Text('Nessun file valido selezionato.')),
         );
       }
@@ -3626,7 +4848,7 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Impossibile caricare il set: $error')),
       );
     } finally {
@@ -3983,25 +5205,33 @@ class _ClientPhotoSetPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final badgeColor =
-        isComplete
-            ? theme.colorScheme.primary
-            : theme.colorScheme.outlineVariant;
-    final badgeIcon =
-        isComplete ? Icons.check_circle : Icons.camera_alt_outlined;
     final preview =
         activePhoto == null
-            ? Center(
-              child: Icon(
-                Icons.photo_outlined,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+            ? Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.photo_camera_outlined,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Nessuna foto caricata',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
             )
             : GestureDetector(
               onTap: onPreviewActive,
-              child: Image.network(
-                activePhoto!.downloadUrl,
-                fit: BoxFit.contain,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Image.network(
+                  activePhoto!.downloadUrl,
+                  fit: BoxFit.cover,
+                ),
               ),
             );
     final updatedAt = activePhoto?.uploadedAt;
@@ -4010,63 +5240,73 @@ class _ClientPhotoSetPreview extends StatelessWidget {
             ? 'Nessuna foto caricata'
             : 'Aggiornato il ${DateFormat('dd/MM/yyyy HH:mm').format(updatedAt.toLocal())}';
 
-    return SizedBox(
-      width: 170,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(badgeIcon, size: 16, color: badgeColor),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  label,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          AspectRatio(
-            aspectRatio: 3 / 4,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceVariant,
-                ),
-                child: preview,
+            ),
+            Icon(
+              isComplete ? Icons.check_circle_rounded : Icons.photo_outlined,
+              size: 16,
+              color:
+                  isComplete
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        AspectRatio(
+          aspectRatio: 3 / 4,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: onPreviewActive,
+            child: Ink(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: theme.colorScheme.outlineVariant),
               ),
+              child: Center(child: preview),
             ),
           ),
-          const SizedBox(height: 6),
-          Text(
-            updatedLabel,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          updatedLabel,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
           ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              IconButton(
-                tooltip: 'Cronologia set',
-                onPressed: onShowHistory,
-                icon: const Icon(Icons.history),
-              ),
-              IconButton(
-                tooltip: 'Carica foto',
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
                 onPressed: isUploading ? null : onUpload,
-                icon: const Icon(Icons.file_upload_outlined),
+                icon: const Icon(Icons.file_upload_outlined, size: 16),
+                label: const Text('Carica'),
               ),
-            ],
-          ),
-        ],
-      ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: onShowHistory,
+                icon: const Icon(Icons.history_rounded, size: 16),
+                label: const Text('Storico'),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -4087,13 +5327,6 @@ class _ClientCollageTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final createdAt = DateFormat(
-      'dd/MM/yyyy HH:mm',
-    ).format(collage.createdAt.toLocal());
-    final orientationLabel =
-        collage.orientation == ClientPhotoCollageOrientation.vertical
-            ? 'Verticale'
-            : 'Orizzontale';
 
     final deleteAction =
         isDeleting
@@ -4215,6 +5448,14 @@ class _AppointmentsTab extends ConsumerWidget {
             .toList()
             .reversed
             .toList();
+    final upcomingAppointmentNumberById = <String, int>{
+      for (var index = 0; index < upcoming.length; index++)
+        upcoming[index].id: index + 1,
+    };
+    final historyAppointmentNumberById = <String, int>{
+      for (var index = 0; index < appointments.length; index++)
+        appointments[index].id: index + 1,
+    };
 
     Future<void> openForm({Appointment? existing}) async {
       final latest = ref.read(appDataProvider);
@@ -4231,6 +5472,7 @@ class _AppointmentsTab extends ConsumerWidget {
       final result = await showAppModalSheet<AppointmentFormResult>(
         context: context,
         includeCloseButton: false,
+        desktopMaxWidth: 1160,
         builder:
             (ctx) => AppointmentSaleFlowSheet(
               salons: sheetSalons,
@@ -4253,6 +5495,7 @@ class _AppointmentsTab extends ConsumerWidget {
       if (result.action == AppointmentFormAction.copy) {
         final copiedAppointment = result.appointment.copyWith(
           status: AppointmentStatus.scheduled,
+          notes: null,
         );
         ref
             .read(appointmentClipboardProvider.notifier)
@@ -4260,7 +5503,7 @@ class _AppointmentsTab extends ConsumerWidget {
           appointment: copiedAppointment,
           copiedAt: DateTime.now(),
         );
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('Appuntamento copiato. Seleziona uno slot libero.'),
           ),
@@ -4312,21 +5555,21 @@ class _AppointmentsTab extends ConsumerWidget {
         await ref
             .read(appDataProvider.notifier)
             .deleteAppointment(appointment.id);
-        messenger.showSnackBar(
+        messenger.showAppSnackBar(
           const SnackBar(content: Text('Appuntamento eliminato.')),
         );
       } catch (error) {
-        messenger.showSnackBar(
+        messenger.showAppSnackBar(
           SnackBar(content: Text('Errore durante l\'eliminazione: $error')),
         );
       }
     }
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
       children: [
         Align(
-          alignment: Alignment.centerLeft,
+          alignment: Alignment.centerRight,
           child: FilledButton.icon(
             onPressed: client == null ? null : createAppointment,
             icon: const Icon(Icons.add_rounded),
@@ -4342,6 +5585,7 @@ class _AppointmentsTab extends ConsumerWidget {
           services: services,
           dateFormat: dateFormat,
           currency: currency,
+          appointmentNumberById: upcomingAppointmentNumberById,
           enableActions: true,
           onEditAppointment: editAppointment,
           onDeleteAppointment: deleteAppointment,
@@ -4355,6 +5599,7 @@ class _AppointmentsTab extends ConsumerWidget {
           services: services,
           dateFormat: dateFormat,
           currency: currency,
+          appointmentNumberById: historyAppointmentNumberById,
         ),
       ],
     );
@@ -4370,6 +5615,7 @@ class _AppointmentGroup extends StatelessWidget {
     required this.services,
     required this.dateFormat,
     required this.currency,
+    required this.appointmentNumberById,
     this.enableActions = false,
     this.onEditAppointment,
     this.onDeleteAppointment,
@@ -4382,6 +5628,7 @@ class _AppointmentGroup extends StatelessWidget {
   final List<Service> services;
   final DateFormat dateFormat;
   final NumberFormat currency;
+  final Map<String, int> appointmentNumberById;
   final bool enableActions;
   final Future<void> Function(Appointment appointment)? onEditAppointment;
   final Future<void> Function(Appointment appointment)? onDeleteAppointment;
@@ -4392,90 +5639,461 @@ class _AppointmentGroup extends StatelessWidget {
     final showActions =
         enableActions &&
         (onEditAppointment != null || onDeleteAppointment != null);
+    final timeFormat = DateFormat('HH:mm', 'it_IT');
+    final rows = appointments
+        .map((appointment) {
+          final appointmentServices =
+              appointment.serviceIds
+                  .map(
+                    (id) => services.firstWhereOrNull(
+                      (element) => element.id == id,
+                    ),
+                  )
+                  .whereType<Service>()
+                  .toList();
+          final operator = staff.firstWhereOrNull(
+            (element) => element.id == appointment.staffId,
+          );
+          final appointmentNumber = appointmentNumberById[appointment.id] ?? 0;
+          final amount =
+              appointmentServices.isNotEmpty
+                  ? appointmentServices
+                      .map((service) => service.price)
+                      .fold<double>(0, (value, price) => value + price)
+                  : null;
+          final packageLabel =
+              appointment.packageId == null
+                  ? null
+                  : 'Pacchetto #${appointment.packageId}';
+          final serviceLabel =
+              appointmentServices.isNotEmpty
+                  ? appointmentServices
+                      .map((service) => service.name)
+                      .join(' + ')
+                  : 'Servizio';
+          final start = appointment.start.toLocal();
+          final end = appointment.end.toLocal();
+          final appointmentLabel =
+              DateUtils.isSameDay(start, end)
+                  ? '${dateFormat.format(start)} - ${timeFormat.format(end)}'
+                  : '${dateFormat.format(start)} • ${dateFormat.format(end)}';
+          final statusInfo = _statusBadge(appointment.status);
+          return _AppointmentCompactRowData(
+            appointmentNumber: appointmentNumber,
+            serviceLabel: serviceLabel,
+            appointmentLabel: appointmentLabel,
+            operatorLabel: operator?.fullName ?? 'Da assegnare',
+            packageLabel: packageLabel,
+            amountLabel: amount != null ? currency.format(amount) : '—',
+            status: statusInfo.status,
+            statusLabel: statusInfo.label,
+            onEdit:
+                showActions && onEditAppointment != null
+                    ? () async {
+                      await onEditAppointment!(appointment);
+                    }
+                    : null,
+            onDelete:
+                showActions && onDeleteAppointment != null
+                    ? () async {
+                      await onDeleteAppointment!(appointment);
+                    }
+                    : null,
+          );
+        })
+        .toList(growable: false);
+
     return Card(
-      child: ExpansionTile(
-        title: Text(title, style: theme.textTheme.titleMedium),
-        initiallyExpanded: title.contains('futuri'),
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // The SizedBox and content go here as before, but inside the ExpansionTile.
-                const SizedBox(height: 12),
-                if (appointments.isEmpty)
-                  Text(emptyMessage, style: theme.textTheme.bodyMedium)
-                else
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children:
-                        appointments.map((appointment) {
-                          final appointmentServices =
-                              appointment.serviceIds
-                                  .map(
-                                    (id) => services.firstWhereOrNull(
-                                      (element) => element.id == id,
+      elevation: 0,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.8),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 14),
+            if (appointments.isEmpty)
+              Text(emptyMessage, style: theme.textTheme.bodyMedium)
+            else
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  if (constraints.maxWidth < 860) {
+                    return Column(
+                      children: rows
+                          .asMap()
+                          .entries
+                          .map((entry) {
+                            final index = entry.key;
+                            final row = entry.value;
+                            return Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 14,
+                              ),
+                              decoration: BoxDecoration(
+                                border: Border(
+                                  bottom:
+                                      index == rows.length - 1
+                                          ? BorderSide.none
+                                          : BorderSide(
+                                            color:
+                                                theme
+                                                    .colorScheme
+                                                    .outlineVariant,
+                                          ),
+                                ),
+                              ),
+                              child: _AppointmentCompactMobileRow(row: row),
+                            );
+                          })
+                          .toList(growable: false),
+                    );
+                  }
+
+                  final columns = <DataColumn>[
+                    const DataColumn(label: Text('N.')),
+                    const DataColumn(label: Text('Appuntamento')),
+                    const DataColumn(label: Text('Servizio')),
+                    const DataColumn(label: Text('Operatore')),
+                    const DataColumn(label: Text('Importo')),
+                    const DataColumn(label: Text('Stato')),
+                  ];
+                  if (showActions) {
+                    columns.add(const DataColumn(label: Text('Azioni')));
+                  }
+
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minWidth: constraints.maxWidth,
+                      ),
+                      child: DataTable(
+                        headingRowHeight: 48,
+                        dataRowMinHeight: 60,
+                        dataRowMaxHeight: 72,
+                        columns: columns,
+                        rows: rows
+                            .map((row) {
+                              final cells = <DataCell>[
+                                DataCell(
+                                  Text(
+                                    row.appointmentNumberLabel,
+                                    style: TextStyle(
+                                      color: theme.colorScheme.primary,
+                                      fontWeight: FontWeight.w700,
                                     ),
-                                  )
-                                  .whereType<Service>()
-                                  .toList();
-                          final operator = staff.firstWhereOrNull(
-                            (element) => element.id == appointment.staffId,
-                          );
-                          final statusChip = _statusChip(
-                            context,
-                            appointment.status,
-                          );
-                          final amount =
-                              appointmentServices.isNotEmpty
-                                  ? appointmentServices
-                                      .map((service) => service.price)
-                                      .fold<double>(
-                                        0,
-                                        (value, price) => value + price,
-                                      )
-                                  : null;
-                          final packageLabel =
-                              appointment.packageId == null
-                                  ? null
-                                  : 'Pacchetto #${appointment.packageId}';
-                          final serviceLabel =
-                              appointmentServices.isNotEmpty
-                                  ? appointmentServices
-                                      .map((service) => service.name)
-                                      .join(' + ')
-                                  : 'Servizio';
-                          final onEdit =
-                              showActions && onEditAppointment != null
-                                  ? () async {
-                                    await onEditAppointment!(appointment);
-                                  }
-                                  : null;
-                          final onDelete =
-                              showActions && onDeleteAppointment != null
-                                  ? () async {
-                                    await onDeleteAppointment!(appointment);
-                                  }
-                                  : null;
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: _AppointmentCard(
-                              serviceLabel: serviceLabel,
-                              dateLabel: dateFormat.format(appointment.start),
-                              operatorLabel:
-                                  'Operatore: ${operator?.fullName ?? 'Da assegnare'}',
-                              packageLabel: packageLabel,
-                              amountLabel:
-                                  amount != null
-                                      ? currency.format(amount)
-                                      : null,
-                              statusChip: statusChip,
-                              onEdit: onEdit,
-                              onDelete: onDelete,
-                            ),
-                          );
-                        }).toList(),
+                                  ),
+                                ),
+                                DataCell(Text(row.appointmentLabel)),
+                                DataCell(
+                                  ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                      minWidth: 180,
+                                      maxWidth: 280,
+                                    ),
+                                    child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          row.serviceLabel,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                        if (row.packageLabel != null)
+                                          Text(
+                                            row.packageLabel!,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                                  color:
+                                                      theme
+                                                          .colorScheme
+                                                          .onSurfaceVariant,
+                                                ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                DataCell(
+                                  Text(
+                                    row.operatorLabel,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                DataCell(
+                                  Text(
+                                    row.amountLabel,
+                                    style: TextStyle(
+                                      color: theme.colorScheme.primary,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                DataCell(
+                                  StatusBadge(
+                                    status: row.status,
+                                    label: row.statusLabel,
+                                  ),
+                                ),
+                              ];
+                              if (showActions) {
+                                cells.add(
+                                  DataCell(
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (row.onEdit != null)
+                                          IconButton(
+                                            tooltip: 'Modifica appuntamento',
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            icon: const Icon(
+                                              Icons.edit_rounded,
+                                            ),
+                                            onPressed: row.onEdit,
+                                          ),
+                                        if (row.onDelete != null)
+                                          IconButton(
+                                            tooltip: 'Elimina appuntamento',
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            color: theme.colorScheme.error,
+                                            icon: const Icon(
+                                              Icons.delete_outline_rounded,
+                                            ),
+                                            onPressed: row.onDelete,
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              }
+                              return DataRow(cells: cells);
+                            })
+                            .toList(growable: false),
+                      ),
+                    ),
+                  );
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  _AppointmentStatusBadgeData _statusBadge(AppointmentStatus status) {
+    switch (status) {
+      case AppointmentStatus.scheduled:
+        return const _AppointmentStatusBadgeData(
+          status: BadgeStatus.pending,
+          label: 'Programmato',
+        );
+      case AppointmentStatus.completed:
+        return const _AppointmentStatusBadgeData(
+          status: BadgeStatus.success,
+          label: 'Completato',
+        );
+      case AppointmentStatus.cancelled:
+        return const _AppointmentStatusBadgeData(
+          status: BadgeStatus.cancelled,
+          label: 'Annullato',
+        );
+      case AppointmentStatus.noShow:
+        return const _AppointmentStatusBadgeData(
+          status: BadgeStatus.cancelled,
+          label: 'No show',
+        );
+    }
+  }
+}
+
+class _AppointmentCompactRowData {
+  const _AppointmentCompactRowData({
+    required this.appointmentNumber,
+    required this.serviceLabel,
+    required this.appointmentLabel,
+    required this.operatorLabel,
+    required this.amountLabel,
+    required this.status,
+    required this.statusLabel,
+    this.packageLabel,
+    this.onEdit,
+    this.onDelete,
+  });
+
+  final int appointmentNumber;
+  final String serviceLabel;
+  final String appointmentLabel;
+  final String operatorLabel;
+  final String amountLabel;
+  final BadgeStatus status;
+  final String statusLabel;
+  final String? packageLabel;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+
+  String get appointmentNumberLabel =>
+      appointmentNumber > 0 ? '#$appointmentNumber' : '—';
+}
+
+class _AppointmentStatusBadgeData {
+  const _AppointmentStatusBadgeData({
+    required this.status,
+    required this.label,
+  });
+
+  final BadgeStatus status;
+  final String label;
+}
+
+class _AppointmentCompactMobileRow extends StatelessWidget {
+  const _AppointmentCompactMobileRow({required this.row});
+
+  final _AppointmentCompactRowData row;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      children: [
+        _AppointmentMobileDataField(
+          label: 'N. appuntamento',
+          value: row.appointmentNumberLabel,
+          valueColor: scheme.primary,
+        ),
+        _AppointmentMobileDataField(
+          label: 'Appuntamento',
+          value: row.appointmentLabel,
+        ),
+        _AppointmentMobileDataField(
+          label: 'Servizio',
+          value: row.serviceLabel,
+          subtitle: row.packageLabel,
+        ),
+        _AppointmentMobileDataField(
+          label: 'Operatore',
+          value: row.operatorLabel,
+        ),
+        _AppointmentMobileDataField(
+          label: 'Importo',
+          value: row.amountLabel,
+          valueColor: scheme.primary,
+        ),
+        _AppointmentMobileDataFieldWidget(
+          label: 'Stato',
+          child: StatusBadge(status: row.status, label: row.statusLabel),
+        ),
+        if (row.onEdit != null || row.onDelete != null)
+          _AppointmentMobileDataFieldWidget(
+            label: 'Azioni',
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (row.onEdit != null)
+                  IconButton(
+                    tooltip: 'Modifica appuntamento',
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 36,
+                      height: 36,
+                    ),
+                    icon: const Icon(Icons.edit_rounded, size: 18),
+                    onPressed: row.onEdit,
+                  ),
+                if (row.onDelete != null)
+                  IconButton(
+                    tooltip: 'Elimina appuntamento',
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 36,
+                      height: 36,
+                    ),
+                    icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                    color: scheme.error,
+                    onPressed: row.onDelete,
+                  ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _AppointmentMobileDataField extends StatelessWidget {
+  const _AppointmentMobileDataField({
+    required this.label,
+    required this.value,
+    this.subtitle,
+    this.valueColor,
+  });
+
+  final String label;
+  final String value;
+  final String? subtitle;
+  final Color? valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  value,
+                  textAlign: TextAlign.end,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: valueColor,
+                  ),
+                ),
+                if (subtitle != null && subtitle!.isNotEmpty)
+                  Text(
+                    subtitle!,
+                    textAlign: TextAlign.end,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
               ],
             ),
@@ -4484,154 +6102,39 @@ class _AppointmentGroup extends StatelessWidget {
       ),
     );
   }
-
-  Widget _statusChip(BuildContext context, AppointmentStatus status) {
-    final scheme = Theme.of(context).colorScheme;
-    switch (status) {
-      case AppointmentStatus.scheduled:
-        return Chip(
-          label: Text(
-            'Programmato',
-            style: TextStyle(color: scheme.onPrimaryContainer),
-          ),
-          backgroundColor: scheme.primaryContainer,
-        );
-      case AppointmentStatus.completed:
-        return Chip(
-          label: Text(
-            'Completato',
-            style: TextStyle(color: scheme.onTertiaryContainer),
-          ),
-          backgroundColor: scheme.tertiaryContainer,
-        );
-      case AppointmentStatus.cancelled:
-        return Chip(
-          label: Text(
-            'Annullato',
-            style: TextStyle(color: scheme.onErrorContainer),
-          ),
-          backgroundColor: scheme.errorContainer,
-        );
-      case AppointmentStatus.noShow:
-        return Chip(
-          label: Text('No show', style: TextStyle(color: scheme.error)),
-          backgroundColor: scheme.error.withValues(alpha: 0.1),
-        );
-    }
-  }
 }
 
-class _AppointmentCard extends StatelessWidget {
-  const _AppointmentCard({
-    required this.serviceLabel,
-    required this.dateLabel,
-    required this.operatorLabel,
-    required this.statusChip,
-    this.packageLabel,
-    this.amountLabel,
-    this.onEdit,
-    this.onDelete,
+class _AppointmentMobileDataFieldWidget extends StatelessWidget {
+  const _AppointmentMobileDataFieldWidget({
+    required this.label,
+    required this.child,
   });
 
-  final String serviceLabel;
-  final String dateLabel;
-  final String operatorLabel;
-  final String? packageLabel;
-  final String? amountLabel;
-  final Widget statusChip;
-  final VoidCallback? onEdit;
-  final VoidCallback? onDelete;
+  final String label;
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: scheme.outlineVariant.withOpacity(0.35)),
-      ),
-      color: scheme.surfaceVariant,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: scheme.primaryContainer.withOpacity(0.25),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.calendar_month_rounded, size: 20),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        serviceLabel,
-                        style: theme.textTheme.titleMedium,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 6),
-                      Text(dateLabel, style: theme.textTheme.bodyMedium),
-                      const SizedBox(height: 2),
-                      Text(operatorLabel, style: theme.textTheme.bodySmall),
-                      if (packageLabel != null)
-                        Text(packageLabel!, style: theme.textTheme.bodySmall),
-                    ],
-                  ),
-                ),
-                if (amountLabel != null)
-                  Text(
-                    amountLabel!,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Wrap(spacing: 8, runSpacing: 4, children: [statusChip]),
-            if (onEdit != null || onDelete != null) ...[
-              const SizedBox(height: 8),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (onEdit != null)
-                    IconButton(
-                      tooltip: 'Modifica appuntamento',
-                      visualDensity: VisualDensity.compact,
-                      constraints: const BoxConstraints.tightFor(
-                        width: 36,
-                        height: 36,
-                      ),
-                      icon: const Icon(Icons.edit_rounded, size: 20),
-                      onPressed: onEdit,
-                    ),
-                  if (onDelete != null)
-                    IconButton(
-                      tooltip: 'Elimina appuntamento',
-                      visualDensity: VisualDensity.compact,
-                      constraints: const BoxConstraints.tightFor(
-                        width: 36,
-                        height: 36,
-                      ),
-                      icon: const Icon(Icons.delete_outline_rounded, size: 20),
-                      onPressed: onDelete,
-                    ),
-                ],
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w500,
               ),
-            ],
-          ],
-        ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Align(alignment: Alignment.centerRight, child: child),
+          ),
+        ],
       ),
     );
   }
@@ -4647,6 +6150,8 @@ class _PackagesTab extends ConsumerStatefulWidget {
 }
 
 class _PackagesTabState extends ConsumerState<_PackagesTab> {
+  bool _historyExpanded = false;
+
   @override
   Widget build(BuildContext context) {
     final data = ref.watch(appDataProvider);
@@ -4666,37 +6171,74 @@ class _PackagesTabState extends ConsumerState<_PackagesTab> {
     final servicesById = {
       for (final service in data.services) service.id: service,
     };
+    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    final active = <ClientPackagePurchase>[];
+    final expiring = <ClientPackagePurchase>[];
+    final history = <ClientPackagePurchase>[];
 
-    final active = purchases.where((item) => item.isActive).toList();
-    final expired = purchases.where((item) => !item.isActive).toList();
+    for (final purchase in purchases) {
+      if (_isPackageArchived(purchase)) {
+        history.add(purchase);
+        continue;
+      }
+      if (_isPackageExpiringSoon(purchase)) {
+        expiring.add(purchase);
+      } else {
+        active.add(purchase);
+      }
+    }
+
+    int currentSortValue(ClientPackagePurchase purchase) {
+      final expiry = purchase.expirationDate;
+      if (expiry == null) {
+        return 1 << 30;
+      }
+      return DateUtils.dateOnly(expiry).millisecondsSinceEpoch;
+    }
+
+    active.sort((a, b) {
+      final compare = currentSortValue(a).compareTo(currentSortValue(b));
+      if (compare != 0) {
+        return compare;
+      }
+      return b.sale.createdAt.compareTo(a.sale.createdAt);
+    });
+    expiring.sort((a, b) {
+      final compare = currentSortValue(a).compareTo(currentSortValue(b));
+      if (compare != 0) {
+        return compare;
+      }
+      return b.sale.createdAt.compareTo(a.sale.createdAt);
+    });
+    history.sort((a, b) => b.sale.createdAt.compareTo(a.sale.createdAt));
+
+    final currentPackages = [...active, ...expiring];
+    final availableServices = currentPackages.fold<int>(0, (sum, purchase) {
+      final activeServices =
+          _resolvePackageServiceUsage(
+            purchase,
+            servicesById,
+          ).where((usage) => usage.remaining > 0 || usage.total == null).length;
+      return sum + activeServices;
+    });
+    final currentValue = currentPackages.fold<double>(
+      0,
+      (sum, purchase) => sum + purchase.totalAmount,
+    );
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
       children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: Wrap(
-            spacing: 12,
-            runSpacing: 8,
-            alignment: WrapAlignment.end,
-            children: [
-              /*  FilledButton.tonalIcon(
-                onPressed: () => _createCustomPackage(context, client),
-                icon: const Icon(Icons.design_services_rounded),
-                label: const Text('Personalizza pacchetto'),
-              ),
-              FilledButton.icon(
-                onPressed: () => _registerPackagePurchase(context, client),
-                icon: const Icon(Icons.add_shopping_cart_rounded),
-                label: const Text('Aggiungi pacchetto'),
-              ),*/
-            ],
-          ),
+        _PackageOverviewMetrics(
+          activeCount: active.length,
+          availableServicesCount: availableServices,
+          totalValue: currentValue,
+          currency: currency,
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 24),
         _PackageGroup(
-          title: 'Pacchetti in corso',
-          items: active,
+          title: 'Pacchetti attivi',
+          items: currentPackages,
           servicesById: servicesById,
           onEdit: (purchase) => _editPackage(client, purchase),
           onDelete: (purchase) => _deletePackage(client, purchase),
@@ -4704,19 +6246,160 @@ class _PackagesTabState extends ConsumerState<_PackagesTab> {
           onDeleteDeposit:
               (purchase, deposit) => _removeDeposit(client, purchase, deposit),
         ),
-        const SizedBox(height: 16),
-        _PackageGroup(
-          title: 'Pacchetti passati',
-          items: expired,
-          servicesById: servicesById,
-          onEdit: (purchase) => _editPackage(client, purchase),
-          onAddDeposit: null,
-          onDeleteDeposit: null,
-        ),
+        if (history.isNotEmpty) ...[
+          const SizedBox(height: 28),
+          Card(
+            elevation: 0,
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              side: BorderSide(
+                color: Theme.of(
+                  context,
+                ).colorScheme.outlineVariant.withValues(alpha: 0.8),
+              ),
+            ),
+            child: Theme(
+              data: Theme.of(
+                context,
+              ).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                initiallyExpanded: _historyExpanded,
+                onExpansionChanged:
+                    (value) => setState(() => _historyExpanded = value),
+                tilePadding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 8,
+                ),
+                childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                title: Text(
+                  'Storico pacchetti',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                subtitle: Text(
+                  '${history.length} ${history.length == 1 ? 'pacchetto archiviato' : 'pacchetti archiviati'}',
+                ),
+                children: [
+                  _CompactListSection<ClientPackagePurchase>(
+                    items: history,
+                    showTitle: false,
+                    itemBuilder: (context, purchase, isCompact, showDivider) {
+                      void onEdit() => _editPackage(client, purchase);
+                      return _BillingCompactRowWidget(
+                        data: _buildPackageHistoryRowData(
+                          currency,
+                          DateFormat('dd/MM/yyyy'),
+                          purchase,
+                          onTap: onEdit,
+                        ),
+                        isCompact: isCompact,
+                        showDivider: showDivider,
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
 
+  _BillingCompactRowData _buildPackageHistoryRowData(
+    NumberFormat currency,
+    DateFormat dateFormat,
+    ClientPackagePurchase purchase, {
+    VoidCallback? onTap,
+  }) {
+    final purchaseDate = dateFormat.format(purchase.sale.createdAt);
+    final expiry = purchase.expirationDate;
+    final lifecycle = _packageLifecycleBadgeData(purchase);
+    final payment = _packagePaymentBadgeData(purchase);
+    final deposit = _packageDepositTotal(purchase);
+    final detailsSubtitleParts = <String>[
+      'Pagamento: ${payment.label}',
+      'Metodo: ${_PackageGroup._paymentLabel(purchase.sale.paymentMethod)}',
+      if (deposit > 0.009) 'Versato ${currency.format(deposit)}',
+      if (purchase.outstandingAmount > 0.009)
+        'Residuo ${currency.format(purchase.outstandingAmount)}',
+    ];
+
+    return _BillingCompactRowData(
+      dateLabel: purchaseDate,
+      titleLabel: purchase.displayName,
+      titleSubtitle:
+          purchase.serviceNames.isNotEmpty
+              ? purchase.serviceNames.join(', ')
+              : null,
+      detailsLabel:
+          expiry == null
+              ? 'Scadenza: senza limite'
+              : 'Scadenza: ${dateFormat.format(expiry)}',
+      detailsSubtitle: detailsSubtitleParts.join(' • '),
+      amountLabel: currency.format(purchase.totalAmount),
+      amountSubtitle:
+          purchase.outstandingAmount > 0.009
+              ? 'Residuo ${currency.format(purchase.outstandingAmount)}'
+              : payment.label,
+      status: lifecycle.status,
+      statusLabel: lifecycle.label,
+      onTap: onTap,
+      onAction: onTap,
+      actionIcon: Icons.edit_rounded,
+      actionTooltip: 'Modifica pacchetto',
+    );
+  }
+
+  double _packageDepositTotal(ClientPackagePurchase purchase) {
+    final deposits = purchase.deposits;
+    final depositsSum = deposits.fold<double>(
+      0,
+      (sum, entry) => sum + entry.amount,
+    );
+    final expectedDeposit = double.parse(
+      purchase.depositAmount.toStringAsFixed(2),
+    );
+    var result = 0.0;
+    if (depositsSum > result + 0.009) {
+      result = double.parse(depositsSum.toStringAsFixed(2));
+    }
+    if (expectedDeposit > result + 0.009) {
+      result = expectedDeposit;
+    }
+    return result;
+  }
+
+  bool _isPackageArchived(ClientPackagePurchase purchase) {
+    if (purchase.status == PackagePurchaseStatus.completed ||
+        purchase.status == PackagePurchaseStatus.cancelled) {
+      return true;
+    }
+    final expiry = purchase.expirationDate;
+    if (expiry == null) {
+      return false;
+    }
+    final today = DateUtils.dateOnly(DateTime.now());
+    return DateUtils.dateOnly(expiry).isBefore(today);
+  }
+
+  bool _isPackageExpiringSoon(ClientPackagePurchase purchase) {
+    if (_isPackageArchived(purchase) ||
+        purchase.status != PackagePurchaseStatus.active) {
+      return false;
+    }
+    final expiry = purchase.expirationDate;
+    if (expiry == null) {
+      return false;
+    }
+    final today = DateUtils.dateOnly(DateTime.now());
+    final daysUntilExpiry = DateUtils.dateOnly(expiry).difference(today).inDays;
+    return daysUntilExpiry >= 0 && daysUntilExpiry <= 30;
+  }
+
+  // ignore: unused_element
   Future<void> _registerPackagePurchase(
     BuildContext context,
     Client client,
@@ -4726,7 +6409,7 @@ class _PackagesTabState extends ConsumerState<_PackagesTab> {
         data.packages.where((pkg) => pkg.salonId == client.salonId).toList();
     if (packages.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Nessun pacchetto disponibile per questo salone.'),
         ),
@@ -4751,6 +6434,7 @@ class _PackagesTabState extends ConsumerState<_PackagesTab> {
     }
   }
 
+  // ignore: unused_element
   Future<void> _createCustomPackage(BuildContext context, Client client) async {
     final data = ref.read(appDataProvider);
     final salonId = client.salonId;
@@ -4767,7 +6451,7 @@ class _PackagesTabState extends ConsumerState<_PackagesTab> {
     }
     if (salons.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Nessun salone disponibile per creare un pacchetto.'),
         ),
@@ -4777,7 +6461,7 @@ class _PackagesTabState extends ConsumerState<_PackagesTab> {
 
     if (services.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text(
             'Nessun servizio disponibile per creare un pacchetto personalizzato.',
@@ -4790,6 +6474,8 @@ class _PackagesTabState extends ConsumerState<_PackagesTab> {
     final defaultSalonId = salonId;
     final customPackage = await showAppModalSheet<ServicePackage>(
       context: context,
+      includeCloseButton: false,
+      desktopMaxWidth: 1180,
       builder:
           (ctx) => PackageFormSheet(
             salons: salons,
@@ -4871,7 +6557,7 @@ class _PackagesTabState extends ConsumerState<_PackagesTab> {
     );
     if (outstanding <= 0) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Il pacchetto è già saldato.')),
       );
       return;
@@ -4995,8 +6681,8 @@ class _PackagesTabState extends ConsumerState<_PackagesTab> {
       return;
     }
 
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).clearAppSnackBars();
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(
         content: const Text('Pacchetto rimosso'),
         duration: const Duration(seconds: 3),
@@ -5278,10 +6964,10 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
     final dateFormat = DateFormat('dd/MM/yyyy');
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
       children: [
         Align(
-          alignment: Alignment.centerLeft,
+          alignment: Alignment.centerRight,
           child: FilledButton.icon(
             onPressed:
                 () => _createQuote(
@@ -5418,14 +7104,14 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Preventivo ${_quoteLabel(quote)} salvato.')),
       );
     } catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Errore durante il salvataggio: $error')),
       );
     }
@@ -5466,7 +7152,7 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text('Preventivo ${_quoteLabel(updated)} aggiornato.'),
         ),
@@ -5475,7 +7161,7 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Errore durante l\'aggiornamento: $error')),
       );
     }
@@ -5519,12 +7205,12 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Preventivo ${_quoteLabel(quote)} eliminato.')),
       );
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(content: Text('Errore durante l\'eliminazione: $error')),
         );
       }
@@ -5545,7 +7231,7 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
       return;
     }
     if (!_canCurrentUserSendQuotes()) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Non hai i permessi necessari per inviare preventivi.'),
         ),
@@ -5588,12 +7274,12 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
         return;
       }
       final channelsLabel = selected.map(_QuoteCard.labelForChannel).join(', ');
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Preventivo inviato via $channelsLabel.')),
       );
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(content: Text('Errore durante l\'invio: $error')),
         );
       }
@@ -5614,7 +7300,7 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             'Preventivo ${_quoteLabel(quote)} accettato: registrata la vendita.',
@@ -5623,7 +7309,7 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
       );
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(content: Text('Errore durante l\'aggiornamento: $error')),
         );
       }
@@ -5668,12 +7354,12 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Preventivo ${_quoteLabel(quote)} rifiutato.')),
       );
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(content: Text('Errore durante l\'aggiornamento: $error')),
         );
       }
@@ -5694,7 +7380,7 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             'Preventivo ${_quoteLabel(quote)} impostato su "Inviato".',
@@ -5703,7 +7389,7 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
       );
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(content: Text('Errore durante l\'aggiornamento: $error')),
         );
       }
@@ -5815,7 +7501,7 @@ class _QuotesTabState extends ConsumerState<_QuotesTab> {
       final unsupportedLabel = unsupportedChannels
           .map(_QuoteCard.labelForChannel)
           .join(', ');
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             'I canali $unsupportedLabel non sono ancora gestiti automaticamente. '
@@ -6273,16 +7959,34 @@ class _QuoteCard extends StatelessWidget {
     final statusColors = _QuoteStatusColors.resolve(effectiveStatus, theme);
 
     return Card(
+      elevation: 0,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.8),
+        ),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Expanded(
+                  child: Text(
+                    effectiveStatus.label,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: statusColors.foreground,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
+                    horizontal: 10,
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
@@ -6290,16 +7994,16 @@ class _QuoteCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
-                    effectiveStatus.label,
-                    style: theme.textTheme.labelSmall?.copyWith(
+                    currency.format(quote.total),
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
                       color: statusColors.foreground,
-                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
               ],
             ),
-
+            const SizedBox(height: 8),
             if (quote.sentAt != null)
               Text(
                 'Inviato il ${dateFormat.format(quote.sentAt!)}',
@@ -6373,15 +8077,21 @@ class _QuoteCard extends StatelessWidget {
                     onPressed: _isBusy ? null : onEdit,
                     icon: const Icon(Icons.edit_rounded),
                     label: const Text('Modifica'),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: theme.colorScheme.primary),
+                    ),
                   ),
                 if (onMarkSent != null)
                   OutlinedButton.icon(
                     onPressed: _isBusy ? null : onMarkSent,
                     icon: const Icon(Icons.check_circle_rounded),
                     label: const Text('Segna inviato'),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: theme.colorScheme.primary),
+                    ),
                   ),
                 if (onSend != null)
-                  FilledButton.tonalIcon(
+                  FilledButton.icon(
                     onPressed: _isBusy ? null : onSend,
                     icon:
                         isSending
@@ -6394,7 +8104,7 @@ class _QuoteCard extends StatelessWidget {
                     label: const Text('Invia PDF'),
                   ),
                 if (onAccept != null)
-                  FilledButton.icon(
+                  OutlinedButton.icon(
                     onPressed: _isBusy ? null : onAccept,
                     icon:
                         isUpdating
@@ -6405,6 +8115,10 @@ class _QuoteCard extends StatelessWidget {
                             )
                             : const Icon(Icons.check_rounded),
                     label: const Text('Accetta'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.green.shade700,
+                      side: BorderSide(color: Colors.green.shade400),
+                    ),
                   ),
                 if (onDecline != null)
                   OutlinedButton.icon(
@@ -6418,9 +8132,12 @@ class _QuoteCard extends StatelessWidget {
                             )
                             : const Icon(Icons.close_rounded),
                     label: const Text('Rifiuta'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: theme.colorScheme.onSurface,
+                    ),
                   ),
                 if (onDelete != null)
-                  TextButton.icon(
+                  OutlinedButton.icon(
                     onPressed: (_isBusy || isDeleting) ? null : onDelete,
                     icon:
                         isDeleting
@@ -6430,8 +8147,9 @@ class _QuoteCard extends StatelessWidget {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                             : const Icon(Icons.delete_outline_rounded),
-                    style: TextButton.styleFrom(
+                    style: OutlinedButton.styleFrom(
                       foregroundColor: theme.colorScheme.error,
+                      side: BorderSide(color: theme.colorScheme.error),
                     ),
                     label: const Text('Elimina'),
                   ),
@@ -6621,7 +8339,7 @@ class _BillingTab extends ConsumerWidget {
         outstandingTicketsTotal;
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
       children: [
         Align(
           alignment: Alignment.centerRight,
@@ -6688,7 +8406,7 @@ class _BillingTab extends ConsumerWidget {
     required List<Sale> sales,
   }) async {
     if (salons.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Crea un salone prima di registrare una vendita.'),
         ),
@@ -6698,6 +8416,8 @@ class _BillingTab extends ConsumerWidget {
 
     final sale = await showAppModalSheet<Sale>(
       context: context,
+      includeCloseButton: false,
+      desktopMaxWidth: 1160,
       builder:
           (ctx) => SaleFormSheet(
             salons: salons,
@@ -6725,7 +8445,7 @@ class _BillingTab extends ConsumerWidget {
     }
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('Vendita registrata.')));
+    ).showAppSnackBar(const SnackBar(content: Text('Vendita registrata.')));
   }
 
   double _packageOutstandingAmount(Sale sale) {
@@ -7053,93 +8773,95 @@ class _BillingTab extends ConsumerWidget {
     if (outstandingSales.isNotEmpty) {
       addSectionSpacingIfNeeded();
       content.add(
-        Text('Vendite con acconto', style: theme.textTheme.titleSmall),
+        _buildBillingCompactListSection<_OutstandingSale>(
+          context,
+          title: 'Vendite con acconto',
+          items: outstandingSales,
+          itemBuilder: (context, outstandingSale, isCompact, showDivider) {
+            void onTap() => _editSalePayment(
+              context: context,
+              ref: ref,
+              sale: outstandingSale.sale,
+              clients: clients,
+              staff: staff,
+            );
+            return _BillingCompactRowWidget(
+              data: _buildOutstandingSaleRowData(
+                currency,
+                dateTimeFormat,
+                staff,
+                outstandingSale,
+                onTap: onTap,
+              ),
+              isCompact: isCompact,
+              showDivider: showDivider,
+            );
+          },
+        ),
       );
-      content.add(const SizedBox(height: 8));
-      for (var index = 0; index < outstandingSales.length; index++) {
-        final outstandingSale = outstandingSales[index];
-        content.add(
-          _buildOutstandingSaleTile(
-            theme,
-            currency,
-            dateTimeFormat,
-            staff,
-            outstandingSale,
-            onTap:
-                () => _editSalePayment(
-                  context: context,
-                  ref: ref,
-                  sale: outstandingSale.sale,
-                  clients: clients,
-                  staff: staff,
-                ),
-          ),
-        );
-        if (index < outstandingSales.length - 1) {
-          content.add(const SizedBox(height: 12));
-        }
-      }
     }
 
     if (openTickets.isNotEmpty) {
       addSectionSpacingIfNeeded();
-      content.add(Text('Ticket aperti', style: theme.textTheme.titleSmall));
-      content.add(const SizedBox(height: 8));
-      for (var index = 0; index < openTickets.length; index++) {
-        final ticket = openTickets[index];
-        content.add(
-          _buildTicketTile(
-            theme,
-            currency,
-            dateTimeFormat,
-            services,
-            staff,
-            ticket,
-            onTap:
-                () => _openTicketSale(
-                  context: context,
-                  ref: ref,
-                  ticket: ticket,
-                  clients: clients,
-                  staff: staff,
-                  services: services,
-                ),
-          ),
-        );
-        if (index < openTickets.length - 1) {
-          content.add(const SizedBox(height: 12));
-        }
-      }
+      content.add(
+        _buildBillingCompactListSection<PaymentTicket>(
+          context,
+          title: 'Ticket aperti',
+          items: openTickets,
+          itemBuilder: (context, ticket, isCompact, showDivider) {
+            void onTap() => _openTicketSale(
+              context: context,
+              ref: ref,
+              ticket: ticket,
+              clients: clients,
+              staff: staff,
+              services: services,
+            );
+            return _BillingCompactRowWidget(
+              data: _buildTicketRowData(
+                currency,
+                dateTimeFormat,
+                services,
+                staff,
+                ticket,
+                onTap: onTap,
+              ),
+              isCompact: isCompact,
+              showDivider: showDivider,
+            );
+          },
+        ),
+      );
     }
 
     if (outstandingPackages.isNotEmpty) {
       addSectionSpacingIfNeeded();
       content.add(
-        Text('Pacchetti con saldo residuo', style: theme.textTheme.titleSmall),
+        _buildBillingCompactListSection<ClientPackagePurchase>(
+          context,
+          title: 'Pacchetti con saldo residuo',
+          items: outstandingPackages,
+          itemBuilder: (context, purchase, isCompact, showDivider) {
+            void onTap() => _editSalePayment(
+              context: context,
+              ref: ref,
+              sale: purchase.sale,
+              clients: clients,
+              staff: staff,
+            );
+            return _BillingCompactRowWidget(
+              data: _buildOutstandingPackageRowData(
+                currency,
+                dateFormat,
+                purchase,
+                onTap: onTap,
+              ),
+              isCompact: isCompact,
+              showDivider: showDivider,
+            );
+          },
+        ),
       );
-      content.add(const SizedBox(height: 8));
-      for (var index = 0; index < outstandingPackages.length; index++) {
-        final purchase = outstandingPackages[index];
-        content.add(
-          _buildOutstandingPackageTile(
-            theme,
-            currency,
-            dateFormat,
-            purchase,
-            onTap:
-                () => _editSalePayment(
-                  context: context,
-                  ref: ref,
-                  sale: purchase.sale,
-                  clients: clients,
-                  staff: staff,
-                ),
-          ),
-        );
-        if (index < outstandingPackages.length - 1) {
-          content.add(const SizedBox(height: 12));
-        }
-      }
     }
 
     return Card(
@@ -7491,7 +9213,7 @@ class _BillingTab extends ConsumerWidget {
     }
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('Acconto stornato.')));
+    ).showAppSnackBar(const SnackBar(content: Text('Acconto stornato.')));
   }
 
   Future<void> _openTicketSale({
@@ -7519,6 +9241,8 @@ class _BillingTab extends ConsumerWidget {
 
     final sale = await showAppModalSheet<Sale>(
       context: context,
+      includeCloseButton: false,
+      desktopMaxWidth: 1160,
       builder:
           (ctx) => SaleFormSheet(
             salons: data.salons,
@@ -7550,7 +9274,7 @@ class _BillingTab extends ConsumerWidget {
     }
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('Vendita registrata.')));
+    ).showAppSnackBar(const SnackBar(content: Text('Vendita registrata.')));
   }
 
   Future<void> _recordCashFlowEntry({
@@ -7580,8 +9304,56 @@ class _BillingTab extends ConsumerWidget {
     await ref.read(appDataProvider.notifier).upsertCashFlowEntry(entry);
   }
 
-  Widget _buildOutstandingSaleTile(
-    ThemeData theme,
+  Widget _buildBillingCompactListSection<T>(
+    BuildContext context, {
+    required String title,
+    required List<T> items,
+    required Widget Function(
+      BuildContext context,
+      T item,
+      bool isCompact,
+      bool showDivider,
+    )
+    itemBuilder,
+    bool showTitle = true,
+  }) {
+    final theme = Theme.of(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 860;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (showTitle) ...[
+              Text(title, style: theme.textTheme.titleSmall),
+              const SizedBox(height: 8),
+            ],
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                border: Border.all(color: theme.colorScheme.outlineVariant),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                children: [
+                  if (!isCompact) const _BillingCompactHeader(),
+                  for (var index = 0; index < items.length; index++)
+                    itemBuilder(
+                      context,
+                      items[index],
+                      isCompact,
+                      index < items.length - 1,
+                    ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  _BillingCompactRowData _buildOutstandingSaleRowData(
     NumberFormat currency,
     DateFormat dateTimeFormat,
     List<StaffMember> staff,
@@ -7590,6 +9362,7 @@ class _BillingTab extends ConsumerWidget {
   }) {
     final sale = outstandingSale.sale;
     final saleDate = dateTimeFormat.format(sale.createdAt);
+    final status = _salePaymentStatusBadgeData(sale.paymentStatus);
     final staffMember =
         sale.staffId == null
             ? null
@@ -7617,35 +9390,33 @@ class _BillingTab extends ConsumerWidget {
       subtitleLines.add('Note: ${sale.notes}');
     }
 
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
+    return _BillingCompactRowData(
+      dateLabel: saleDate,
+      titleLabel:
+          sale.invoiceNumber?.trim().isNotEmpty == true
+              ? sale.invoiceNumber!.trim()
+              : 'Vendita',
+      titleSubtitle:
+          preview.isNotEmpty
+              ? remaining > 0
+                  ? '$preview (+$remaining)'
+                  : preview
+              : null,
+      detailsLabel:
+          'Metodo: ${_PackageGroup._paymentLabel(sale.paymentMethod)}',
+      detailsSubtitle: subtitleLines.join(' • '),
+      amountLabel: currency.format(outstandingSale.outstanding),
+      amountSubtitle: 'Incassato ${currency.format(depositTotal)}',
+      status: status.status,
+      statusLabel: status.label,
       onTap: onTap,
-      leading: CircleAvatar(
-        backgroundColor: theme.colorScheme.surfaceContainerHighest,
-        child: Icon(
-          Icons.point_of_sale_rounded,
-          color: theme.colorScheme.primary,
-        ),
-      ),
-      title: Text('Vendita del $saleDate'),
-      subtitle: Text(subtitleLines.join('\n')),
-      trailing: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Text(
-            currency.format(outstandingSale.outstanding),
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          Text('Residuo da incassare', style: theme.textTheme.bodySmall),
-        ],
-      ),
+      onAction: onTap,
+      actionIcon: Icons.payments_outlined,
+      actionTooltip: 'Registra incasso',
     );
   }
 
-  Widget _buildTicketTile(
-    ThemeData theme,
+  _BillingCompactRowData _buildTicketRowData(
     NumberFormat currency,
     DateFormat dateTimeFormat,
     List<Service> services,
@@ -7668,37 +9439,30 @@ class _BillingTab extends ConsumerWidget {
       subtitleParts.add('Operatore: ${operator.fullName}');
     }
 
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
+    return _BillingCompactRowData(
+      dateLabel: appointmentLabel,
+      titleLabel: serviceName,
+      detailsLabel:
+          operator == null ? 'Operatore da assegnare' : operator.fullName,
+      detailsSubtitle:
+          ticket.notes?.trim().isNotEmpty == true
+              ? 'Note: ${ticket.notes!.trim()}'
+              : null,
+      amountLabel:
+          amount != null && amount > 0
+              ? currency.format(amount)
+              : 'Importo n/d',
+      amountSubtitle: 'Residuo da incassare',
+      status: BadgeStatus.pending,
+      statusLabel: 'Aperto',
       onTap: onTap,
-      leading: CircleAvatar(
-        backgroundColor: theme.colorScheme.surfaceContainerHighest,
-        child: Icon(
-          Icons.receipt_long_rounded,
-          color: theme.colorScheme.primary,
-        ),
-      ),
-      title: Text(serviceName),
-      subtitle: Text(subtitleParts.join(' • ')),
-      trailing: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Text(
-            amount != null && amount > 0
-                ? currency.format(amount)
-                : 'Importo n/d',
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          Text('Residuo da incassare', style: theme.textTheme.bodySmall),
-        ],
-      ),
+      onAction: onTap,
+      actionIcon: Icons.open_in_new_rounded,
+      actionTooltip: 'Apri ticket',
     );
   }
 
-  Widget _buildOutstandingPackageTile(
-    ThemeData theme,
+  _BillingCompactRowData _buildOutstandingPackageRowData(
     NumberFormat currency,
     DateFormat dateFormat,
     ClientPackagePurchase purchase, {
@@ -7709,42 +9473,47 @@ class _BillingTab extends ConsumerWidget {
     final paymentMethod = _PackageGroup._paymentLabel(
       purchase.sale.paymentMethod,
     );
-    final info = <String>['Acquisto: $purchaseDate', 'Metodo: $paymentMethod'];
-
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
+    return _BillingCompactRowData(
+      dateLabel: purchaseDate,
+      titleLabel: purchase.displayName,
+      titleSubtitle:
+          purchase.serviceNames.isNotEmpty
+              ? purchase.serviceNames.join(', ')
+              : null,
+      detailsLabel: 'Metodo: $paymentMethod',
+      detailsSubtitle:
+          deposit > 0 ? 'Acconto versato: ${currency.format(deposit)}' : null,
+      amountLabel: currency.format(purchase.outstandingAmount),
+      amountSubtitle: 'Da saldare',
+      status: BadgeStatus.pending,
+      statusLabel: 'Saldo residuo',
       onTap: onTap,
-      leading: CircleAvatar(
-        backgroundColor: theme.colorScheme.surfaceContainerHighest,
-        child: Icon(
-          Icons.card_membership_rounded,
-          color: theme.colorScheme.primary,
-        ),
-      ),
-      title: Text(purchase.displayName),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(info.join(' • ')),
-          if (deposit > 0) Text('Acconto versato: ${currency.format(deposit)}'),
-          if (purchase.serviceNames.isNotEmpty)
-            Text('Servizi: ${purchase.serviceNames.join(', ')}'),
-        ],
-      ),
-      isThreeLine: true,
-      trailing: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Text(
-            currency.format(purchase.outstandingAmount),
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          Text('Da saldare', style: theme.textTheme.bodySmall),
-        ],
-      ),
+      onAction: onTap,
+      actionIcon: Icons.payments_outlined,
+      actionTooltip: 'Registra incasso',
     );
+  }
+
+  _BillingStatusBadgeData _salePaymentStatusBadgeData(
+    SalePaymentStatus status,
+  ) {
+    switch (status) {
+      case SalePaymentStatus.deposit:
+        return const _BillingStatusBadgeData(
+          status: BadgeStatus.pending,
+          label: 'Acconto',
+        );
+      case SalePaymentStatus.paid:
+        return const _BillingStatusBadgeData(
+          status: BadgeStatus.success,
+          label: 'Pagato',
+        );
+      case SalePaymentStatus.posticipated:
+        return const _BillingStatusBadgeData(
+          status: BadgeStatus.info,
+          label: 'Posticipato',
+        );
+    }
   }
 
   double _totalSaleDeposits(Sale sale) {
@@ -7815,62 +9584,22 @@ class _BillingTab extends ConsumerWidget {
           children: [
             Text('Storico pagamenti', style: theme.textTheme.titleMedium),
             const SizedBox(height: 12),
-            ...List.generate(sales.length, (index) {
-              final sale = sales[index];
-              final saleDate = dateTimeFormat.format(sale.createdAt);
-              final itemDescriptions =
-                  sale.items
-                      .map((item) => item.description)
-                      .where((value) => value.isNotEmpty)
-                      .toList();
-              final preview = itemDescriptions.take(3).join(', ');
-              final remaining = math.max(itemDescriptions.length - 3, 0);
-              final details =
-                  StringBuffer()
-                    ..write(
-                      'Metodo: ${_PackageGroup._paymentLabel(sale.paymentMethod)}',
-                    )
-                    ..write(' • Stato: ${sale.paymentStatus.label}')
-                    ..write(' • Articoli: ${sale.items.length}');
-              if (sale.invoiceNumber != null &&
-                  sale.invoiceNumber!.isNotEmpty) {
-                details.write(' • Documento: ${sale.invoiceNumber}');
-              }
-              if (sale.discountAmount > 0) {
-                details.write(
-                  ' • Sconto: ${currency.format(sale.discountAmount)}',
-                );
-              }
-              final subtitleLines = <String>[details.toString()];
-              if (preview.isNotEmpty) {
-                subtitleLines.add(
-                  remaining > 0
-                      ? 'Elementi: $preview (+$remaining)'
-                      : 'Elementi: $preview',
-                );
-              }
-              if (sale.notes != null && sale.notes!.isNotEmpty) {
-                subtitleLines.add('Note: ${sale.notes}');
-              }
-              if (sale.paymentStatus == SalePaymentStatus.deposit) {
-                subtitleLines.add(
-                  'Incassato: ${currency.format(sale.paidAmount)} · Residuo: ${currency.format(sale.outstandingAmount)}',
-                );
-              }
-              final deposits = _collectSaleDeposits(sale);
-              return Padding(
-                padding: EdgeInsets.only(
-                  bottom: index == sales.length - 1 ? 0 : 12,
-                ),
-                child: _PaymentHistoryTile(
+            _buildBillingCompactListSection<Sale>(
+              context,
+              title: 'Storico pagamenti',
+              items: sales,
+              showTitle: false,
+              itemBuilder: (context, sale, isCompact, showDivider) {
+                final deposits = _collectSaleDeposits(sale);
+                return _PaymentHistoryTile(
                   key: ValueKey('payment-history-${sale.id}'),
                   sale: sale,
-                  title: 'Vendita del $saleDate',
-                  subtitleLines: subtitleLines,
                   currency: currency,
                   theme: theme,
                   dateTimeFormat: dateTimeFormat,
                   deposits: deposits,
+                  isCompact: isCompact,
+                  showDivider: showDivider,
                   onDeleteDeposit:
                       deposits.isEmpty
                           ? null
@@ -7881,9 +9610,9 @@ class _BillingTab extends ConsumerWidget {
                             deposit: entry,
                             currency: currency,
                           ),
-                ),
-              );
-            }),
+                );
+              },
+            ),
           ],
         ),
       ),
@@ -7920,26 +9649,430 @@ class _SaleDepositEntry {
   final SalePaymentType? movementType;
 }
 
+class _BillingStatusBadgeData {
+  const _BillingStatusBadgeData({required this.status, required this.label});
+
+  final BadgeStatus status;
+  final String label;
+}
+
+class _BillingCompactRowData {
+  const _BillingCompactRowData({
+    required this.dateLabel,
+    required this.titleLabel,
+    required this.detailsLabel,
+    required this.amountLabel,
+    required this.status,
+    required this.statusLabel,
+    this.titleSubtitle,
+    this.detailsSubtitle,
+    this.amountSubtitle,
+    this.onTap,
+    this.onAction,
+    this.actionIcon,
+    this.actionTooltip,
+  });
+
+  final String dateLabel;
+  final String titleLabel;
+  final String detailsLabel;
+  final String amountLabel;
+  final BadgeStatus status;
+  final String statusLabel;
+  final String? titleSubtitle;
+  final String? detailsSubtitle;
+  final String? amountSubtitle;
+  final VoidCallback? onTap;
+  final VoidCallback? onAction;
+  final IconData? actionIcon;
+  final String? actionTooltip;
+}
+
+class _CompactListSection<T> extends StatelessWidget {
+  const _CompactListSection({
+    required this.items,
+    required this.itemBuilder,
+    this.title,
+    this.showTitle = true,
+  });
+
+  final String? title;
+  final List<T> items;
+  final bool showTitle;
+  final Widget Function(
+    BuildContext context,
+    T item,
+    bool isCompact,
+    bool showDivider,
+  )
+  itemBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 860;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (showTitle && title != null) ...[
+              Text(title!, style: theme.textTheme.titleSmall),
+              const SizedBox(height: 8),
+            ],
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                border: Border.all(color: theme.colorScheme.outlineVariant),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                children: [
+                  if (!isCompact) const _BillingCompactHeader(),
+                  for (var index = 0; index < items.length; index++)
+                    itemBuilder(
+                      context,
+                      items[index],
+                      isCompact,
+                      index < items.length - 1,
+                    ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _BillingCompactHeader extends StatelessWidget {
+  const _BillingCompactHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final style = theme.textTheme.labelMedium?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+      fontWeight: FontWeight.w700,
+    );
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+        border: Border(
+          bottom: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(flex: 2, child: Text('Data', style: style)),
+          Expanded(flex: 3, child: Text('Voce', style: style)),
+          Expanded(flex: 4, child: Text('Dettagli', style: style)),
+          Expanded(
+            flex: 2,
+            child: Text('Importo', style: style, textAlign: TextAlign.end),
+          ),
+          Expanded(flex: 2, child: Text('Stato', style: style)),
+          const SizedBox(
+            width: 56,
+            child: Text('Azioni', textAlign: TextAlign.center),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BillingCompactRowWidget extends StatelessWidget {
+  const _BillingCompactRowWidget({
+    required this.data,
+    required this.isCompact,
+    this.showDivider = true,
+  });
+
+  final _BillingCompactRowData data;
+  final bool isCompact;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final borderColor = theme.colorScheme.outlineVariant;
+    final child =
+        isCompact ? _buildMobileLayout(context) : _buildDesktopLayout(context);
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(
+          bottom:
+              showDivider ? BorderSide(color: borderColor) : BorderSide.none,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(onTap: data.onTap, child: child),
+      ),
+    );
+  }
+
+  Widget _buildDesktopLayout(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(
+        children: [
+          Expanded(flex: 2, child: Text(data.dateLabel)),
+          Expanded(
+            flex: 3,
+            child: _buildTextBlock(
+              context,
+              title: data.titleLabel,
+              subtitle: data.titleSubtitle,
+            ),
+          ),
+          Expanded(
+            flex: 4,
+            child: _buildTextBlock(
+              context,
+              title: data.detailsLabel,
+              subtitle: data.detailsSubtitle,
+              emphasizeTitle: false,
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: _buildTextBlock(
+                context,
+                title: data.amountLabel,
+                subtitle: data.amountSubtitle,
+                alignEnd: true,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: StatusBadge(status: data.status, label: data.statusLabel),
+            ),
+          ),
+          SizedBox(
+            width: 56,
+            child:
+                data.onAction == null || data.actionIcon == null
+                    ? const SizedBox.shrink()
+                    : IconButton(
+                      tooltip: data.actionTooltip,
+                      visualDensity: VisualDensity.compact,
+                      onPressed: data.onAction,
+                      icon: Icon(data.actionIcon),
+                    ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileLayout(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      child: Column(
+        children: [
+          _BillingMobileDataField(label: 'Data', value: data.dateLabel),
+          _BillingMobileDataField(
+            label: 'Voce',
+            value: data.titleLabel,
+            subtitle: data.titleSubtitle,
+          ),
+          _BillingMobileDataField(
+            label: 'Dettagli',
+            value: data.detailsLabel,
+            subtitle: data.detailsSubtitle,
+          ),
+          _BillingMobileDataField(
+            label: 'Importo',
+            value: data.amountLabel,
+            subtitle: data.amountSubtitle,
+            valueColor: scheme.primary,
+          ),
+          _BillingMobileDataFieldWidget(
+            label: 'Stato',
+            child: StatusBadge(status: data.status, label: data.statusLabel),
+          ),
+          if (data.onAction != null && data.actionIcon != null)
+            _BillingMobileDataFieldWidget(
+              label: 'Azioni',
+              child: IconButton(
+                tooltip: data.actionTooltip,
+                visualDensity: VisualDensity.compact,
+                onPressed: data.onAction,
+                icon: Icon(data.actionIcon),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTextBlock(
+    BuildContext context, {
+    required String title,
+    String? subtitle,
+    bool emphasizeTitle = true,
+    bool alignEnd = false,
+  }) {
+    final theme = Theme.of(context);
+    final crossAxisAlignment =
+        alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start;
+    return Column(
+      crossAxisAlignment: crossAxisAlignment,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          title,
+          textAlign: alignEnd ? TextAlign.end : TextAlign.start,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: emphasizeTitle ? FontWeight.w700 : FontWeight.w500,
+          ),
+        ),
+        if (subtitle != null && subtitle.isNotEmpty) ...[
+          const SizedBox(height: 3),
+          Text(
+            subtitle,
+            textAlign: alignEnd ? TextAlign.end : TextAlign.start,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _BillingMobileDataField extends StatelessWidget {
+  const _BillingMobileDataField({
+    required this.label,
+    required this.value,
+    this.subtitle,
+    this.valueColor,
+  });
+
+  final String label;
+  final String value;
+  final String? subtitle;
+  final Color? valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  value,
+                  textAlign: TextAlign.end,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: valueColor,
+                  ),
+                ),
+                if (subtitle != null && subtitle!.isNotEmpty)
+                  Text(
+                    subtitle!,
+                    textAlign: TextAlign.end,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BillingMobileDataFieldWidget extends StatelessWidget {
+  const _BillingMobileDataFieldWidget({
+    required this.label,
+    required this.child,
+  });
+
+  final String label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Align(alignment: Alignment.centerRight, child: child),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PaymentHistoryTile extends StatefulWidget {
   const _PaymentHistoryTile({
     required this.sale,
-    required this.title,
-    required this.subtitleLines,
     required this.currency,
     required this.theme,
     required this.dateTimeFormat,
     required this.deposits,
+    required this.isCompact,
+    required this.showDivider,
     this.onDeleteDeposit,
     super.key,
   });
 
   final Sale sale;
-  final String title;
-  final List<String> subtitleLines;
   final NumberFormat currency;
   final ThemeData theme;
   final DateFormat dateTimeFormat;
   final List<_SaleDepositEntry> deposits;
+  final bool isCompact;
+  final bool showDivider;
   final Future<void> Function(_SaleDepositEntry entry)? onDeleteDeposit;
 
   @override
@@ -7958,132 +10091,103 @@ class _PaymentHistoryTileState extends State<_PaymentHistoryTile> {
     final sale = widget.sale;
     final hasDeposits = widget.deposits.isNotEmpty;
     final scheme = widget.theme.colorScheme;
-    final trailingAmount =
-        sale.paymentStatus == SalePaymentStatus.deposit
-            ? Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  widget.currency.format(sale.total),
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Incassato ${widget.currency.format(sale.paidAmount)}',
-                  style: widget.theme.textTheme.bodySmall,
-                ),
-              ],
-            )
-            : Text(
-              widget.currency.format(sale.total),
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            );
+    final itemDescriptions =
+        sale.items
+            .map((item) => item.description)
+            .where((value) => value.isNotEmpty)
+            .toList();
+    final preview = itemDescriptions.take(3).join(', ');
+    final remaining = math.max(itemDescriptions.length - 3, 0);
+    final titleLabel =
+        sale.invoiceNumber?.trim().isNotEmpty == true
+            ? sale.invoiceNumber!.trim()
+            : 'Vendita';
+    final titleSubtitle =
+        preview.isEmpty
+            ? null
+            : remaining > 0
+            ? '$preview (+$remaining)'
+            : preview;
+    final details =
+        StringBuffer()
+          ..write('Metodo: ${_PackageGroup._paymentLabel(sale.paymentMethod)}')
+          ..write(' • Articoli: ${sale.items.length}');
+    if (sale.discountAmount > 0) {
+      details.write(
+        ' • Sconto: ${widget.currency.format(sale.discountAmount)}',
+      );
+    }
+    final detailSubtitleParts = <String>[
+      if (sale.notes != null && sale.notes!.isNotEmpty) 'Note: ${sale.notes}',
+      if (sale.paymentStatus == SalePaymentStatus.deposit)
+        'Incassato ${widget.currency.format(sale.paidAmount)} • Residuo ${widget.currency.format(sale.outstandingAmount)}',
+      if (hasDeposits)
+        _expanded ? 'Movimenti visibili' : 'Tocca per vedere i movimenti',
+    ];
+    final status = switch (sale.paymentStatus) {
+      SalePaymentStatus.deposit => const _BillingStatusBadgeData(
+        status: BadgeStatus.pending,
+        label: 'Acconto',
+      ),
+      SalePaymentStatus.paid => const _BillingStatusBadgeData(
+        status: BadgeStatus.success,
+        label: 'Pagato',
+      ),
+      SalePaymentStatus.posticipated => const _BillingStatusBadgeData(
+        status: BadgeStatus.info,
+        label: 'Posticipato',
+      ),
+    };
+    final rowData = _BillingCompactRowData(
+      dateLabel: widget.dateTimeFormat.format(sale.createdAt),
+      titleLabel: titleLabel,
+      titleSubtitle: titleSubtitle,
+      detailsLabel: details.toString(),
+      detailsSubtitle:
+          detailSubtitleParts.isEmpty ? null : detailSubtitleParts.join(' • '),
+      amountLabel: widget.currency.format(sale.total),
+      amountSubtitle:
+          sale.paymentStatus == SalePaymentStatus.deposit
+              ? 'Incassato ${widget.currency.format(sale.paidAmount)}'
+              : null,
+      status: status.status,
+      statusLabel: status.label,
+      onTap: _toggle,
+      onAction: _toggle,
+      actionIcon:
+          _expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+      actionTooltip: hasDeposits ? 'Mostra movimenti' : 'Dettaglio pagamento',
+    );
 
-    final detailLine =
-        widget.subtitleLines.isNotEmpty ? widget.subtitleLines.first : null;
-    final extraLines =
-        widget.subtitleLines.length > 1
-            ? widget.subtitleLines.sublist(1)
-            : <String>[];
-    final detailSegments =
-        detailLine == null
-            ? const <String>[]
-            : detailLine
-                .split(' • ')
-                .map((segment) => segment.trim())
-                .where((segment) => segment.isNotEmpty)
-                .toList();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Card(
-          margin: EdgeInsets.zero,
-          child: InkWell(
-            onTap: _toggle,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor: scheme.surfaceContainerHighest,
-                    child: Icon(Icons.payment_rounded, color: scheme.primary),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.title,
-                          style: widget.theme.textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 4),
-                        if (detailSegments.isNotEmpty)
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children:
-                                detailSegments
-                                    .map(
-                                      (segment) => Padding(
-                                        padding: const EdgeInsets.only(top: 4),
-                                        child: _buildDetailSegment(segment),
-                                      ),
-                                    )
-                                    .toList(),
-                          )
-                        else if (detailLine != null)
-                          Text(
-                            detailLine,
-                            style: widget.theme.textTheme.bodySmall,
-                          ),
-                        for (final line in extraLines)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: Text(
-                              line,
-                              style: widget.theme.textTheme.bodySmall,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      trailingAmount,
-                      const SizedBox(height: 4),
-                      Icon(
-                        _expanded
-                            ? Icons.expand_less_rounded
-                            : Icons.expand_more_rounded,
-                        color:
-                            hasDeposits
-                                ? widget.theme.iconTheme.color
-                                : widget.theme.disabledColor,
-                      ),
-                    ],
-                  ),
-                ],
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(
+          bottom:
+              widget.showDivider
+                  ? BorderSide(color: scheme.outlineVariant)
+                  : BorderSide.none,
+        ),
+      ),
+      child: Column(
+        children: [
+          _BillingCompactRowWidget(
+            data: rowData,
+            isCompact: widget.isCompact,
+            showDivider: false,
+          ),
+          if (_expanded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: _buildDepositsSection(
+                scheme,
+                widget.currency,
+                widget.dateTimeFormat,
+                widget.deposits,
+                widget.onDeleteDeposit,
               ),
             ),
-          ),
-        ),
-        if (_expanded)
-          Padding(
-            padding: const EdgeInsets.only(left: 16, right: 16, top: 12),
-            child: _buildDepositsSection(
-              scheme,
-              widget.currency,
-              widget.dateTimeFormat,
-              widget.deposits,
-              widget.onDeleteDeposit,
-            ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -8094,7 +10198,7 @@ class _PaymentHistoryTileState extends State<_PaymentHistoryTile> {
     List<_SaleDepositEntry> deposits,
     Future<void> Function(_SaleDepositEntry entry)? onDeleteDeposit,
   ) {
-    final background = scheme.surfaceContainerHighest;
+    final background = scheme.surface;
     final outline = scheme.outlineVariant.withOpacity(0.6);
     final theme = widget.theme;
     if (deposits.isEmpty) {
@@ -8130,39 +10234,19 @@ class _PaymentHistoryTileState extends State<_PaymentHistoryTile> {
       ),
       child: Column(
         children: [
+          if (!widget.isCompact) const _BillingCompactHeader(),
           for (var index = 0; index < deposits.length; index++)
             _DepositRow(
               entry: deposits[index],
               currency: currency,
               dateFormat: dateFormat,
+              isCompact: widget.isCompact,
               showDivider: index < deposits.length - 1,
               onDelete: onDeleteDeposit,
             ),
         ],
       ),
     );
-  }
-
-  Widget _buildDetailSegment(String segment) {
-    final colonIndex = segment.indexOf(':');
-    if (colonIndex > 0) {
-      final label = segment.substring(0, colonIndex).trim();
-      final value = segment.substring(colonIndex + 1).trim();
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '$label:',
-            style: widget.theme.textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Expanded(child: Text(value, style: widget.theme.textTheme.bodySmall)),
-        ],
-      );
-    }
-    return Text(segment, style: widget.theme.textTheme.bodySmall);
   }
 }
 
@@ -8171,6 +10255,7 @@ class _DepositRow extends StatelessWidget {
     required this.entry,
     required this.currency,
     required this.dateFormat,
+    required this.isCompact,
     this.showDivider = false,
     this.onDelete,
   });
@@ -8178,76 +10263,51 @@ class _DepositRow extends StatelessWidget {
   final _SaleDepositEntry entry;
   final NumberFormat currency;
   final DateFormat dateFormat;
+  final bool isCompact;
   final bool showDivider;
   final Future<void> Function(_SaleDepositEntry entry)? onDelete;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.savings_rounded, size: 20, color: scheme.primary),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      entry.movementType == null
-                          ? currency.format(entry.amount)
-                          : '${currency.format(entry.amount)} • ${entry.movementType!.label}',
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      [
-                        dateFormat.format(entry.date),
-                        _PackageGroup._paymentLabel(entry.paymentMethod),
-                        if (entry.recordedBy != null &&
-                            entry.recordedBy!.isNotEmpty)
-                          'Operatore: ${entry.recordedBy}',
-                      ].join(' • '),
-                      style: theme.textTheme.bodySmall,
-                    ),
-                    if (entry.itemDescription != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        entry.itemDescription!,
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    ],
-                    if (entry.note != null && entry.note!.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        'Nota: ${entry.note}',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              if (onDelete != null)
-                IconButton(
-                  tooltip: 'Storna acconto',
-                  icon: const Icon(Icons.undo_rounded),
-                  onPressed: () => onDelete?.call(entry),
-                ),
-            ],
-          ),
-        ),
-        if (showDivider)
-          Divider(
-            height: 1,
-            thickness: 0.5,
-            color: scheme.outlineVariant.withOpacity(0.5),
-          ),
-      ],
+    final status = switch (entry.movementType) {
+      SalePaymentType.settlement => const _BillingStatusBadgeData(
+        status: BadgeStatus.success,
+        label: 'Saldo',
+      ),
+      SalePaymentType.deposit => const _BillingStatusBadgeData(
+        status: BadgeStatus.pending,
+        label: 'Acconto',
+      ),
+      null => const _BillingStatusBadgeData(
+        status: BadgeStatus.info,
+        label: 'Movimento',
+      ),
+    };
+    final details = <String>[
+      _PackageGroup._paymentLabel(entry.paymentMethod),
+      if (entry.recordedBy != null && entry.recordedBy!.isNotEmpty)
+        'Operatore: ${entry.recordedBy}',
+    ].join(' • ');
+
+    return _BillingCompactRowWidget(
+      data: _BillingCompactRowData(
+        dateLabel: dateFormat.format(entry.date),
+        titleLabel: entry.movementType?.label ?? 'Movimento',
+        titleSubtitle: entry.itemDescription,
+        detailsLabel: details,
+        detailsSubtitle:
+            entry.note != null && entry.note!.isNotEmpty
+                ? 'Nota: ${entry.note}'
+                : null,
+        amountLabel: currency.format(entry.amount),
+        status: status.status,
+        statusLabel: status.label,
+        onAction: onDelete == null ? null : () => onDelete?.call(entry),
+        actionIcon: onDelete == null ? null : Icons.undo_rounded,
+        actionTooltip: onDelete == null ? null : 'Storna acconto',
+      ),
+      isCompact: isCompact,
+      showDivider: showDivider,
     );
   }
 }
@@ -8276,162 +10336,127 @@ class _PackageGroup extends StatelessWidget {
     final theme = Theme.of(context);
     final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
     final dateFormat = DateFormat('dd/MM/yyyy');
-    return Card(
-      child: ExpansionTile(
-        title: Text(title, style: theme.textTheme.titleMedium),
-        initiallyExpanded: title.contains('in corso'),
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            if (items.isNotEmpty)
+              Text(
+                '${items.length} ${items.length == 1 ? 'pacchetto' : 'pacchetti'}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        if (items.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: theme.colorScheme.outlineVariant),
+            ),
+            child: Row(
               children: [
-                const SizedBox(height: 12),
-                if (items.isEmpty)
-                  Text(
-                    title.contains('corso')
-                        ? 'Nessun pacchetto attivo per il cliente.'
-                        : 'Non risultano pacchetti passati registrati.',
+                Icon(
+                  Icons.inventory_2_outlined,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    title.contains('attivi')
+                        ? 'Nessun pacchetto attivo o in scadenza per questo cliente.'
+                        : 'Non risultano pacchetti archiviati per questo cliente.',
                     style: theme.textTheme.bodyMedium,
-                  )
-                else
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      const spacing = 16.0;
-                      final available = constraints.maxWidth;
-                      if (available < 640) {
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children:
-                              items
-                                  .asMap()
-                                  .entries
-                                  .map(
-                                    (entry) => Padding(
-                                      padding: EdgeInsets.only(
-                                        bottom:
-                                            entry.key == items.length - 1
-                                                ? 0
-                                                : spacing,
-                                      ),
-                                      child: _PackageTile(
-                                        purchase: entry.value,
-                                        currency: currency,
-                                        dateFormat: dateFormat,
-                                        servicesById: servicesById,
-                                        onEdit: onEdit,
-                                        onDelete: onDelete,
-                                        onAddDeposit: onAddDeposit,
-                                        onDeleteDeposit: onDeleteDeposit,
-                                      ),
-                                    ),
-                                  )
-                                  .toList(),
-                        );
-                      }
-                      const minTileWidth = 320.0;
-                      final estimatedColumns =
-                          ((available + spacing) / (minTileWidth + spacing))
-                              .floor();
-                      final columns = math.max(
-                        1,
-                        math.min(3, estimatedColumns),
-                      );
-                      final tileWidth =
-                          (available - spacing * (columns - 1)) / columns;
-
-                      return Wrap(
-                        spacing: spacing,
-                        runSpacing: spacing,
-                        children:
-                            items
-                                .map(
-                                  (purchase) => SizedBox(
-                                    width: tileWidth,
-                                    child: _PackageTile(
-                                      purchase: purchase,
-                                      currency: currency,
-                                      dateFormat: dateFormat,
-                                      servicesById: servicesById,
-                                      onEdit: onEdit,
-                                      onDelete: onDelete,
-                                      onAddDeposit: onAddDeposit,
-                                      onDeleteDeposit: onDeleteDeposit,
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                      );
-                    },
                   ),
+                ),
               ],
             ),
+          )
+        else
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const spacing = 18.0;
+              final available = constraints.maxWidth;
+              if (available < 780) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children:
+                      items
+                          .asMap()
+                          .entries
+                          .map(
+                            (entry) => Padding(
+                              padding: EdgeInsets.only(
+                                bottom:
+                                    entry.key == items.length - 1 ? 0 : spacing,
+                              ),
+                              child: _PackageTile(
+                                purchase: entry.value,
+                                currency: currency,
+                                dateFormat: dateFormat,
+                                servicesById: servicesById,
+                                onEdit: onEdit,
+                                onDelete: onDelete,
+                                onAddDeposit: onAddDeposit,
+                                onDeleteDeposit: onDeleteDeposit,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                );
+              }
+
+              const minTileWidth = 420.0;
+              final estimatedColumns =
+                  ((available + spacing) / (minTileWidth + spacing)).floor();
+              final columns = math.max(1, math.min(2, estimatedColumns));
+              final tileWidth = (available - spacing * (columns - 1)) / columns;
+
+              return Wrap(
+                spacing: spacing,
+                runSpacing: spacing,
+                children:
+                    items
+                        .map(
+                          (purchase) => SizedBox(
+                            width: tileWidth,
+                            child: _PackageTile(
+                              purchase: purchase,
+                              currency: currency,
+                              dateFormat: dateFormat,
+                              servicesById: servicesById,
+                              onEdit: onEdit,
+                              onDelete: onDelete,
+                              onAddDeposit: onAddDeposit,
+                              onDeleteDeposit: onDeleteDeposit,
+                            ),
+                          ),
+                        )
+                        .toList(),
+              );
+            },
           ),
-        ],
-      ),
+      ],
     );
   }
 
   static String _paymentLabel(PaymentMethod method) {
-    switch (method) {
-      case PaymentMethod.cash:
-        return 'Contanti';
-      case PaymentMethod.pos:
-        return 'POS';
-      case PaymentMethod.transfer:
-        return 'Bonifico';
-      case PaymentMethod.giftCard:
-        return 'Gift card';
-      case PaymentMethod.posticipated:
-        return 'Posticipato';
-    }
-  }
-
-  static String _sessionLabel(ClientPackagePurchase purchase) {
-    final remaining = purchase.remainingSessions;
-    final total = purchase.totalSessions;
-    if (remaining == null && total == null) {
-      return 'Sessioni non definite';
-    }
-    if (total == null) {
-      return 'Rimanenti: ${remaining ?? '-'}';
-    }
-    final remainingLabel = remaining?.toString() ?? '—';
-    return '$remainingLabel / $total sessioni rimaste';
-  }
-
-  static Widget _statusChip(
-    BuildContext context,
-    PackagePurchaseStatus status,
-  ) {
-    final scheme = Theme.of(context).colorScheme;
-    late final Color background;
-    late final Color foreground;
-    late final IconData icon;
-
-    switch (status) {
-      case PackagePurchaseStatus.active:
-        background = scheme.primaryContainer;
-        foreground = scheme.onPrimaryContainer;
-        icon = Icons.play_arrow_rounded;
-        break;
-      case PackagePurchaseStatus.completed:
-        background = scheme.tertiaryContainer;
-        foreground = scheme.onTertiaryContainer;
-        icon = Icons.check_circle_rounded;
-        break;
-      case PackagePurchaseStatus.cancelled:
-        background = scheme.errorContainer;
-        foreground = scheme.onErrorContainer;
-        icon = Icons.cancel_rounded;
-        break;
-    }
-
-    return Chip(
-      avatar: Icon(icon, size: 18, color: foreground),
-      label: Text(status.label, style: TextStyle(color: foreground)),
-      backgroundColor: background,
-    );
+    return method.label;
   }
 }
 
@@ -8483,24 +10508,46 @@ class _PackageTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final servicesLabel = purchase.serviceNames.join(', ');
     final expiry = purchase.expirationDate;
-    final sessionLabel = _PackageGroup._sessionLabel(purchase);
-    final serviceUsage = _resolveServiceUsage();
+    final serviceUsage = _resolvePackageServiceUsage(purchase, servicesById);
     final outstanding = double.parse(
       purchase.outstandingAmount.toStringAsFixed(2),
     );
     final canAddDeposit = onAddDeposit != null && outstanding > 0;
+    final lifecycle = _packageLifecycleBadgeData(purchase);
+    final payment = _packagePaymentBadgeData(purchase);
+    final accentColor = _packageAccentColor(scheme, lifecycle.status);
+    final totalRemainingServices = serviceUsage.fold<int>(
+      0,
+      (sum, usage) => sum + math.max(usage.remaining, 0),
+    );
+    final hasSyntheticDeposit =
+        purchase.deposits.isEmpty && purchase.depositAmount > 0;
+    final paymentEntries =
+        purchase.deposits.isNotEmpty
+            ? purchase.deposits
+            : hasSyntheticDeposit
+            ? [
+              PackageDeposit(
+                id: 'legacy-${purchase.sale.id}-${purchase.itemIndex}',
+                amount: purchase.depositAmount,
+                date: purchase.sale.createdAt,
+                note: outstanding > 0 ? 'Acconto iniziale' : 'Saldo iniziale',
+                paymentMethod: purchase.sale.paymentMethod,
+              ),
+            ]
+            : const <PackageDeposit>[];
+    final actionButtonColor = theme.colorScheme.onSurfaceVariant;
 
     return Card(
       elevation: 0,
-      color: scheme.surfaceContainerLowest,
+      color: scheme.surface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.4)),
+        borderRadius: BorderRadius.circular(24),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.75)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -8510,7 +10557,9 @@ class _PackageTile extends StatelessWidget {
                 Expanded(
                   child: Text(
                     purchase.package?.name ?? purchase.item.description,
-                    style: theme.textTheme.headlineSmall,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 if (onEdit != null || onDelete != null)
@@ -8518,210 +10567,872 @@ class _PackageTile extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       if (onEdit != null)
-                        IconButton(
+                        _PackageIconActionButton(
                           tooltip: 'Modifica pacchetto',
-                          icon: const Icon(Icons.edit_rounded),
+                          icon: Icons.edit_rounded,
+                          color: actionButtonColor,
                           onPressed: () => onEdit?.call(purchase),
                         ),
                       if (onDelete != null)
-                        IconButton(
+                        _PackageIconActionButton(
                           tooltip: 'Elimina pacchetto',
-                          icon: const Icon(Icons.delete_rounded),
+                          icon: Icons.delete_outline_rounded,
+                          color: scheme.error,
                           onPressed: () => onDelete?.call(purchase),
                         ),
                     ],
                   ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             Wrap(
-              spacing: 12,
+              spacing: 8,
               runSpacing: 8,
               children: [
-                _PackageGroup._statusChip(context, purchase.status),
-                if (purchase.outstandingAmount == 0)
-                  _Chip(
-                    label: purchase.paymentStatus.label,
-                    icon:
-                        purchase.paymentStatus == PackagePaymentStatus.deposit
-                            ? Icons.savings_rounded
-                            : Icons.verified_rounded,
-                  ),
-
-                if (purchase.outstandingAmount > 0)
-                  _ChipOverlay(
-                    label:
-                        'Da saldare: ${currency.format(purchase.outstandingAmount)}',
-                    icon: Icons.pending_actions_rounded,
-                  ),
-                _Chip(
-                  label: currency.format(purchase.totalAmount),
-                  icon: Icons.euro_rounded,
+                StatusBadge(
+                  status: lifecycle.status,
+                  label: lifecycle.label,
+                  size: BadgeSize.sm,
                 ),
-
-                _Chip(
-                  label:
-                      'Acquisto: ${dateFormat.format(purchase.sale.createdAt)}',
-                  icon: Icons.calendar_today_rounded,
-                ),
-                _Chip(
-                  label:
-                      expiry == null
-                          ? 'Senza scadenza'
-                          : 'Scadenza: ${dateFormat.format(expiry)}',
-                  icon: Icons.timer_outlined,
+                StatusBadge(
+                  status: payment.status,
+                  label: payment.label,
+                  size: BadgeSize.sm,
                 ),
               ],
             ),
-
-            if (serviceUsage.isNotEmpty) ...[
-              const SizedBox(height: 32),
-              Text('Servizi', style: theme.textTheme.headlineSmall),
-              const SizedBox(height: 4),
-              Column(
-                children:
-                    serviceUsage.map((usage) {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Text(usage.name, style: theme.textTheme.bodyMedium),
-                            const SizedBox(height: 8),
-                            Align(
-                              alignment: Alignment.centerLeft,
-                              child: _Chip(
-                                label: usage.usageLabel,
-                                icon: Icons.circle,
+            const SizedBox(height: 18),
+            _PackageInfoPanel(
+              children: [
+                _PackageInfoCell(
+                  label: 'Prezzo',
+                  value: currency.format(purchase.totalAmount),
+                  valueColor: theme.colorScheme.primary,
+                ),
+                _PackageInfoCell(
+                  label: 'Acquisto',
+                  value: dateFormat.format(purchase.sale.createdAt),
+                ),
+                _PackageInfoCell(
+                  label: 'Scadenza',
+                  value:
+                      expiry == null
+                          ? 'Senza scadenza'
+                          : dateFormat.format(expiry),
+                  valueColor:
+                      lifecycle.label == 'In scadenza'
+                          ? const Color(0xFFEA580C)
+                          : null,
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final stacked = constraints.maxWidth < 620;
+                final servicesSection = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _PackageSectionHeader(
+                      icon: Icons.inventory_2_outlined,
+                      title: 'Servizi',
+                      trailing: Text(
+                        '$totalRemainingServices disp.',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (serviceUsage.isEmpty)
+                      _PackageEmptyPanel(
+                        icon: Icons.inventory_2_outlined,
+                        message: 'Nessun servizio associato al pacchetto.',
+                      )
+                    else
+                      Column(
+                        children: [
+                          for (
+                            var index = 0;
+                            index < serviceUsage.length;
+                            index++
+                          )
+                            Padding(
+                              padding: EdgeInsets.only(
+                                bottom:
+                                    index == serviceUsage.length - 1 ? 0 : 10,
+                              ),
+                              child: _PackageServiceUsageTile(
+                                usage: serviceUsage[index],
+                                accentColor: accentColor,
                               ),
                             ),
+                        ],
+                      ),
+                  ],
+                );
+                final paymentsSection = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _PackageSectionHeader(
+                      icon: Icons.payments_outlined,
+                      title: 'Pagamenti',
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${paymentEntries.length}',
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          if (canAddDeposit) ...[
+                            const SizedBox(width: 6),
+                            _PackageIconActionButton(
+                              tooltip: 'Registra acconto',
+                              icon: Icons.add_card_rounded,
+                              color: theme.colorScheme.primary,
+                              onPressed: () => onAddDeposit?.call(purchase),
+                            ),
                           ],
-                        ),
-                      );
-                    }).toList(),
-              ),
-            ],
-            if (canAddDeposit) ...[
-              const SizedBox(height: 12),
-              FilledButton.tonalIcon(
-                onPressed: () => onAddDeposit?.call(purchase),
-                icon: const Icon(Icons.add_card_rounded),
-                label: const Text('Registra acconto'),
-              ),
-            ],
-            if (purchase.deposits.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Text('Acconti', style: theme.textTheme.headlineSmall),
-              const SizedBox(height: 4),
-              Column(
-                children:
-                    purchase.deposits.map((deposit) {
-                      final subtitleBuffer = StringBuffer(
-                        '${DateFormat('dd/MM/yyyy HH:mm').format(deposit.date)} • ${_PackageGroup._paymentLabel(deposit.paymentMethod)}',
-                      );
-                      if (deposit.note != null && deposit.note!.isNotEmpty) {
-                        subtitleBuffer
-                          ..write('\n')
-                          ..write(deposit.note);
-                      }
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        dense: true,
-                        title: Text(currency.format(deposit.amount)),
-                        subtitle: Text(subtitleBuffer.toString()),
-                        trailing:
-                            onDeleteDeposit == null
-                                ? null
-                                : IconButton(
-                                  tooltip: 'Storna acconto',
-                                  icon: const Icon(Icons.undo_rounded),
-                                  onPressed:
-                                      () => onDeleteDeposit?.call(
-                                        purchase,
-                                        deposit,
-                                      ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (paymentEntries.isEmpty)
+                      _PackageEmptyPanel(
+                        icon: Icons.receipt_long_outlined,
+                        message: 'Nessun pagamento registrato.',
+                      )
+                    else
+                      Column(
+                        children: [
+                          for (
+                            var index = 0;
+                            index < paymentEntries.length;
+                            index++
+                          )
+                            Padding(
+                              padding: EdgeInsets.only(
+                                bottom:
+                                    index == paymentEntries.length - 1 ? 0 : 10,
+                              ),
+                              child: _PackagePaymentTile(
+                                amountLabel: currency.format(
+                                  paymentEntries[index].amount,
                                 ),
-                      );
-                    }).toList(),
-              ),
-            ],
+                                dateLabel: dateFormat.format(
+                                  paymentEntries[index].date,
+                                ),
+                                paymentMethodLabel: _PackageGroup._paymentLabel(
+                                  paymentEntries[index].paymentMethod,
+                                ),
+                                note: paymentEntries[index].note,
+                                onDelete:
+                                    onDeleteDeposit == null ||
+                                            hasSyntheticDeposit
+                                        ? null
+                                        : () => onDeleteDeposit?.call(
+                                          purchase,
+                                          paymentEntries[index],
+                                        ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    const SizedBox(height: 12),
+                    _PackageTotalsPanel(
+                      totalLabel: currency.format(purchase.totalAmount),
+                      outstandingLabel:
+                          outstanding > 0
+                              ? 'Residuo: ${currency.format(outstanding)}'
+                              : null,
+                    ),
+                  ],
+                );
+
+                if (stacked) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      servicesSection,
+                      const SizedBox(height: 20),
+                      paymentsSection,
+                    ],
+                  );
+                }
+
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: servicesSection),
+                    const SizedBox(width: 16),
+                    Expanded(child: paymentsSection),
+                  ],
+                );
+              },
+            ),
           ],
         ),
       ),
     );
   }
+}
 
-  List<_ServiceUsageSummary> _resolveServiceUsage() {
-    final serviceIds = <String>{
-      ...purchase.item.packageServiceSessions.keys,
-      ...purchase.item.remainingPackageServiceSessions.keys,
-      ...purchase.package?.serviceSessionCounts?.keys ?? const <String>{},
-      ...purchase.package?.serviceIds ?? const <String>[],
-      ...purchase.usedSessionsByService.keys,
-    }..removeWhere((id) => id.isEmpty);
+class _PackageOverviewMetrics extends StatelessWidget {
+  const _PackageOverviewMetrics({
+    required this.activeCount,
+    required this.availableServicesCount,
+    required this.totalValue,
+    required this.currency,
+  });
 
-    if (serviceIds.isEmpty) {
-      return const <_ServiceUsageSummary>[];
-    }
+  final int activeCount;
+  final int availableServicesCount;
+  final double totalValue;
+  final NumberFormat currency;
 
-    final usage = <_ServiceUsageSummary>[];
-    for (final serviceId in serviceIds) {
-      final service = servicesById[serviceId];
-      final total = purchase.totalSessionsForService(serviceId);
-      final remaining = math.max(
-        0,
-        purchase.remainingSessionsForService(serviceId),
-      );
-      final usedFromMap = purchase.usedSessionsByService[serviceId] ?? 0;
-      final computedUsed =
-          total != null ? math.max(0, total - remaining) : usedFromMap;
-      final used = math.max(usedFromMap, computedUsed);
-      usage.add(
-        _ServiceUsageSummary(
-          serviceId: serviceId,
-          name: service?.name ?? serviceId,
-          total: total,
-          used: used,
-          remaining: remaining,
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 12.0;
+        final cards = [
+          _PackageMetricCard(
+            icon: Icons.inventory_2_outlined,
+            iconColor: const Color(0xFF16A34A),
+            value: '$activeCount',
+            label: 'Pacchetti attivi',
+          ),
+          _PackageMetricCard(
+            icon: Icons.widgets_outlined,
+            iconColor: const Color(0xFFEA580C),
+            value: '$availableServicesCount',
+            label: 'Servizi disponibili',
+          ),
+          _PackageMetricCard(
+            icon: Icons.payments_outlined,
+            iconColor: const Color(0xFFCA8A04),
+            value: currency.format(totalValue),
+            label: 'Valore totale',
+          ),
+        ];
+
+        if (constraints.maxWidth < 900) {
+          return Column(
+            children: [
+              for (var index = 0; index < cards.length; index++) ...[
+                if (index > 0) const SizedBox(height: spacing),
+                cards[index],
+              ],
+            ],
+          );
+        }
+
+        return Row(
+          children: [
+            for (var index = 0; index < cards.length; index++) ...[
+              if (index > 0) const SizedBox(width: spacing),
+              Expanded(child: cards[index]),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _PackageMetricCard extends StatelessWidget {
+  const _PackageMetricCard({
+    required this.icon,
+    required this.iconColor,
+    required this.value,
+    required this.label,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: iconColor, size: 20),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PackageInfoPanel extends StatelessWidget {
+  const _PackageInfoPanel({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth < 420) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var index = 0; index < children.length; index++) ...[
+                  if (index > 0) const SizedBox(height: 12),
+                  children[index],
+                ],
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              for (var index = 0; index < children.length; index++) ...[
+                if (index > 0) const SizedBox(width: 16),
+                Expanded(child: children[index]),
+              ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _PackageInfoCell extends StatelessWidget {
+  const _PackageInfoCell({
+    required this.label,
+    required this.value,
+    this.valueColor,
+  });
+
+  final String label;
+  final String value;
+  final Color? valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
         ),
-      );
-    }
-
-    usage.sort((a, b) => a.name.compareTo(b.name));
-    return usage;
-  }
-}
-
-class _Chip extends StatelessWidget {
-  const _Chip({required this.label, required this.icon});
-
-  final String label;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Chip(
-      backgroundColor: scheme.surfaceContainerHighest,
-      avatar: Icon(icon, size: 18, color: scheme.onSurfaceVariant),
-      label: Text(label),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: valueColor,
+          ),
+        ),
+      ],
     );
   }
 }
 
-class _ChipOverlay extends StatelessWidget {
-  const _ChipOverlay({required this.label, required this.icon});
+class _PackageSectionHeader extends StatelessWidget {
+  const _PackageSectionHeader({
+    required this.icon,
+    required this.title,
+    this.trailing,
+  });
 
-  final String label;
   final IconData icon;
+  final String title;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Chip(
-      backgroundColor: scheme.primaryFixedDim,
-      avatar: Icon(icon, size: 18, color: scheme.onPrimaryFixed),
-      label: Text(label, style: TextStyle(color: scheme.onPrimaryFixed)),
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: theme.colorScheme.onSurfaceVariant),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            title,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        if (trailing != null) trailing!,
+      ],
     );
+  }
+}
+
+class _PackageEmptyPanel extends StatelessWidget {
+  const _PackageEmptyPanel({required this.icon, required this.message});
+
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PackageServiceUsageTile extends StatelessWidget {
+  const _PackageServiceUsageTile({
+    required this.usage,
+    required this.accentColor,
+  });
+
+  final _ServiceUsageSummary usage;
+  final Color accentColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final double? progress =
+        usage.total == null || usage.total == 0
+            ? null
+            : (usage.used / usage.total!).clamp(0.0, 1.0).toDouble();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  usage.name,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '${usage.remaining}',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: accentColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (progress != null)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                minHeight: 6,
+                value: progress,
+                backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                valueColor: AlwaysStoppedAnimation<Color>(accentColor),
+              ),
+            ),
+          if (progress != null) const SizedBox(height: 8),
+          Text(
+            usage.total == null
+                ? 'Utilizzate: ${usage.used}'
+                : '${usage.used}/${usage.total}',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PackagePaymentTile extends StatelessWidget {
+  const _PackagePaymentTile({
+    required this.amountLabel,
+    required this.dateLabel,
+    required this.paymentMethodLabel,
+    this.note,
+    this.onDelete,
+  });
+
+  final String amountLabel;
+  final String dateLabel;
+  final String paymentMethodLabel;
+  final String? note;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final deleteCallback = onDelete;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 26,
+            height: 26,
+            decoration: BoxDecoration(
+              color: const Color(0x1A22C55E),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.check_rounded,
+              size: 16,
+              color: Color(0xFF15803D),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  amountLabel,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '$dateLabel • $paymentMethodLabel',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                if (note != null && note!.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    note!,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (deleteCallback != null)
+            _PackageIconActionButton(
+              tooltip: 'Storna acconto',
+              icon: Icons.undo_rounded,
+              color: theme.colorScheme.onSurfaceVariant,
+              onPressed: deleteCallback,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PackageTotalsPanel extends StatelessWidget {
+  const _PackageTotalsPanel({required this.totalLabel, this.outstandingLabel});
+
+  final String totalLabel;
+  final String? outstandingLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: theme.colorScheme.primary.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Totale:',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  totalLabel,
+                  textAlign: TextAlign.end,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (outstandingLabel != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              outstandingLabel!,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.error,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PackageIconActionButton extends StatelessWidget {
+  const _PackageIconActionButton({
+    required this.tooltip,
+    required this.icon,
+    required this.color,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon, size: 18),
+      color: color,
+      visualDensity: VisualDensity.compact,
+      style: IconButton.styleFrom(
+        side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+        minimumSize: const Size(34, 34),
+        padding: EdgeInsets.zero,
+      ),
+    );
+  }
+}
+
+List<_ServiceUsageSummary> _resolvePackageServiceUsage(
+  ClientPackagePurchase purchase,
+  Map<String, Service> servicesById,
+) {
+  final serviceIds = <String>{
+    ...purchase.item.packageServiceSessions.keys,
+    ...purchase.item.remainingPackageServiceSessions.keys,
+    ...purchase.package?.serviceSessionCounts.keys ?? const <String>{},
+    ...purchase.package?.serviceIds ?? const <String>[],
+    ...purchase.usedSessionsByService.keys,
+  }..removeWhere((id) => id.isEmpty);
+
+  if (serviceIds.isEmpty) {
+    return const <_ServiceUsageSummary>[];
+  }
+
+  final usage = <_ServiceUsageSummary>[];
+  for (final serviceId in serviceIds) {
+    final service = servicesById[serviceId];
+    final total = purchase.totalSessionsForService(serviceId);
+    final remaining = math.max(
+      0,
+      purchase.remainingSessionsForService(serviceId),
+    );
+    final usedFromMap = purchase.usedSessionsByService[serviceId] ?? 0;
+    final computedUsed =
+        total != null ? math.max(0, total - remaining) : usedFromMap;
+    final used = math.max(usedFromMap, computedUsed);
+    usage.add(
+      _ServiceUsageSummary(
+        serviceId: serviceId,
+        name: service?.name ?? serviceId,
+        total: total,
+        used: used,
+        remaining: remaining,
+      ),
+    );
+  }
+
+  usage.sort((a, b) => a.name.compareTo(b.name));
+  return usage;
+}
+
+_BillingStatusBadgeData _packageLifecycleBadgeData(
+  ClientPackagePurchase purchase,
+) {
+  if (purchase.status == PackagePurchaseStatus.cancelled) {
+    return const _BillingStatusBadgeData(
+      status: BadgeStatus.cancelled,
+      label: 'Annullato',
+    );
+  }
+  if (purchase.status == PackagePurchaseStatus.completed) {
+    return const _BillingStatusBadgeData(
+      status: BadgeStatus.success,
+      label: 'Completato',
+    );
+  }
+  if (_isPackageExpired(purchase)) {
+    return const _BillingStatusBadgeData(
+      status: BadgeStatus.inactive,
+      label: 'Scaduto',
+    );
+  }
+  if (_isPackageExpiringSoon(purchase)) {
+    return const _BillingStatusBadgeData(
+      status: BadgeStatus.pending,
+      label: 'In scadenza',
+    );
+  }
+  return const _BillingStatusBadgeData(
+    status: BadgeStatus.success,
+    label: 'Attivo',
+  );
+}
+
+_BillingStatusBadgeData _packagePaymentBadgeData(
+  ClientPackagePurchase purchase,
+) {
+  if (purchase.outstandingAmount > 0.009) {
+    return const _BillingStatusBadgeData(
+      status: BadgeStatus.cancelled,
+      label: 'Non saldato',
+    );
+  }
+  return const _BillingStatusBadgeData(
+    status: BadgeStatus.success,
+    label: 'Saldato',
+  );
+}
+
+bool _isPackageExpired(ClientPackagePurchase purchase) {
+  final expiry = purchase.expirationDate;
+  if (expiry == null) {
+    return false;
+  }
+  final today = DateUtils.dateOnly(DateTime.now());
+  return DateUtils.dateOnly(expiry).isBefore(today);
+}
+
+bool _isPackageExpiringSoon(ClientPackagePurchase purchase) {
+  if (purchase.status != PackagePurchaseStatus.active ||
+      _isPackageExpired(purchase)) {
+    return false;
+  }
+  final expiry = purchase.expirationDate;
+  if (expiry == null) {
+    return false;
+  }
+  final today = DateUtils.dateOnly(DateTime.now());
+  final daysUntilExpiry = DateUtils.dateOnly(expiry).difference(today).inDays;
+  return daysUntilExpiry >= 0 && daysUntilExpiry <= 30;
+}
+
+Color _packageAccentColor(ColorScheme scheme, BadgeStatus status) {
+  switch (status) {
+    case BadgeStatus.pending:
+      return const Color(0xFFEA580C);
+    case BadgeStatus.cancelled:
+      return scheme.error;
+    case BadgeStatus.inactive:
+      return scheme.onSurfaceVariant;
+    case BadgeStatus.info:
+      return const Color(0xFF1D4ED8);
+    case BadgeStatus.success:
+    case BadgeStatus.active:
+      return const Color(0xFF16A34A);
   }
 }

@@ -145,21 +145,15 @@ class _SalonSocialSheetState extends State<SalonSocialSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return DialogActionLayout(
+      title: 'Presenza online e social',
+      subtitle: 'Aggiungi i canali social e digitali del salone.',
       body: Form(
         key: _formKey,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Presenza online e social', style: theme.textTheme.titleLarge),
-            const SizedBox(height: 12),
-            Text(
-              'Aggiungi i canali social e digitali del salone.',
-              style: theme.textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 16),
             ..._links.map((link) => _buildCard(context, link)).toList(),
             const SizedBox(height: 12),
             OutlinedButton.icon(

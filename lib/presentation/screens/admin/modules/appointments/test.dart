@@ -6881,7 +6881,7 @@ class _StaffDayColumnState extends State<_StaffDayColumn> {
               _setDragging(false);
               ScaffoldMessenger.of(
                 context,
-              ).showSnackBar(SnackBar(content: Text(conflictMessage)));
+              ).showAppSnackBar(SnackBar(content: Text(conflictMessage)));
               return;
             }
 

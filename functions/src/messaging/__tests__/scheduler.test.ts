@@ -15,10 +15,16 @@ describe('parseReminderSettingsDoc', () => {
       salonId: 'salon-explicit',
       appointmentOffsetsMinutes: [180, 60, 180, 1440],
       birthdayEnabled: false,
+      birthdayDeliveryMode: 'both',
+      birthdayWhatsappTemplateId: 'wa-birthday-1',
+      birthdayWhatsappTemplateName: 'Compleanno premium',
     } as DocumentData);
 
     assert.deepEqual(doc.appointmentOffsetsMinutes, [60, 180, 1440]);
     assert.equal(doc.birthdayEnabled, false);
+    assert.equal(doc.birthdayDeliveryMode, 'both');
+    assert.equal(doc.birthdayWhatsappTemplateId, 'wa-birthday-1');
+    assert.equal(doc.birthdayWhatsappTemplateName, 'Compleanno premium');
   });
 
   it('falls back to legacy toggles when explicit offsets are missing', () => {
@@ -49,6 +55,8 @@ describe('parseReminderSettingsDoc', () => {
 
     assert.equal(doc.salonId, 'salon-fallback');
     assert.deepEqual(doc.appointmentOffsetsMinutes, []);
+    assert.equal(doc.birthdayDeliveryMode, 'push');
+    assert.equal(doc.birthdayWhatsappTemplateId, undefined);
   });
 });
 
