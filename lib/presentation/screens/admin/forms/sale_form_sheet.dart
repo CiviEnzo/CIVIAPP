@@ -987,26 +987,10 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
   List<Widget> _buildReviewContent({
     required ThemeData theme,
     required NumberFormat currency,
-    required double subtotal,
-    required double manualDiscount,
-    required double loyaltyDiscount,
     required double total,
-    required Client? client,
-    required StaffMember? serviceProvider,
     required List<StaffMember> recorderStaff,
   }) {
     return [
-      _buildReviewOverviewCard(
-        theme: theme,
-        currency: currency,
-        subtotal: subtotal,
-        manualDiscount: manualDiscount,
-        loyaltyDiscount: loyaltyDiscount,
-        total: total,
-        client: client,
-        serviceProvider: serviceProvider,
-      ),
-      const SizedBox(height: 16),
       Align(
         alignment: Alignment.topCenter,
         child: ConstrainedBox(
@@ -1020,212 +1004,6 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         ),
       ),
     ];
-  }
-
-  Widget _buildReviewOverviewCard({
-    required ThemeData theme,
-    required NumberFormat currency,
-    required double subtotal,
-    required double manualDiscount,
-    required double loyaltyDiscount,
-    required double total,
-    required Client? client,
-    required StaffMember? serviceProvider,
-  }) {
-    final serviceProviderLabel =
-        serviceProvider == null ? null : _staffOptionLabel(serviceProvider);
-    return _buildReviewCard(
-      theme: theme,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              _buildSectionIconBadge(theme, Icons.receipt_long_rounded),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Riepilogo vendita',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (client != null || serviceProviderLabel != null) ...[
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (client != null)
-                  _buildReviewInfoPill(
-                    theme,
-                    icon: Icons.person_outline_rounded,
-                    label: client.fullName,
-                  ),
-                if (client != null && client.phone.trim().isNotEmpty)
-                  _buildReviewInfoPill(
-                    theme,
-                    icon: Icons.phone_rounded,
-                    label: client.phone.trim(),
-                  ),
-                if (serviceProviderLabel != null)
-                  _buildReviewInfoPill(
-                    theme,
-                    icon: Icons.badge_outlined,
-                    label: serviceProviderLabel,
-                  ),
-              ],
-            ),
-          ],
-          const SizedBox(height: 18),
-          Text(
-            'Elementi',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 12),
-          for (var i = 0; i < _lines.length; i++) ...[
-            _buildReviewLineRow(
-              theme: theme,
-              currency: currency,
-              line: _lines[i],
-              index: i,
-            ),
-            if (i < _lines.length - 1) ...[
-              const SizedBox(height: 12),
-              Divider(color: theme.colorScheme.outlineVariant),
-              const SizedBox(height: 12),
-            ],
-          ],
-          const SizedBox(height: 18),
-          Divider(color: theme.colorScheme.outlineVariant),
-          const SizedBox(height: 14),
-          _buildSummaryAmountRow(
-            theme: theme,
-            label: 'Subtotale',
-            value: currency.format(subtotal),
-          ),
-          if (manualDiscount > 0) ...[
-            const SizedBox(height: 8),
-            _buildSummaryAmountRow(
-              theme: theme,
-              label: 'Adeguamento manuale',
-              value: '-${currency.format(manualDiscount)}',
-            ),
-            const SizedBox(height: 8),
-            _buildSummaryAmountRow(
-              theme: theme,
-              label: 'Totale dopo adeguamento',
-              value: currency.format(subtotal - manualDiscount),
-            ),
-          ],
-          if (loyaltyDiscount > 0) ...[
-            const SizedBox(height: 8),
-            _buildSummaryAmountRow(
-              theme: theme,
-              label: 'Sconto fedeltà',
-              value: '-${currency.format(loyaltyDiscount)}',
-            ),
-          ],
-          const SizedBox(height: 14),
-          Divider(color: theme.colorScheme.outlineVariant),
-          const SizedBox(height: 14),
-          _buildSummaryAmountRow(
-            theme: theme,
-            label: 'TOTALE DA PAGARE',
-            value: currency.format(total),
-            highlighted: true,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildReviewLineRow({
-    required ThemeData theme,
-    required NumberFormat currency,
-    required _SaleLineDraft line,
-    required int index,
-  }) {
-    final quantity = line.quantityController.text.trim();
-    final unitPrice = _parseAmount(line.priceController.text) ?? 0;
-    final pills = <Widget>[
-      _buildReviewInfoPill(
-        theme,
-        icon: Icons.tag_rounded,
-        label: '$quantity x ${currency.format(unitPrice)}',
-      ),
-    ];
-    final catalogLabel = line.catalogLabel?.trim();
-    if (catalogLabel != null && catalogLabel.isNotEmpty) {
-      pills.add(
-        _buildReviewInfoPill(
-          theme,
-          icon: Icons.layers_outlined,
-          label: catalogLabel,
-        ),
-      );
-    }
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _lineDisplayLabel(line, index),
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Wrap(spacing: 8, runSpacing: 8, children: pills),
-            ],
-          ),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          currency.format(_lineTotal(line)),
-          textAlign: TextAlign.end,
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w800,
-            color: theme.colorScheme.primary,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildReviewInfoPill(
-    ThemeData theme, {
-    required IconData icon,
-    required String label,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.8),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: theme.colorScheme.onSurfaceVariant),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _buildReviewCard({required ThemeData theme, required Widget child}) {
@@ -1559,12 +1337,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                 ? _buildReviewContent(
                   theme: theme,
                   currency: currency,
-                  subtotal: subtotal,
-                  manualDiscount: manualDiscount,
-                  loyaltyDiscount: loyaltyDiscount,
                   total: total,
-                  client: currentClient,
-                  serviceProvider: _selectedServiceProvider,
                   recorderStaff: recorderStaff,
                 )
                 : _buildEditingContent(
@@ -1633,8 +1406,10 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                   : const EdgeInsets.fromLTRB(16, 24, 16, 24),
           children: [
             bodyContent,
-            const SizedBox(height: 20),
-            _buildMobileTotalSummaryCard(context, currency, total),
+            if (!isReviewStep) ...[
+              const SizedBox(height: 20),
+              _buildMobileTotalSummaryCard(context, currency, total),
+            ],
           ],
         ),
       );

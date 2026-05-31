@@ -128,12 +128,10 @@ class AuthRepository {
       'salonIds': const <String>[],
       'displayName': displayName ?? credential.user?.displayName,
       'email': email,
-      'pendingFirstName': sanitizedFirstName?.isEmpty ?? true
-          ? null
-          : sanitizedFirstName,
-      'pendingLastName': sanitizedLastName?.isEmpty ?? true
-          ? null
-          : sanitizedLastName,
+      'pendingFirstName':
+          sanitizedFirstName?.isEmpty ?? true ? null : sanitizedFirstName,
+      'pendingLastName':
+          sanitizedLastName?.isEmpty ?? true ? null : sanitizedLastName,
       'pendingPhone': sanitizedPhone?.isEmpty ?? true ? null : sanitizedPhone,
       'pendingDateOfBirth':
           dateOfBirth != null ? Timestamp.fromDate(dateOfBirth) : null,
@@ -264,7 +262,8 @@ class AuthRepository {
       return _UserAccessSnapshot(
         role: _roleFromData(data),
         isEnabled: (data['enabled'] as bool?) ?? true,
-        emailVerifiedOverride: (data['emailVerifiedOverride'] as bool?) ?? false,
+        emailVerifiedOverride:
+            (data['emailVerifiedOverride'] as bool?) ?? false,
       );
     } catch (_) {
       return const _UserAccessSnapshot();
@@ -353,10 +352,10 @@ class AuthRepository {
     final settings = ActionCodeSettings(
       url: inviteUrl,
       handleCodeInApp: true,
-      androidPackageName: 'com.example.civiapp',
+      androidPackageName: 'com.civiapp.youbook',
       androidInstallApp: true,
       androidMinimumVersion: '21',
-      iOSBundleId: 'com.cividevops.civiapp',
+      iOSBundleId: 'com.civiapp.youbook',
     );
 
     await auth.sendSignInLinkToEmail(

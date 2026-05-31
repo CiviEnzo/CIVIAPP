@@ -52,7 +52,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyDgWb1Ikb5ocDN73eL2ledLo0OjvOgGnUA',
-    appId: '1:442062945154:android:8edeace19236d4b44e6d9b',
+    appId: '1:442062945154:android:e97a840ba6fd0b554e6d9b',
     messagingSenderId: '442062945154',
     projectId: 'civiapp-38b51',
     storageBucket: 'civiapp-38b51.firebasestorage.app',
@@ -60,20 +60,20 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyBR6yjZh6tGvg2HRrlKtTl9gFh89vAFGLw',
-    appId: '1:442062945154:ios:6aba05c66d9e5dd94e6d9b',
+    appId: '1:442062945154:ios:e35c9736558796874e6d9b',
     messagingSenderId: '442062945154',
     projectId: 'civiapp-38b51',
     storageBucket: 'civiapp-38b51.firebasestorage.app',
-    iosBundleId: 'com.example.civiapp',
+    iosBundleId: 'com.cividevops.civiapp',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
     apiKey: 'AIzaSyBR6yjZh6tGvg2HRrlKtTl9gFh89vAFGLw',
-    appId: '1:442062945154:ios:6aba05c66d9e5dd94e6d9b',
+    appId: '1:442062945154:ios:e35c9736558796874e6d9b',
     messagingSenderId: '442062945154',
     projectId: 'civiapp-38b51',
     storageBucket: 'civiapp-38b51.firebasestorage.app',
-    iosBundleId: 'com.example.civiapp',
+    iosBundleId: 'com.cividevops.civiapp',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(

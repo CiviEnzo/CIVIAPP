@@ -22,12 +22,52 @@ const _isStripeTestMode = bool.fromEnvironment(
 );
 const _stripeMerchantId = String.fromEnvironment(
   'STRIPE_MERCHANT_ID',
-  defaultValue: 'merchant.com.cividevops.civiapp',
+  defaultValue: 'merchant.com.civiapp.youbook',
 );
 const _firebaseWebVapidKey = String.fromEnvironment('FIREBASE_VAPID_KEY');
 
 bool _isTargetPlatform(TargetPlatform platform) {
   return !kIsWeb && defaultTargetPlatform == platform;
+}
+
+bool _isDebugMacOSCapsLockKeyUpAssertion(Object error) {
+  if (!kDebugMode || !_isTargetPlatform(TargetPlatform.macOS)) {
+    return false;
+  }
+
+  final message = error.toString();
+  return message.contains('hardware_keyboard.dart') &&
+      message.contains('_pressedKeys.containsKey(event.physicalKey)') &&
+      message.contains('A KeyUpEvent is dispatched') &&
+      message.contains('Caps Lock');
+}
+
+void _installDebugMacOSKeyboardAssertionWorkaround() {
+  if (!kDebugMode || !_isTargetPlatform(TargetPlatform.macOS)) {
+    return;
+  }
+
+  final previousFlutterOnError = FlutterError.onError;
+  FlutterError.onError = (details) {
+    if (_isDebugMacOSCapsLockKeyUpAssertion(details.exception)) {
+      debugPrint(
+        'Ignorato assert Flutter/macOS debug su KeyUp sintetico Caps Lock.',
+      );
+      return;
+    }
+    previousFlutterOnError?.call(details);
+  };
+
+  final previousPlatformOnError = PlatformDispatcher.instance.onError;
+  PlatformDispatcher.instance.onError = (error, stack) {
+    if (_isDebugMacOSCapsLockKeyUpAssertion(error)) {
+      debugPrint(
+        'Ignorato assert Flutter/macOS debug su KeyUp sintetico Caps Lock.',
+      );
+      return true;
+    }
+    return previousPlatformOnError?.call(error, stack) ?? false;
+  };
 }
 
 @pragma('vm:entry-point')
@@ -37,6 +77,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  _installDebugMacOSKeyboardAssertionWorkaround();
   final notificationService = NotificationService();
   try {
     await Firebase.initializeApp(

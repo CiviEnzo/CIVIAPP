@@ -8,6 +8,7 @@ import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/package.dart';
 import 'package:you_book/domain/entities/sale.dart';
 import 'package:you_book/domain/entities/service.dart';
+import 'package:you_book/presentation/common/app_version_badge.dart';
 import 'package:you_book/presentation/screens/admin/modules/client_detail_page.dart';
 import 'package:you_book/presentation/shared/client_package_purchase.dart';
 import 'package:you_book/widgets/shared/dashboard/kpi_card.dart' show Trend;
@@ -252,34 +253,41 @@ class _AdminOverviewModuleState extends ConsumerState<AdminOverviewModule> {
       ),
     ];
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          LayoutBuilder(
-            builder: (context, constraints) {
-              if (constraints.maxWidth < 720) {
-                return selector;
-              }
-              return Row(
-                children: [
-                  Text(
-                    'Confronto KPI',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const Spacer(),
-                  selector,
-                ],
-              );
-            },
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    if (constraints.maxWidth < 720) {
+                      return selector;
+                    }
+                    return Row(
+                      children: [
+                        Text(
+                          'Confronto KPI',
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const Spacer(),
+                        selector,
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 16),
+                _OverviewCardGrid(topCards: topCards, bottomCards: bottomCards),
+              ],
+            ),
           ),
-          const SizedBox(height: 16),
-          _OverviewCardGrid(topCards: topCards, bottomCards: bottomCards),
-        ],
-      ),
+        ),
+        const AppVersionBadge(),
+      ],
     );
   }
 

@@ -29,6 +29,7 @@ const _merchantCountryCodeDefine = String.fromEnvironment(
   'STRIPE_MERCHANT_COUNTRY_CODE',
   defaultValue: 'IT',
 );
+const _stripeReturnUrl = 'youbook://stripe-redirect';
 
 class StripeCheckoutResult {
   const StripeCheckoutResult({
@@ -277,6 +278,7 @@ class StripePaymentsService {
           paymentIntentClientSecret: clientSecret,
           customerId: customerId,
           customerEphemeralKeySecret: customerEphemeralKeySecret,
+          returnURL: _stripeReturnUrl,
           applePay: PaymentSheetApplePay(
             merchantCountryCode: _merchantCountryCodeDefine,
           ),

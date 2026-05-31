@@ -3,10 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>aps-environment</key>
-	<string>development</string>
+	<string>production</string>
 	<key>com.apple.developer.in-app-payments</key>
 	<array>
 		<string>merchant.com.cividevops.civiapp</string>
+		<string>merchant.com.civiapp.youbook</string>
 	</array>
 </dict>
 </plist>

@@ -4,6 +4,7 @@ import 'package:you_book/app/providers.dart';
 import 'package:you_book/app/router_constants.dart';
 import 'package:you_book/domain/entities/user_role.dart';
 import 'package:you_book/presentation/screens/admin/admin_dashboard_screen.dart';
+import 'package:you_book/presentation/screens/auth/account_deletion_screen.dart';
 import 'package:you_book/presentation/screens/auth/center_registration_screen.dart';
 import 'package:you_book/presentation/screens/auth/client_registration_screen.dart';
 import 'package:you_book/presentation/screens/auth/onboarding_screen.dart';
@@ -30,6 +31,7 @@ GoRouter createRouter(Ref ref) {
         name: 'sign_in',
         builder: (context, state) {
           final noticeMessage = state.uri.queryParameters[noticeQueryParam];
+          final redirectPath = state.uri.queryParameters[redirectQueryParam];
           final showVerificationNotice =
               state.uri.queryParameters[verifyEmailQueryParam] == '1';
           const verificationMessage =
@@ -37,9 +39,7 @@ GoRouter createRouter(Ref ref) {
           final message =
               noticeMessage ??
               (showVerificationNotice ? verificationMessage : null);
-          return SignInScreen(
-            notice: message,
-          );
+          return SignInScreen(notice: message, redirectPath: redirectPath);
         },
       ),
       GoRoute(
@@ -59,6 +59,11 @@ GoRouter createRouter(Ref ref) {
             (context, state) => PasswordResetScreen(
               initialEmail: state.uri.queryParameters['email'],
             ),
+      ),
+      GoRoute(
+        path: '/eliminazione-account',
+        name: 'account_deletion',
+        builder: (context, state) => const AccountDeletionScreen(),
       ),
       GoRoute(
         path: '/onboarding',
@@ -99,6 +104,7 @@ GoRouter createRouter(Ref ref) {
       final registering = state.matchedLocation == '/register';
       final registeringCenter = state.matchedLocation == '/register-center';
       final resettingPassword = state.matchedLocation == '/password-reset';
+      final deletingAccount = state.matchedLocation == '/eliminazione-account';
       final onboarding = state.matchedLocation == '/onboarding';
       final requiresProfile = session.requiresProfile;
       final requiresEmailVerification = session.requiresEmailVerification;
@@ -134,10 +140,16 @@ GoRouter createRouter(Ref ref) {
       }
 
       if (!isAuthenticated) {
-        if (loggingIn || registering || registeringCenter || resettingPassword) {
+        if (loggingIn ||
+            registering ||
+            registeringCenter ||
+            resettingPassword) {
           return null;
         }
-        return '/';
+        return Uri(
+          path: '/',
+          queryParameters: {redirectQueryParam: state.uri.toString()},
+        ).toString();
       }
 
       if (requiresEmailVerification) {
@@ -158,10 +170,20 @@ GoRouter createRouter(Ref ref) {
 
       final destination = _pathForRole(session.role);
       if (loggingIn) {
+        final redirectPath = _safeInternalRedirect(
+          state.uri.queryParameters[redirectQueryParam],
+        );
+        if (redirectPath != null) {
+          return redirectPath;
+        }
         if (canEnterClientDashboard) {
           return '/client/dashboard';
         }
         return destination;
+      }
+
+      if (deletingAccount) {
+        return null;
       }
 
       if (registering || registeringCenter || onboarding || resettingPassword) {
@@ -191,6 +213,20 @@ GoRouter createRouter(Ref ref) {
       return null;
     },
   );
+}
+
+String? _safeInternalRedirect(String? value) {
+  if (value == null || value.isEmpty) {
+    return null;
+  }
+  final uri = Uri.tryParse(value);
+  if (uri == null ||
+      uri.hasScheme ||
+      uri.hasAuthority ||
+      !value.startsWith('/')) {
+    return null;
+  }
+  return value;
 }
 
 class _RouterRefreshNotifier extends ChangeNotifier {

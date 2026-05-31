@@ -1534,9 +1534,14 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
   bool _isGeneratingLink = false;
   bool _isUpdatingClientOnlinePayments = false;
 
-  static const _defaultReturnUrl = 'https://civiapp.it/youbook/stripe-success';
-  static const _defaultRefreshUrl =
-      'https://civiapp.app/stripe/onboarding/retry';
+  static const _defaultReturnUrl = String.fromEnvironment(
+    'STRIPE_ONBOARDING_RETURN_URL',
+    defaultValue: 'https://youbook.civiapp.it/stripe-success',
+  );
+  static const _defaultRefreshUrl = String.fromEnvironment(
+    'STRIPE_ONBOARDING_REFRESH_URL',
+    defaultValue: 'https://youbook.civiapp.it/stripe/onboarding/retry',
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -1548,6 +1553,7 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
     final chargesEnabled = accountSnapshot.chargesEnabled;
     final payoutsEnabled = accountSnapshot.payoutsEnabled;
     final detailsSubmitted = accountSnapshot.detailsSubmitted;
+    final canOpenDashboard = accountId != null && detailsSubmitted;
 
     final statusText =
         accountId == null
@@ -1698,7 +1704,7 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
                           : () => _handleCreateAccount(context))
                       : (_isGeneratingLink
                           ? null
-                          : () => _handleOnboardingLink(context)),
+                          : () => _handleStripeAccountLink(context)),
               icon:
                   (accountId == null ? _isCreatingAccount : _isGeneratingLink)
                       ? const SizedBox(
@@ -1715,7 +1721,11 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
               label: Text(
                 accountId == null
                     ? (_isCreatingAccount ? 'Creazione...' : 'Configura')
-                    : (_isGeneratingLink ? 'Apertura...' : 'Dashboard'),
+                    : (_isGeneratingLink
+                        ? 'Apertura...'
+                        : canOpenDashboard
+                        ? 'Dashboard'
+                        : 'Completa onboarding'),
               ),
               style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 15),
@@ -1772,13 +1782,11 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
         salonId: salon.id,
         businessType: draft.businessType,
       );
-      if (!mounted) return;
-      messenger.showAppSnackBar(
-        SnackBar(
-          content: Text(
-            'Account Stripe creato (${draft.isCompany ? 'azienda' : 'persona fisica'}) per ${draft.email}. Completa l\'onboarding.',
-          ),
-        ),
+      if (!mounted || !context.mounted) return;
+      context.showAppNotice(
+        'Account Stripe creato (${draft.isCompany ? 'azienda' : 'persona fisica'}) per ${draft.email}. Continua con l\'onboarding per abilitare i pagamenti.',
+        tone: AppNoticeTone.warning,
+        duration: const Duration(seconds: 6),
       );
     } catch (error) {
       if (!mounted) return;
@@ -1794,7 +1802,7 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
     }
   }
 
-  Future<void> _handleOnboardingLink(BuildContext context) async {
+  Future<void> _handleStripeAccountLink(BuildContext context) async {
     final salon = widget.salon;
     final accountId = salon.stripeAccountId;
     if (accountId == null) {
@@ -1807,12 +1815,20 @@ class _StripeConnectCardState extends ConsumerState<_StripeConnectCard> {
     final messenger = ScaffoldMessenger.of(context);
     try {
       final service = ref.read(stripeConnectServiceProvider);
-      final url = await service.createOnboardingLink(
-        salonId: salon.id,
-        accountId: accountId,
-        returnUrl: _defaultReturnUrl,
-        refreshUrl: _defaultRefreshUrl,
-      );
+      final Uri url;
+      if (salon.stripeAccount.detailsSubmitted) {
+        url = await service.createDashboardLoginLink(
+          salonId: salon.id,
+          accountId: accountId,
+        );
+      } else {
+        url = await service.createOnboardingLink(
+          salonId: salon.id,
+          accountId: accountId,
+          returnUrl: _defaultReturnUrl,
+          refreshUrl: _defaultRefreshUrl,
+        );
+      }
       if (!mounted) return;
       final launched = await launchUrl(
         url,

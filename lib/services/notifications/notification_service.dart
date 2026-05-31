@@ -12,8 +12,8 @@ class NotificationService {
   NotificationService({FlutterLocalNotificationsPlugin? plugin})
     : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
 
-  static const String _channelId = 'civiapp_push';
-  static const String _channelName = 'Notifiche Civiapp';
+  static const String _channelId = 'youbook_push';
+  static const String _channelName = 'Notifiche You Book';
   static const String _channelDescription =
       'Aggiornamenti e promemoria inviati dal salone';
 

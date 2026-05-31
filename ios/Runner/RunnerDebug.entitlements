@@ -7,6 +7,7 @@
 	<key>com.apple.developer.in-app-payments</key>
 	<array>
 		<string>merchant.com.cividevops.civiapp</string>
+		<string>merchant.com.civiapp.youbook</string>
 	</array>
 </dict>
 </plist>

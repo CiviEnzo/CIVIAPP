@@ -4081,7 +4081,6 @@ class _ListAppointmentsView extends StatelessWidget {
                   }
                   final theme = Theme.of(context);
                   final needsAttention = hasIssues || isCancelled;
-                  final subtitleText = subtitleLines.join('\n');
                   final tileColor =
                       needsAttention
                           ? theme.colorScheme.errorContainer.withValues(
@@ -4119,35 +4118,30 @@ class _ListAppointmentsView extends StatelessWidget {
                           : isPlaceholder
                           ? theme.colorScheme.primary
                           : theme.colorScheme.outline;
-                  return ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
+                  return _AppointmentListEntry(
                     leading: Icon(iconData, color: iconColor),
-                    title: Text(
-                      _buildTitle(
-                        appointment,
-                        data,
-                        isPlaceholder: isPlaceholder,
-                      ),
+                    title: _buildTitle(
+                      appointment,
+                      data,
+                      isPlaceholder: isPlaceholder,
                     ),
-                    subtitle: Text(subtitleText),
+                    subtitleLines: subtitleLines,
                     tileColor: tileColor,
                     shape: tileShape,
                     trailing: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text(
                           '${_AppointmentsModuleState._timeLabel.format(appointment.start)} - ${_AppointmentsModuleState._timeLabel.format(appointment.end)}',
+                          style: theme.textTheme.bodySmall,
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 2),
                         _StatusPill(status: appointment.status),
                       ],
                     ),
-                    onTap: isPlaceholder ? null : () => onEdit(appointment),
                     enabled: !isPlaceholder,
+                    onTap: isPlaceholder ? null : () => onEdit(appointment),
                   );
                 }).toList(),
           ),
@@ -4186,6 +4180,7 @@ class _ListAppointmentsView extends StatelessWidget {
     Appointment appointment,
     AppDataState data, {
     bool isPlaceholder = false,
+    bool includeNotes = false,
   }) {
     final staff =
         data.staff
@@ -4205,10 +4200,91 @@ class _ListAppointmentsView extends StatelessWidget {
     if (isPlaceholder) {
       buffer.write(' · Disponibile ora');
     }
-    if (appointment.notes != null && appointment.notes!.isNotEmpty) {
+    if (includeNotes &&
+        appointment.notes != null &&
+        appointment.notes!.isNotEmpty) {
       buffer.write('\n${appointment.notes}');
     }
     return buffer.toString();
+  }
+}
+
+class _AppointmentListEntry extends StatelessWidget {
+  const _AppointmentListEntry({
+    required this.leading,
+    required this.title,
+    required this.subtitleLines,
+    required this.trailing,
+    this.tileColor,
+    this.shape,
+    this.onTap,
+    this.enabled = true,
+  });
+
+  final Widget leading;
+  final String title;
+  final List<String> subtitleLines;
+  final Widget trailing;
+  final Color? tileColor;
+  final ShapeBorder? shape;
+  final VoidCallback? onTap;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final filteredSubtitleLines =
+        subtitleLines.where((line) => line.trim().isNotEmpty).toList();
+    final subtitleText = filteredSubtitleLines.join('\n');
+    final effectiveShape = shape ?? const RoundedRectangleBorder();
+
+    final content = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(padding: const EdgeInsets.only(top: 2), child: leading),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: theme.textTheme.titleMedium),
+                if (subtitleText.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitleText,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          trailing,
+        ],
+      ),
+    );
+
+    return Material(
+      color: tileColor ?? Colors.transparent,
+      shape: effectiveShape,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        customBorder: effectiveShape,
+        onTap: enabled ? onTap : null,
+        child: Opacity(
+          opacity: enabled ? 1 : 0.6,
+          child: DefaultTextStyle.merge(
+            style: theme.textTheme.bodyMedium ?? const TextStyle(),
+            child: content,
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -4232,98 +4308,89 @@ class _AttentionAppointmentsCard extends StatelessWidget {
     final theme = Theme.of(context);
     final sorted =
         appointments.toList()..sort((a, b) => a.start.compareTo(b.start));
-    final attentionTiles =
-        ListTile.divideTiles(
-          context: context,
-          tiles: sorted.map((appointment) {
-            final issues =
-                anomalies[appointment.id] ?? const <AppointmentAnomalyType>{};
-            final issueList =
-                issues.toList()..sort((a, b) => a.index.compareTo(b.index));
-            final issueDescriptions =
-                issueList.map((issue) => issue.description).toList();
-            if (appointment.status == AppointmentStatus.cancelled) {
-              issueDescriptions.insert(0, 'Appuntamento annullato');
-            }
-            final isCancelled =
-                appointment.status == AppointmentStatus.cancelled;
-            final leadingIcon =
-                isCancelled
-                    ? Icons.cancel_rounded
-                    : AppointmentAnomalyType.noShift.icon;
-            final leadingColor =
-                isCancelled
-                    ? theme.colorScheme.outlineVariant
-                    : theme.colorScheme.error;
-            final dateLabel = DateFormat(
-              'dd MMM yyyy',
-              'it_IT',
-            ).format(appointment.start);
-            final timeLabel =
-                '${_AppointmentsModuleState._timeLabel.format(appointment.start)} - ${_AppointmentsModuleState._timeLabel.format(appointment.end)}';
-            final subtitleLines =
-                <String>[
-                  _ListAppointmentsView._buildSubtitle(appointment, data),
-                  ...issueDescriptions,
-                  if (lockedReasons.containsKey(appointment.id))
-                    lockedReasons[appointment.id]!,
-                ].where((line) => line.trim().isNotEmpty).toList();
-            final subtitleText = subtitleLines.join('\n');
-            final tileColor = theme.colorScheme.errorContainer.withValues(
-              alpha: 0.26,
-            );
-            return ListTile(
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 12,
-              ),
-              leading: Icon(leadingIcon, color: leadingColor),
-              title: Text(_ListAppointmentsView._buildTitle(appointment, data)),
-              subtitle: Text(subtitleText),
-              tileColor: tileColor,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-                side: BorderSide(
-                  color: theme.colorScheme.error.withValues(alpha: 0.34),
-                ),
-              ),
-              trailing: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(dateLabel),
-                  const SizedBox(height: 4),
-                  Text(timeLabel),
-                ],
-              ),
-              onTap: () => onEdit(appointment),
-            );
-          }),
-        ).toList();
+    final attentionTiles = <Widget>[];
+    for (var index = 0; index < sorted.length; index++) {
+      final appointment = sorted[index];
+      final issues =
+          anomalies[appointment.id] ?? const <AppointmentAnomalyType>{};
+      final issueList =
+          issues.toList()..sort((a, b) => a.index.compareTo(b.index));
+      final issueDescriptions =
+          issueList.map((issue) => issue.description).toList();
+      if (appointment.status == AppointmentStatus.cancelled) {
+        issueDescriptions.insert(0, 'Appuntamento annullato');
+      }
+      final isCancelled = appointment.status == AppointmentStatus.cancelled;
+      final leadingIcon =
+          isCancelled
+              ? Icons.cancel_rounded
+              : AppointmentAnomalyType.noShift.icon;
+      final leadingColor =
+          isCancelled
+              ? theme.colorScheme.outlineVariant
+              : theme.colorScheme.error;
+      final dateLabel = DateFormat(
+        'dd MMM yyyy',
+        'it_IT',
+      ).format(appointment.start);
+      final timeLabel =
+          '${_AppointmentsModuleState._timeLabel.format(appointment.start)} - ${_AppointmentsModuleState._timeLabel.format(appointment.end)}';
+      final subtitleLines =
+          <String>[
+            _ListAppointmentsView._buildSubtitle(appointment, data),
+            ...issueDescriptions,
+            if (lockedReasons.containsKey(appointment.id))
+              lockedReasons[appointment.id]!,
+          ].where((line) => line.trim().isNotEmpty).toList();
+      final tileColor = theme.colorScheme.errorContainer.withValues(
+        alpha: 0.26,
+      );
+
+      attentionTiles.add(
+        _AppointmentListEntry(
+          leading: Icon(leadingIcon, color: leadingColor),
+          title: _ListAppointmentsView._buildTitle(appointment, data),
+          subtitleLines: subtitleLines,
+          tileColor: tileColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(
+              color: theme.colorScheme.error.withValues(alpha: 0.34),
+            ),
+          ),
+          trailing: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(dateLabel, style: theme.textTheme.labelSmall),
+              const SizedBox(height: 2),
+              Text(timeLabel, style: theme.textTheme.bodySmall),
+            ],
+          ),
+          onTap: () => onEdit(appointment),
+        ),
+      );
+      if (index != sorted.length - 1) {
+        attentionTiles.add(const Divider(height: 1));
+      }
+    }
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: ExpansionTile(
+        initiallyExpanded: true,
+        maintainState: true,
+        tilePadding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+        childrenPadding: EdgeInsets.zero,
+        leading: Icon(
+          AppointmentAnomalyType.noShift.icon,
+          color: theme.colorScheme.error,
+        ),
+        title: Text(
+          'Appuntamenti da gestire (${sorted.length})',
+          style: theme.textTheme.titleMedium,
+        ),
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Row(
-              children: [
-                Icon(
-                  AppointmentAnomalyType.noShift.icon,
-                  color: theme.colorScheme.error,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Appuntamenti da gestire (${sorted.length})',
-                    style: theme.textTheme.titleMedium,
-                  ),
-                ),
-              ],
-            ),
-          ),
           if (attentionTiles.isNotEmpty) const Divider(height: 1),
           ...attentionTiles,
         ],
@@ -4543,7 +4610,7 @@ class _StatusPill extends StatelessWidget {
         break;
     }
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(16),

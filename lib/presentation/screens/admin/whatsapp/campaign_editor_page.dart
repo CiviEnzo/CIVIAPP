@@ -141,7 +141,7 @@ class _WhatsAppCampaignEditorPageState
                         children: [
                           DropdownButtonFormField<MessageTemplate>(
                             isExpanded: true,
-                            value: _selectedTemplate,
+                            initialValue: _selectedTemplate,
                             hint: const Text('Seleziona template'),
                             decoration: const InputDecoration(
                               labelText: 'Template approvato',
@@ -548,7 +548,6 @@ class _WhatsAppCampaignEditorPageState
     }
     final templateLanguage = template.resolvedMetaTemplateLanguage ?? 'it';
 
-    setState(() => _isSending = true);
     final scaffold = ScaffoldMessenger.of(context);
     final fromPrimary = _buildCurrentPlaceholderValues();
 
@@ -575,6 +574,7 @@ class _WhatsAppCampaignEditorPageState
         var successCount = 0;
         var failureCount = 0;
         var skippedCount = 0;
+        final acceptedMessageIds = <String>[];
         for (final recipient in selectedRecipients) {
           final to = _normalizeWhatsappRecipient(recipient.phone);
           if (to.isEmpty) {
@@ -597,8 +597,16 @@ class _WhatsAppCampaignEditorPageState
             fromPrimary: const <String, String>{},
             fromSecondary: personalizedContext,
           );
+          final validationError = _validateTemplateComponents(components);
+          if (validationError != null) {
+            scaffold.showAppSnackBar(SnackBar(content: Text(validationError)));
+            return;
+          }
 
           try {
+            if (!_isSending) {
+              setState(() => _isSending = true);
+            }
             final result = await ref
                 .read(whatsappServiceProvider)
                 .sendTemplate(
@@ -611,6 +619,10 @@ class _WhatsAppCampaignEditorPageState
                 );
             if (result.success) {
               successCount += 1;
+              final messageId = result.messageId?.trim();
+              if (messageId != null && messageId.isNotEmpty) {
+                acceptedMessageIds.add(messageId);
+              }
             } else {
               failureCount += 1;
             }
@@ -622,7 +634,7 @@ class _WhatsAppCampaignEditorPageState
         scaffold.showAppSnackBar(
           SnackBar(
             content: Text(
-              'Invio completato: $successCount ok, $failureCount errori, $skippedCount saltati.',
+              'Richiesta accettata da Meta: $successCount, errori: $failureCount, saltati: $skippedCount${acceptedMessageIds.isNotEmpty ? '. ID: ${acceptedMessageIds.join(', ')}' : ''}.',
             ),
           ),
         );
@@ -631,6 +643,13 @@ class _WhatsAppCampaignEditorPageState
           fromPrimary: fromPrimary,
           fromSecondary: const <String, String>{},
         );
+        final validationError = _validateTemplateComponents(components);
+        if (validationError != null) {
+          scaffold.showAppSnackBar(SnackBar(content: Text(validationError)));
+          return;
+        }
+
+        setState(() => _isSending = true);
         final result = await ref
             .read(whatsappServiceProvider)
             .sendTemplate(
@@ -646,7 +665,7 @@ class _WhatsAppCampaignEditorPageState
           SnackBar(
             content: Text(
               result.success
-                  ? 'Template inviato! messageId=${result.messageId ?? 'n/d'}'
+                  ? 'Richiesta accettata da Meta. ID: ${result.messageId ?? 'n/d'}'
                   : 'Invio completato con warning',
             ),
           ),
@@ -661,6 +680,39 @@ class _WhatsAppCampaignEditorPageState
         setState(() => _isSending = false);
       }
     }
+  }
+
+  String? _validateTemplateComponents(List<Map<String, dynamic>> components) {
+    for (final component in components) {
+      final type = (component['type'] as String?)?.trim().toLowerCase();
+      final parameters = component['parameters'];
+      if (parameters is! List || parameters.isEmpty) {
+        return 'Template non completo: il componente ${type ?? 'sconosciuto'} non ha parametri.';
+      }
+      for (var index = 0; index < parameters.length; index++) {
+        final parameter = parameters[index];
+        if (parameter is! Map) {
+          return 'Template non completo: parametro ${index + 1} non valido.';
+        }
+        final parameterType =
+            (parameter['type'] as String?)?.trim().toLowerCase();
+        if (parameterType == 'text') {
+          final text = (parameter['text'] as String?)?.trim() ?? '';
+          if (text.isEmpty) {
+            return 'Template non completo: valorizza tutti i parametri obbligatori prima di inviare.';
+          }
+        }
+        if (parameterType == 'image') {
+          final image = parameter['image'];
+          final link =
+              image is Map ? (image['link'] as String?)?.trim() ?? '' : '';
+          if (link.isEmpty) {
+            return 'Template non completo: configura un URL immagine valido per l\'header.';
+          }
+        }
+      }
+    }
+    return null;
   }
 
   Map<String, String> _buildPromotionContext(

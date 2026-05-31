@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "you_book macOS (dart defines)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "macos",
+      "toolArgs": [
+        "--dart-define-from-file=tool/dart_defines.json"
+      ]
+    }
+  ]
+}

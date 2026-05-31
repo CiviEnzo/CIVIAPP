@@ -154,6 +154,12 @@ function mapSendTemplateError(params: {
     );
   }
 
+  if (code === 131008) {
+    return new Error(
+      `Template WhatsApp incompleto: Meta richiede uno o piu parametri obbligatori che non sono stati inviati. Controlla il mapping del template locale, i placeholder body/header e riprova. Dettaglio Meta: ${message || 'Required parameter is missing'}`,
+    );
+  }
+
   return null;
 }
 

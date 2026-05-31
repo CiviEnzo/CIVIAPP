@@ -24,7 +24,36 @@ class WebWhatsAppEmbeddedSignupLauncher
     );
 
     Map<String, dynamic>? latestFinishPayload;
+    String? authCode;
+    Timer? finishPayloadTimer;
     final completer = Completer<WhatsAppEmbeddedSignupLaunchResult>();
+
+    void completeWithPayload() {
+      if (completer.isCompleted || authCode == null) {
+        return;
+      }
+      if (!_hasSignupSelectionPayload(latestFinishPayload)) {
+        return;
+      }
+      finishPayloadTimer?.cancel();
+      completer.complete(
+        _buildLaunchResult(code: authCode!, payload: latestFinishPayload),
+      );
+    }
+
+    void waitForFinishPayload() {
+      finishPayloadTimer?.cancel();
+      finishPayloadTimer = Timer(const Duration(seconds: 8), () {
+        if (completer.isCompleted) {
+          return;
+        }
+        completer.completeError(
+          StateError(
+            'Meta non ha restituito i dati del numero WhatsApp selezionato.',
+          ),
+        );
+      });
+    }
 
     late html.EventListener messageListener;
     messageListener = (event) {
@@ -44,9 +73,15 @@ class WebWhatsAppEmbeddedSignupLauncher
 
       final eventName = (payload['event'] as String?)?.trim().toUpperCase();
       if (eventName == 'CANCEL' && !completer.isCompleted) {
+        finishPayloadTimer?.cancel();
         completer.completeError(
           StateError('Il collegamento WhatsApp e stato annullato.'),
         );
+        return;
+      }
+
+      if (eventName == 'FINISH') {
+        completeWithPayload();
       }
     };
 
@@ -54,55 +89,53 @@ class WebWhatsAppEmbeddedSignupLauncher
 
     try {
       final fb = js_util.getProperty(html.window, 'FB');
-      js_util.callMethod<void>(
-        fb,
-        'login',
-        <Object?>[
-          js_util.allowInterop((dynamic response) {
-            if (completer.isCompleted) {
-              return;
-            }
+      js_util.callMethod<void>(fb, 'login', <Object?>[
+        js_util.allowInterop((dynamic response) {
+          if (completer.isCompleted) {
+            return;
+          }
 
-            final code =
-                _readString(_getProperty(response, 'authResponse'), 'code') ??
-                _readString(response, 'code');
-            if (code != null && code.isNotEmpty) {
-              completer.complete(
-                _buildLaunchResult(
-                  code: code,
-                  payload: latestFinishPayload,
-                ),
-              );
-              return;
+          final code =
+              _readString(_getProperty(response, 'authResponse'), 'code') ??
+              _readString(response, 'code');
+          if (code != null && code.isNotEmpty) {
+            authCode = code;
+            completeWithPayload();
+            if (!completer.isCompleted) {
+              waitForFinishPayload();
             }
+            return;
+          }
 
-            completer.completeError(
-              StateError(
-                'Meta non ha restituito un codice Embedded Signup valido.',
-              ),
-            );
-          }),
-          js_util.jsify(<String, Object?>{
-            'config_id': session.configId,
-            'response_type': 'code',
-            'override_default_response_type': true,
-            'scope':
-                'business_management,whatsapp_business_management,whatsapp_business_messaging',
-            'extras': <String, Object?>{
-              'feature': 'whatsapp_embedded_signup',
-              'sessionInfoVersion': 3,
-            },
-          }),
-        ],
-      );
+          completer.completeError(
+            StateError(
+              'Meta non ha restituito un codice Embedded Signup valido.',
+            ),
+          );
+        }),
+        js_util.jsify(<String, Object?>{
+          'config_id': session.configId,
+          'response_type': 'code',
+          'override_default_response_type': true,
+          'scope':
+              'business_management,whatsapp_business_management,whatsapp_business_messaging',
+          'extras': <String, Object?>{
+            'feature': 'whatsapp_embedded_signup',
+            'sessionInfoVersion': 3,
+          },
+        }),
+      ]);
 
       return await completer.future.timeout(
         const Duration(minutes: 5),
-        onTimeout: () => throw StateError(
-          'Timeout durante il collegamento WhatsApp con Meta.',
-        ),
+        onTimeout:
+            () =>
+                throw StateError(
+                  'Timeout durante il collegamento WhatsApp con Meta.',
+                ),
       );
     } finally {
+      finishPayloadTimer?.cancel();
       html.window.removeEventListener('message', messageListener);
     }
   }
@@ -133,10 +166,11 @@ class WebWhatsAppEmbeddedSignupLauncher
       }),
     );
 
-    final script = html.ScriptElement()
-      ..src = 'https://connect.facebook.net/en_US/sdk.js'
-      ..async = true
-      ..defer = true;
+    final script =
+        html.ScriptElement()
+          ..src = 'https://connect.facebook.net/en_US/sdk.js'
+          ..async = true
+          ..defer = true;
 
     script.onError.first.then((_) {
       if (!completer.isCompleted) {
@@ -162,18 +196,14 @@ class WebWhatsAppEmbeddedSignupLauncher
     }
 
     final fb = js_util.getProperty(html.window, 'FB');
-    js_util.callMethod<void>(
-      fb,
-      'init',
-      <Object?>[
-        js_util.jsify(<String, Object?>{
-          'appId': appId,
-          'cookie': true,
-          'xfbml': false,
-          'version': graphApiVersion,
-        }),
-      ],
-    );
+    js_util.callMethod<void>(fb, 'init', <Object?>[
+      js_util.jsify(<String, Object?>{
+        'appId': appId,
+        'cookie': true,
+        'xfbml': false,
+        'version': graphApiVersion,
+      }),
+    ]);
 
     _initializedAppId = appId;
     _initializedGraphApiVersion = graphApiVersion;
@@ -243,6 +273,16 @@ class WebWhatsAppEmbeddedSignupLauncher
       rawPayload: payload,
     );
   }
+}
+
+bool _hasSignupSelectionPayload(Map<String, dynamic>? payload) {
+  if (payload == null || payload['data'] is! Map) {
+    return false;
+  }
+  final data = Map<String, dynamic>.from(payload['data'] as Map);
+  return _stringOrNull(data['waba_id']) != null ||
+      _stringOrNull(data['whatsapp_business_account_id']) != null ||
+      _stringOrNull(data['wabaId']) != null;
 }
 
 Object? _getProperty(Object? value, String name) {

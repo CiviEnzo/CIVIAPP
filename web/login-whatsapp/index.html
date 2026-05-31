@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Login WhatsApp - YouBook</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f7f9;
+        --card: #ffffff;
+        --text: #17202a;
+        --muted: #617083;
+        --ok: #1f8f5f;
+        --err: #b84a4a;
+        --line: #dfe5ec;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+      }
+
+      main {
+        width: min(100%, 520px);
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 28px;
+        box-shadow: 0 18px 48px rgba(23, 32, 42, 0.08);
+      }
+
+      .badge {
+        width: 52px;
+        height: 52px;
+        display: grid;
+        place-items: center;
+        border-radius: 16px;
+        margin-bottom: 18px;
+        color: white;
+        font-size: 28px;
+        font-weight: 700;
+      }
+
+      .badge.ok {
+        background: var(--ok);
+      }
+
+      .badge.err {
+        background: var(--err);
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: clamp(24px, 5vw, 32px);
+        line-height: 1.12;
+      }
+
+      p {
+        margin: 0 0 18px;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+
+      .details {
+        display: none;
+        margin: 18px 0;
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: #f2f4f7;
+        color: var(--muted);
+        overflow-wrap: anywhere;
+        font-size: 14px;
+      }
+
+      .details.visible {
+        display: block;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 22px;
+      }
+
+      a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 0 16px;
+        border-radius: 10px;
+        text-decoration: none;
+        font-weight: 650;
+      }
+
+      .primary {
+        background: #17202a;
+        color: #fff;
+      }
+
+      .secondary {
+        border: 1px solid var(--line);
+        color: var(--text);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div id="badge" class="badge ok">✓</div>
+      <h1 id="title">Login WhatsApp completato</h1>
+      <p id="message">
+        Meta ha completato il login. Torna al pannello YouBook per terminare la
+        configurazione del numero WhatsApp.
+      </p>
+      <div id="details" class="details"></div>
+      <div class="actions">
+        <a id="dashboardLink" class="primary" href="/">Torna al pannello</a>
+        <a class="secondary" href="/">Vai alla home</a>
+      </div>
+    </main>
+
+    <script>
+      const completeEndpoint =
+        "https://europe-west1-civiapp-38b51.cloudfunctions.net/completeWhatsappOAuthRedirect";
+      const params = new URLSearchParams(window.location.search);
+      const error =
+        params.get("error_description") ||
+        params.get("error_message") ||
+        params.get("error");
+      const code = params.get("code");
+      const state = params.get("state");
+      const dashboardUrl = new URL("/", window.location.origin);
+      dashboardUrl.searchParams.set("redirect", "/admin?module=whatsapp");
+      document.getElementById("dashboardLink").href = dashboardUrl.toString();
+
+      function setResult(status, title, message, detailsText) {
+        const badge = document.getElementById("badge");
+        badge.className = `badge ${status === "ok" ? "ok" : "err"}`;
+        badge.textContent = status === "ok" ? "✓" : "!";
+        document.getElementById("title").textContent = title;
+        document.getElementById("message").textContent = message;
+        const details = document.getElementById("details");
+        if (detailsText) {
+          details.className = "details visible";
+          details.textContent = detailsText;
+        } else {
+          details.className = "details";
+          details.textContent = "";
+        }
+      }
+
+      async function completeLogin() {
+        if (error || !code || !state) {
+          setResult(
+            "err",
+            "Login WhatsApp non completato",
+            "Meta non ha completato il login WhatsApp. Puoi tornare al pannello e riprovare.",
+            error || "Codice di autorizzazione o stato sessione mancante."
+          );
+          return;
+        }
+
+        document.getElementById("title").textContent =
+          "Completamento login WhatsApp";
+        document.getElementById("message").textContent =
+          "Sto verificando il login con Meta e aggiornando la configurazione del salone.";
+
+        try {
+          const response = await fetch(completeEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code, state }),
+          });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok || body.success !== true) {
+            throw new Error(
+              body.error || `Errore ${response.status} durante il completamento.`
+            );
+          }
+          const number = body.displayPhoneNumber || body.phoneNumberId || "";
+          setResult(
+            "ok",
+            "Login WhatsApp completato",
+            "La configurazione WhatsApp del salone è stata aggiornata correttamente.",
+            number ? `Numero collegato: ${number}` : ""
+          );
+        } catch (completionError) {
+          setResult(
+            "err",
+            "Login WhatsApp non completato",
+            "Meta ha autorizzato il login, ma YouBook non è riuscito ad aggiornare la configurazione del salone.",
+            completionError instanceof Error
+              ? completionError.message
+              : String(completionError)
+          );
+        }
+      }
+
+      completeLogin();
+    </script>
+  </body>
+</html>

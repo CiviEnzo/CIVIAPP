@@ -2,6 +2,7 @@ import 'package:you_book/domain/entities/loyalty_settings.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:flutter/material.dart';
 import 'package:you_book/presentation/common/app_notice.dart';
+import 'package:you_book/services/salons/salon_geocoding_service.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
@@ -48,6 +49,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
   late ClientRegistrationAccessMode _registrationAccessMode;
   late Set<ClientRegistrationExtraField> _registrationExtraFields;
   late bool _isPublished;
+  bool _isGeocoding = false;
   static const int _minutesInDay = 24 * 60;
   static const int _defaultOpeningMinutes = 9 * 60;
   static const int _defaultClosingMinutes = 19 * 60;
@@ -267,42 +269,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
               keyboardType: TextInputType.url,
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _googlePlaceId,
-              decoration: const InputDecoration(
-                labelText: 'Link recensioni',
-                helperText:
-                    'Incolla il link diretto alla pagina recensioni o l\'ID Google Place',
-              ),
-              keyboardType: TextInputType.url,
-              textCapitalization: TextCapitalization.none,
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _latitude,
-                    decoration: const InputDecoration(labelText: 'Latitudine'),
-                    keyboardType: const TextInputType.numberWithOptions(
-                      signed: true,
-                      decimal: true,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextFormField(
-                    controller: _longitude,
-                    decoration: const InputDecoration(labelText: 'Longitudine'),
-                    keyboardType: const TextInputType.numberWithOptions(
-                      signed: true,
-                      decimal: true,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            _buildGoogleLocationSection(context),
             const SizedBox(height: 12),
             DropdownButtonFormField<SalonStatus>(
               isExpanded: true,
@@ -1173,6 +1140,184 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
         entry.close = picked;
       }
     });
+  }
+
+  Future<void> _geocodeAddress() async {
+    final address = _address.text.trim();
+    final city = _city.text.trim();
+    if (address.isEmpty || city.isEmpty) {
+      _showError('Inserisci indirizzo e città prima di trovare le coordinate.');
+      return;
+    }
+    setState(() => _isGeocoding = true);
+    try {
+      final service = SalonGeocodingService();
+      final candidates = await service.geocodeAddress(
+        salonId: widget.initial?.id,
+        address: address,
+        city: city,
+        postalCode: _postalCode.text.trim(),
+      );
+      if (!mounted) {
+        return;
+      }
+      if (candidates.isEmpty) {
+        _showError(
+          'Coordinate non trovate. Il salone resterà ricercabile per nome o telefono.',
+        );
+        return;
+      }
+      final selected =
+          candidates.length == 1
+              ? candidates.first
+              : await _selectGeocodingCandidate(candidates);
+      if (selected == null || !mounted) {
+        return;
+      }
+      _applyGeocodingCandidate(selected);
+    } on Exception catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showError('Geocoding non riuscito: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _isGeocoding = false);
+      }
+    }
+  }
+
+  Future<SalonGeocodingCandidate?> _selectGeocodingCandidate(
+    List<SalonGeocodingCandidate> candidates,
+  ) {
+    return showDialog<SalonGeocodingCandidate>(
+      context: context,
+      builder: (dialogContext) {
+        return SimpleDialog(
+          title: const Text('Seleziona indirizzo'),
+          children:
+              candidates.map((candidate) {
+                return SimpleDialogOption(
+                  onPressed: () => Navigator.of(dialogContext).pop(candidate),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(candidate.formattedAddress),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${candidate.latitude.toStringAsFixed(6)}, ${candidate.longitude.toStringAsFixed(6)}',
+                        style: Theme.of(dialogContext).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+        );
+      },
+    );
+  }
+
+  void _applyGeocodingCandidate(SalonGeocodingCandidate candidate) {
+    setState(() {
+      _latitude.text = candidate.latitude.toStringAsFixed(6);
+      _longitude.text = candidate.longitude.toStringAsFixed(6);
+      final placeId = candidate.placeId?.trim();
+      if (placeId != null &&
+          placeId.isNotEmpty &&
+          _googlePlaceId.text.trim().isEmpty) {
+        _googlePlaceId.text = placeId;
+      }
+    });
+    ScaffoldMessenger.of(context).showAppSnackBar(
+      const SnackBar(content: Text('Coordinate aggiornate dall’indirizzo.')),
+    );
+  }
+
+  Widget _buildGoogleLocationSection(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outlineVariant),
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Google e coordinate',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Dati usati per mostrare il salone nella lista vicini.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _googlePlaceId,
+            decoration: const InputDecoration(
+              labelText: 'Google Place ID / link recensioni',
+              helperText:
+                  'Il Place ID può essere compilato automaticamente dal geocoding',
+            ),
+            keyboardType: TextInputType.url,
+            textCapitalization: TextCapitalization.none,
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _isGeocoding ? null : _geocodeAddress,
+              icon:
+                  _isGeocoding
+                      ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : const Icon(Icons.travel_explore_rounded),
+              label: Text(
+                _isGeocoding ? 'Ricerca coordinate...' : 'Trova coordinate',
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: _latitude,
+                  decoration: const InputDecoration(labelText: 'Latitudine'),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    signed: true,
+                    decimal: true,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextFormField(
+                  controller: _longitude,
+                  decoration: const InputDecoration(labelText: 'Longitudine'),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    signed: true,
+                    decimal: true,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   void _showError(String message) {
