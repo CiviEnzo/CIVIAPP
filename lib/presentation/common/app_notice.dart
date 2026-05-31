@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-enum AppNoticeTone { info, success, error }
+enum AppNoticeTone { info, success, warning, error }
 
 class AppNoticeRequest {
   const AppNoticeRequest({
@@ -373,7 +373,7 @@ class _AppNoticeCard extends StatelessWidget {
           border: Border.all(color: palette.border, width: 1.2),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(isDark ? 0.42 : 0.14),
+              color: Colors.black.withValues(alpha: isDark ? 0.42 : 0.14),
               blurRadius: 34,
               offset: const Offset(0, 16),
               spreadRadius: -14,
@@ -406,8 +406,8 @@ class _AppNoticeCard extends StatelessWidget {
                       _labelForTone(request.tone),
                       textAlign: TextAlign.left,
                       style: theme.textTheme.labelSmall?.copyWith(
-                        color: palette.foreground.withOpacity(
-                          isDark ? 0.88 : 0.76,
+                        color: palette.foreground.withValues(
+                          alpha: isDark ? 0.88 : 0.76,
                         ),
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0.7,
@@ -465,10 +465,23 @@ class _AppNoticePalette {
             accent: const Color(0xFFDCFCE7),
             isDark: isDark,
           ),
-          border: accent.withOpacity(isDark ? 0.45 : 0.24),
+          border: accent.withValues(alpha: isDark ? 0.45 : 0.24),
           foreground: isDark ? const Color(0xFF86EFAC) : accent,
-          iconBackground: accent.withOpacity(isDark ? 0.24 : 0.12),
+          iconBackground: accent.withValues(alpha: isDark ? 0.24 : 0.12),
           icon: Icons.check_rounded,
+        );
+      case AppNoticeTone.warning:
+        const accent = Color(0xFFB88315);
+        return _AppNoticePalette(
+          background: _blendBackground(
+            base: scheme.surface,
+            accent: const Color(0xFFFEF3C7),
+            isDark: isDark,
+          ),
+          border: accent.withValues(alpha: isDark ? 0.5 : 0.3),
+          foreground: isDark ? const Color(0xFFFCD34D) : accent,
+          iconBackground: accent.withValues(alpha: isDark ? 0.24 : 0.14),
+          icon: Icons.priority_high_rounded,
         );
       case AppNoticeTone.error:
         final accent = scheme.error;
@@ -478,9 +491,9 @@ class _AppNoticePalette {
             accent: scheme.errorContainer,
             isDark: isDark,
           ),
-          border: accent.withOpacity(isDark ? 0.52 : 0.24),
+          border: accent.withValues(alpha: isDark ? 0.52 : 0.24),
           foreground: isDark ? scheme.errorContainer : accent,
-          iconBackground: accent.withOpacity(isDark ? 0.24 : 0.12),
+          iconBackground: accent.withValues(alpha: isDark ? 0.24 : 0.12),
           icon: Icons.close_rounded,
         );
       case AppNoticeTone.info:
@@ -491,9 +504,9 @@ class _AppNoticePalette {
             accent: const Color(0xFFDBEAFE),
             isDark: isDark,
           ),
-          border: accent.withOpacity(isDark ? 0.38 : 0.26),
+          border: accent.withValues(alpha: isDark ? 0.38 : 0.26),
           foreground: isDark ? const Color(0xFFBFDBFE) : accent,
-          iconBackground: accent.withOpacity(isDark ? 0.24 : 0.14),
+          iconBackground: accent.withValues(alpha: isDark ? 0.24 : 0.14),
           icon: Icons.info_outline_rounded,
         );
     }
@@ -504,7 +517,10 @@ class _AppNoticePalette {
     required Color accent,
     required bool isDark,
   }) {
-    return Color.alphaBlend(accent.withOpacity(isDark ? 0.18 : 0.16), base);
+    return Color.alphaBlend(
+      accent.withValues(alpha: isDark ? 0.18 : 0.16),
+      base,
+    );
   }
 }
 
@@ -527,6 +543,8 @@ String _labelForTone(AppNoticeTone tone) {
       return 'NOTIFICA';
     case AppNoticeTone.success:
       return 'CONFERMATO';
+    case AppNoticeTone.warning:
+      return 'ATTENZIONE';
     case AppNoticeTone.error:
       return 'ATTENZIONE';
   }

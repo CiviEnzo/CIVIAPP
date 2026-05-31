@@ -7,10 +7,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/data/models/app_user.dart';
 import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/presentation/common/app_version_badge.dart';
 import 'package:you_book/presentation/screens/client/client_theme.dart';
 
 class ClientSettingsScreen extends ConsumerStatefulWidget {
@@ -24,10 +24,6 @@ class ClientSettingsScreen extends ConsumerStatefulWidget {
 class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
   static const String _notificationPrefsKeyPrefix =
       'client_settings_notifications';
-  static const String _clientDeleteAccountUrl = String.fromEnvironment(
-    'CLIENT_DELETE_ACCOUNT_URL',
-    defaultValue: 'https://civiapp.it/richiesta-eliminazione-youbook',
-  );
 
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _firstNameController;
@@ -307,334 +303,369 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
               title: const Text('Impostazioni'),
               centerTitle: true,
             ),
-            body:
-                currentClient == null
-                    ? _MissingProfileState(theme: theme)
-                    : ListView(
-                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-                      children: [
-                        Text(
-                          'Personalizza la tua esperienza',
-                          style: theme.textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 20),
-                        Card(
-                          child: SwitchListTile.adaptive(
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 4,
-                            ),
-                            secondary: _SettingsIconAvatar(
-                              icon:
-                                  isDarkMode
-                                      ? Icons.dark_mode_rounded
-                                      : Icons.light_mode_rounded,
-                              color: theme.colorScheme.primary,
-                            ),
-                            title: Text(
-                              'Tema scuro',
-                              style: theme.textTheme.titleMedium,
-                            ),
-                            subtitle: const Text(
-                              'Attiva il tema scuro dell\'app clienti',
-                            ),
-                            value: isDarkMode,
-                            onChanged: themeController.setDarkEnabled,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        _SettingsActionTile(
-                          icon: Icons.storefront_rounded,
-                          color: theme.colorScheme.primary,
-                          title: 'Cambia salone',
-                          subtitle:
-                              session.salonId == null
-                                  ? 'Nessun salone attivo'
-                                  : 'Salone attuale: ${salons.firstWhereOrNull((salon) => salon.id == session.salonId)?.name ?? session.salonId}',
-                          trailing:
-                              _preparingSalonSwitch
-                                  ? const SizedBox.square(
-                                    dimension: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                  : const Icon(Icons.chevron_right_rounded),
-                          onTap:
-                              _preparingSalonSwitch
-                                  ? null
-                                  : () => _handleSalonSwitch(
-                                    themedContext,
-                                    session,
-                                  ),
-                        ),
-                        const SizedBox(height: 16),
-                        Card(
-                          elevation: 0,
-                          clipBehavior: Clip.antiAlias,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
-                            side: BorderSide(
-                              color: theme.colorScheme.outline.withOpacity(
-                                0.15,
-                              ),
-                            ),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
+            body: Stack(
+              children: [
+                Positioned.fill(
+                  child:
+                      currentClient == null
+                          ? _MissingProfileState(theme: theme)
+                          : ListView(
+                            padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
                             children: [
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.secondaryContainer,
-                                  borderRadius: const BorderRadius.vertical(
-                                    top: Radius.circular(20),
+                              Text(
+                                'Personalizza la tua esperienza',
+                                style: theme.textTheme.titleLarge,
+                              ),
+                              const SizedBox(height: 20),
+                              Card(
+                                child: SwitchListTile.adaptive(
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 20,
+                                    vertical: 4,
+                                  ),
+                                  secondary: _SettingsIconAvatar(
+                                    icon:
+                                        isDarkMode
+                                            ? Icons.dark_mode_rounded
+                                            : Icons.light_mode_rounded,
+                                    color: theme.colorScheme.primary,
+                                  ),
+                                  title: Text(
+                                    'Tema scuro',
+                                    style: theme.textTheme.titleMedium,
+                                  ),
+                                  subtitle: const Text(
+                                    'Attiva il tema scuro dell\'app clienti',
+                                  ),
+                                  value: isDarkMode,
+                                  onChanged: themeController.setDarkEnabled,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              _SettingsActionTile(
+                                icon: Icons.storefront_rounded,
+                                color: theme.colorScheme.primary,
+                                title: 'Cambia salone',
+                                subtitle:
+                                    session.salonId == null
+                                        ? 'Nessun salone attivo'
+                                        : 'Salone attuale: ${salons.firstWhereOrNull((salon) => salon.id == session.salonId)?.name ?? session.salonId}',
+                                trailing:
+                                    _preparingSalonSwitch
+                                        ? const SizedBox.square(
+                                          dimension: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                        : const Icon(
+                                          Icons.chevron_right_rounded,
+                                        ),
+                                onTap:
+                                    _preparingSalonSwitch
+                                        ? null
+                                        : () => _handleSalonSwitch(
+                                          themedContext,
+                                          session,
+                                        ),
+                              ),
+                              const SizedBox(height: 16),
+                              Card(
+                                elevation: 0,
+                                clipBehavior: Clip.antiAlias,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  side: BorderSide(
+                                    color: theme.colorScheme.outline
+                                        .withOpacity(0.15),
                                   ),
                                 ),
-                                padding: const EdgeInsets.fromLTRB(
-                                  20,
-                                  16,
-                                  20,
-                                  12,
-                                ),
-                                child: Row(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
                                   children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        mainAxisSize: MainAxisSize.min,
+                                    Container(
+                                      decoration: BoxDecoration(
+                                        color:
+                                            theme
+                                                .colorScheme
+                                                .secondaryContainer,
+                                        borderRadius:
+                                            const BorderRadius.vertical(
+                                              top: Radius.circular(20),
+                                            ),
+                                      ),
+                                      padding: const EdgeInsets.fromLTRB(
+                                        20,
+                                        16,
+                                        20,
+                                        12,
+                                      ),
+                                      child: Row(
                                         children: [
-                                          Text(
-                                            'Notifiche',
-                                            style: theme.textTheme.titleMedium
-                                                ?.copyWith(
-                                                  fontWeight: FontWeight.w600,
-                                                  color:
-                                                      theme
-                                                          .colorScheme
-                                                          .onSecondaryContainer,
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  'Notifiche',
+                                                  style: theme
+                                                      .textTheme
+                                                      .titleMedium
+                                                      ?.copyWith(
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                        color:
+                                                            theme
+                                                                .colorScheme
+                                                                .onSecondaryContainer,
+                                                      ),
                                                 ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  'Scegli quali aggiornamenti ricevere dall\'app.',
+                                                  style: theme
+                                                      .textTheme
+                                                      .bodySmall
+                                                      ?.copyWith(
+                                                        color: theme
+                                                            .colorScheme
+                                                            .onSecondaryContainer
+                                                            .withOpacity(0.85),
+                                                      ),
+                                                ),
+                                              ],
+                                            ),
                                           ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            'Scegli quali aggiornamenti ricevere dall\'app.',
-                                            style: theme.textTheme.bodySmall
-                                                ?.copyWith(
-                                                  color: theme
-                                                      .colorScheme
-                                                      .onSecondaryContainer
-                                                      .withOpacity(0.85),
-                                                ),
+                                          const SizedBox(width: 12),
+                                          Icon(
+                                            Icons.notifications_rounded,
+                                            color: theme
+                                                .colorScheme
+                                                .onSecondaryContainer
+                                                .withOpacity(0.9),
                                           ),
                                         ],
                                       ),
                                     ),
-                                    const SizedBox(width: 12),
-                                    Icon(
-                                      Icons.notifications_rounded,
-                                      color: theme
-                                          .colorScheme
-                                          .onSecondaryContainer
-                                          .withOpacity(0.9),
+                                    _NotificationPreferenceTile(
+                                      icon: Icons.alarm_rounded,
+                                      iconColor: theme.colorScheme.primary,
+                                      title: 'Reminder appuntamenti',
+                                      subtitle:
+                                          'Ricevi aggiornamenti prima dei tuoi appuntamenti',
+                                      value: _reminderNotificationsEnabled,
+                                      onChanged:
+                                          (value) => _updateNotificationPrefs(
+                                            reminder: value,
+                                          ),
+                                      isFirst: true,
+                                    ),
+                                    _NotificationPreferenceTile(
+                                      icon: Icons.local_offer_rounded,
+                                      iconColor: theme.colorScheme.tertiary,
+                                      title: 'Promozioni',
+                                      subtitle:
+                                          'Scopri in anticipo offerte e novità',
+                                      value: _promotionsNotificationsEnabled,
+                                      onChanged:
+                                          (value) => _updateNotificationPrefs(
+                                            promotions: value,
+                                          ),
+                                    ),
+                                    _NotificationPreferenceTile(
+                                      icon: Icons.flash_on_rounded,
+                                      iconColor: theme.colorScheme.secondary,
+                                      title: 'Last minute',
+                                      subtitle:
+                                          'Ricevi occasioni last minute disponibili',
+                                      value: _lastMinuteNotificationsEnabled,
+                                      onChanged:
+                                          (value) => _updateNotificationPrefs(
+                                            lastMinute: value,
+                                          ),
+                                      isLast: true,
                                     ),
                                   ],
                                 ),
                               ),
-                              _NotificationPreferenceTile(
-                                icon: Icons.alarm_rounded,
-                                iconColor: theme.colorScheme.primary,
-                                title: 'Reminder appuntamenti',
-                                subtitle:
-                                    'Ricevi aggiornamenti prima dei tuoi appuntamenti',
-                                value: _reminderNotificationsEnabled,
-                                onChanged:
-                                    (value) => _updateNotificationPrefs(
-                                      reminder: value,
+                              const SizedBox(height: 16),
+                              Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    20,
+                                    24,
+                                    20,
+                                    24,
+                                  ),
+                                  child: Form(
+                                    key: _formKey,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Le tue informazioni',
+                                          style: theme.textTheme.titleMedium
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                        ),
+                                        const SizedBox(height: 16),
+                                        TextFormField(
+                                          controller: _firstNameController,
+                                          textCapitalization:
+                                              TextCapitalization.words,
+                                          decoration: const InputDecoration(
+                                            labelText: 'Nome',
+                                          ),
+                                          validator: (value) {
+                                            if (value == null ||
+                                                value.trim().isEmpty) {
+                                              return 'Inserisci il tuo nome';
+                                            }
+                                            return null;
+                                          },
+                                        ),
+                                        const SizedBox(height: 16),
+                                        TextFormField(
+                                          controller: _lastNameController,
+                                          textCapitalization:
+                                              TextCapitalization.words,
+                                          decoration: const InputDecoration(
+                                            labelText: 'Cognome',
+                                          ),
+                                          validator: (value) {
+                                            if (value == null ||
+                                                value.trim().isEmpty) {
+                                              return 'Inserisci il tuo cognome';
+                                            }
+                                            return null;
+                                          },
+                                        ),
+                                        const SizedBox(height: 16),
+                                        TextFormField(
+                                          controller: _phoneController,
+                                          decoration: const InputDecoration(
+                                            labelText: 'Numero di telefono',
+                                          ),
+                                          keyboardType: TextInputType.phone,
+                                          validator: (value) {
+                                            final trimmed = value?.trim() ?? '';
+                                            if (trimmed.isEmpty) {
+                                              return 'Inserisci il tuo numero di telefono';
+                                            }
+                                            if (trimmed.length < 6) {
+                                              return 'Numero di telefono non valido';
+                                            }
+                                            return null;
+                                          },
+                                        ),
+                                        const SizedBox(height: 24),
+                                        FilledButton.icon(
+                                          icon:
+                                              _isSavingProfile
+                                                  ? SizedBox(
+                                                    width: 18,
+                                                    height: 18,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      valueColor:
+                                                          AlwaysStoppedAnimation<
+                                                            Color
+                                                          >(
+                                                            theme
+                                                                .colorScheme
+                                                                .onPrimary,
+                                                          ),
+                                                    ),
+                                                  )
+                                                  : const Icon(
+                                                    Icons.save_rounded,
+                                                  ),
+                                          label: Text(
+                                            _isSavingProfile
+                                                ? 'Salvataggio...'
+                                                : 'Salva modifiche',
+                                          ),
+                                          onPressed:
+                                              _isSavingProfile ||
+                                                      currentClient == null
+                                                  ? null
+                                                  : _hasUserEditedProfile
+                                                  ? () => _saveProfile(
+                                                    themedContext,
+                                                    currentClient,
+                                                  )
+                                                  : null,
+                                          style: FilledButton.styleFrom(
+                                            minimumSize: const Size.fromHeight(
+                                              48,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                isFirst: true,
+                                  ),
+                                ),
                               ),
-                              _NotificationPreferenceTile(
-                                icon: Icons.local_offer_rounded,
-                                iconColor: theme.colorScheme.tertiary,
-                                title: 'Promozioni',
-                                subtitle: 'Scopri in anticipo offerte e novità',
-                                value: _promotionsNotificationsEnabled,
-                                onChanged:
-                                    (value) => _updateNotificationPrefs(
-                                      promotions: value,
-                                    ),
+                              const SizedBox(height: 16),
+                              Card(
+                                child: ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 20,
+                                    vertical: 12,
+                                  ),
+                                  leading: _SettingsIconAvatar(
+                                    icon: Icons.lock_reset_rounded,
+                                    color: theme.colorScheme.primary,
+                                  ),
+                                  title: const Text('Reimposta password'),
+                                  subtitle: Text(
+                                    email != null
+                                        ? 'Invia un link a $email'
+                                        : 'Aggiungi un indirizzo email per reimpostare la password',
+                                  ),
+                                  trailing:
+                                      _isSendingReset
+                                          ? const SizedBox(
+                                            height: 20,
+                                            width: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                          : const Icon(
+                                            Icons.chevron_right_rounded,
+                                          ),
+                                  onTap:
+                                      email == null
+                                          ? null
+                                          : () => _sendPasswordReset(
+                                            themedContext,
+                                            email,
+                                          ),
+                                ),
                               ),
-                              _NotificationPreferenceTile(
-                                icon: Icons.flash_on_rounded,
-                                iconColor: theme.colorScheme.secondary,
-                                title: 'Last minute',
+                              const SizedBox(height: 16),
+                              _SettingsActionTile(
+                                icon: Icons.delete_forever_rounded,
+                                color: theme.colorScheme.error,
+                                title: 'Eliminazione account',
                                 subtitle:
-                                    'Ricevi occasioni last minute disponibili',
-                                value: _lastMinuteNotificationsEnabled,
-                                onChanged:
-                                    (value) => _updateNotificationPrefs(
-                                      lastMinute: value,
-                                    ),
-                                isLast: true,
+                                    'Conferma la cancellazione del tuo account YouBook',
+                                onTap:
+                                    () =>
+                                        _openAccountDeletionFlow(themedContext),
                               ),
                             ],
                           ),
-                        ),
-                        const SizedBox(height: 16),
-                        Card(
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
-                            child: Form(
-                              key: _formKey,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Le tue informazioni',
-                                    style: theme.textTheme.titleMedium
-                                        ?.copyWith(fontWeight: FontWeight.w600),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  TextFormField(
-                                    controller: _firstNameController,
-                                    textCapitalization:
-                                        TextCapitalization.words,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Nome',
-                                    ),
-                                    validator: (value) {
-                                      if (value == null ||
-                                          value.trim().isEmpty) {
-                                        return 'Inserisci il tuo nome';
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                  const SizedBox(height: 16),
-                                  TextFormField(
-                                    controller: _lastNameController,
-                                    textCapitalization:
-                                        TextCapitalization.words,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Cognome',
-                                    ),
-                                    validator: (value) {
-                                      if (value == null ||
-                                          value.trim().isEmpty) {
-                                        return 'Inserisci il tuo cognome';
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                  const SizedBox(height: 16),
-                                  TextFormField(
-                                    controller: _phoneController,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Numero di telefono',
-                                    ),
-                                    keyboardType: TextInputType.phone,
-                                    validator: (value) {
-                                      final trimmed = value?.trim() ?? '';
-                                      if (trimmed.isEmpty) {
-                                        return 'Inserisci il tuo numero di telefono';
-                                      }
-                                      if (trimmed.length < 6) {
-                                        return 'Numero di telefono non valido';
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                  const SizedBox(height: 24),
-                                  FilledButton.icon(
-                                    icon:
-                                        _isSavingProfile
-                                            ? SizedBox(
-                                              width: 18,
-                                              height: 18,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                                valueColor:
-                                                    AlwaysStoppedAnimation<
-                                                      Color
-                                                    >(
-                                                      theme
-                                                          .colorScheme
-                                                          .onPrimary,
-                                                    ),
-                                              ),
-                                            )
-                                            : const Icon(Icons.save_rounded),
-                                    label: Text(
-                                      _isSavingProfile
-                                          ? 'Salvataggio...'
-                                          : 'Salva modifiche',
-                                    ),
-                                    onPressed:
-                                        _isSavingProfile ||
-                                                currentClient == null
-                                            ? null
-                                            : _hasUserEditedProfile
-                                            ? () => _saveProfile(
-                                              themedContext,
-                                              currentClient,
-                                            )
-                                            : null,
-                                    style: FilledButton.styleFrom(
-                                      minimumSize: const Size.fromHeight(48),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Card(
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 12,
-                            ),
-                            leading: _SettingsIconAvatar(
-                              icon: Icons.lock_reset_rounded,
-                              color: theme.colorScheme.primary,
-                            ),
-                            title: const Text('Reimposta password'),
-                            subtitle: Text(
-                              email != null
-                                  ? 'Invia un link a $email'
-                                  : 'Aggiungi un indirizzo email per reimpostare la password',
-                            ),
-                            trailing:
-                                _isSendingReset
-                                    ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                    : const Icon(Icons.chevron_right_rounded),
-                            onTap:
-                                email == null
-                                    ? null
-                                    : () => _sendPasswordReset(
-                                      themedContext,
-                                      email,
-                                    ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        _SettingsActionTile(
-                          icon: Icons.delete_forever_rounded,
-                          color: theme.colorScheme.error,
-                          title: 'Eliminazione account',
-                          subtitle:
-                              'Apri la pagina web per richiedere la cancellazione (invio a civi.devops@gmail.com)',
-                          onTap: () => _openDeleteAccountPage(themedContext),
-                        ),
-                      ],
-                    ),
+                ),
+                const AppVersionBadge(),
+              ],
+            ),
           );
         },
       ),
@@ -723,70 +754,8 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
     }
   }
 
-  Future<void> _openDeleteAccountPage(BuildContext context) async {
-    final configuredUrl = _clientDeleteAccountUrl.trim();
-    if (configuredUrl.isEmpty) {
-      ScaffoldMessenger.of(context).showAppSnackBar(
-        const SnackBar(
-          content: Text(
-            'URL non configurato. Imposta CLIENT_DELETE_ACCOUNT_URL con il link Framer.',
-          ),
-        ),
-      );
-      return;
-    }
-
-    final uri = _parseExternalUri(configuredUrl);
-    if (uri == null) {
-      ScaffoldMessenger.of(context).showAppSnackBar(
-        const SnackBar(
-          content: Text(
-            'URL pagina eliminazione non valido. Verifica CLIENT_DELETE_ACCOUNT_URL.',
-          ),
-        ),
-      );
-      return;
-    }
-
-    try {
-      final launched = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
-      if (!launched && mounted) {
-        ScaffoldMessenger.of(context).showAppSnackBar(
-          const SnackBar(
-            content: Text('Impossibile aprire la pagina eliminazione account.'),
-          ),
-        );
-      }
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showAppSnackBar(
-        SnackBar(
-          content: Text(
-            'Errore durante l\'apertura della pagina: ${error.toString()}',
-          ),
-        ),
-      );
-    }
-  }
-
-  Uri? _parseExternalUri(String rawUrl) {
-    final trimmed = rawUrl.trim();
-    if (trimmed.isEmpty) {
-      return null;
-    }
-    var uri = Uri.tryParse(trimmed);
-    if (uri == null) {
-      return null;
-    }
-    if (!uri.hasScheme) {
-      uri = Uri.tryParse('https://$trimmed');
-    }
-    return uri;
+  void _openAccountDeletionFlow(BuildContext context) {
+    GoRouter.of(context).go('/eliminazione-account');
   }
 
   Future<void> _handleSalonSwitch(

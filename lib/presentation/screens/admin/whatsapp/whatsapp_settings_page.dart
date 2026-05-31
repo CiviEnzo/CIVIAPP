@@ -5,6 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+const _adminWebUrlDefine = String.fromEnvironment(
+  'ADMIN_WEB_URL',
+  defaultValue: 'https://youbook.civiapp.it',
+);
 
 class WhatsAppSettingsPage extends ConsumerStatefulWidget {
   const WhatsAppSettingsPage({super.key, required this.salonId});
@@ -105,7 +111,7 @@ class _WhatsAppSettingsPageState extends ConsumerState<WhatsAppSettingsPage> {
                       _SettingsBoardCard(
                         title: 'Attivazione numero',
                         subtitle:
-                            'Configurazione manuale del token Meta, del WABA e del numero WhatsApp Business con verifica OTP opzionale.',
+                            'Login ufficiale Meta per autorizzare WABA e numero WhatsApp Business del salone.',
                         icon: Icons.flash_on_rounded,
                         accentColor: statusAccent,
                         child: Column(
@@ -397,47 +403,59 @@ class _WhatsAppSettingsPageState extends ConsumerState<WhatsAppSettingsPage> {
     WhatsAppConfig? config,
   ) async {
     if (!kIsWeb) {
-      ScaffoldMessenger.of(context).showAppSnackBar(
-        const SnackBar(
-          content: Text(
-            'Completa il collegamento dal pannello admin web di YouBook.',
-          ),
-        ),
-      );
+      await _openWebWhatsappLogin(context);
       return;
     }
 
     final scaffold = ScaffoldMessenger.of(context);
-    final manualSetup = await _promptManualSetup(
-      context,
-      initialConfig: config,
-      initialPin: _activePin,
-    );
-    if (manualSetup == null || !mounted) {
+    final pin = await _promptPin(context, initialValue: _activePin);
+    if (pin == null || !mounted) {
       return;
     }
 
     setState(() {
       _isConnecting = true;
-      _phase =
-          manualSetup.pin != null
-              ? WhatsAppEmbeddedSignupPhase.registering
-              : WhatsAppEmbeddedSignupPhase.ready;
-      _activePin = manualSetup.pin;
+      _phase = WhatsAppEmbeddedSignupPhase.sessionCreated;
+      _activePin = pin;
       _activeSessionId = null;
       _lastFlowError = null;
     });
 
     try {
       final service = ref.read(whatsappServiceProvider);
-      final result = await service.configureManualSetup(
+      final returnUrl = _buildWhatsappLoginReturnUrl();
+      final session = await service.createEmbeddedSignupSession(
+        widget.salonId,
+        redirectUri: returnUrl,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _activeSessionId = session.sessionId;
+        _phase = WhatsAppEmbeddedSignupPhase.sessionCreated;
+      });
+
+      final launchResult = await service.launchEmbeddedSignup(session);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _phase = WhatsAppEmbeddedSignupPhase.signupCompleted;
+      });
+
+      final result = await service.completeEmbeddedSignup(
         salonId: widget.salonId,
-        accessToken: manualSetup.accessToken,
-        businessId: manualSetup.businessId,
-        wabaId: manualSetup.wabaId,
-        phoneNumberId: manualSetup.phoneNumberId,
-        displayPhoneNumber: manualSetup.displayPhoneNumber,
-        pin: manualSetup.pin,
+        sessionId: session.sessionId,
+        sessionToken: session.sessionToken,
+        code: launchResult.code,
+        pin: pin,
+        businessId: launchResult.businessId,
+        wabaId: launchResult.wabaId,
+        phoneNumberId: launchResult.phoneNumberId,
+        displayPhoneNumber: launchResult.displayPhoneNumber,
       );
       if (!mounted) {
         return;
@@ -455,7 +473,7 @@ class _WhatsAppSettingsPageState extends ConsumerState<WhatsAppSettingsPage> {
         SnackBar(
           content: Text(
             result.phase == WhatsAppEmbeddedSignupPhase.ready
-                ? 'Configurazione manuale WhatsApp salvata con successo.'
+                ? 'Account WhatsApp collegato con Meta con successo.'
                 : 'Meta richiede ancora la verifica del numero.',
           ),
         ),
@@ -478,6 +496,79 @@ class _WhatsAppSettingsPageState extends ConsumerState<WhatsAppSettingsPage> {
         });
       }
     }
+  }
+
+  Future<void> _openWebWhatsappLogin(BuildContext context) async {
+    final scaffold = ScaffoldMessenger.of(context);
+    setState(() {
+      _isConnecting = true;
+      _phase = WhatsAppEmbeddedSignupPhase.sessionCreated;
+      _lastFlowError = null;
+    });
+
+    try {
+      final service = ref.read(whatsappServiceProvider);
+      final returnUrl = _buildWhatsappLoginReturnUrl();
+      final session = await service.createEmbeddedSignupSession(
+        widget.salonId,
+        redirectUri: returnUrl,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _activeSessionId = session.sessionId;
+      });
+
+      final url = service.buildStandardOAuthDialogUrl(
+        session: session,
+        redirectUri: returnUrl,
+      );
+      final launched = await launchUrl(
+        url,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched) {
+        scaffold.showAppSnackBar(
+          SnackBar(
+            content: Text(
+              'Impossibile aprire il login Meta. Vai su ${url.toString()}',
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      final message = _errorMessage(error);
+      if (mounted) {
+        setState(() {
+          _phase = WhatsAppEmbeddedSignupPhase.error;
+          _lastFlowError = message;
+        });
+      }
+      scaffold.showAppSnackBar(
+        SnackBar(
+          content: Text('Errore durante l\'apertura del login Meta: $message'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isConnecting = false;
+        });
+      }
+    }
+  }
+
+  Uri _buildWhatsappLoginReturnUrl() {
+    final base =
+        Uri.tryParse(_adminWebUrlDefine) ??
+        Uri.parse('https://youbook.civiapp.it');
+    final origin = Uri(
+      scheme: base.scheme.isEmpty ? 'https' : base.scheme,
+      host: base.host,
+      port: base.hasPort ? base.port : null,
+    );
+    return origin.replace(path: '/login-whatsapp/');
   }
 
   Future<void> _handleVerificationFlow(
@@ -691,7 +782,7 @@ class _WhatsAppSettingsPageState extends ConsumerState<WhatsAppSettingsPage> {
 
   String _primaryActionLabel(WhatsAppConfig? config) {
     if (_isConnecting) {
-      return 'Salvataggio...';
+      return 'Collegamento...';
     }
     if (_isVerificationFlowRunning) {
       return 'Verifica in corso...';
@@ -700,12 +791,12 @@ class _WhatsAppSettingsPageState extends ConsumerState<WhatsAppSettingsPage> {
       return 'Completa verifica numero';
     }
     if (config?.isConfigured == true) {
-      return 'Aggiorna configurazione';
+      return 'Ricollega con Meta';
     }
     if (config?.needsReconnect == true) {
-      return 'Configura manualmente';
+      return 'Accedi con Meta';
     }
-    return 'Configura manualmente';
+    return 'Accedi con Meta';
   }
 
   String? _buildBannerMessage(WhatsAppConfig? config) {
@@ -713,18 +804,24 @@ class _WhatsAppSettingsPageState extends ConsumerState<WhatsAppSettingsPage> {
       return _lastFlowError;
     }
     if (config?.needsReconnect == true) {
-      return 'Questo salone ha una configurazione WhatsApp legacy. Inserisci manualmente token, WABA e phone number ID per passare al nuovo setup.';
+      return 'Questo salone ha una configurazione WhatsApp legacy. Ricollega il numero con il login ufficiale Meta.';
     }
     if (config?.needsVerification == true) {
       return 'La configurazione e stata salvata, ma il numero non e ancora registrato. Richiedi un codice SMS o chiamata e completa la verifica.';
     }
     if (config?.isConfigured == true) {
-      return 'Numero registrato e pronto per l’invio template usando il token configurato per questo salone.';
+      return 'Numero registrato e pronto per l’invio template con il WABA collegato tramite Meta.';
+    }
+    if (_phase == WhatsAppEmbeddedSignupPhase.sessionCreated) {
+      return 'Sessione Meta creata. Completa il login ufficiale per autorizzare il numero WhatsApp Business.';
+    }
+    if (_phase == WhatsAppEmbeddedSignupPhase.signupCompleted) {
+      return 'Login Meta completato. Registrazione del numero WhatsApp Business in corso.';
     }
     if (_phase == WhatsAppEmbeddedSignupPhase.registering) {
-      return 'Configurazione manuale salvata. Completa la registrazione del numero se Meta richiede ancora OTP.';
+      return 'Registrazione del numero in corso. Completa la verifica se Meta richiede ancora OTP.';
     }
-    return 'Configura manualmente access token, WABA ID e Phone Number ID del salone per inviare template con il suo numero WhatsApp Business.';
+    return 'Accedi con Meta per collegare ufficialmente il WABA e il numero WhatsApp Business del salone.';
   }
 
   String _formatOnboardingStatus(String? status) {
@@ -765,6 +862,8 @@ class _WhatsAppSettingsPageState extends ConsumerState<WhatsAppSettingsPage> {
     switch ((method ?? '').trim().toLowerCase()) {
       case 'manual_setup':
         return 'Configurazione manuale';
+      case 'standard_oauth':
+        return 'Login Meta';
       case 'embedded_signup':
         return 'Embedded Signup';
       case 'legacy_oauth':
@@ -772,207 +871,6 @@ class _WhatsAppSettingsPageState extends ConsumerState<WhatsAppSettingsPage> {
       default:
         return 'Non impostato';
     }
-  }
-
-  Future<_ManualWhatsAppSetupInput?> _promptManualSetup(
-    BuildContext context, {
-    WhatsAppConfig? initialConfig,
-    String? initialPin,
-  }) async {
-    final accessTokenController = TextEditingController();
-    final businessIdController = TextEditingController(
-      text: initialConfig?.businessId ?? '',
-    );
-    final wabaIdController = TextEditingController(
-      text: initialConfig?.wabaId ?? '',
-    );
-    final phoneNumberIdController = TextEditingController(
-      text: initialConfig?.phoneNumberId ?? '',
-    );
-    final displayPhoneController = TextEditingController(
-      text: initialConfig?.displayPhoneNumber ?? '',
-    );
-    final pinController = TextEditingController(text: initialPin ?? '');
-
-    var obscureToken = true;
-    String? formError;
-
-    final result = await showDialog<_ManualWhatsAppSetupInput>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return AlertDialog(
-              title: const Text('Configura WhatsApp del salone'),
-              content: SizedBox(
-                width: 540,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Inserisci i riferimenti Meta del numero del salone. Usa preferibilmente un token long-lived o system-user con permessi WhatsApp. Business Manager ID, numero visualizzato e PIN sono opzionali.',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: accessTokenController,
-                        obscureText: obscureToken,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        decoration: InputDecoration(
-                          labelText: 'Access token Meta',
-                          hintText: 'EAAG...',
-                          suffixIcon: IconButton(
-                            onPressed:
-                                () => setModalState(() {
-                                  obscureToken = !obscureToken;
-                                }),
-                            icon: Icon(
-                              obscureToken
-                                  ? Icons.visibility_off_rounded
-                                  : Icons.visibility_rounded,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: wabaIdController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'WABA ID',
-                          hintText: '123456789012345',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: phoneNumberIdController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Phone Number ID',
-                          hintText: '123456789012345',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: businessIdController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Business Manager ID',
-                          hintText: 'Opzionale',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: displayPhoneController,
-                        keyboardType: TextInputType.phone,
-                        decoration: const InputDecoration(
-                          labelText: 'Numero visualizzato',
-                          hintText: '+39 347 123 4567',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: pinController,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                          LengthLimitingTextInputFormatter(6),
-                        ],
-                        decoration: const InputDecoration(
-                          labelText: 'PIN a 6 cifre',
-                          hintText:
-                              'Opzionale, richiesto solo per registrare il numero',
-                        ),
-                      ),
-                      if (formError != null) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          formError!,
-                          style: Theme.of(
-                            context,
-                          ).textTheme.bodySmall?.copyWith(
-                            color: const Color(0xFFB84A4A),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Annulla'),
-                ),
-                FilledButton(
-                  onPressed: () {
-                    final accessToken = accessTokenController.text.trim();
-                    final businessId = businessIdController.text.trim();
-                    final wabaId = wabaIdController.text.trim();
-                    final phoneNumberId = phoneNumberIdController.text.trim();
-                    final displayPhone = displayPhoneController.text.trim();
-                    final pin = pinController.text.trim();
-
-                    if (accessToken.isEmpty) {
-                      setModalState(() {
-                        formError =
-                            'Inserisci l\'access token Meta del salone.';
-                      });
-                      return;
-                    }
-                    if (wabaId.isEmpty) {
-                      setModalState(() {
-                        formError = 'Inserisci il WABA ID.';
-                      });
-                      return;
-                    }
-                    if (phoneNumberId.isEmpty) {
-                      setModalState(() {
-                        formError = 'Inserisci il Phone Number ID.';
-                      });
-                      return;
-                    }
-                    if (pin.isNotEmpty && pin.length != 6) {
-                      setModalState(() {
-                        formError =
-                            'Se inserisci il PIN, deve contenere 6 cifre.';
-                      });
-                      return;
-                    }
-
-                    Navigator.of(dialogContext).pop(
-                      _ManualWhatsAppSetupInput(
-                        accessToken: accessToken,
-                        businessId: businessId.isEmpty ? null : businessId,
-                        wabaId: wabaId,
-                        phoneNumberId: phoneNumberId,
-                        displayPhoneNumber:
-                            displayPhone.isEmpty ? null : displayPhone,
-                        pin: pin.isEmpty ? null : pin,
-                      ),
-                    );
-                  },
-                  child: const Text('Salva configurazione'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    accessTokenController.dispose();
-    businessIdController.dispose();
-    wabaIdController.dispose();
-    phoneNumberIdController.dispose();
-    displayPhoneController.dispose();
-    pinController.dispose();
-
-    return result;
   }
 
   Future<String?> _promptPin(
@@ -1154,7 +1052,7 @@ class _SettingsHeader extends StatelessWidget {
                     Text(
                       isConfigured
                           ? 'Il salone invia con il proprio numero WhatsApp Business. Controlla template, qualità account ed endpoint operativo.'
-                          : 'Configura manualmente token Meta, WABA e numero WhatsApp Business del salone per inviare template con il suo brand.',
+                          : 'Accedi con Meta per collegare il WABA e il numero WhatsApp Business del salone con il flow ufficiale.',
                       style: theme.textTheme.bodyMedium,
                     ),
                   ],
@@ -1362,24 +1260,6 @@ class _SettingsDetailEntry {
 
   final String label;
   final String value;
-}
-
-class _ManualWhatsAppSetupInput {
-  const _ManualWhatsAppSetupInput({
-    required this.accessToken,
-    required this.wabaId,
-    required this.phoneNumberId,
-    this.businessId,
-    this.displayPhoneNumber,
-    this.pin,
-  });
-
-  final String accessToken;
-  final String? businessId;
-  final String wabaId;
-  final String phoneNumberId;
-  final String? displayPhoneNumber;
-  final String? pin;
 }
 
 class _StatusChip extends StatelessWidget {

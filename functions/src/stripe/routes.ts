@@ -2226,6 +2226,87 @@ export const createStripeOnboardingLink = onRequest(
   },
 );
 
+export const createStripeDashboardLoginLink = onRequest(
+  { secrets: [stripeSecretKey], cors: false, region: 'europe-west3' },
+  async (req: Request, res: Response) => {
+    const origin = getCorsOrigin();
+    if (applyCors(req, res, origin)) {
+      return;
+    }
+    if (req.method !== 'POST') {
+      respondMethodNotAllowed(res);
+      return;
+    }
+
+    try {
+      const body = parseJsonBody<{
+        accountId?: string;
+        account_id?: string;
+        salonId?: string;
+      }>(req.body);
+
+      const salonId = normalizeString(body.salonId);
+      if (!salonId) {
+        res.status(400).json({ error: 'salonId is required' });
+        return;
+      }
+      const requester = await requireSalonAdmin(req, res, salonId);
+      if (!requester) {
+        return;
+      }
+
+      const explicitAccountId = body.accountId ?? body.account_id;
+      let accountId: string | null;
+      try {
+        accountId = await getSalonStripeAccountId(salonId, explicitAccountId);
+      } catch (error) {
+        res.status(400).json({
+          error: error instanceof Error ? error.message : 'Invalid Stripe account linkage',
+        });
+        return;
+      }
+      if (!accountId) {
+        res.status(400).json({ error: 'Stripe account id missing or salon not linked' });
+        return;
+      }
+
+      const stripe = getStripeClient();
+      const account = await stripe.accounts.retrieve(accountId);
+      if (account.type !== 'express') {
+        res.status(400).json({ error: 'Dashboard login links are available only for Express accounts' });
+        return;
+      }
+      if (!account.details_submitted) {
+        res.status(409).json({ error: 'Stripe onboarding is not completed yet' });
+        return;
+      }
+
+      const link = await stripe.accounts.createLoginLink(accountId);
+
+      await db
+        .collection('salons')
+        .doc(salonId)
+        .set(
+          {
+            stripeAccount: {
+              lastDashboardLinkCreatedAt: FieldValue.serverTimestamp(),
+              lastDashboardLinkRequestedByUserId: requester.uid,
+            },
+          },
+          { merge: true },
+        );
+
+      res.status(200).json({ url: link.url, accountId });
+    } catch (error) {
+      if (error instanceof Stripe.errors.StripeError) {
+        res.status(error.statusCode ?? 400).json({ error: error.message });
+        return;
+      }
+      handleError(res, error);
+    }
+  },
+);
+
 export const createStripePaymentIntent = onRequest(
   { secrets: [stripeSecretKey], cors: false, region: 'europe-west3' },
   async (req: Request, res: Response) => {

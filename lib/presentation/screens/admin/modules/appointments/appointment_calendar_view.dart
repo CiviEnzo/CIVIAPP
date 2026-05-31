@@ -10328,8 +10328,8 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                                   : highlight
                                   ? 17
                                   : useDenseStandardLayout
-                                  ? 13
-                                  : 15;
+                                  ? 15
+                                  : 16;
                           final double clientFontSize =
                               expandToContent
                                   ? 17
@@ -10347,12 +10347,15 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                                 color: primaryContentColor,
                                 fontSize: timeFontSize,
                                 fontWeight: FontWeight.w800,
-                                letterSpacing: -0.2,
+                                letterSpacing: -0.3,
+                                height: 1,
                               ) ??
                               TextStyle(
                                 color: primaryContentColor,
                                 fontSize: timeFontSize,
                                 fontWeight: FontWeight.w800,
+                                letterSpacing: -0.3,
+                                height: 1,
                               );
                           final clientStyle =
                               theme.textTheme.bodyMedium?.copyWith(
@@ -10396,6 +10399,7 @@ class _AppointmentCardState extends State<_AppointmentCard> {
                                         : standardStatusIconSize,
                               ),
                           ];
+
                           final topRow =
                               expandToContent
                                   ? Row(

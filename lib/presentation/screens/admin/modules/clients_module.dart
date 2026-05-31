@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:csv/csv.dart';
 import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/domain/entities/client_app_movement.dart';
 import 'package:you_book/domain/entities/client_import.dart';
 import 'package:you_book/domain/entities/sale.dart';
 import 'package:you_book/domain/entities/salon.dart';
@@ -332,6 +333,41 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
       }
     }
     return '?';
+  }
+
+  Widget _buildClientIdentity(BuildContext context, Client client) {
+    final theme = Theme.of(context);
+    final email = client.email?.trim();
+    final clientNumber = client.clientNumber?.trim();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _displayName(client),
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        if (clientNumber != null && clientNumber.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(
+            'Cliente #$clientNumber',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+        const SizedBox(height: 4),
+        Text(
+          (email != null && email.isNotEmpty) ? email : 'Email non disponibile',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildPlaceholder({
@@ -719,17 +755,11 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
           final createdAt = client.createdAt;
           return createdAt != null && !createdAt.isBefore(currentMonthStart);
         }).length;
-    final appActiveClients =
-        salonClients
-            .where(
-              (client) =>
-                  client.fcmTokens.isNotEmpty ||
-                  client.onboardingStatus ==
-                      ClientOnboardingStatus.firstLogin ||
-                  client.onboardingStatus ==
-                      ClientOnboardingStatus.onboardingCompleted,
-            )
-            .length;
+    final activeAppClientIds = _collectActiveAppClientIds(
+      salonClients: salonClients,
+      clientAppMovements: data.clientAppMovements,
+    );
+    final appActiveClients = activeAppClientIds.length;
     final recentClients = [...salonClients]..sort((a, b) {
       final left = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
       final right = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
@@ -848,7 +878,10 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                       onPressed:
                           !_searchPerformed || clientEntries.isEmpty
                               ? null
-                              : () => _exportClients(clientEntries),
+                              : () => _exportClients(
+                                clientEntries,
+                                activeAppClientIds,
+                              ),
                       icon: const Icon(Icons.download_outlined),
                       label: const Text('Esporta'),
                     );
@@ -977,6 +1010,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                     context: context,
                     entries: clientEntries,
                     dateFormat: dateFormat,
+                    activeAppClientIds: activeAppClientIds,
                   ),
               ],
             );
@@ -1237,7 +1271,10 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     );
   }
 
-  Future<void> _exportClients(List<_ClientTableEntry> entries) async {
+  Future<void> _exportClients(
+    List<_ClientTableEntry> entries,
+    Set<String> activeAppClientIds,
+  ) async {
     if (entries.isEmpty) {
       ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(content: Text('Nessun cliente da esportare.')),
@@ -1266,7 +1303,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
         entry.visits.toString(),
         entry.lastVisit == null ? '' : dateFormat.format(entry.lastVisit!),
         entry.totalSpent.toStringAsFixed(2),
-        _appStatusLabel(entry.client),
+        _appStatusLabel(entry.client, activeAppClientIds),
       ]);
     }
     try {
@@ -1298,6 +1335,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     required BuildContext context,
     required List<_ClientTableEntry> entries,
     required DateFormat dateFormat,
+    required Set<String> activeAppClientIds,
   }) {
     final theme = Theme.of(context);
     final headerBackground = theme.colorScheme.surfaceContainerHighest
@@ -1350,6 +1388,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                           context: context,
                           entry: entries[i],
                           dateFormat: dateFormat,
+                          activeAppClientIds: activeAppClientIds,
                         ),
                         if (i != entries.length - 1)
                           Divider(
@@ -1419,6 +1458,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                               context: context,
                               entry: entries[i],
                               dateFormat: dateFormat,
+                              activeAppClientIds: activeAppClientIds,
                             ),
                             if (i != entries.length - 1)
                               Divider(
@@ -1442,11 +1482,12 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     required BuildContext context,
     required _ClientTableEntry entry,
     required DateFormat dateFormat,
+    required Set<String> activeAppClientIds,
   }) {
     final theme = Theme.of(context);
     final client = entry.client;
     final isSelected = client.id == _selectedClientId;
-    final hasInstalledApp = _hasInstalledApp(client);
+    final hasInstalledApp = _hasInstalledApp(client, activeAppClientIds);
     final emailAvailable = client.email?.trim().isNotEmpty == true;
     final isSending = _isSending(client.id);
     final canSendAppLink = emailAvailable && !isSending && !hasInstalledApp;
@@ -1462,27 +1503,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
           child: Row(
             children: [
-              Expanded(
-                flex: 4,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _displayName(client),
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      client.email ?? 'Email non disponibile',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              Expanded(flex: 4, child: _buildClientIdentity(context, client)),
               Expanded(
                 flex: 3,
                 child: Text(client.phone, style: theme.textTheme.bodyMedium),
@@ -1514,7 +1535,10 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                   ),
                 ),
               ),
-              Expanded(flex: 3, child: _buildAppStatusChip(context, client)),
+              Expanded(
+                flex: 3,
+                child: _buildAppStatusChip(context, client, activeAppClientIds),
+              ),
               Expanded(
                 flex: 2,
                 child: Row(
@@ -1564,11 +1588,12 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     required BuildContext context,
     required _ClientTableEntry entry,
     required DateFormat dateFormat,
+    required Set<String> activeAppClientIds,
   }) {
     final theme = Theme.of(context);
     final client = entry.client;
     final isSelected = client.id == _selectedClientId;
-    final hasInstalledApp = _hasInstalledApp(client);
+    final hasInstalledApp = _hasInstalledApp(client, activeAppClientIds);
     final emailAvailable = client.email?.trim().isNotEmpty == true;
     final isSending = _isSending(client.id);
     final canSendAppLink = emailAvailable && !isSending && !hasInstalledApp;
@@ -1618,26 +1643,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _displayName(client),
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          client.email ?? 'Email non disponibile',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  Expanded(child: _buildClientIdentity(context, client)),
                   const SizedBox(width: 12),
                   Row(
                     mainAxisSize: MainAxisSize.min,
@@ -1691,7 +1697,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                 _formatCurrency(entry.totalSpent),
                 valueColor: theme.colorScheme.primary,
               ),
-              infoRow('App', _appStatusLabel(client)),
+              infoRow('App', _appStatusLabel(client, activeAppClientIds)),
             ],
           ),
         ),
@@ -1720,31 +1726,59 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     ).format(value);
   }
 
-  bool _hasInstalledApp(Client client) {
-    return client.fcmTokens.isNotEmpty ||
-        client.onboardingStatus == ClientOnboardingStatus.firstLogin ||
-        client.onboardingStatus == ClientOnboardingStatus.onboardingCompleted;
+  Set<String> _collectActiveAppClientIds({
+    required Iterable<Client> salonClients,
+    required Iterable<ClientAppMovement> clientAppMovements,
+  }) {
+    final allowedClientIds = salonClients.map((client) => client.id).toSet();
+    final activeClientIds = <String>{};
+
+    for (final client in salonClients) {
+      if (client.fcmTokens.isNotEmpty) {
+        activeClientIds.add(client.id);
+      }
+    }
+
+    for (final movement in clientAppMovements) {
+      if (widget.salonId != null && movement.salonId != widget.salonId) {
+        continue;
+      }
+      if (!allowedClientIds.contains(movement.clientId)) {
+        continue;
+      }
+      activeClientIds.add(movement.clientId);
+    }
+
+    return activeClientIds;
   }
 
-  String _appStatusLabel(Client client) {
-    if (_hasInstalledApp(client)) {
+  bool _hasInstalledApp(Client client, Set<String> activeAppClientIds) {
+    return activeAppClientIds.contains(client.id);
+  }
+
+  bool _hasInvitationLink(Client client) {
+    return client.onboardingStatus == ClientOnboardingStatus.invitationSent ||
+        client.invitationSentAt != null;
+  }
+
+  String _appStatusLabel(Client client, Set<String> activeAppClientIds) {
+    if (_hasInstalledApp(client, activeAppClientIds)) {
       return 'Scaricata';
     }
-    switch (client.onboardingStatus) {
-      case ClientOnboardingStatus.invitationSent:
-        return 'Link inviato';
-      case ClientOnboardingStatus.notSent:
-        return 'Non scaricata';
-      case ClientOnboardingStatus.firstLogin:
-      case ClientOnboardingStatus.onboardingCompleted:
-        return 'Scaricata';
+    if (_hasInvitationLink(client)) {
+      return 'Link inviato';
     }
+    return 'Non scaricata';
   }
 
-  Widget _buildAppStatusChip(BuildContext context, Client client) {
+  Widget _buildAppStatusChip(
+    BuildContext context,
+    Client client,
+    Set<String> activeAppClientIds,
+  ) {
     final theme = Theme.of(context);
-    final hasInstalledApp = _hasInstalledApp(client);
-    final status = client.onboardingStatus;
+    final hasInstalledApp = _hasInstalledApp(client, activeAppClientIds);
+    final hasInvitationLink = _hasInvitationLink(client);
 
     late final Color background;
     late final Color foreground;
@@ -1754,7 +1788,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
       background = const Color(0xFFE7F6EC);
       foreground = const Color(0xFF166534);
       icon = Icons.download_done_rounded;
-    } else if (status == ClientOnboardingStatus.invitationSent) {
+    } else if (hasInvitationLink) {
       background = const Color(0xFFFFF4DB);
       foreground = const Color(0xFF92400E);
       icon = Icons.mark_email_unread_outlined;
@@ -1778,7 +1812,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
             Icon(icon, size: 15, color: foreground),
             const SizedBox(width: 6),
             Text(
-              _appStatusLabel(client),
+              _appStatusLabel(client, activeAppClientIds),
               style: theme.textTheme.labelSmall?.copyWith(
                 color: foreground,
                 fontWeight: FontWeight.w700,

@@ -17,7 +17,6 @@ import {
   extractGraphError,
   getAppId,
   getAppSecret,
-  getEmbeddedSignupConfigId,
   getSystemUserAccessToken,
   getSystemUserId,
   getTokenSecretPrefix,
@@ -41,11 +40,23 @@ type GraphPhoneNumber = {
   verified_name?: string;
 };
 
+type GraphPhoneNumberList = {
+  data?: GraphPhoneNumber[];
+};
+
 type GraphWaba = {
   id?: string;
   name?: string;
   business?: GraphBusiness;
-  phone_numbers?: GraphPhoneNumber[];
+  phone_numbers?: GraphPhoneNumber[] | GraphPhoneNumberList;
+};
+
+type GraphBusinessListResponse = {
+  data?: GraphBusiness[];
+};
+
+type GraphWabaListResponse = {
+  data?: GraphWaba[];
 };
 
 type EmbeddedSignupSessionState =
@@ -119,6 +130,11 @@ type ConfirmCodeBody = {
   sessionId?: unknown;
   verificationCode?: unknown;
   pin?: unknown;
+};
+
+type CompleteOAuthRedirectBody = {
+  code?: unknown;
+  state?: unknown;
 };
 
 type CodeExchangeResponse = {
@@ -266,6 +282,37 @@ function parseSessionToken(value: unknown): string {
     );
   }
   return sessionToken;
+}
+
+function decodeOAuthState(value: unknown): { salonId: string; sessionId: string } {
+  const raw = normalizeString(value);
+  if (!raw) {
+    throw new WhatsAppHttpError('Missing OAuth state', 400, 'missing_state');
+  }
+
+  try {
+    const normalized = raw.replace(/-/g, '+').replace(/_/g, '/');
+    const padded =
+      normalized.length % 4 === 0
+        ? normalized
+        : normalized + '='.repeat(4 - (normalized.length % 4));
+    const parsed = JSON.parse(
+      Buffer.from(padded, 'base64').toString('utf8'),
+    ) as Record<string, unknown>;
+    const salonId = normalizeString(parsed.salonId);
+    const sessionId = normalizeString(parsed.sessionId);
+    if (!salonId || !sessionId) {
+      throw new Error('Invalid state payload');
+    }
+    return { salonId, sessionId };
+  } catch (error) {
+    throw new WhatsAppHttpError(
+      'OAuth state non valido.',
+      400,
+      'invalid_state',
+      { message: error instanceof Error ? error.message : String(error) },
+    );
+  }
 }
 
 function parseVerificationCode(value: unknown): string {
@@ -450,6 +497,83 @@ async function resolvePhoneSelection(params: {
       undefined,
     verifiedName: normalizeString(selectedPhone?.verified_name) ?? undefined,
   };
+}
+
+async function listBusinessWabas(
+  businessId: string,
+  accessToken: string,
+): Promise<GraphWaba[]> {
+  const fields =
+    'id,name,phone_numbers{id,display_phone_number,verified_name}';
+  const owned = await graphGet<GraphWabaListResponse>(
+    `${businessId}/owned_whatsapp_business_accounts`,
+    { fields, limit: 50 },
+    accessToken,
+  ).catch(() => ({ data: [] }));
+  const client = await graphGet<GraphWabaListResponse>(
+    `${businessId}/client_whatsapp_business_accounts`,
+    { fields, limit: 50 },
+    accessToken,
+  ).catch(() => ({ data: [] }));
+  return [...(owned.data ?? []), ...(client.data ?? [])];
+}
+
+function extractGraphPhoneNumbers(
+  value: GraphWaba['phone_numbers'],
+): GraphPhoneNumber[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (value != null && Array.isArray(value.data)) {
+    return value.data;
+  }
+  return [];
+}
+
+async function resolveOAuthPhoneSelection(
+  accessToken: string,
+): Promise<ResolvedPhoneSelection> {
+  const businesses = await graphGet<GraphBusinessListResponse>(
+    'me/businesses',
+    { fields: 'id,name', limit: 50 },
+    accessToken,
+  );
+
+  for (const business of businesses.data ?? []) {
+    const businessId = normalizeString(business.id);
+    if (!businessId) {
+      continue;
+    }
+
+    const wabas = await listBusinessWabas(businessId, accessToken);
+    for (const waba of wabas) {
+      const wabaId = normalizeString(waba.id);
+      if (!wabaId) {
+        continue;
+      }
+      const phone = extractGraphPhoneNumbers(waba.phone_numbers).find((item) =>
+        Boolean(normalizeString(item.id)),
+      );
+      const phoneNumberId = normalizeString(phone?.id);
+      if (!phoneNumberId) {
+        continue;
+      }
+      return {
+        businessId,
+        wabaId,
+        phoneNumberId,
+        displayPhoneNumber:
+          normalizeString(phone?.display_phone_number) ?? undefined,
+        verifiedName: normalizeString(phone?.verified_name) ?? undefined,
+      };
+    }
+  }
+
+  throw new WhatsAppHttpError(
+    'Login Meta completato, ma non ho trovato un WABA con numero WhatsApp Business associato a questo account.',
+    409,
+    'missing_oauth_waba',
+  );
 }
 
 async function assignSystemUserToWaba(wabaId: string): Promise<void> {
@@ -1018,7 +1142,7 @@ export const createWhatsappEmbeddedSignupSession = onRequest(
         sessionId,
         sessionToken,
         appId: getAppId(),
-        configId: getEmbeddedSignupConfigId(),
+        configId: process.env.WA_EMBEDDED_SIGNUP_CONFIG_ID ?? 'standard_oauth',
         graphApiVersion: GRAPH_API_VERSION,
       });
     } catch (error) {
@@ -1494,6 +1618,131 @@ export const confirmWhatsappPhoneVerificationCode = onRequest(
         sessionId: session.sessionId,
       });
     } catch (error) {
+      jsonError(response, error);
+    }
+  },
+);
+
+export const completeWhatsappOAuthRedirect = onRequest(
+  { region: REGION, cors: true, maxInstances: 10 },
+  async (request: Request, response: Response) => {
+    if (request.method === 'OPTIONS') {
+      response.set('Access-Control-Allow-Origin', '*');
+      response.set(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Authorization',
+      );
+      response.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      response.status(204).send('');
+      return;
+    }
+
+    if (request.method !== 'POST') {
+      jsonError(response, new WhatsAppHttpError('Method Not Allowed', 405));
+      return;
+    }
+
+    try {
+      const body = ensureJsonBody<CompleteOAuthRedirectBody>(request.body);
+      const code = normalizeString(body.code);
+      if (!code) {
+        throw new WhatsAppHttpError('Missing code', 400, 'missing_code');
+      }
+      const state = decodeOAuthState(body.state);
+      const session = await loadSession({
+        salonId: state.salonId,
+        sessionId: state.sessionId,
+        allowedStates: ['session_created', 'error'],
+      });
+
+      const exchangeResponse = await exchangeCodeIfPossible({
+        code,
+        redirectUri: session.redirectUri,
+      });
+      const accessToken = normalizeString(exchangeResponse?.access_token);
+      if (!accessToken) {
+        throw new WhatsAppHttpError(
+          'Meta non ha restituito un access token valido.',
+          502,
+          'missing_access_token',
+        );
+      }
+
+      const resolved = await resolveOAuthPhoneSelection(accessToken);
+      const tokenSecretId = await upsertSecret(
+        buildSalonTokenSecretId(state.salonId),
+        accessToken,
+      );
+
+      await subscribeAppToWaba(resolved.wabaId, accessToken).catch((error) => {
+        logger.warn('Unable to subscribe app after standard OAuth login', {
+          salonId: state.salonId,
+          wabaId: resolved.wabaId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+
+      await markSalonReady({
+        salonId: state.salonId,
+        resolved,
+        connectionMethod: 'standard_oauth',
+        tokenSecretId,
+      });
+      await updateSessionState({
+        salonId: state.salonId,
+        sessionId: state.sessionId,
+        state: 'ready',
+        data: {
+          code,
+          exchangeResponse,
+          businessId: resolved.businessId,
+          wabaId: resolved.wabaId,
+          phoneNumberId: resolved.phoneNumberId,
+          displayPhoneNumber: resolved.displayPhoneNumber ?? null,
+          verifiedName: resolved.verifiedName ?? null,
+          completedVia: 'standard_oauth_redirect',
+          registeredAt: FieldValue.serverTimestamp(),
+        },
+      });
+
+      response.set('Access-Control-Allow-Origin', '*');
+      response.status(200).json({
+        success: true,
+        onboardingStatus: 'ready',
+        registrationStatus: 'registered',
+        businessId: resolved.businessId,
+        wabaId: resolved.wabaId,
+        phoneNumberId: resolved.phoneNumberId,
+        displayPhoneNumber: resolved.displayPhoneNumber ?? null,
+      });
+    } catch (error) {
+      const body = request.body as CompleteOAuthRedirectBody | undefined;
+      const state = (() => {
+        try {
+          return decodeOAuthState(body?.state);
+        } catch (_) {
+          return null;
+        }
+      })();
+      if (state != null) {
+        const message = toHttpError(error).message;
+        await markSalonError({
+          salonId: state.salonId,
+          message,
+          connectionMethod: 'standard_oauth',
+        }).catch(() => undefined);
+        await updateSessionState({
+          salonId: state.salonId,
+          sessionId: state.sessionId,
+          state: 'error',
+          data: {
+            lastError: {
+              message,
+              at: FieldValue.serverTimestamp(),
+            },
+          },
+        }).catch(() => undefined);
+      }
       jsonError(response, error);
     }
   },

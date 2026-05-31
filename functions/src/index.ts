@@ -37,9 +37,11 @@ export {
   completeWhatsappEmbeddedSignup,
   requestWhatsappPhoneVerificationCode,
   confirmWhatsappPhoneVerificationCode,
+  completeWhatsappOAuthRedirect,
 } from "./wa/embeddedSignup";
 export {
   createStripeConnectAccount,
+  createStripeDashboardLoginLink,
   createStripeOnboardingLink,
   createStripePaymentIntent,
   createStripeEphemeralKey,
@@ -49,6 +51,7 @@ export {
 export { assignClientNumber } from "./clients/assignClientNumber";
 export { createClientAccount } from "./clients/createClientAccount";
 export { activateClientSalon } from "./clients/activateClientSalon";
+export { deleteCurrentUserAccount } from "./account/deleteCurrentUserAccount";
 export {
   appointmentReminderOnWrite,
   appointmentReminderOnRootWrite,

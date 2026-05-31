@@ -112,7 +112,8 @@ class WhatsAppConfig {
       final configured = (map['connectionMethod'] as String?)?.trim();
       if (configured == 'embedded_signup' ||
           configured == 'legacy_oauth' ||
-          configured == 'manual_setup') {
+          configured == 'manual_setup' ||
+          configured == 'standard_oauth') {
         return configured!;
       }
       final legacyTokenSecret = (map['tokenSecretId'] as String?)?.trim();
@@ -277,16 +278,15 @@ class WhatsAppConfig {
         'tokenExpiresAt': Timestamp.fromDate(tokenExpiresAt!),
       if (connectedAt != null) 'connectedAt': Timestamp.fromDate(connectedAt!),
       if (onboardingStatus != null) 'onboardingStatus': onboardingStatus,
-      if (registrationStatus != null)
-        'registrationStatus': registrationStatus,
+      if (registrationStatus != null) 'registrationStatus': registrationStatus,
       if (connectionMethod != null) 'connectionMethod': connectionMethod,
       'requiresReconnect': requiresReconnect,
-      if (registeredAt != null) 'registeredAt': Timestamp.fromDate(registeredAt!),
+      if (registeredAt != null)
+        'registeredAt': Timestamp.fromDate(registeredAt!),
       if (lastRegistrationErrorMessage != null)
         'lastRegistrationErrorMessage': lastRegistrationErrorMessage,
       if (lastRegistrationErrorAt != null)
-        'lastRegistrationErrorAt':
-            Timestamp.fromDate(lastRegistrationErrorAt!),
+        'lastRegistrationErrorAt': Timestamp.fromDate(lastRegistrationErrorAt!),
       if (lastCodeMethod != null) 'lastCodeMethod': lastCodeMethod,
       if (lastCodeRequestedAt != null)
         'lastCodeRequestedAt': Timestamp.fromDate(lastCodeRequestedAt!),
@@ -611,12 +611,18 @@ class WhatsAppService {
   }
 
   Future<WhatsAppEmbeddedSignupSession> createEmbeddedSignupSession(
-    String salonId,
-  ) async {
-    final functionUri = _resolveFunctionUrl('createWhatsappEmbeddedSignupSession');
+    String salonId, {
+    Uri? redirectUri,
+  }) async {
+    final functionUri = _resolveFunctionUrl(
+      'createWhatsappEmbeddedSignupSession',
+    );
     final response = await _authorizedPostJson(functionUri, <String, dynamic>{
       'salonId': salonId,
-      if (kIsWeb) 'redirectUri': Uri.base.replace(fragment: '').toString(),
+      if (redirectUri != null)
+        'redirectUri': redirectUri.toString()
+      else if (kIsWeb)
+        'redirectUri': Uri.base.replace(fragment: '').toString(),
     }, forceRefreshFirst: true);
     final body = _decodeJsonBody(response);
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -691,6 +697,60 @@ class WhatsAppService {
     return _embeddedSignupLauncher.launch(session);
   }
 
+  Uri buildEmbeddedSignupDialogUrl({
+    required WhatsAppEmbeddedSignupSession session,
+    required Uri redirectUri,
+  }) {
+    final graphApiVersion =
+        session.graphApiVersion.trim().isEmpty
+            ? 'v25.0'
+            : session.graphApiVersion.trim();
+    return Uri.https('www.facebook.com', '/$graphApiVersion/dialog/oauth', {
+      'client_id': session.appId,
+      'redirect_uri': redirectUri.toString(),
+      'config_id': session.configId,
+      'response_type': 'code',
+      'override_default_response_type': 'true',
+      'scope':
+          'business_management,whatsapp_business_management,whatsapp_business_messaging',
+      'extras': jsonEncode(<String, Object?>{
+        'feature': 'whatsapp_embedded_signup',
+        'sessionInfoVersion': 3,
+      }),
+      'state': session.sessionId,
+      'display': 'page',
+    });
+  }
+
+  Uri buildStandardOAuthDialogUrl({
+    required WhatsAppEmbeddedSignupSession session,
+    required Uri redirectUri,
+  }) {
+    final graphApiVersion =
+        session.graphApiVersion.trim().isEmpty
+            ? 'v25.0'
+            : session.graphApiVersion.trim();
+    return Uri.https('www.facebook.com', '/$graphApiVersion/dialog/oauth', {
+      'client_id': session.appId,
+      'redirect_uri': redirectUri.toString(),
+      'response_type': 'code',
+      'scope':
+          'business_management,whatsapp_business_management,whatsapp_business_messaging',
+      'state': base64Url
+          .encode(
+            utf8.encode(
+              jsonEncode(<String, String>{
+                'salonId': session.salonId,
+                'sessionId': session.sessionId,
+              }),
+            ),
+          )
+          .replaceAll('=', ''),
+      'display': 'page',
+      'auth_type': 'rerequest',
+    });
+  }
+
   Future<WhatsAppEmbeddedSignupResult> completeEmbeddedSignup({
     required String salonId,
     required String sessionId,
@@ -732,7 +792,9 @@ class WhatsAppService {
     required WhatsAppVerificationCodeMethod codeMethod,
     String? sessionId,
   }) async {
-    final functionUri = _resolveFunctionUrl('requestWhatsappPhoneVerificationCode');
+    final functionUri = _resolveFunctionUrl(
+      'requestWhatsappPhoneVerificationCode',
+    );
     final response = await _authorizedPostJson(functionUri, <String, dynamic>{
       'salonId': salonId,
       'codeMethod':
@@ -759,7 +821,9 @@ class WhatsAppService {
     required String pin,
     String? sessionId,
   }) async {
-    final functionUri = _resolveFunctionUrl('confirmWhatsappPhoneVerificationCode');
+    final functionUri = _resolveFunctionUrl(
+      'confirmWhatsappPhoneVerificationCode',
+    );
     final response = await _authorizedPostJson(functionUri, <String, dynamic>{
       'salonId': salonId,
       'verificationCode': verificationCode,

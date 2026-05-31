@@ -455,7 +455,7 @@ export const notifyLastMinuteSlot = functionsEU.https.onCall(
               priority: "high",
               notification: {
                 sound: "default",
-                channelId: "civiapp_push",
+                channelId: "youbook_push",
               },
             },
             apns: {

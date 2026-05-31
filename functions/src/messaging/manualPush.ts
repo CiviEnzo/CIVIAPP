@@ -362,7 +362,7 @@ export const sendManualPushNotification = functionsEU.https.onCall(async (data: 
             priority: 'high',
             notification: {
               sound: 'default',
-              channelId: 'civiapp_push',
+              channelId: 'youbook_push',
             },
           },
           apns: {

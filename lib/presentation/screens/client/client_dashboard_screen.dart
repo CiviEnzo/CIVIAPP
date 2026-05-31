@@ -555,6 +555,9 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
   }
 
   void _listenForegroundMessages() {
+    if (kIsWeb) {
+      return;
+    }
     _foregroundSub ??= FirebaseMessaging.onMessage.listen((
       RemoteMessage message,
     ) {
@@ -7591,6 +7594,10 @@ class _PushTokenRegistrarState extends ConsumerState<_PushTokenRegistrar> {
     }
     _initialized = true;
 
+    if (kIsWeb) {
+      return;
+    }
+
     if (!mounted) {
       return;
     }
@@ -7648,6 +7655,24 @@ class _PushTokenRegistrarState extends ConsumerState<_PushTokenRegistrar> {
               token: freshToken,
             );
       });
+    } on FirebaseException catch (error, stackTrace) {
+      if (_isNotificationsUnavailableError(error)) {
+        if (kDebugMode) {
+          debugPrint(
+            'FCM token non registrato: notifiche non consentite per questa app.',
+          );
+        }
+        return;
+      }
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'ClientDashboardScreen',
+          informationCollector:
+              () => [DiagnosticsNode.message('Failed to register FCM token')],
+        ),
+      );
     } catch (error, stackTrace) {
       FlutterError.reportError(
         FlutterErrorDetails(
@@ -7659,6 +7684,14 @@ class _PushTokenRegistrarState extends ConsumerState<_PushTokenRegistrar> {
         ),
       );
     }
+  }
+
+  bool _isNotificationsUnavailableError(FirebaseException error) {
+    final message = (error.message ?? '').toLowerCase();
+    return error.plugin == 'firebase_messaging' &&
+        (message.contains('notifications are not allowed') ||
+            message.contains('not allowed for this application') ||
+            error.code == 'permission-denied');
   }
 
   @override

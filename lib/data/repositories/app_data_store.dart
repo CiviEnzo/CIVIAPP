@@ -153,8 +153,6 @@ class AppDataStore extends StateNotifier<AppDataState> {
   FirebaseAuth? _adminAuth;
   Future<FirebaseAuth?>? _adminAuthFuture;
   List<StreamSubscription> _subscriptions = <StreamSubscription>[];
-  bool _onboardingSyncScheduled = false;
-  bool _isSyncingOnboardingStatus = false;
   bool _hasEnsuredPublicMirrors = false;
   List<Promotion> _cachedPromotions = const <Promotion>[];
   List<LastMinuteSlot> _cachedLastMinuteSlots = const <LastMinuteSlot>[];
@@ -357,10 +355,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
           collectionPath: 'clients',
           salonIds: salonIds,
           fromDoc: clientFromDoc,
-          onData: (items) {
-            state = state.copyWith(clients: items);
-            _scheduleClientOnboardingSync();
-          },
+          onData: (items) => state = state.copyWith(clients: items),
         ),
       );
 
@@ -1619,8 +1614,6 @@ class AppDataStore extends StateNotifier<AppDataState> {
     final role = _currentUser?.role;
     if (role == UserRole.admin || role == UserRole.staff) {
       state = state.copyWith(clientNotifications: const []);
-
-      _scheduleClientOnboardingSync();
     }
   }
 
@@ -1800,108 +1793,6 @@ class AppDataStore extends StateNotifier<AppDataState> {
         );
       },
     );
-  }
-
-  void _scheduleClientOnboardingSync() {
-    if (_onboardingSyncScheduled ||
-        _firestore == null ||
-        !_hasAuthenticatedUser) {
-      return;
-    }
-    if (state.clients.isEmpty || state.users.isEmpty) {
-      return;
-    }
-    _onboardingSyncScheduled = true;
-    scheduleMicrotask(() async {
-      _onboardingSyncScheduled = false;
-      await _syncClientOnboardingStatus();
-    });
-  }
-
-  Future<void> _syncClientOnboardingStatus() async {
-    if (_isSyncingOnboardingStatus) {
-      return;
-    }
-    if (_firestore == null || !_hasAuthenticatedUser) {
-      return;
-    }
-    if (state.clients.isEmpty || state.users.isEmpty) {
-      return;
-    }
-
-    final users = state.users;
-    final List<Client> updates = [];
-
-    for (final client in state.clients) {
-      final email = client.email?.toLowerCase();
-      if (email == null || email.isEmpty) {
-        continue;
-      }
-
-      final matchingUser = users.firstWhereOrNull((user) {
-        final userEmail = user.email?.toLowerCase();
-        if (userEmail == null || userEmail.isEmpty) {
-          return false;
-        }
-        return user.role == UserRole.client && userEmail == email;
-      });
-
-      if (matchingUser == null) {
-        continue;
-      }
-
-      var updatedClient = client;
-      var changed = false;
-
-      if (client.onboardingStatus == ClientOnboardingStatus.notSent ||
-          client.onboardingStatus == ClientOnboardingStatus.invitationSent) {
-        final timestamp = client.firstLoginAt ?? DateTime.now();
-        updatedClient = updatedClient.copyWith(
-          onboardingStatus: ClientOnboardingStatus.firstLogin,
-          firstLoginAt: timestamp,
-        );
-        changed = true;
-      } else if (client.onboardingStatus == ClientOnboardingStatus.firstLogin &&
-          client.firstLoginAt == null) {
-        updatedClient = updatedClient.copyWith(firstLoginAt: DateTime.now());
-        changed = true;
-      }
-
-      final linkedToClient =
-          matchingUser.clientId != null &&
-          matchingUser.clientId!.isNotEmpty &&
-          matchingUser.clientId == client.id;
-
-      if (linkedToClient &&
-          updatedClient.onboardingStatus !=
-              ClientOnboardingStatus.onboardingCompleted) {
-        final completedAt =
-            updatedClient.onboardingCompletedAt ?? DateTime.now();
-        updatedClient = updatedClient.copyWith(
-          onboardingStatus: ClientOnboardingStatus.onboardingCompleted,
-          onboardingCompletedAt: completedAt,
-          firstLoginAt: updatedClient.firstLoginAt ?? completedAt,
-        );
-        changed = true;
-      }
-
-      if (changed) {
-        updates.add(updatedClient);
-      }
-    }
-
-    if (updates.isEmpty) {
-      return;
-    }
-
-    _isSyncingOnboardingStatus = true;
-    try {
-      for (final client in updates) {
-        await upsertClient(client);
-      }
-    } finally {
-      _isSyncingOnboardingStatus = false;
-    }
   }
 
   @override

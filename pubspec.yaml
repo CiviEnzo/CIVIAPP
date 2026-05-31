@@ -2,7 +2,7 @@ name: you_book
 description: "You Book gestionale per saloni di centri estetici"
 publish_to: 'none'
 
-version: 1.0.0+4
+version: 1.0.0+2
 
 environment:
   sdk: ^3.7.2

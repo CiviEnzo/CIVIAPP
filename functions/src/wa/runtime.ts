@@ -7,7 +7,8 @@ export const GRAPH_TIMEOUT_MS = Number(process.env.WA_GRAPH_TIMEOUT_MS ?? 10000)
 export type ConnectionMethod =
   | 'embedded_signup'
   | 'legacy_oauth'
-  | 'manual_setup';
+  | 'manual_setup'
+  | 'standard_oauth';
 export type WhatsAppOnboardingStatus =
   | 'disconnected'
   | 'reconnect_required'
@@ -74,6 +75,9 @@ export function inferConnectionMethod(
   }
   if (configured === 'manual_setup') {
     return 'manual_setup';
+  }
+  if (configured === 'standard_oauth') {
+    return 'standard_oauth';
   }
   if (configured === 'legacy_oauth') {
     return 'legacy_oauth';

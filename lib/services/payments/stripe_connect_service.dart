@@ -86,6 +86,25 @@ class StripeConnectService {
     return Uri.parse(url);
   }
 
+  Future<Uri> createDashboardLoginLink({
+    required String salonId,
+    String? accountId,
+  }) async {
+    final payload = {
+      'salonId': salonId,
+      if (accountId != null) 'accountId': accountId,
+    };
+    final response = await _post(
+      path: 'createStripeDashboardLoginLink',
+      body: payload,
+    );
+    final url = response['url'] as String?;
+    if (url == null || url.isEmpty) {
+      throw Exception('Risposta dashboard non valida: manca l\'URL');
+    }
+    return Uri.parse(url);
+  }
+
   Future<Map<String, dynamic>> _post({
     required String path,
     required Map<String, dynamic> body,

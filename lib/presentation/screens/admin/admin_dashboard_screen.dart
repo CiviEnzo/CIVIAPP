@@ -11,7 +11,6 @@ import 'package:you_book/domain/entities/payment_ticket.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/salon_access_request.dart';
 import 'package:you_book/domain/entities/staff_absence_request.dart';
-import 'package:you_book/presentation/common/theme_mode_action.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/clients_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/client_app_movements_module.dart';
@@ -252,6 +251,16 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         ref.read(adminDashboardIntentProvider.notifier).state = null;
       },
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      final moduleId = GoRouterState.of(context).uri.queryParameters['module'];
+      if (moduleId == null || moduleId.isEmpty) {
+        return;
+      }
+      _handleAdminIntent(AdminDashboardIntent(moduleId: moduleId));
+    });
   }
 
   @override
@@ -715,6 +724,70 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     await performSignOut(ref);
   }
 
+  Future<void> _showAdminAccountMenu() async {
+    final themeMode = ref.read(themeModeProvider);
+    final isDarkMode = themeMode == ThemeMode.dark;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        return AlertDialog(
+          title: const Text('Impostazioni account'),
+          contentPadding: const EdgeInsets.fromLTRB(0, 12, 0, 8),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SwitchListTile.adaptive(
+                  secondary: Icon(
+                    isDarkMode
+                        ? Icons.dark_mode_rounded
+                        : Icons.light_mode_rounded,
+                  ),
+                  title: const Text('Tema scuro'),
+                  value: isDarkMode,
+                  onChanged: (value) {
+                    ref.read(themeModeProvider.notifier).setDarkEnabled(value);
+                    Navigator.of(dialogContext).pop();
+                  },
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(
+                    Icons.delete_forever_rounded,
+                    color: theme.colorScheme.error,
+                  ),
+                  title: const Text('Cancellazione account'),
+                  subtitle: const Text('Apri la pagina di conferma'),
+                  onTap: () {
+                    Navigator.of(dialogContext).pop();
+                    context.go('/eliminazione-account');
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.logout_rounded),
+                  title: const Text('Esci'),
+                  subtitle: const Text('Termina la sessione admin'),
+                  onTap: () {
+                    Navigator.of(dialogContext).pop();
+                    _handleSignOutRequest();
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Chiudi'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final data = ref.watch(appDataProvider);
@@ -931,11 +1004,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                             )
                             : const Icon(Icons.picture_as_pdf_rounded),
                   ),
-                const ThemeModeAction(),
                 IconButton(
-                  tooltip: 'Esci',
-                  onPressed: () async => _handleSignOutRequest(),
-                  icon: const Icon(Icons.logout_rounded),
+                  tooltip: 'Impostazioni account',
+                  onPressed: () async => _showAdminAccountMenu(),
+                  icon: const Icon(Icons.settings_rounded),
                 ),
               ],
             ),

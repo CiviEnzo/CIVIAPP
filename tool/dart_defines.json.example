@@ -1,7 +1,14 @@
 {
   "FIREBASE_VAPID_KEY": "INSERISCI_LA_TUA_VAPID_KEY",
-  "CLIENT_PURCHASES_ENABLED": "false",
+  "APP_VERSION": "1.0.0+1",
+  "CLIENT_PURCHASES_ENABLED": false,
+  "CLIENT_DELETE_ACCOUNT_URL": "https://youbook.civiapp.it/richiesta-eliminazione-account",
+  "ADMIN_WEB_URL": "https://youbook.civiapp.it",
   "STRIPE_PUBLISHABLE_KEY": "INSERISCI_LA_TUA_STRIPE_PUBLISHABLE_KEY",
-  "STRIPE_TEST_MODE": "true",
-  "STRIPE_MERCHANT_ID": "merchant.com.cividevops.civiapp"
+  "STRIPE_TEST_MODE": true,
+  "STRIPE_MERCHANT_ID": "merchant.com.cividevops.civiapp",
+  "STRIPE_MERCHANT_NAME": "YouBook",
+  "STRIPE_MERCHANT_COUNTRY_CODE": "IT",
+  "STRIPE_ONBOARDING_RETURN_URL": "https://youbook.civiapp.it/stripe-success",
+  "STRIPE_ONBOARDING_REFRESH_URL": "https://youbook.civiapp.it/stripe/onboarding/retry"
 }

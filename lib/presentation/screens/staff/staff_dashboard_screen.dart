@@ -12,6 +12,7 @@ import 'package:you_book/domain/entities/staff_absence.dart';
 import 'package:you_book/domain/entities/staff_absence_request.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/domain/entities/shift.dart';
+import 'package:you_book/presentation/common/app_version_badge.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/common/theme_mode_action.dart';
 import 'package:you_book/presentation/common/hybrid_image_picker.dart';
@@ -1330,20 +1331,27 @@ class _StaffDashboardScreenState extends ConsumerState<StaffDashboardScreen> {
             ),
           ],
         ),
-        body: TabBarView(
+        body: Stack(
           children: [
-            _AgendaView(
-              staff: selectedStaff,
-              appointments: data.appointments,
-              absences: data.staffAbsences,
-              shifts: data.shifts,
+            Positioned.fill(
+              child: TabBarView(
+                children: [
+                  _AgendaView(
+                    staff: selectedStaff,
+                    appointments: data.appointments,
+                    absences: data.staffAbsences,
+                    shifts: data.shifts,
+                  ),
+                  _AbsenceView(
+                    staff: selectedStaff,
+                    absences: staffAbsences,
+                    requests: staffAbsenceRequests,
+                    shifts: staffShifts,
+                  ),
+                ],
+              ),
             ),
-            _AbsenceView(
-              staff: selectedStaff,
-              absences: staffAbsences,
-              requests: staffAbsenceRequests,
-              shifts: staffShifts,
-            ),
+            const AppVersionBadge(),
           ],
         ),
       ),
