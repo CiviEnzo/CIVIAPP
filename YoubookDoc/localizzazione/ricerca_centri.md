@@ -109,56 +109,56 @@ Sconsigliata come prima scelta se richiede API key nel client. Accettabile solo 
   - `geocodingProvider`.
 
 ## Checklist implementativa
-- [ ] Aggiungere dipendenza Flutter per la posizione, preferibilmente `geolocator`, evitando una dipendenza separata per i permessi se il package copre richiesta e stato permesso.
-- [ ] Aggiornare `android/app/src/main/AndroidManifest.xml` con `ACCESS_FINE_LOCATION` e `ACCESS_COARSE_LOCATION`.
-- [ ] Aggiornare `ios/Runner/Info.plist` con `NSLocationWhenInUseUsageDescription` usando un testo chiaro, es. "Usiamo la tua posizione per mostrarti i saloni piu' vicini.".
-- [ ] Valutare se serve anche configurazione iOS in `Podfile`/permessi del package scelto dopo l'aggiunta della dipendenza.
-- [ ] Creare un piccolo servizio/provider di localizzazione cliente, separato dalla UI, con:
+- [x] Aggiungere dipendenza Flutter per la posizione, preferibilmente `geolocator`, evitando una dipendenza separata per i permessi se il package copre richiesta e stato permesso.
+- [x] Aggiornare `android/app/src/main/AndroidManifest.xml` con `ACCESS_FINE_LOCATION` e `ACCESS_COARSE_LOCATION`.
+- [x] Aggiornare `ios/Runner/Info.plist` con `NSLocationWhenInUseUsageDescription` usando un testo chiaro, es. "Usiamo la tua posizione per mostrarti i saloni piu' vicini.".
+- [x] Valutare se serve anche configurazione iOS in `Podfile`/permessi del package scelto dopo l'aggiunta della dipendenza.
+- [x] Creare un piccolo servizio/provider di localizzazione cliente, separato dalla UI, con:
   - stato `unknown/loading/granted/denied/deniedForever/serviceDisabled/error`;
   - posizione corrente nullable;
   - metodo `requestCurrentPosition()`;
   - metodo `openSettings()` o `openLocationSettings()` se supportato dal package.
-- [ ] Inserire nella discovery cliente una richiesta permesso contestuale:
+- [x] Inserire nella discovery cliente una richiesta permesso contestuale:
   - evitare richiesta aggressiva prima che la schermata sia pronta;
   - mostrare una riga/banner "Usa la tua posizione" se il permesso non e' ancora concesso;
   - chiedere il permesso al tap oppure dopo una breve spiegazione in schermata.
-- [ ] Implementare una funzione pura per distanza tra coordinate, preferibilmente Haversine, se non si usa un helper del package:
+- [x] Implementare una funzione pura per distanza tra coordinate, preferibilmente Haversine, se non si usa un helper del package:
   - input: lat/lng utente e lat/lng salone;
   - output: metri/km;
   - gestione `null` quando una coordinata manca.
-- [ ] Creare un view model locale per la lista, es. `DiscoverableSalonResult`, con:
+- [x] Creare un view model locale per la lista, es. `DiscoverableSalonResult`, con:
   - `PublicSalon salon`;
   - `double? distanceMeters`;
   - `bool matchesName`;
   - `bool matchesPhone`;
   - `bool hasAddressAndCoordinates`;
   - eventuale `sortRank`.
-- [ ] Cambiare l'ordinamento attuale in `client_salon_discovery_screen.dart`:
+- [x] Cambiare l'ordinamento attuale in `client_salon_discovery_screen.dart`:
   - senza query: prima distanza crescente, poi nome;
   - senza query: escludere saloni senza indirizzo o senza coordinate;
   - con query: includere anche saloni senza indirizzo/coordinate se matchano nome o telefono;
   - con query: match esatto/prefix/contains sul nome, poi match telefono, poi distanza, poi nome.
-- [ ] Aggiornare `_matchesQuery()`:
+- [x] Aggiornare `_matchesQuery()`:
   - cercare solo in `salon.name` e `salon.phone`;
   - rimuovere match su citta, indirizzo ed email;
   - normalizzare il telefono rimuovendo spazi, prefissi formattati e simboli non numerici per rendere la ricerca robusta.
-- [ ] Aggiornare placeholder e microcopy del campo:
+- [x] Aggiornare placeholder e microcopy del campo:
   - esempio: "Cerca per nome o telefono";
   - eventuale testo secondario per posizione: "Mostriamo prima i saloni piu' vicini quando la posizione e' attiva.".
-- [ ] Aggiornare `_SalonCard` per mostrare distanza quando disponibile.
-- [ ] Gestire empty state distinti:
+- [x] Aggiornare `_SalonCard` per mostrare distanza quando disponibile.
+- [x] Gestire empty state distinti:
   - nessun salone pubblicato;
   - nessun risultato per la query;
   - nessun salone vicino con indirizzo/coordinate, ma ricerca manuale disponibile;
   - posizione negata o disattivata.
-- [ ] Nascondere dalla lista vicini i saloni senza indirizzo o senza coordinate, mantenendoli ricercabili per nome/telefono.
-- [ ] Verificare che `public_salons` contenga sempre `latitude` e `longitude` quando un salone viene pubblicato o aggiornato.
-- [ ] Introdurre geocoding automatico lato admin:
+- [x] Nascondere dalla lista vicini i saloni senza indirizzo o senza coordinate, mantenendoli ricercabili per nome/telefono.
+- [x] Verificare che `public_salons` contenga sempre `latitude` e `longitude` quando un salone viene pubblicato o aggiornato.
+- [x] Introdurre geocoding automatico lato admin:
   - Cloud Function `geocodeSalonAddress` o servizio equivalente;
   - CTA "Trova coordinate" nei form salone;
   - salvataggio coordinate dopo conferma admin;
   - fallback/manual override avanzato.
-- [ ] Chiarire il campo `googlePlaceId`: oggi viene usato con label "Link recensioni"; decidere se resta Place ID o se serve un campo separato per il link recensioni.
+- [x] Chiarire il campo `googlePlaceId`: oggi viene usato con label "Link recensioni"; decidere se resta Place ID o se serve un campo separato per il link recensioni.
 - [ ] Verificare le regole Firestore per lettura pubblica/cliente di `public_salons` e assicurarsi che non espongano dati non necessari.
 - [ ] Valutare un backfill dati per i saloni gia' esistenti:
   - coordinate mancanti;

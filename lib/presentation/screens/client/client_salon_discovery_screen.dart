@@ -4,15 +4,14 @@ import 'package:collection/collection.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/app/router_constants.dart';
 import 'package:you_book/data/models/app_user.dart';
-import 'package:you_book/data/repositories/auth_repository.dart';
 import 'package:you_book/domain/entities/client.dart';
-import 'package:you_book/domain/entities/client_registration_draft.dart';
 import 'package:you_book/domain/entities/public_salon.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/salon_access_request.dart';
@@ -32,11 +31,22 @@ class _ClientSalonDiscoveryScreenState
   String _searchQuery = '';
   String? _joiningSalonId;
   bool _redirectingToSignIn = false;
+  bool _initialLocationRequestScheduled = false;
+  Position? _devicePosition;
+  _ClientLocationStatus _locationStatus = _ClientLocationStatus.idle;
+  String? _locationMessage;
 
   @override
   void initState() {
     super.initState();
     _searchController.addListener(_handleSearchChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _initialLocationRequestScheduled) {
+        return;
+      }
+      _initialLocationRequestScheduled = true;
+      _requestCurrentLocation();
+    });
   }
 
   @override
@@ -55,19 +65,235 @@ class _ClientSalonDiscoveryScreenState
     setState(() => _searchQuery = next);
   }
 
-  bool _matchesQuery(PublicSalon salon) {
-    final query = _searchQuery.toLowerCase();
-    if (query.isEmpty) {
-      return true;
+  List<_DiscoverableSalonResult> _buildSalonResults(List<PublicSalon> salons) {
+    final rawQuery = _searchQuery.trim();
+    final hasQuery = rawQuery.isNotEmpty;
+    final query = rawQuery.toLowerCase();
+    final phoneQuery = _normalizePhone(rawQuery);
+    final position = _devicePosition;
+
+    final results = <_DiscoverableSalonResult>[];
+    for (final salon in salons) {
+      if (!salon.isPublished || salon.status == SalonStatus.archived) {
+        continue;
+      }
+
+      final hasAddressAndCoordinates = _hasAddressAndCoordinates(salon);
+      final distanceMeters =
+          position == null || !_hasValidCoordinates(salon)
+              ? null
+              : Geolocator.distanceBetween(
+                position.latitude,
+                position.longitude,
+                salon.latitude!,
+                salon.longitude!,
+              );
+
+      final nameRank = _nameMatchRank(salon.name, query);
+      final matchesName = hasQuery && nameRank < 4;
+      final matchesPhone =
+          hasQuery &&
+          phoneQuery.isNotEmpty &&
+          _normalizePhone(salon.phone).contains(phoneQuery);
+
+      if (hasQuery) {
+        if (!matchesName && !matchesPhone) {
+          continue;
+        }
+      } else if (!hasAddressAndCoordinates) {
+        continue;
+      }
+
+      results.add(
+        _DiscoverableSalonResult(
+          salon: salon,
+          distanceMeters: distanceMeters,
+          matchesName: matchesName,
+          matchesPhone: matchesPhone,
+          hasAddressAndCoordinates: hasAddressAndCoordinates,
+          sortRank:
+              hasQuery
+                  ? (matchesName ? nameRank : 4)
+                  : (distanceMeters == null ? 1 : 0),
+        ),
+      );
     }
-    final tokens = <String>[
-      salon.name,
-      salon.city,
-      salon.address,
-      salon.email,
-      salon.phone,
-    ];
-    return tokens.any((token) => token.toLowerCase().contains(query));
+
+    results.sort(_compareSalonResults);
+    return List<_DiscoverableSalonResult>.unmodifiable(results);
+  }
+
+  int _compareSalonResults(
+    _DiscoverableSalonResult a,
+    _DiscoverableSalonResult b,
+  ) {
+    final rankCompare = a.sortRank.compareTo(b.sortRank);
+    if (rankCompare != 0) {
+      return rankCompare;
+    }
+
+    final distanceCompare = _compareNullableDistance(
+      a.distanceMeters,
+      b.distanceMeters,
+    );
+    if (distanceCompare != 0) {
+      return distanceCompare;
+    }
+
+    return a.salon.name.toLowerCase().compareTo(b.salon.name.toLowerCase());
+  }
+
+  int _compareNullableDistance(double? a, double? b) {
+    if (a == null && b == null) {
+      return 0;
+    }
+    if (a == null) {
+      return 1;
+    }
+    if (b == null) {
+      return -1;
+    }
+    return a.compareTo(b);
+  }
+
+  int _nameMatchRank(String name, String query) {
+    if (query.isEmpty) {
+      return 4;
+    }
+    final normalizedName = name.trim().toLowerCase();
+    if (normalizedName == query) {
+      return 0;
+    }
+    if (normalizedName.startsWith(query)) {
+      return 1;
+    }
+    if (normalizedName.contains(query)) {
+      return 2;
+    }
+    return 4;
+  }
+
+  bool _hasAddressAndCoordinates(PublicSalon salon) {
+    return salon.address.trim().isNotEmpty && _hasValidCoordinates(salon);
+  }
+
+  bool _hasValidCoordinates(PublicSalon salon) {
+    final latitude = salon.latitude;
+    final longitude = salon.longitude;
+    if (latitude == null || longitude == null) {
+      return false;
+    }
+    return latitude >= -90 &&
+        latitude <= 90 &&
+        longitude >= -180 &&
+        longitude <= 180;
+  }
+
+  String _normalizePhone(String value) {
+    return value.replaceAll(RegExp(r'[^0-9]'), '');
+  }
+
+  Future<void> _requestCurrentLocation() async {
+    if (_searchQuery.trim().isNotEmpty) {
+      return;
+    }
+    final session = ref.read(sessionControllerProvider);
+    if (session.user == null || session.requiresEmailVerification) {
+      return;
+    }
+    if (_locationStatus == _ClientLocationStatus.loading) {
+      return;
+    }
+
+    setState(() {
+      _locationStatus = _ClientLocationStatus.loading;
+      _locationMessage = null;
+    });
+
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _locationStatus = _ClientLocationStatus.serviceDisabled;
+          _locationMessage = 'Servizi di localizzazione disattivati.';
+        });
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.denied) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _locationStatus = _ClientLocationStatus.denied;
+          _locationMessage =
+              'Autorizza la posizione per vedere prima i saloni piu\' vicini.';
+        });
+        return;
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _locationStatus = _ClientLocationStatus.deniedForever;
+          _locationMessage =
+              'La posizione e\' bloccata. Puoi abilitarla dalle impostazioni.';
+        });
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 12),
+        ),
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _devicePosition = position;
+        _locationStatus = _ClientLocationStatus.ready;
+        _locationMessage = null;
+      });
+    } on TimeoutException {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _locationStatus = _ClientLocationStatus.unavailable;
+        _locationMessage =
+            'Non siamo riusciti a rilevare la posizione. Puoi cercare per nome o telefono.';
+      });
+    } on Exception catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _locationStatus = _ClientLocationStatus.unavailable;
+        _locationMessage =
+            'Posizione non disponibile. Puoi cercare per nome o telefono.';
+      });
+      debugPrint('Client location lookup failed: $error');
+    }
+  }
+
+  Future<void> _openLocationSettings() async {
+    if (_locationStatus == _ClientLocationStatus.serviceDisabled) {
+      await Geolocator.openLocationSettings();
+      return;
+    }
+    await Geolocator.openAppSettings();
   }
 
   @override
@@ -107,10 +333,10 @@ class _ClientSalonDiscoveryScreenState
         .toList(growable: false);
     final availableSalons =
         discoverableSalons.isNotEmpty ? discoverableSalons : fallbackSalons;
-    final salons = availableSalons
-        .where((salon) => salon.status != SalonStatus.archived)
-        .where(_matchesQuery)
-        .sorted((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    final results = _buildSalonResults(availableSalons);
+    final hasAnyPublishedSalon = availableSalons.any(
+      (salon) => salon.isPublished && salon.status != SalonStatus.archived,
+    );
 
     final requests =
         userId == null
@@ -133,11 +359,8 @@ class _ClientSalonDiscoveryScreenState
     };
 
     final approvedSalonIds = session.availableSalonIds.toSet();
-    final hasSalons = salons.isNotEmpty;
-    final useCardGrid = salons.length <= 5;
-    final defaultSalonId =
-        session.salonId ??
-        (approvedSalonIds.isNotEmpty ? approvedSalonIds.first : null);
+    final hasSalons = results.isNotEmpty;
+    final useCardGrid = results.length <= 5;
 
     return Scaffold(
       appBar: AppBar(
@@ -158,23 +381,24 @@ class _ClientSalonDiscoveryScreenState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Benvenuto${user?.displayName != null ? ', ${user!.displayName!.split(' ').first}' : ''}!',
+                'Benvenuto${user.displayName != null ? ', ${user.displayName!.split(' ').first}' : ''}!',
                 style: theme.textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
               ),
               const SizedBox(height: 8),
               Text(
-                'Esplora i saloni disponibili, invia una richiesta di accesso o entra nei saloni che ti hanno già approvato.',
+                'Mostriamo prima i saloni vicini a te. Puoi cercare manualmente per nome o telefono.',
                 style: theme.textTheme.bodyMedium,
               ),
               const SizedBox(height: 20),
               TextField(
                 controller: _searchController,
                 textInputAction: TextInputAction.search,
+                keyboardType: TextInputType.text,
                 decoration: InputDecoration(
                   prefixIcon: const Icon(Icons.search_rounded),
-                  hintText: 'Cerca per nome, città o contatto',
+                  hintText: 'Cerca per nome o telefono',
                   suffixIcon:
                       _searchQuery.isEmpty
                           ? null
@@ -184,14 +408,21 @@ class _ClientSalonDiscoveryScreenState
                           ),
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 12),
+              _LocationDiscoveryBanner(
+                status: _locationStatus,
+                message: _locationMessage,
+                hasPosition: _devicePosition != null,
+                isManualSearch: _searchQuery.trim().isNotEmpty,
+                onUseLocation: _requestCurrentLocation,
+                onOpenSettings: _openLocationSettings,
+              ),
+              const SizedBox(height: 16),
               if (!hasSalons)
                 Expanded(
                   child: Center(
                     child: Text(
-                      _searchQuery.isEmpty
-                          ? 'Nessun salone disponibile al momento.'
-                          : 'Nessun salone corrisponde alla tua ricerca.',
+                      _emptyMessage(hasAnyPublishedSalon: hasAnyPublishedSalon),
                       style: theme.textTheme.bodyLarge,
                       textAlign: TextAlign.center,
                     ),
@@ -213,11 +444,12 @@ class _ClientSalonDiscoveryScreenState
                           crossAxisCount: crossAxisCount,
                           mainAxisSpacing: 16,
                           crossAxisSpacing: 16,
-                          childAspectRatio: 4 / 3,
+                          mainAxisExtent: 280,
                         ),
-                        itemCount: salons.length,
+                        itemCount: results.length,
                         itemBuilder: (context, index) {
-                          final salon = salons[index];
+                          final result = results[index];
+                          final salon = result.salon;
                           final isApproved = approvedSalonIds.contains(
                             salon.id,
                           );
@@ -225,6 +457,9 @@ class _ClientSalonDiscoveryScreenState
                           final rejectedRequest = rejectedBySalon[salon.id];
                           return _SalonCard(
                             salon: salon,
+                            distanceMeters: result.distanceMeters,
+                            hasAddressAndCoordinates:
+                                result.hasAddressAndCoordinates,
                             isApproved: isApproved,
                             isProcessing: _joiningSalonId == salon.id,
                             pendingRequest: pendingRequest,
@@ -241,15 +476,19 @@ class _ClientSalonDiscoveryScreenState
               else
                 Expanded(
                   child: ListView.separated(
-                    itemCount: salons.length,
+                    itemCount: results.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 16),
                     itemBuilder: (context, index) {
-                      final salon = salons[index];
+                      final result = results[index];
+                      final salon = result.salon;
                       final isApproved = approvedSalonIds.contains(salon.id);
                       final pendingRequest = pendingBySalon[salon.id];
                       final rejectedRequest = rejectedBySalon[salon.id];
                       return _SalonCard(
                         salon: salon,
+                        distanceMeters: result.distanceMeters,
+                        hasAddressAndCoordinates:
+                            result.hasAddressAndCoordinates,
                         isApproved: isApproved,
                         isProcessing: _joiningSalonId == salon.id,
                         pendingRequest: pendingRequest,
@@ -285,6 +524,16 @@ class _ClientSalonDiscoveryScreenState
         ),
       ),
     );
+  }
+
+  String _emptyMessage({required bool hasAnyPublishedSalon}) {
+    if (_searchQuery.trim().isNotEmpty) {
+      return 'Nessun salone corrisponde alla tua ricerca per nome o telefono.';
+    }
+    if (!hasAnyPublishedSalon) {
+      return 'Nessun salone disponibile al momento.';
+    }
+    return 'Nessun salone con indirizzo disponibile nella lista vicini. Cerca per nome o telefono.';
   }
 
   Future<void> _signOut(BuildContext context) async {
@@ -810,6 +1059,8 @@ class _ClientSalonDiscoveryScreenState
 class _SalonCard extends StatelessWidget {
   const _SalonCard({
     required this.salon,
+    required this.distanceMeters,
+    required this.hasAddressAndCoordinates,
     required this.isApproved,
     required this.isProcessing,
     required this.pendingRequest,
@@ -819,6 +1070,8 @@ class _SalonCard extends StatelessWidget {
   });
 
   final PublicSalon salon;
+  final double? distanceMeters;
+  final bool hasAddressAndCoordinates;
   final bool isApproved;
   final bool isProcessing;
   final SalonAccessRequest? pendingRequest;
@@ -854,7 +1107,7 @@ class _SalonCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            if (salon.address.isNotEmpty || salon.city.isNotEmpty) ...[
+            if (salon.address.isNotEmpty) ...[
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -866,6 +1119,37 @@ class _SalonCard extends StatelessWidget {
                         salon.address,
                         salon.city,
                       ].where((value) => value.trim().isNotEmpty).join(', '),
+                      style: subtitleStyle,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+            ] else if (!hasAddressAndCoordinates) ...[
+              Row(
+                children: [
+                  const Icon(Icons.place_outlined, size: 18),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Indirizzo non disponibile',
+                      style: subtitleStyle?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+            ],
+            if (distanceMeters != null) ...[
+              Row(
+                children: [
+                  const Icon(Icons.near_me_outlined, size: 18),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      _formatDistance(distanceMeters!),
                       style: subtitleStyle,
                     ),
                   ),
@@ -968,6 +1252,172 @@ class _SalonCard extends StatelessWidget {
     }
     return _CardStatus.available;
   }
+
+  String _formatDistance(double meters) {
+    if (meters < 1000) {
+      return '${meters.round()} m';
+    }
+    final kilometers = meters / 1000;
+    if (kilometers < 10) {
+      return '${kilometers.toStringAsFixed(1).replaceAll('.', ',')} km';
+    }
+    return '${kilometers.round()} km';
+  }
+}
+
+class _DiscoverableSalonResult {
+  const _DiscoverableSalonResult({
+    required this.salon,
+    required this.distanceMeters,
+    required this.matchesName,
+    required this.matchesPhone,
+    required this.hasAddressAndCoordinates,
+    required this.sortRank,
+  });
+
+  final PublicSalon salon;
+  final double? distanceMeters;
+  final bool matchesName;
+  final bool matchesPhone;
+  final bool hasAddressAndCoordinates;
+  final int sortRank;
+}
+
+enum _ClientLocationStatus {
+  idle,
+  loading,
+  ready,
+  denied,
+  deniedForever,
+  serviceDisabled,
+  unavailable,
+}
+
+class _LocationDiscoveryBanner extends StatelessWidget {
+  const _LocationDiscoveryBanner({
+    required this.status,
+    required this.message,
+    required this.hasPosition,
+    required this.isManualSearch,
+    required this.onUseLocation,
+    required this.onOpenSettings,
+  });
+
+  final _ClientLocationStatus status;
+  final String? message;
+  final bool hasPosition;
+  final bool isManualSearch;
+  final VoidCallback onUseLocation;
+  final VoidCallback onOpenSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final action = _action();
+    final actionCallback =
+        _actionOpensSettings ? onOpenSettings : onUseLocation;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          _leadingIcon(context),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _text(),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          if (action != null) ...[
+            const SizedBox(width: 10),
+            TextButton(
+              onPressed:
+                  status == _ClientLocationStatus.loading
+                      ? null
+                      : actionCallback,
+              child: Text(action),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _leadingIcon(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    if (status == _ClientLocationStatus.loading) {
+      return const SizedBox(
+        width: 18,
+        height: 18,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      );
+    }
+    final icon =
+        hasPosition
+            ? Icons.near_me_rounded
+            : status == _ClientLocationStatus.serviceDisabled ||
+                status == _ClientLocationStatus.deniedForever
+            ? Icons.location_off_rounded
+            : Icons.my_location_rounded;
+    return Icon(icon, size: 20, color: scheme.onSurfaceVariant);
+  }
+
+  String _text() {
+    if (isManualSearch) {
+      return 'Ricerca manuale attiva: mostriamo risultati per nome o telefono.';
+    }
+    if (message != null && message!.trim().isNotEmpty) {
+      return message!;
+    }
+    switch (status) {
+      case _ClientLocationStatus.ready:
+        return 'Lista ordinata in base alla tua posizione.';
+      case _ClientLocationStatus.loading:
+        return 'Rilevamento posizione in corso...';
+      case _ClientLocationStatus.idle:
+        return 'Usa la posizione per vedere prima i saloni piu\' vicini.';
+      case _ClientLocationStatus.denied:
+        return 'Autorizza la posizione per vedere prima i saloni piu\' vicini.';
+      case _ClientLocationStatus.deniedForever:
+        return 'La posizione e\' bloccata. Puoi abilitarla dalle impostazioni.';
+      case _ClientLocationStatus.serviceDisabled:
+        return 'Servizi di localizzazione disattivati.';
+      case _ClientLocationStatus.unavailable:
+        return 'Posizione non disponibile. Puoi cercare per nome o telefono.';
+    }
+  }
+
+  String? _action() {
+    if (isManualSearch || hasPosition) {
+      return null;
+    }
+    switch (status) {
+      case _ClientLocationStatus.idle:
+      case _ClientLocationStatus.denied:
+      case _ClientLocationStatus.unavailable:
+        return 'Usa posizione';
+      case _ClientLocationStatus.deniedForever:
+      case _ClientLocationStatus.serviceDisabled:
+        return 'Impostazioni';
+      case _ClientLocationStatus.loading:
+      case _ClientLocationStatus.ready:
+        return null;
+    }
+  }
+
+  bool get _actionOpensSettings =>
+      status == _ClientLocationStatus.deniedForever ||
+      status == _ClientLocationStatus.serviceDisabled;
 }
 
 class _ProgressDialog extends StatelessWidget {

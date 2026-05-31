@@ -17,6 +17,7 @@ export { adjustClientLoyalty } from "./loyalty/adjustClientLoyalty";
 export { scheduleLoyaltyReset } from "./loyalty/reset_scheduler";
 export { syncUserClaims } from "./auth/syncUserClaims";
 export { syncPublicSalonDirectory } from "./salons/publicSalonSync";
+export { geocodeSalonAddress } from "./salons/geocodeSalonAddress";
 export {
   onClientQuestionnaireTemplateWrite,
   onClientQuestionnaireTemplateDelete,

@@ -18,6 +18,17 @@
 		<string>YouBook</string>
 		<key>CFBundlePackageType</key>
 		<string>APPL</string>
+		<key>CFBundleURLTypes</key>
+		<array>
+			<dict>
+				<key>CFBundleURLName</key>
+				<string>youbook.stripe</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>youbook</string>
+				</array>
+			</dict>
+		</array>
 		<key>CFBundleShortVersionString</key>
 		<string>$(FLUTTER_BUILD_NAME)</string>
 		<key>CFBundleSignature</key>
@@ -57,6 +68,8 @@
 		<string>Necessitiamo dell'accesso alla libreria per permetterti di visualizzare e salvare le foto condivise dal salone.</string>
 		<key>NSPhotoLibraryAddUsageDescription</key>
 		<string>Richiediamo il permesso di aggiungere immagini per salvare gli scatti dei tuoi trattamenti.</string>
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>Usiamo la tua posizione per mostrarti i saloni piu' vicini.</string>
 		<key>UIStatusBarHidden</key>
 		<false/>
 		<key>ITSAppUsesNonExemptEncryption</key>
