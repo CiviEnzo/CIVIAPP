@@ -49,6 +49,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
   late ClientRegistrationAccessMode _registrationAccessMode;
   late Set<ClientRegistrationExtraField> _registrationExtraFields;
   late bool _isPublished;
+  late bool _showPublicCatalog;
   bool _isGeocoding = false;
   static const int _minutesInDay = 24 * 60;
   static const int _defaultOpeningMinutes = 9 * 60;
@@ -116,6 +117,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
 
     _status = initial?.status ?? SalonStatus.active;
     _isPublished = initial?.isPublished ?? false;
+    _showPublicCatalog = initial?.showPublicCatalog ?? true;
 
     final scheduleMap = {
       for (final entry in initial?.schedule ?? const <SalonDailySchedule>[])
@@ -299,6 +301,18 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
                 'Mostra le informazioni principali ai clienti nella directory pubblica.',
               ),
               onChanged: (value) => setState(() => _isPublished = value),
+            ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: _isPublished && _showPublicCatalog,
+              title: const Text('Mostra servizi e pacchetti'),
+              subtitle: const Text(
+                'Rendi visibile il catalogo nel profilo pubblico del salone.',
+              ),
+              onChanged:
+                  _isPublished
+                      ? (value) => setState(() => _showPublicCatalog = value)
+                      : null,
             ),
             const SizedBox(height: 12),
             _buildClientRegistrationSection(context),
@@ -976,6 +990,7 @@ class _SalonFormSheetState extends State<SalonFormSheet> {
       status: _status,
       loyaltySettings: loyaltySettings,
       isPublished: _isPublished,
+      showPublicCatalog: _showPublicCatalog,
       dashboardSections: dashboardSections,
       clientRegistration: ClientRegistrationSettings(
         accessMode: _registrationAccessMode,

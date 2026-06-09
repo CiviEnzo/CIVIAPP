@@ -12,6 +12,7 @@ class Service {
     this.requiredEquipmentIds = const [],
     this.extraDuration = Duration.zero,
     this.isActive = true,
+    this.showOnPublicProfile = true,
   });
 
   final String id;
@@ -26,6 +27,7 @@ class Service {
   final List<String> requiredEquipmentIds;
   final Duration extraDuration;
   final bool isActive;
+  final bool showOnPublicProfile;
 
   Service copyWith({
     String? id,
@@ -40,6 +42,7 @@ class Service {
     List<String>? requiredEquipmentIds,
     Duration? extraDuration,
     bool? isActive,
+    bool? showOnPublicProfile,
   }) {
     return Service(
       id: id ?? this.id,
@@ -54,6 +57,7 @@ class Service {
       requiredEquipmentIds: requiredEquipmentIds ?? this.requiredEquipmentIds,
       extraDuration: extraDuration ?? this.extraDuration,
       isActive: isActive ?? this.isActive,
+      showOnPublicProfile: showOnPublicProfile ?? this.showOnPublicProfile,
     );
   }
 }

@@ -3339,8 +3339,11 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
   final TextEditingController _noteController = TextEditingController();
   bool _isUploading = false;
   bool _areCollagesExpanded = false;
+  ClientPhotoPrivacyConfirmation? _photoPrivacyConfirmation;
   final Uuid _uuid = const Uuid();
   static const int _maxUploadBytes = 10 * 1024 * 1024;
+  static const String _photoPrivacyConfirmationVersion =
+      'photo-privacy-2026-06-05';
   static const List<ClientPhotoSetType> _orderedPhotoSets =
       <ClientPhotoSetType>[
         ClientPhotoSetType.front,
@@ -3500,6 +3503,13 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
                                 activePhoto == null
                                     ? null
                                     : () => _previewPhoto(activePhoto),
+                            isDeletingSet: setPhotos.any(
+                              (photo) => _deleting.contains(photo.id),
+                            ),
+                            onDeleteSet:
+                                setPhotos.isEmpty
+                                    ? null
+                                    : () => _deletePhotoSet(type),
                           ),
                         );
                       })
@@ -3664,7 +3674,163 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
     );
   }
 
+  Future<ClientPhotoPrivacyConfirmation?>
+  _requestPhotoPrivacyConfirmation() async {
+    final session = ref.read(sessionControllerProvider);
+    final cached = _photoPrivacyConfirmation;
+    if (cached != null) {
+      return cached.copyWith(
+        confirmedAt: DateTime.now(),
+        confirmedBy: session.uid ?? cached.confirmedBy,
+      );
+    }
+    var purpose = ClientPhotoPrivacyPurpose.treatmentDocumentation;
+    var legalBasis = ClientPhotoLegalBasis.contractOrPrecontract;
+    var specialCategoryRisk = true;
+    var accepted = false;
+
+    final confirmation = await showDialog<ClientPhotoPrivacyConfirmation>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Responsabilita privacy salone'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Conferma una sola volta per questa sessione di lavoro sull archivio foto. Ogni foto caricata salvera finalita, base giuridica e autore della conferma.',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<ClientPhotoPrivacyPurpose>(
+                      initialValue: purpose,
+                      decoration: const InputDecoration(
+                        labelText: 'Finalita',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: ClientPhotoPrivacyPurpose.values
+                          .map(
+                            (value) => DropdownMenuItem(
+                              value: value,
+                              child: Text(_photoPurposeLabel(value)),
+                            ),
+                          )
+                          .toList(growable: false),
+                      onChanged:
+                          (value) => setDialogState(() {
+                            if (value != null) {
+                              purpose = value;
+                              if (value ==
+                                  ClientPhotoPrivacyPurpose
+                                      .marketingPublication) {
+                                legalBasis =
+                                    ClientPhotoLegalBasis.explicitConsent;
+                              }
+                            }
+                          }),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<ClientPhotoLegalBasis>(
+                      key: ValueKey<String>(legalBasis.name),
+                      initialValue: legalBasis,
+                      decoration: const InputDecoration(
+                        labelText: 'Base giuridica dichiarata dal salone',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: ClientPhotoLegalBasis.values
+                          .map(
+                            (value) => DropdownMenuItem(
+                              value: value,
+                              child: Text(_photoLegalBasisLabel(value)),
+                            ),
+                          )
+                          .toList(growable: false),
+                      onChanged:
+                          (value) => setDialogState(() {
+                            if (value != null) {
+                              legalBasis = value;
+                            }
+                          }),
+                    ),
+                    const SizedBox(height: 12),
+                    CheckboxListTile(
+                      value: specialCategoryRisk,
+                      onChanged:
+                          (value) => setDialogState(
+                            () => specialCategoryRisk = value ?? true,
+                          ),
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: const Text('Foto potenzialmente sensibile'),
+                      subtitle: const Text(
+                        'Usa questa opzione per foto che possono mostrare corpo, pelle, trattamenti o condizioni fisiche.',
+                      ),
+                    ),
+                    CheckboxListTile(
+                      value: accepted,
+                      onChanged:
+                          (value) =>
+                              setDialogState(() => accepted = value ?? false),
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: const Text(
+                        'Confermo la responsabilita privacy del salone',
+                      ),
+                      subtitle: const Text(
+                        'Il cliente ha ricevuto l informativa e il salone dispone della base giuridica indicata. Le foto non saranno usate per riconoscimento biometrico automatico o training AI.',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Annulla'),
+                ),
+                FilledButton(
+                  onPressed:
+                      accepted
+                          ? () {
+                            Navigator.of(dialogContext).pop(
+                              ClientPhotoPrivacyConfirmation(
+                                purpose: purpose,
+                                legalBasis: legalBasis,
+                                confirmedAt: DateTime.now(),
+                                confirmedBy: session.uid ?? 'unknown',
+                                confirmationVersion:
+                                    _photoPrivacyConfirmationVersion,
+                                specialCategoryRisk: specialCategoryRisk,
+                                biometricProcessing: false,
+                              ),
+                            );
+                          }
+                          : null,
+                  child: const Text('Conferma'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    if (confirmation != null && mounted) {
+      setState(() => _photoPrivacyConfirmation = confirmation);
+    }
+    return confirmation;
+  }
+
   Future<void> _pickAndUpload(ClientPhotoSetType setType) async {
+    final privacy = await _requestPhotoPrivacyConfirmation();
+    if (privacy == null || !mounted) {
+      return;
+    }
     final selectedFile = await _pickSingleImageFile();
     if (selectedFile == null) {
       return;
@@ -3731,6 +3897,7 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
           setType: setType,
           setVersionIndex: nextVersionIndex,
           isSetActiveVersion: true,
+          privacy: privacy,
         );
         await dataStore.upsertClientPhoto(photo);
         uploadedCount += 1;
@@ -3738,7 +3905,7 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
         nextVersionIndex += 1;
       }
       if (lastUploadedPhotoId != null) {
-        await dataStore.activateClientPhotoVersion(
+        await _tryActivatePhotoVersion(
           clientId: widget.client.id,
           setType: setType,
           photoId: lastUploadedPhotoId,
@@ -3874,6 +4041,26 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
     }
   }
 
+  Future<bool> _tryActivatePhotoVersion({
+    required String clientId,
+    required ClientPhotoSetType setType,
+    required String photoId,
+  }) async {
+    try {
+      await ref
+          .read(appDataProvider.notifier)
+          .activateClientPhotoVersion(
+            clientId: clientId,
+            setType: setType,
+            photoId: photoId,
+          );
+      return true;
+    } catch (error) {
+      debugPrint('Client photo version activation skipped: $error');
+      return false;
+    }
+  }
+
   Future<void> _deletePhoto(ClientPhoto photo) async {
     if (_deleting.contains(photo.id)) {
       return;
@@ -3934,7 +4121,7 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
       await storage.deleteFile(photo.storagePath);
       final fallback = fallbackVersion;
       if (fallback != null && fallback.setType != null) {
-        await dataStore.activateClientPhotoVersion(
+        await _tryActivatePhotoVersion(
           clientId: widget.client.id,
           setType: fallback.setType!,
           photoId: fallback.id,
@@ -3962,6 +4149,73 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
     } finally {
       if (mounted) {
         setState(() => _deleting.remove(photo.id));
+      }
+    }
+  }
+
+  Future<void> _deletePhotoSet(ClientPhotoSetType setType) async {
+    final photos = ref
+        .read(clientPhotosProvider(widget.client.id))
+        .where((photo) => photo.setType == setType)
+        .toList(growable: false);
+    if (photos.isEmpty || photos.any((photo) => _deleting.contains(photo.id))) {
+      return;
+    }
+
+    final setLabel = _setLabel(setType);
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text('Elimina set $setLabel'),
+          content: Text(
+            'Verranno eliminate definitivamente ${photos.length} foto del set $setLabel, incluse le versioni storiche, sia dall archivio sia dal cloud storage.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Annulla'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Elimina set'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirm != true) {
+      return;
+    }
+
+    final dataStore = ref.read(appDataProvider.notifier);
+    final storage = ref.read(firebaseStorageServiceProvider);
+    final deletingIds = photos.map((photo) => photo.id).toSet();
+
+    setState(() => _deleting.addAll(deletingIds));
+    try {
+      for (final photo in photos) {
+        await dataStore.deleteClientPhoto(photo.id);
+        await storage.deleteFile(photo.storagePath);
+      }
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showAppSnackBar(SnackBar(content: Text('Set $setLabel eliminato.')));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        SnackBar(
+          content: Text('Non è stato possibile eliminare il set: $error'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _deleting.removeAll(deletingIds));
       }
     }
   }
@@ -4409,6 +4663,32 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
     }
   }
 
+  static String _photoPurposeLabel(ClientPhotoPrivacyPurpose purpose) {
+    switch (purpose) {
+      case ClientPhotoPrivacyPurpose.treatmentDocumentation:
+        return 'Documentazione trattamento';
+      case ClientPhotoPrivacyPurpose.beforeAfterComparison:
+        return 'Confronto prima/dopo';
+      case ClientPhotoPrivacyPurpose.clientAppSharing:
+        return 'Condivisione con cliente';
+      case ClientPhotoPrivacyPurpose.marketingPublication:
+        return 'Marketing o pubblicazione';
+    }
+  }
+
+  static String _photoLegalBasisLabel(ClientPhotoLegalBasis basis) {
+    switch (basis) {
+      case ClientPhotoLegalBasis.contractOrPrecontract:
+        return 'Contratto o misure precontrattuali';
+      case ClientPhotoLegalBasis.explicitConsent:
+        return 'Consenso esplicito';
+      case ClientPhotoLegalBasis.legalObligation:
+        return 'Obbligo di legge';
+      case ClientPhotoLegalBasis.legitimateInterest:
+        return 'Legittimo interesse';
+    }
+  }
+
   Future<void> _openCollageEditor() async {
     final initialNote = _noteController.text.trim();
     final mediaQuery = MediaQuery.of(context);
@@ -4718,11 +4998,18 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
   }
 
   Future<void> _pickAndUploadFullSet() async {
+    final privacy = await _requestPhotoPrivacyConfirmation();
+    if (privacy == null || !mounted) {
+      return;
+    }
     final files = await _pickImageFiles(maxSelection: _orderedPhotoSets.length);
     if (files.isEmpty) {
       return;
     }
     if (files.length < _orderedPhotoSets.length) {
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text(
@@ -4795,6 +5082,7 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
           setType: assignment.setType,
           setVersionIndex: versionIndex,
           isSetActiveVersion: true,
+          privacy: privacy,
         );
         await dataStore.upsertClientPhoto(photo);
         lastUploadedBySet[assignment.setType] = photo.id;
@@ -4802,7 +5090,7 @@ class _ClientPhotosCardState extends ConsumerState<_ClientPhotosCard> {
       }
 
       for (final entry in lastUploadedBySet.entries) {
-        await dataStore.activateClientPhotoVersion(
+        await _tryActivatePhotoVersion(
           clientId: widget.client.id,
           setType: entry.key,
           photoId: entry.value,
@@ -5191,6 +5479,8 @@ class _ClientPhotoSetPreview extends StatelessWidget {
     required this.isUploading,
     required this.onUpload,
     required this.onShowHistory,
+    this.isDeletingSet = false,
+    this.onDeleteSet,
     this.onPreviewActive,
   });
 
@@ -5200,6 +5490,8 @@ class _ClientPhotoSetPreview extends StatelessWidget {
   final bool isUploading;
   final VoidCallback onUpload;
   final VoidCallback onShowHistory;
+  final bool isDeletingSet;
+  final VoidCallback? onDeleteSet;
   final VoidCallback? onPreviewActive;
 
   @override
@@ -5253,14 +5545,37 @@ class _ClientPhotoSetPreview extends StatelessWidget {
                 ),
               ),
             ),
-            Icon(
-              isComplete ? Icons.check_circle_rounded : Icons.photo_outlined,
-              size: 16,
-              color:
-                  isComplete
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.onSurfaceVariant,
-            ),
+            if (isDeletingSet)
+              const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else ...[
+              Icon(
+                isComplete ? Icons.check_circle_rounded : Icons.photo_outlined,
+                size: 16,
+                color:
+                    isComplete
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.onSurfaceVariant,
+              ),
+              if (onDeleteSet != null) ...[
+                const SizedBox(width: 4),
+                IconButton(
+                  tooltip: 'Elimina set',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 32,
+                    height: 32,
+                  ),
+                  icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                  color: theme.colorScheme.error,
+                  onPressed: onDeleteSet,
+                ),
+              ],
+            ],
           ],
         ),
         const SizedBox(height: 8),
@@ -8429,6 +8744,7 @@ class _BillingTab extends ConsumerWidget {
             sales: sales,
             defaultSalonId: client.salonId,
             initialClientId: client.id,
+            serviceLinesCreateSessionsByDefault: true,
           ),
     );
 
@@ -11386,6 +11702,19 @@ _BillingStatusBadgeData _packageLifecycleBadgeData(
 _BillingStatusBadgeData _packagePaymentBadgeData(
   ClientPackagePurchase purchase,
 ) {
+  if (purchase.item.isServiceSessionCredit) {
+    if (purchase.sale.outstandingAmount > 0.009) {
+      return const _BillingStatusBadgeData(
+        status: BadgeStatus.cancelled,
+        label: 'Non saldato',
+      );
+    }
+    return const _BillingStatusBadgeData(
+      status: BadgeStatus.success,
+      label: 'Saldato',
+    );
+  }
+
   if (purchase.outstandingAmount > 0.009) {
     return const _BillingStatusBadgeData(
       status: BadgeStatus.cancelled,

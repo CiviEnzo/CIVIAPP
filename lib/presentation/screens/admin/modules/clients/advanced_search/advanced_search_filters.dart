@@ -1,10 +1,6 @@
 import 'package:you_book/domain/entities/client.dart';
 
-enum AdvancedSearchBirthdayShortcut {
-  none,
-  nextWeek,
-  nextMonth,
-}
+enum AdvancedSearchBirthdayShortcut { none, nextWeek, nextMonth }
 
 class AdvancedSearchFilters {
   const AdvancedSearchFilters({
@@ -49,6 +45,10 @@ class AdvancedSearchFilters {
     this.upcomingAppointmentWithinDays,
     this.upcomingAppointmentServiceIds = const <String>{},
     this.upcomingAppointmentCategoryIds = const <String>{},
+    this.completedAppointmentServiceIds = const <String>{},
+    this.completedAppointmentCategoryIds = const <String>{},
+    this.completedAppointmentFrom,
+    this.completedAppointmentTo,
     this.lastCompletedWithinDays,
     this.lastCompletedOlderThanDays,
     this.lastCompletedServiceIds = const <String>{},
@@ -99,6 +99,10 @@ class AdvancedSearchFilters {
   final int? upcomingAppointmentWithinDays;
   final Set<String> upcomingAppointmentServiceIds;
   final Set<String> upcomingAppointmentCategoryIds;
+  final Set<String> completedAppointmentServiceIds;
+  final Set<String> completedAppointmentCategoryIds;
+  final DateTime? completedAppointmentFrom;
+  final DateTime? completedAppointmentTo;
   final int? lastCompletedWithinDays;
   final int? lastCompletedOlderThanDays;
   final Set<String> lastCompletedServiceIds;
@@ -149,6 +153,10 @@ class AdvancedSearchFilters {
     Object? upcomingAppointmentWithinDays = _unset,
     Set<String>? upcomingAppointmentServiceIds,
     Set<String>? upcomingAppointmentCategoryIds,
+    Set<String>? completedAppointmentServiceIds,
+    Set<String>? completedAppointmentCategoryIds,
+    Object? completedAppointmentFrom = _unset,
+    Object? completedAppointmentTo = _unset,
     Object? lastCompletedWithinDays = _unset,
     Object? lastCompletedOlderThanDays = _unset,
     Set<String>? lastCompletedServiceIds,
@@ -169,7 +177,9 @@ class AdvancedSearchFilters {
               ? this.clientNumberFrom
               : clientNumberFrom as int?,
       clientNumberTo:
-          clientNumberTo == _unset ? this.clientNumberTo : clientNumberTo as int?,
+          clientNumberTo == _unset
+              ? this.clientNumberTo
+              : clientNumberTo as int?,
       createdAtFrom:
           createdAtFrom == _unset
               ? this.createdAtFrom
@@ -192,12 +202,9 @@ class AdvancedSearchFilters {
       profession:
           profession == _unset ? this.profession : profession as String?,
       referralSources: referralSources ?? this.referralSources,
-      hasEmail:
-          hasEmail == _unset ? this.hasEmail : hasEmail as bool?,
-      hasPhone:
-          hasPhone == _unset ? this.hasPhone : hasPhone as bool?,
-      hasNotes:
-          hasNotes == _unset ? this.hasNotes : hasNotes as bool?,
+      hasEmail: hasEmail == _unset ? this.hasEmail : hasEmail as bool?,
+      hasPhone: hasPhone == _unset ? this.hasPhone : hasPhone as bool?,
+      hasNotes: hasNotes == _unset ? this.hasNotes : hasNotes as bool?,
       onboardingStatuses: onboardingStatuses ?? this.onboardingStatuses,
       hasFirstLogin:
           hasFirstLogin == _unset ? this.hasFirstLogin : hasFirstLogin as bool?,
@@ -261,6 +268,19 @@ class AdvancedSearchFilters {
           upcomingAppointmentServiceIds ?? this.upcomingAppointmentServiceIds,
       upcomingAppointmentCategoryIds:
           upcomingAppointmentCategoryIds ?? this.upcomingAppointmentCategoryIds,
+      completedAppointmentServiceIds:
+          completedAppointmentServiceIds ?? this.completedAppointmentServiceIds,
+      completedAppointmentCategoryIds:
+          completedAppointmentCategoryIds ??
+          this.completedAppointmentCategoryIds,
+      completedAppointmentFrom:
+          completedAppointmentFrom == _unset
+              ? this.completedAppointmentFrom
+              : completedAppointmentFrom as DateTime?,
+      completedAppointmentTo:
+          completedAppointmentTo == _unset
+              ? this.completedAppointmentTo
+              : completedAppointmentTo as DateTime?,
       lastCompletedWithinDays:
           lastCompletedWithinDays == _unset
               ? this.lastCompletedWithinDays
@@ -328,6 +348,10 @@ class AdvancedSearchFilters {
         upcomingAppointmentWithinDays != null ||
         upcomingAppointmentServiceIds.isNotEmpty ||
         upcomingAppointmentCategoryIds.isNotEmpty ||
+        completedAppointmentServiceIds.isNotEmpty ||
+        completedAppointmentCategoryIds.isNotEmpty ||
+        completedAppointmentFrom != null ||
+        completedAppointmentTo != null ||
         lastCompletedWithinDays != null ||
         lastCompletedOlderThanDays != null ||
         lastCompletedServiceIds.isNotEmpty ||
@@ -341,6 +365,10 @@ class AdvancedSearchFilters {
     return upcomingAppointmentWithinDays != null ||
         upcomingAppointmentServiceIds.isNotEmpty ||
         upcomingAppointmentCategoryIds.isNotEmpty ||
+        completedAppointmentServiceIds.isNotEmpty ||
+        completedAppointmentCategoryIds.isNotEmpty ||
+        completedAppointmentFrom != null ||
+        completedAppointmentTo != null ||
         lastCompletedWithinDays != null ||
         lastCompletedOlderThanDays != null ||
         lastCompletedServiceIds.isNotEmpty ||

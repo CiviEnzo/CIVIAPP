@@ -37,15 +37,24 @@ export 'package:you_book/data/repositories/app_data_store.dart'
 final appDataProvider = StateNotifierProvider<AppDataStore, AppDataState>((
   ref,
 ) {
-  final sessionUser = ref.watch(
-    sessionControllerProvider.select((state) => state.user),
+  final session = ref.watch(
+    sessionControllerProvider.select(
+      (state) => (
+        user: state.user,
+        requiresPasswordChange: state.requiresPasswordChange,
+      ),
+    ),
   );
   final appUser = ref.watch(appUserProvider);
   final fallbackUser = appUser.maybeWhen(
     data: (data) => data,
     orElse: () => null,
   );
-  final user = sessionUser ?? fallbackUser;
+  final resolvedUser = session.user ?? fallbackUser;
+  final user =
+      session.requiresPasswordChange || resolvedUser?.mustChangePassword == true
+          ? null
+          : resolvedUser;
   final storage =
       Firebase.apps.isNotEmpty
           ? ref.read(firebaseStorageServiceProvider)
@@ -376,6 +385,8 @@ class SessionState {
 
   bool get isEmailVerified => user?.isEmailVerified ?? false;
 
+  bool get requiresPasswordChange => user?.mustChangePassword == true;
+
   bool get requiresEmailVerification {
     final currentUser = user;
     if (currentUser == null) {
@@ -403,6 +414,9 @@ class SessionState {
   bool get requiresProfile {
     final currentUser = user;
     if (currentUser == null) {
+      return false;
+    }
+    if (requiresPasswordChange) {
       return false;
     }
     if (currentUser.role == UserRole.client) {

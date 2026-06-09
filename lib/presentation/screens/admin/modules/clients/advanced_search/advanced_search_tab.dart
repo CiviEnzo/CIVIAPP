@@ -604,6 +604,7 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
             : totalResults == 1
             ? '1 risultato trovato'
             : '$totalResults risultati trovati';
+    final canExportResults = showResults && totalResults > 0 && !isApplying;
 
     return Material(
       elevation: 12,
@@ -641,6 +642,13 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                             : const Icon(Icons.manage_search_rounded),
                     label: Text(isApplying ? 'Ricerca in corso...' : 'Cerca'),
                   ),
+                  if (showResults && totalResults > 0)
+                    OutlinedButton.icon(
+                      onPressed:
+                          canExportResults ? _exportCurrentResults : null,
+                      icon: const Icon(Icons.download_rounded),
+                      label: const Text('Esporta'),
+                    ),
                   if (hasSelection)
                     Chip(
                       avatar: const Icon(Icons.check_circle_rounded),
@@ -710,11 +718,104 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
   }) {
     final sections = <_AdvancedFilterSection>[];
 
-    final anagraficaChildren = <Widget>[
-      Row(
+    sections.add(
+      _AdvancedFilterSection(
+        title: 'Anagrafica',
         children: [
-          Expanded(
-            child: _buildTextField(
+          _buildAnagraficaFiltersGrid(
+            filters: filters,
+            referralSources: referralSources,
+            includePrimaryFields: includePrimaryFields,
+          ),
+        ],
+      ),
+    );
+
+    sections.add(
+      _AdvancedFilterSection(
+        title: 'Date e ricorrenze',
+        children: [
+          _buildDateFiltersGrid(
+            context: context,
+            filters: filters,
+            includePrimaryFields: includePrimaryFields,
+          ),
+        ],
+      ),
+    );
+
+    sections.add(
+      _AdvancedFilterSection(
+        title: 'Onboarding e App',
+        children: [
+          _buildOnboardingFiltersGrid(
+            filters: filters,
+            includePrimaryFields: includePrimaryFields,
+          ),
+        ],
+      ),
+    );
+
+    sections.add(
+      _AdvancedFilterSection(
+        title: 'Appuntamenti',
+        children: [
+          _buildAppointmentFiltersGrid(
+            context: context,
+            filters: filters,
+            services: services,
+            categories: categories,
+          ),
+        ],
+      ),
+    );
+
+    sections.add(
+      _AdvancedFilterSection(
+        title: 'Vendite',
+        children: [
+          _buildSalesFiltersGrid(
+            context: context,
+            filters: filters,
+            services: services,
+            categories: categories,
+            includePrimaryFields: includePrimaryFields,
+          ),
+        ],
+      ),
+    );
+
+    sections.add(
+      _AdvancedFilterSection(
+        title: 'Pacchetti',
+        children: [_buildPackagesFiltersGrid(filters: filters)],
+      ),
+    );
+
+    return sections;
+  }
+
+  Iterable<Widget> _withSpacing(List<Widget> widgets, double spacing) sync* {
+    for (var i = 0; i < widgets.length; i++) {
+      yield widgets[i];
+      if (i != widgets.length - 1) {
+        yield SizedBox(height: spacing);
+      }
+    }
+  }
+
+  Widget _buildAnagraficaFiltersGrid({
+    required AdvancedSearchFilters filters,
+    required List<String> referralSources,
+    required bool includePrimaryFields,
+  }) {
+    final panels = <Widget>[
+      _buildCompactFilterPanel(
+        title: 'Dati cliente',
+        icon: Icons.person_search_rounded,
+        children: [
+          _buildTwoColumnFields(
+            left: _buildTextField(
               controller: _cityController,
               label: 'Città',
               icon: Icons.location_city_rounded,
@@ -725,10 +826,7 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                             value.trim().isEmpty ? null : value.trim(),
                   ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _buildTextField(
+            right: _buildTextField(
               controller: _professionController,
               label: 'Professione',
               icon: Icons.work_outline_rounded,
@@ -742,192 +840,184 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
           ),
         ],
       ),
+      _buildCompactFilterPanel(
+        title: 'Contatti',
+        icon: Icons.contact_phone_rounded,
+        children: [
+          _buildTwoColumnFields(
+            left: _buildTriStateChoice(
+              label: 'Email presente',
+              value: filters.hasEmail,
+              onChanged:
+                  (value) =>
+                      _updateFilter((builder) => builder.hasEmail = value),
+            ),
+            right: _buildTriStateChoice(
+              label: 'Telefono presente',
+              value: filters.hasPhone,
+              onChanged:
+                  (value) =>
+                      _updateFilter((builder) => builder.hasPhone = value),
+            ),
+          ),
+          _buildTriStateChoice(
+            label: 'Note inserite',
+            value: filters.hasNotes,
+            onChanged:
+                (value) => _updateFilter((builder) => builder.hasNotes = value),
+          ),
+        ],
+      ),
     ];
     if (includePrimaryFields) {
-      anagraficaChildren
-        ..add(const SizedBox(height: 12))
-        ..add(_buildGenderChips(filters.genders))
-        ..add(const SizedBox(height: 12))
-        ..add(
-          _buildReferralChips(
-            selection: filters.referralSources,
-            options: referralSources,
-          ),
-        );
-    }
-    anagraficaChildren
-      ..add(const SizedBox(height: 12))
-      ..add(
-        Row(
+      panels.add(
+        _buildCompactFilterPanel(
+          title: 'Origine',
+          icon: Icons.diversity_3_rounded,
           children: [
-            Expanded(
-              child: _buildTriStateChoice(
-                label: 'Email presente',
-                value: filters.hasEmail,
-                onChanged:
-                    (value) =>
-                        _updateFilter((builder) => builder.hasEmail = value),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildTriStateChoice(
-                label: 'Telefono presente',
-                value: filters.hasPhone,
-                onChanged:
-                    (value) =>
-                        _updateFilter((builder) => builder.hasPhone = value),
-              ),
+            _buildGenderChips(filters.genders),
+            _buildReferralChips(
+              selection: filters.referralSources,
+              options: referralSources,
             ),
           ],
-        ),
-      )
-      ..add(const SizedBox(height: 12))
-      ..add(
-        _buildTriStateChoice(
-          label: 'Note inserite',
-          value: filters.hasNotes,
-          onChanged:
-              (value) => _updateFilter((builder) => builder.hasNotes = value),
         ),
       );
-    sections.add(
-      _AdvancedFilterSection(title: 'Anagrafica', children: anagraficaChildren),
-    );
+    }
+    return _buildResponsivePanelGrid(panels);
+  }
 
-    final datesChildren = <Widget>[
-      _buildDateRangePickerRow(
-        context: context,
-        label: 'Creati tra',
-        start: filters.createdAtFrom,
-        end: filters.createdAtTo,
-        onSelected:
-            (range) => _updateFilter((builder) {
-              builder.createdAtFrom = range?.start;
-              builder.createdAtTo = range?.end;
-            }),
+  Widget _buildDateFiltersGrid({
+    required BuildContext context,
+    required AdvancedSearchFilters filters,
+    required bool includePrimaryFields,
+  }) {
+    final panels = <Widget>[
+      _buildCompactFilterPanel(
+        title: 'Registrazione',
+        icon: Icons.app_registration_rounded,
+        children: [
+          _buildDateRangePickerRow(
+            context: context,
+            label: 'Creati tra',
+            start: filters.createdAtFrom,
+            end: filters.createdAtTo,
+            onSelected:
+                (range) => _updateFilter((builder) {
+                  builder.createdAtFrom = range?.start;
+                  builder.createdAtTo = range?.end;
+                }),
+          ),
+        ],
+      ),
+      _buildCompactFilterPanel(
+        title: 'Nascita',
+        icon: Icons.cake_rounded,
+        children: [
+          if (includePrimaryFields)
+            _buildTwoColumnFields(
+              left: _buildTextField(
+                controller: _minAgeController,
+                label: 'Età min',
+                icon: Icons.cake_outlined,
+                keyboardType: TextInputType.number,
+                onChanged:
+                    (value) => _updateFilter(
+                      (builder) =>
+                          builder.minAge =
+                              value.trim().isEmpty ? null : int.tryParse(value),
+                    ),
+              ),
+              right: _buildTextField(
+                controller: _maxAgeController,
+                label: 'Età max',
+                icon: Icons.cake_rounded,
+                keyboardType: TextInputType.number,
+                onChanged:
+                    (value) => _updateFilter(
+                      (builder) =>
+                          builder.maxAge =
+                              value.trim().isEmpty ? null : int.tryParse(value),
+                    ),
+              ),
+            ),
+          _buildDateRangePickerRow(
+            context: context,
+            label: 'Nati tra',
+            start: filters.dateOfBirthFrom,
+            end: filters.dateOfBirthTo,
+            onSelected:
+                (range) => _updateFilter((builder) {
+                  builder.dateOfBirthFrom = range?.start;
+                  builder.dateOfBirthTo = range?.end;
+                }),
+          ),
+        ],
+      ),
+      _buildCompactFilterPanel(
+        title: 'Ricorrenze',
+        icon: Icons.celebration_rounded,
+        children: [_buildBirthdayShortcutSelector(filters.birthdayShortcut)],
+      ),
+    ];
+    return _buildResponsivePanelGrid(panels);
+  }
+
+  Widget _buildOnboardingFiltersGrid({
+    required AdvancedSearchFilters filters,
+    required bool includePrimaryFields,
+  }) {
+    final accessChildren = <Widget>[
+      _buildTriStateChoice(
+        label: 'Primo login effettuato',
+        value: filters.hasFirstLogin,
+        onChanged:
+            (value) =>
+                _updateFilter((builder) => builder.hasFirstLogin = value),
       ),
     ];
     if (includePrimaryFields) {
-      datesChildren
-        ..add(const SizedBox(height: 12))
-        ..add(
-          Row(
-            children: [
-              Expanded(
-                child: _buildTextField(
-                  controller: _minAgeController,
-                  label: 'Età minima',
-                  icon: Icons.cake_outlined,
-                  keyboardType: TextInputType.number,
-                  onChanged:
-                      (value) => _updateFilter(
-                        (builder) =>
-                            builder.minAge =
-                                value.trim().isEmpty
-                                    ? null
-                                    : int.tryParse(value),
-                      ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildTextField(
-                  controller: _maxAgeController,
-                  label: 'Età massima',
-                  icon: Icons.cake_rounded,
-                  keyboardType: TextInputType.number,
-                  onChanged:
-                      (value) => _updateFilter(
-                        (builder) =>
-                            builder.maxAge =
-                                value.trim().isEmpty
-                                    ? null
-                                    : int.tryParse(value),
-                      ),
-                ),
-              ),
-            ],
-          ),
-        );
-    }
-    datesChildren
-      ..add(const SizedBox(height: 12))
-      ..add(
-        _buildDateRangePickerRow(
-          context: context,
-          label: 'Nati tra',
-          start: filters.dateOfBirthFrom,
-          end: filters.dateOfBirthTo,
-          onSelected:
-              (range) => _updateFilter((builder) {
-                builder.dateOfBirthFrom = range?.start;
-                builder.dateOfBirthTo = range?.end;
-              }),
-        ),
-      )
-      ..add(const SizedBox(height: 12))
-      ..add(_buildBirthdayShortcutSelector(filters.birthdayShortcut));
-    sections.add(
-      _AdvancedFilterSection(
-        title: 'Date e ricorrenze',
-        children: datesChildren,
-      ),
-    );
-
-    final onboardingChildren = <Widget>[
-      _buildOnboardingStatusChips(filters.onboardingStatuses),
-      const SizedBox(height: 12),
-      if (includePrimaryFields)
-        Row(
-          children: [
-            Expanded(
-              child: _buildTriStateChoice(
-                label: 'Ha effettuato il primo login',
-                value: filters.hasFirstLogin,
-                onChanged:
-                    (value) => _updateFilter(
-                      (builder) => builder.hasFirstLogin = value,
-                    ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildTriStateChoice(
-                label: 'Ha token push',
-                value: filters.hasPushToken,
-                onChanged:
-                    (value) => _updateFilter(
-                      (builder) => builder.hasPushToken = value,
-                    ),
-              ),
-            ),
-          ],
-        )
-      else
+      accessChildren.add(
         _buildTriStateChoice(
-          label: 'Ha effettuato il primo login',
-          value: filters.hasFirstLogin,
+          label: 'Token push presente',
+          value: filters.hasPushToken,
           onChanged:
               (value) =>
-                  _updateFilter((builder) => builder.hasFirstLogin = value),
+                  _updateFilter((builder) => builder.hasPushToken = value),
         ),
-    ];
-    sections.add(
-      _AdvancedFilterSection(
-        title: 'Onboarding e App',
-        children: onboardingChildren,
+      );
+    }
+    return _buildResponsivePanelGrid([
+      _buildCompactFilterPanel(
+        title: 'Stato',
+        icon: Icons.flag_rounded,
+        children: [_buildOnboardingStatusChips(filters.onboardingStatuses)],
       ),
-    );
+      _buildCompactFilterPanel(
+        title: 'Accesso app',
+        icon: Icons.phone_iphone_rounded,
+        children: accessChildren,
+      ),
+    ]);
+  }
 
-    sections.add(
-      _AdvancedFilterSection(
-        title: 'Appuntamenti',
+  Widget _buildAppointmentFiltersGrid({
+    required BuildContext context,
+    required AdvancedSearchFilters filters,
+    required List<Service> services,
+    required List<ServiceCategory> categories,
+  }) {
+    final serviceItems = services.map(_SelectableItem.fromService).toList();
+    final categoryItems = categories.map(_SelectableItem.fromCategory).toList();
+    final panels = [
+      _buildCompactFilterPanel(
+        title: 'Da fare',
+        icon: Icons.event_available_rounded,
         children: [
           _buildTextField(
             controller: _upcomingWithinController,
-            label: 'Prossimo appuntamento entro (giorni)',
-            icon: Icons.event_available_rounded,
+            label: 'Entro giorni',
+            icon: Icons.timelapse_rounded,
             keyboardType: TextInputType.number,
             onChanged:
                 (value) => _updateFilter(
@@ -936,35 +1026,76 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                           value.trim().isEmpty ? null : int.tryParse(value),
                 ),
           ),
-          const SizedBox(height: 12),
           _buildMultiSelectField(
             context: context,
-            label: 'Servizi prossimi appuntamenti',
-            items: services.map(_SelectableItem.fromService).toList(),
+            label: 'Servizi',
+            items: serviceItems,
             selection: filters.upcomingAppointmentServiceIds,
             onSelected:
                 (value) => _updateFilter(
                   (builder) => builder.upcomingAppointmentServiceIds = value,
                 ),
           ),
-          const SizedBox(height: 12),
           _buildMultiSelectField(
             context: context,
-            label: 'Categorie prossimi appuntamenti',
-            items: categories.map(_SelectableItem.fromCategory).toList(),
+            label: 'Categorie',
+            items: categoryItems,
             selection: filters.upcomingAppointmentCategoryIds,
             onSelected:
                 (value) => _updateFilter(
                   (builder) => builder.upcomingAppointmentCategoryIds = value,
                 ),
           ),
-          const SizedBox(height: 12),
+        ],
+      ),
+      _buildCompactFilterPanel(
+        title: 'Effettuati',
+        icon: Icons.task_alt_rounded,
+        children: [
+          _buildDateRangePickerRow(
+            context: context,
+            label: 'Periodo',
+            start: filters.completedAppointmentFrom,
+            end: filters.completedAppointmentTo,
+            lastDate: DateTime.now(),
+            onSelected:
+                (range) => _updateFilter((builder) {
+                  builder.completedAppointmentFrom = range?.start;
+                  builder.completedAppointmentTo = range?.end;
+                }),
+          ),
+          _buildMultiSelectField(
+            context: context,
+            label: 'Servizi',
+            items: serviceItems,
+            selection: filters.completedAppointmentServiceIds,
+            onSelected:
+                (value) => _updateFilter(
+                  (builder) => builder.completedAppointmentServiceIds = value,
+                ),
+          ),
+          _buildMultiSelectField(
+            context: context,
+            label: 'Categorie',
+            items: categoryItems,
+            selection: filters.completedAppointmentCategoryIds,
+            onSelected:
+                (value) => _updateFilter(
+                  (builder) => builder.completedAppointmentCategoryIds = value,
+                ),
+          ),
+        ],
+      ),
+      _buildCompactFilterPanel(
+        title: 'Ultima seduta',
+        icon: Icons.history_rounded,
+        children: [
           Row(
             children: [
               Expanded(
                 child: _buildTextField(
                   controller: _lastCompletedWithinController,
-                  label: 'Ultima seduta entro (giorni)',
+                  label: 'Entro giorni',
                   icon: Icons.event_note_rounded,
                   keyboardType: TextInputType.number,
                   onChanged:
@@ -981,7 +1112,7 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
               Expanded(
                 child: _buildTextField(
                   controller: _lastCompletedOlderController,
-                  label: 'Ultima seduta oltre (giorni)',
+                  label: 'Oltre giorni',
                   icon: Icons.history_toggle_off_rounded,
                   keyboardType: TextInputType.number,
                   onChanged:
@@ -996,22 +1127,20 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
           _buildMultiSelectField(
             context: context,
-            label: 'Servizi ultima seduta',
-            items: services.map(_SelectableItem.fromService).toList(),
+            label: 'Servizi',
+            items: serviceItems,
             selection: filters.lastCompletedServiceIds,
             onSelected:
                 (value) => _updateFilter(
                   (builder) => builder.lastCompletedServiceIds = value,
                 ),
           ),
-          const SizedBox(height: 12),
           _buildMultiSelectField(
             context: context,
-            label: 'Categorie ultima seduta',
-            items: categories.map(_SelectableItem.fromCategory).toList(),
+            label: 'Categorie',
+            items: categoryItems,
             selection: filters.lastCompletedCategoryIds,
             onSelected:
                 (value) => _updateFilter(
@@ -1020,15 +1149,48 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
           ),
         ],
       ),
-    );
+    ];
 
-    final salesChildren = <Widget>[
-      Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 920;
+        if (!isWide) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: _withSpacing(panels, 12).toList(),
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (var index = 0; index < panels.length; index++) ...[
+              Expanded(child: panels[index]),
+              if (index != panels.length - 1) const SizedBox(width: 12),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildSalesFiltersGrid({
+    required BuildContext context,
+    required AdvancedSearchFilters filters,
+    required List<Service> services,
+    required List<ServiceCategory> categories,
+    required bool includePrimaryFields,
+  }) {
+    final serviceItems = services.map(_SelectableItem.fromService).toList();
+    final categoryItems = categories.map(_SelectableItem.fromCategory).toList();
+    return _buildResponsivePanelGrid([
+      _buildCompactFilterPanel(
+        title: 'Importi',
+        icon: Icons.euro_rounded,
         children: [
-          Expanded(
-            child: _buildTextField(
+          _buildTwoColumnFields(
+            left: _buildTextField(
               controller: _totalSpentMinController,
-              label: 'Importo minimo',
+              label: 'Min',
               icon: Icons.euro_outlined,
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
@@ -1042,12 +1204,9 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                                 : double.tryParse(value),
                   ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _buildTextField(
+            right: _buildTextField(
               controller: _totalSpentMaxController,
-              label: 'Importo massimo',
+              label: 'Max',
               icon: Icons.payments_outlined,
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
@@ -1062,45 +1221,43 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                   ),
             ),
           ),
+          _buildDateRangePickerRow(
+            context: context,
+            label: 'Vendite tra',
+            start: filters.totalSpentFrom,
+            end: filters.totalSpentTo,
+            onSelected:
+                (range) => _updateFilter((builder) {
+                  builder.totalSpentFrom = range?.start;
+                  builder.totalSpentTo = range?.end;
+                }),
+          ),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            value: filters.usePaidAmount,
+            onChanged:
+                (value) =>
+                    _updateFilter((builder) => builder.usePaidAmount = value),
+            title: const Text('Usa incassato'),
+          ),
         ],
       ),
-      const SizedBox(height: 12),
-      _buildDateRangePickerRow(
-        context: context,
-        label: 'Vendite tra',
-        start: filters.totalSpentFrom,
-        end: filters.totalSpentTo,
-        onSelected:
-            (range) => _updateFilter((builder) {
-              builder.totalSpentFrom = range?.start;
-              builder.totalSpentTo = range?.end;
-            }),
-      ),
-      const SizedBox(height: 12),
-      SwitchListTile.adaptive(
-        contentPadding: EdgeInsets.zero,
-        value: filters.usePaidAmount,
-        onChanged:
-            (value) =>
-                _updateFilter((builder) => builder.usePaidAmount = value),
-        title: const Text('Usa importi incassati (paidAmount)'),
-      ),
-      const SizedBox(height: 12),
-      _buildTriStateChoice(
-        label: 'Saldo residuo > 0',
-        value: filters.hasOutstandingBalance,
-        onChanged:
-            (value) => _updateFilter(
-              (builder) => builder.hasOutstandingBalance = value,
-            ),
-      ),
-      const SizedBox(height: 12),
-      Row(
+      _buildCompactFilterPanel(
+        title: 'Acquisti',
+        icon: Icons.shopping_bag_rounded,
         children: [
-          Expanded(
-            child: _buildTextField(
+          _buildTriStateChoice(
+            label: 'Saldo residuo > 0',
+            value: filters.hasOutstandingBalance,
+            onChanged:
+                (value) => _updateFilter(
+                  (builder) => builder.hasOutstandingBalance = value,
+                ),
+          ),
+          _buildTwoColumnFields(
+            left: _buildTextField(
               controller: _lastPurchaseWithinController,
-              label: 'Ultimo acquisto entro (giorni)',
+              label: 'Entro giorni',
               icon: Icons.shopping_bag_rounded,
               keyboardType: TextInputType.number,
               onChanged:
@@ -1110,12 +1267,9 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                             value.trim().isEmpty ? null : int.tryParse(value),
                   ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _buildTextField(
+            right: _buildTextField(
               controller: _lastPurchaseOlderController,
-              label: 'Ultimo acquisto oltre (giorni)',
+              label: 'Oltre giorni',
               icon: Icons.history_outlined,
               keyboardType: TextInputType.number,
               onChanged:
@@ -1126,92 +1280,97 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                   ),
             ),
           ),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            value: filters.onlyLastMinuteSales,
+            onChanged:
+                (value) => _updateFilter(
+                  (builder) => builder.onlyLastMinuteSales = value,
+                ),
+            title: const Text('Solo last-minute'),
+          ),
         ],
       ),
-      const SizedBox(height: 12),
-      _buildMultiSelectField(
-        context: context,
-        label: 'Servizi da includere',
-        items: services.map(_SelectableItem.fromService).toList(),
-        selection: filters.includeSaleServiceIds,
-        onSelected:
-            (value) => _updateFilter(
-              (builder) => builder.includeSaleServiceIds = value,
+      _buildCompactFilterPanel(
+        title: 'Servizi',
+        icon: Icons.spa_rounded,
+        children: [
+          _buildMultiSelectField(
+            context: context,
+            label: 'Da includere',
+            items: serviceItems,
+            selection: filters.includeSaleServiceIds,
+            onSelected:
+                (value) => _updateFilter(
+                  (builder) => builder.includeSaleServiceIds = value,
+                ),
+          ),
+          _buildMultiSelectField(
+            context: context,
+            label: 'Da escludere',
+            items: serviceItems,
+            selection: filters.excludeSaleServiceIds,
+            onSelected:
+                (value) => _updateFilter(
+                  (builder) => builder.excludeSaleServiceIds = value,
+                ),
+          ),
+        ],
+      ),
+      _buildCompactFilterPanel(
+        title: 'Categorie',
+        icon: Icons.category_rounded,
+        children: [
+          if (includePrimaryFields)
+            _buildMultiSelectField(
+              context: context,
+              label: 'Da includere',
+              items: categoryItems,
+              selection: filters.includeSaleCategoryIds,
+              onSelected:
+                  (value) => _updateFilter(
+                    (builder) => builder.includeSaleCategoryIds = value,
+                  ),
             ),
+          _buildMultiSelectField(
+            context: context,
+            label: 'Da escludere',
+            items: categoryItems,
+            selection: filters.excludeSaleCategoryIds,
+            onSelected:
+                (value) => _updateFilter(
+                  (builder) => builder.excludeSaleCategoryIds = value,
+                ),
+          ),
+        ],
       ),
-      const SizedBox(height: 12),
-      _buildMultiSelectField(
-        context: context,
-        label: 'Servizi da escludere',
-        items: services.map(_SelectableItem.fromService).toList(),
-        selection: filters.excludeSaleServiceIds,
-        onSelected:
-            (value) => _updateFilter(
-              (builder) => builder.excludeSaleServiceIds = value,
-            ),
-      ),
-      if (includePrimaryFields) ...[
-        const SizedBox(height: 12),
-        _buildMultiSelectField(
-          context: context,
-          label: 'Categorie da includere',
-          items: categories.map(_SelectableItem.fromCategory).toList(),
-          selection: filters.includeSaleCategoryIds,
-          onSelected:
-              (value) => _updateFilter(
-                (builder) => builder.includeSaleCategoryIds = value,
-              ),
-        ),
-      ],
-      const SizedBox(height: 12),
-      _buildMultiSelectField(
-        context: context,
-        label: 'Categorie da escludere',
-        items: categories.map(_SelectableItem.fromCategory).toList(),
-        selection: filters.excludeSaleCategoryIds,
-        onSelected:
-            (value) => _updateFilter(
-              (builder) => builder.excludeSaleCategoryIds = value,
-            ),
-      ),
-      const SizedBox(height: 12),
-      SwitchListTile.adaptive(
-        contentPadding: EdgeInsets.zero,
-        value: filters.onlyLastMinuteSales,
-        onChanged:
-            (value) =>
-                _updateFilter((builder) => builder.onlyLastMinuteSales = value),
-        title: const Text('Solo vendite last-minute'),
-      ),
-    ];
-    sections.add(
-      _AdvancedFilterSection(title: 'Vendite', children: salesChildren),
-    );
+    ]);
+  }
 
-    sections.add(
-      _AdvancedFilterSection(
-        title: 'Pacchetti',
+  Widget _buildPackagesFiltersGrid({required AdvancedSearchFilters filters}) {
+    return _buildResponsivePanelGrid([
+      _buildCompactFilterPanel(
+        title: 'Stato pacchetti',
+        icon: Icons.inventory_2_rounded,
         children: [
           _buildTriStateChoice(
-            label: 'Ha pacchetti attivi',
+            label: 'Attivi',
             value: filters.hasActivePackages,
             onChanged:
                 (value) => _updateFilter(
                   (builder) => builder.hasActivePackages = value,
                 ),
           ),
-          const SizedBox(height: 12),
           _buildTriStateChoice(
-            label: 'Ha sessioni residue',
+            label: 'Con sessioni residue',
             value: filters.hasPackagesWithRemainingSessions,
             onChanged:
                 (value) => _updateFilter(
                   (builder) => builder.hasPackagesWithRemainingSessions = value,
                 ),
           ),
-          const SizedBox(height: 12),
           _buildTriStateChoice(
-            label: 'Ha pacchetti scaduti',
+            label: 'Scaduti',
             value: filters.hasExpiredPackages,
             onChanged:
                 (value) => _updateFilter(
@@ -1220,18 +1379,101 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
           ),
         ],
       ),
-    );
-
-    return sections;
+    ], minPanelWidth: 300);
   }
 
-  Iterable<Widget> _withSpacing(List<Widget> widgets, double spacing) sync* {
-    for (var i = 0; i < widgets.length; i++) {
-      yield widgets[i];
-      if (i != widgets.length - 1) {
-        yield SizedBox(height: spacing);
-      }
-    }
+  Widget _buildResponsivePanelGrid(
+    List<Widget> panels, {
+    double minPanelWidth = 280,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (!constraints.maxWidth.isFinite ||
+            constraints.maxWidth < minPanelWidth * 2 + 12) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: _withSpacing(panels, 12).toList(),
+          );
+        }
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children:
+              panels
+                  .map(
+                    (panel) => SizedBox(
+                      width:
+                          constraints.maxWidth >= minPanelWidth * 3 + 24
+                              ? (constraints.maxWidth - 24) / 3
+                              : (constraints.maxWidth - 12) / 2,
+                      child: panel,
+                    ),
+                  )
+                  .toList(),
+        );
+      },
+    );
+  }
+
+  Widget _buildTwoColumnFields({required Widget left, required Widget right}) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (!constraints.maxWidth.isFinite || constraints.maxWidth < 360) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [left, const SizedBox(height: 12), right],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: left),
+            const SizedBox(width: 12),
+            Expanded(child: right),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildCompactFilterPanel({
+    required String title,
+    required IconData icon,
+    required List<Widget> children,
+  }) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+        border: Border.all(color: colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 18, color: colorScheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ..._withSpacing(children, 12),
+          ],
+        ),
+      ),
+    );
   }
 
   double _resolvePrimaryFieldWidth(double availableWidth) {
@@ -1388,7 +1630,9 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
       return;
     }
     await Future<void>.delayed(const Duration(milliseconds: 40));
-    if (!mounted || !_resultsScrollController.hasClients) {
+    if (!mounted ||
+        !anchorContext.mounted ||
+        !_resultsScrollController.hasClients) {
       return;
     }
     final renderObject = anchorContext.findRenderObject();
@@ -1459,6 +1703,33 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
         .toList();
   }
 
+  List<_ResultRowData> _resolveSelectedRows() {
+    if (_bulkSelectedClientIds.isEmpty) {
+      return const <_ResultRowData>[];
+    }
+    final state = ref.read(_provider);
+    final appData = ref.read(appDataProvider);
+    final rows = _buildResultRows(
+      state: state,
+      appData: appData,
+      filters: state.filters,
+      sort: false,
+    );
+    final selectedIds = _bulkSelectedClientIds;
+    return rows.where((row) => selectedIds.contains(row.client.id)).toList();
+  }
+
+  List<_ResultRowData> _resolveCurrentResultRows() {
+    final state = ref.read(_provider);
+    final appData = ref.read(appDataProvider);
+    return _buildResultRows(
+      state: state,
+      appData: appData,
+      filters: state.filters,
+      sort: true,
+    );
+  }
+
   Future<void> _openBulkActionsMenu() async {
     if (_bulkSelectedClientIds.isEmpty) {
       _showSnack('Seleziona almeno un cliente.');
@@ -1473,10 +1744,8 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
             children: [
               ListTile(
                 leading: const Icon(Icons.table_view_rounded),
-                title: const Text('Esporta in CSV'),
-                subtitle: const Text(
-                  'Scarica i clienti selezionati in un file',
-                ),
+                title: const Text('Esporta selezionati in CSV'),
+                subtitle: const Text('Scegli quali campi includere nel report'),
                 onTap: () => Navigator.of(sheetContext).pop(_BulkAction.export),
               ),
               ListTile(
@@ -1504,45 +1773,45 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
   }
 
   Future<void> _exportSelectedClients() async {
-    final clients = _resolveSelectedClients();
-    if (clients.isEmpty) {
+    final rowsData = _resolveSelectedRows();
+    if (rowsData.isEmpty) {
       _showSnack('Seleziona almeno un cliente.');
       return;
     }
+    await _exportClientRows(rowsData);
+  }
+
+  Future<void> _exportCurrentResults() async {
+    final rowsData = _resolveCurrentResultRows();
+    if (rowsData.isEmpty) {
+      _showSnack('Non ci sono risultati da esportare.');
+      return;
+    }
+    await _exportClientRows(rowsData);
+  }
+
+  Future<void> _exportClientRows(List<_ResultRowData> rowsData) async {
+    final fields = _clientExportFields();
+    final selectedFieldIds = await _showExportFieldsDialog(
+      context: context,
+      fields: fields,
+      clientsCount: rowsData.length,
+    );
+    if (selectedFieldIds == null) {
+      return;
+    }
+    final selectedFields =
+        fields.where((field) => selectedFieldIds.contains(field.id)).toList();
+    if (selectedFields.isEmpty) {
+      _showSnack('Seleziona almeno un campo da esportare.');
+      return;
+    }
+
     final rows = <List<String>>[
-      [
-        'Numero cliente',
-        'Nome',
-        'Cognome',
-        'Telefono',
-        'Email',
-        'Origine',
-        'Città',
-        'Professione',
-        'Data di nascita',
-        'Punti fedeltà',
-        'App installata',
-        'Note',
-      ],
+      selectedFields.map((field) => field.label).toList(),
     ];
-    final dateFormat = DateFormat('dd/MM/yyyy');
-    for (final client in clients) {
-      rows.add([
-        client.clientNumber ?? '',
-        client.firstName,
-        client.lastName,
-        client.phone,
-        client.email ?? '',
-        client.referralSource ?? '',
-        client.city ?? '',
-        client.profession ?? '',
-        client.dateOfBirth == null
-            ? ''
-            : dateFormat.format(client.dateOfBirth!),
-        client.loyaltyPoints.toString(),
-        client.fcmTokens.isNotEmpty ? 'Sì' : 'No',
-        (client.notes ?? '').replaceAll('\n', ' ').trim(),
-      ]);
+    for (final rowData in rowsData) {
+      rows.add(selectedFields.map((field) => field.value(rowData)).toList());
     }
     try {
       final converter = const ListToCsvConverter(fieldDelimiter: ';');
@@ -1550,14 +1819,212 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
       final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
       final fileName = 'clienti_youbook_$timestamp.csv';
       final csvBytes = Uint8List.fromList(utf8.encode(csv));
-      await Share.shareXFiles(
-        [XFile.fromData(csvBytes, mimeType: 'text/csv', name: fileName)],
-        subject: 'Esportazione clienti',
-        text: 'File generato dalla Ricerca avanzata di youbook.',
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [
+            XFile.fromData(csvBytes, mimeType: 'text/csv', name: fileName),
+          ],
+          subject: 'Esportazione clienti',
+          text: 'File generato dalla Ricerca avanzata di youbook.',
+        ),
       );
     } catch (error) {
       _showSnack('Impossibile esportare i clienti: $error');
     }
+  }
+
+  List<_ClientExportField> _clientExportFields() {
+    final dateFormat = DateFormat('dd/MM/yyyy');
+    String dateValue(DateTime? value) {
+      return value == null ? '' : dateFormat.format(value);
+    }
+
+    String boolValue(bool value) => value ? 'Sì' : 'No';
+    String clean(String? value) => (value ?? '').replaceAll('\n', ' ').trim();
+
+    return [
+      _ClientExportField(
+        id: 'clientId',
+        label: 'ID cliente',
+        value: (row) => row.client.id,
+      ),
+      _ClientExportField(
+        id: 'clientNumber',
+        label: 'Numero cliente',
+        value: (row) => row.client.clientNumber ?? '',
+        selectedByDefault: true,
+      ),
+      _ClientExportField(
+        id: 'fullName',
+        label: 'Nome completo',
+        value: (row) => _displayName(row.client),
+        selectedByDefault: true,
+      ),
+      _ClientExportField(
+        id: 'firstName',
+        label: 'Nome',
+        value: (row) => row.client.firstName,
+      ),
+      _ClientExportField(
+        id: 'lastName',
+        label: 'Cognome',
+        value: (row) => row.client.lastName,
+      ),
+      _ClientExportField(
+        id: 'phone',
+        label: 'Telefono',
+        value: (row) => row.client.phone,
+        selectedByDefault: true,
+      ),
+      _ClientExportField(
+        id: 'email',
+        label: 'Email',
+        value: (row) => row.client.email ?? '',
+        selectedByDefault: true,
+      ),
+      _ClientExportField(
+        id: 'hasEmail',
+        label: 'Email presente',
+        value: (row) => boolValue(row.hasEmail),
+      ),
+      _ClientExportField(
+        id: 'city',
+        label: 'Città',
+        value: (row) => row.client.city ?? '',
+      ),
+      _ClientExportField(
+        id: 'address',
+        label: 'Indirizzo',
+        value: (row) => row.client.address ?? '',
+      ),
+      _ClientExportField(
+        id: 'profession',
+        label: 'Professione',
+        value: (row) => row.client.profession ?? '',
+      ),
+      _ClientExportField(
+        id: 'referralSource',
+        label: 'Origine',
+        value: (row) => row.client.referralSource ?? '',
+      ),
+      _ClientExportField(
+        id: 'gender',
+        label: 'Genere',
+        value: (row) => row.client.gender ?? '',
+      ),
+      _ClientExportField(
+        id: 'dateOfBirth',
+        label: 'Data di nascita',
+        value: (row) => dateValue(row.client.dateOfBirth),
+      ),
+      _ClientExportField(
+        id: 'createdAt',
+        label: 'Creato il',
+        value: (row) => dateValue(row.client.createdAt),
+      ),
+      _ClientExportField(
+        id: 'loyaltyPoints',
+        label: 'Punti fedeltà',
+        value: (row) => row.loyaltyPoints.toString(),
+        selectedByDefault: true,
+      ),
+      _ClientExportField(
+        id: 'loyaltyTotalEarned',
+        label: 'Punti guadagnati',
+        value: (row) => (row.client.loyaltyTotalEarned ?? 0).toString(),
+      ),
+      _ClientExportField(
+        id: 'loyaltyTotalRedeemed',
+        label: 'Punti riscattati',
+        value: (row) => (row.client.loyaltyTotalRedeemed ?? 0).toString(),
+      ),
+      _ClientExportField(
+        id: 'loyaltyUpdatedAt',
+        label: 'Fedeltà aggiornata il',
+        value: (row) => dateValue(row.client.loyaltyUpdatedAt),
+      ),
+      _ClientExportField(
+        id: 'appointmentsCount',
+        label: 'Appuntamenti totali',
+        value: (row) => row.appointmentsCount.toString(),
+      ),
+      _ClientExportField(
+        id: 'lastCompleted',
+        label: 'Ultima seduta',
+        value: (row) => dateValue(row.lastCompleted),
+        selectedByDefault: true,
+      ),
+      _ClientExportField(
+        id: 'nextAppointment',
+        label: 'Prossimo appuntamento',
+        value: (row) => dateValue(row.nextAppointment),
+      ),
+      _ClientExportField(
+        id: 'hasUpcoming',
+        label: 'Ha appuntamenti da fare',
+        value: (row) => boolValue(row.hasUpcoming),
+      ),
+      _ClientExportField(
+        id: 'purchasesCount',
+        label: 'Vendite',
+        value: (row) => row.purchasesCount.toString(),
+      ),
+      _ClientExportField(
+        id: 'totalSpent',
+        label: 'Spesa totale',
+        value: (row) => row.totalSpent.toStringAsFixed(2),
+        selectedByDefault: true,
+      ),
+      _ClientExportField(
+        id: 'hasOutstanding',
+        label: 'Saldo residuo',
+        value: (row) => boolValue(row.hasOutstanding),
+      ),
+      _ClientExportField(
+        id: 'appInstalled',
+        label: 'App installata',
+        value: (row) => boolValue(row.hasPushToken),
+        selectedByDefault: true,
+      ),
+      _ClientExportField(
+        id: 'onboardingStatus',
+        label: 'Stato onboarding',
+        value: (row) => _statusLabel(row.onboardingStatus),
+      ),
+      _ClientExportField(
+        id: 'invitationSentAt',
+        label: 'Invito inviato il',
+        value: (row) => dateValue(row.client.invitationSentAt),
+      ),
+      _ClientExportField(
+        id: 'firstLoginAt',
+        label: 'Primo login il',
+        value: (row) => dateValue(row.client.firstLoginAt),
+      ),
+      _ClientExportField(
+        id: 'onboardingCompletedAt',
+        label: 'Onboarding completato il',
+        value: (row) => dateValue(row.client.onboardingCompletedAt),
+      ),
+      _ClientExportField(
+        id: 'notes',
+        label: 'Note',
+        value: (row) => clean(row.client.notes),
+      ),
+    ];
+  }
+
+  Future<Set<String>?> _showExportFieldsDialog({
+    required BuildContext context,
+    required List<_ClientExportField> fields,
+    required int clientsCount,
+  }) {
+    return showDialog<Set<String>>(
+      context: context,
+      builder:
+          (ctx) =>
+              _ExportFieldsDialog(fields: fields, clientsCount: clientsCount),
+    );
   }
 
   Future<void> _openBulkMessagingSheet() async {
@@ -1831,6 +2298,8 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
     required DateTime? start,
     required DateTime? end,
     required ValueChanged<DateTimeRange?> onSelected,
+    DateTime? firstDate,
+    DateTime? lastDate,
   }) {
     final format = DateFormat('dd/MM/yyyy');
     final hasSelection = start != null || end != null;
@@ -1844,6 +2313,8 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
       onClear: hasSelection ? () => onSelected(null) : null,
       onPressed: () async {
         final now = DateTime.now();
+        final pickerFirstDate = firstDate ?? DateTime(2000);
+        final pickerLastDate = lastDate ?? DateTime(2100);
         final initialRange =
             (start != null && end != null)
                 ? DateTimeRange(start: start, end: end)
@@ -1854,11 +2325,85 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
         final picked = await showDateRangePicker(
           context: context,
           initialDateRange: initialRange,
-          firstDate: DateTime(2000),
-          lastDate: DateTime(2100),
+          firstDate: pickerFirstDate,
+          lastDate: pickerLastDate,
+          builder: (context, child) {
+            return Theme(
+              data: _dateRangePickerTheme(Theme.of(context)),
+              child: child ?? const SizedBox.shrink(),
+            );
+          },
         );
         onSelected(picked);
       },
+    );
+  }
+
+  ThemeData _dateRangePickerTheme(ThemeData theme) {
+    final scheme = theme.colorScheme;
+    const accent = Color(0xFFD4AD31);
+    const accentInk = Color(0xFF161616);
+    final rangeFill = accent.withValues(alpha: 0.18);
+    final overlay = accent.withValues(alpha: 0.10);
+
+    Color? resolveDayForeground(Set<WidgetState> states) {
+      if (states.contains(WidgetState.disabled)) {
+        return scheme.onSurfaceVariant.withValues(alpha: 0.38);
+      }
+      if (states.contains(WidgetState.selected)) {
+        return accentInk;
+      }
+      return scheme.onSurface;
+    }
+
+    Color? resolveDayBackground(Set<WidgetState> states) {
+      if (states.contains(WidgetState.selected)) {
+        return accent;
+      }
+      return null;
+    }
+
+    return theme.copyWith(
+      colorScheme: scheme.copyWith(
+        primary: accent,
+        onPrimary: accentInk,
+        secondaryContainer: rangeFill,
+        onSecondaryContainer: scheme.onSurface,
+        surface: scheme.surface,
+        onSurface: scheme.onSurface,
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: scheme.onSurface,
+          textStyle: theme.textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      datePickerTheme: theme.datePickerTheme.copyWith(
+        backgroundColor: scheme.surface,
+        surfaceTintColor: Colors.transparent,
+        headerBackgroundColor: scheme.surface,
+        headerForegroundColor: scheme.onSurface,
+        dividerColor: scheme.outlineVariant,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        dayForegroundColor: WidgetStateProperty.resolveWith(
+          resolveDayForeground,
+        ),
+        dayBackgroundColor: WidgetStateProperty.resolveWith(
+          resolveDayBackground,
+        ),
+        dayOverlayColor: WidgetStatePropertyAll(overlay),
+        todayForegroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return accentInk;
+          }
+          return accent;
+        }),
+        todayBorder: BorderSide(color: accent.withValues(alpha: 0.75)),
+        rangeSelectionBackgroundColor: rangeFill,
+        rangeSelectionOverlayColor: WidgetStatePropertyAll(overlay),
+      ),
     );
   }
 
@@ -2221,20 +2766,46 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
 
     addChip(
       filters.upcomingAppointmentWithinDays != null,
-      'Prossimi appuntamenti entro ${filters.upcomingAppointmentWithinDays}g',
+      'Da fare entro ${filters.upcomingAppointmentWithinDays}g',
       (builder) => builder.upcomingAppointmentWithinDays = null,
     );
 
     addChip(
       filters.upcomingAppointmentServiceIds.isNotEmpty,
-      'Prossimi servizi: ${summarizeLabels(filters.upcomingAppointmentServiceIds.map(_serviceLabel))}',
+      'Servizi da fare: ${summarizeLabels(filters.upcomingAppointmentServiceIds.map(_serviceLabel))}',
       (builder) => builder.upcomingAppointmentServiceIds = <String>{},
     );
 
     addChip(
       filters.upcomingAppointmentCategoryIds.isNotEmpty,
-      'Prossime categorie: ${summarizeLabels(filters.upcomingAppointmentCategoryIds.map(_categoryLabel))}',
+      'Categorie da fare: ${summarizeLabels(filters.upcomingAppointmentCategoryIds.map(_categoryLabel))}',
       (builder) => builder.upcomingAppointmentCategoryIds = <String>{},
+    );
+
+    addChip(
+      filters.completedAppointmentFrom != null ||
+          filters.completedAppointmentTo != null,
+      formatDateRange(
+        filters.completedAppointmentFrom,
+        filters.completedAppointmentTo,
+        'Effettuate',
+      ),
+      (builder) {
+        builder.completedAppointmentFrom = null;
+        builder.completedAppointmentTo = null;
+      },
+    );
+
+    addChip(
+      filters.completedAppointmentServiceIds.isNotEmpty,
+      'Servizi effettuati: ${summarizeLabels(filters.completedAppointmentServiceIds.map(_serviceLabel))}',
+      (builder) => builder.completedAppointmentServiceIds = <String>{},
+    );
+
+    addChip(
+      filters.completedAppointmentCategoryIds.isNotEmpty,
+      'Categorie effettuate: ${summarizeLabels(filters.completedAppointmentCategoryIds.map(_categoryLabel))}',
+      (builder) => builder.completedAppointmentCategoryIds = <String>{},
     );
 
     addChip(
@@ -2392,11 +2963,76 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
     required int totalResults,
     required AdvancedSearchFilters filters,
   }) {
+    final currencyFormat = NumberFormat.currency(locale: 'it_IT', symbol: '€');
+    final rows = _buildResultRows(
+      state: state,
+      appData: appData,
+      filters: filters,
+      sort: true,
+    );
+
+    final sections = <_ResultRowSection>[];
+    if (_groupByUpcoming) {
+      final withUpcoming = rows.where((row) => row.hasUpcoming).toList();
+      final withoutUpcoming = rows.where((row) => !row.hasUpcoming).toList();
+      sections.add(
+        _ResultRowSection(
+          title: 'Con appuntamenti imminenti',
+          rows: withUpcoming,
+        ),
+      );
+      sections.add(
+        _ResultRowSection(
+          title: 'Senza appuntamenti imminenti',
+          rows: withoutUpcoming,
+        ),
+      );
+    } else {
+      sections.add(_ResultRowSection(title: null, rows: rows));
+    }
+
+    final children = <Widget>[
+      _buildResultsToolbar(
+        context: context,
+        totalResults: totalResults,
+        visibleResults: rows.length,
+      ),
+      const SizedBox(height: 12),
+    ];
+
+    for (final section in sections) {
+      if (section.rows.isEmpty) {
+        continue;
+      }
+      children.add(
+        _buildResultSectionCard(
+          context: context,
+          section: section,
+          currencyFormat: currencyFormat,
+        ),
+      );
+      children.add(const SizedBox(height: 16));
+    }
+
+    if (children.length > 2) {
+      children.removeLast();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: children,
+    );
+  }
+
+  List<_ResultRowData> _buildResultRows({
+    required AdvancedClientSearchState state,
+    required AppDataState appData,
+    required AdvancedSearchFilters filters,
+    required bool sort,
+  }) {
     final salonId = widget.salonId;
     final now = DateTime.now();
-    final currencyFormat = NumberFormat.currency(locale: 'it_IT', symbol: '€');
     final usePaidAmount = filters.usePaidAmount;
-
     final appointmentsByClient = groupBy<Appointment, String>(
       appData.appointments.where(
         (appt) => salonId == null || appt.salonId == salonId,
@@ -2459,74 +3095,26 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
       );
     }
 
-    rows.sort((a, b) {
-      switch (_sortOption) {
-        case _SortOption.name:
-          return a.client.fullName.toLowerCase().compareTo(
-            b.client.fullName.toLowerCase(),
-          );
-        case _SortOption.lastCompleted:
-          final aDate =
-              a.lastCompleted ?? DateTime.fromMillisecondsSinceEpoch(0);
-          final bDate =
-              b.lastCompleted ?? DateTime.fromMillisecondsSinceEpoch(0);
-          return bDate.compareTo(aDate);
-        case _SortOption.totalSpent:
-          return b.totalSpent.compareTo(a.totalSpent);
-      }
-    });
-
-    final sections = <_ResultRowSection>[];
-    if (_groupByUpcoming) {
-      final withUpcoming = rows.where((row) => row.hasUpcoming).toList();
-      final withoutUpcoming = rows.where((row) => !row.hasUpcoming).toList();
-      sections.add(
-        _ResultRowSection(
-          title: 'Con appuntamenti imminenti',
-          rows: withUpcoming,
-        ),
-      );
-      sections.add(
-        _ResultRowSection(
-          title: 'Senza appuntamenti imminenti',
-          rows: withoutUpcoming,
-        ),
-      );
-    } else {
-      sections.add(_ResultRowSection(title: null, rows: rows));
+    if (sort) {
+      rows.sort((a, b) {
+        switch (_sortOption) {
+          case _SortOption.name:
+            return a.client.fullName.toLowerCase().compareTo(
+              b.client.fullName.toLowerCase(),
+            );
+          case _SortOption.lastCompleted:
+            final aDate =
+                a.lastCompleted ?? DateTime.fromMillisecondsSinceEpoch(0);
+            final bDate =
+                b.lastCompleted ?? DateTime.fromMillisecondsSinceEpoch(0);
+            return bDate.compareTo(aDate);
+          case _SortOption.totalSpent:
+            return b.totalSpent.compareTo(a.totalSpent);
+        }
+      });
     }
 
-    final children = <Widget>[
-      _buildResultsToolbar(
-        context: context,
-        totalResults: totalResults,
-        visibleResults: rows.length,
-      ),
-      const SizedBox(height: 12),
-    ];
-
-    for (final section in sections) {
-      if (section.rows.isEmpty) {
-        continue;
-      }
-      children.add(
-        _buildResultSectionCard(
-          context: context,
-          section: section,
-          currencyFormat: currencyFormat,
-        ),
-      );
-      children.add(const SizedBox(height: 16));
-    }
-
-    if (children.length > 2) {
-      children.removeLast();
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: children,
-    );
+    return rows;
   }
 
   Widget _buildResultSectionCard({
@@ -2694,7 +3282,7 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                 : '$totalResults risultati trovati'
             : '$visibleResults di $totalResults risultati';
     final sortField = DropdownButtonFormField<_SortOption>(
-      value: _sortOption,
+      initialValue: _sortOption,
       isExpanded: true,
       decoration: InputDecoration(
         isDense: true,
@@ -2741,7 +3329,6 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
       checkmarkColor: theme.colorScheme.onSecondary,
       onSelected: (value) => setState(() => _groupByUpcoming = value),
     );
-
     return LayoutBuilder(
       builder: (context, constraints) {
         final isCompact = constraints.maxWidth < 720;
@@ -3779,6 +4366,152 @@ class _SelectableItem {
   final String label;
 }
 
+typedef _ClientExportValueBuilder = String Function(_ResultRowData row);
+
+class _ClientExportField {
+  const _ClientExportField({
+    required this.id,
+    required this.label,
+    required this.value,
+    this.selectedByDefault = false,
+  });
+
+  final String id;
+  final String label;
+  final _ClientExportValueBuilder value;
+  final bool selectedByDefault;
+}
+
+class _ExportFieldsDialog extends StatefulWidget {
+  const _ExportFieldsDialog({required this.fields, required this.clientsCount});
+
+  final List<_ClientExportField> fields;
+  final int clientsCount;
+
+  @override
+  State<_ExportFieldsDialog> createState() => _ExportFieldsDialogState();
+}
+
+class _ExportFieldsDialogState extends State<_ExportFieldsDialog> {
+  late final Set<String> _selection;
+
+  @override
+  void initState() {
+    super.initState();
+    _selection =
+        widget.fields
+            .where((field) => field.selectedByDefault)
+            .map((field) => field.id)
+            .toSet();
+    if (_selection.isEmpty && widget.fields.isNotEmpty) {
+      _selection.add(widget.fields.first.id);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final mediaSize = MediaQuery.sizeOf(context);
+    final allSelected = _selection.length == widget.fields.length;
+    final defaultIds =
+        widget.fields
+            .where((field) => field.selectedByDefault)
+            .map((field) => field.id)
+            .toSet();
+
+    return AlertDialog(
+      title: const Text('Campi da esportare'),
+      content: SizedBox(
+        width: 520,
+        height: mediaSize.height * 0.65,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '${widget.clientsCount} clienti selezionati. Scegli le colonne del CSV.',
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilterChip(
+                  avatar: const Icon(Icons.done_all_rounded, size: 18),
+                  label: const Text('Tutti'),
+                  selected: allSelected,
+                  onSelected:
+                      (_) => setState(() {
+                        if (allSelected) {
+                          _selection
+                            ..clear()
+                            ..addAll(defaultIds);
+                        } else {
+                          _selection
+                            ..clear()
+                            ..addAll(widget.fields.map((field) => field.id));
+                        }
+                      }),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.restart_alt_rounded, size: 18),
+                  label: const Text('Predefiniti'),
+                  onPressed:
+                      () => setState(() {
+                        _selection
+                          ..clear()
+                          ..addAll(defaultIds);
+                        if (_selection.isEmpty && widget.fields.isNotEmpty) {
+                          _selection.add(widget.fields.first.id);
+                        }
+                      }),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: ListView.builder(
+                itemCount: widget.fields.length,
+                itemBuilder: (context, index) {
+                  final field = widget.fields[index];
+                  final selected = _selection.contains(field.id);
+                  return CheckboxListTile(
+                    value: selected,
+                    title: Text(field.label),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    onChanged:
+                        (value) => setState(() {
+                          if (value == true) {
+                            _selection.add(field.id);
+                          } else {
+                            _selection.remove(field.id);
+                          }
+                        }),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Annulla'),
+        ),
+        FilledButton.icon(
+          onPressed:
+              _selection.isEmpty
+                  ? null
+                  : () => Navigator.of(context).pop(_selection),
+          icon: const Icon(Icons.table_view_rounded),
+          label: const Text('Esporta CSV'),
+        ),
+      ],
+    );
+  }
+}
+
 class _MultiSelectDialog extends StatefulWidget {
   const _MultiSelectDialog({
     required this.title,
@@ -3901,27 +4634,37 @@ class _RangeButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Row(
-      children: [
-        Expanded(
-          child: ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(label, style: theme.textTheme.labelLarge),
-            subtitle: Text(valueLabel, style: theme.textTheme.bodyMedium),
-            trailing: IconButton(
-              onPressed: onClear,
-              icon: const Icon(Icons.clear_rounded),
-            ),
-            onTap: onPressed,
-          ),
-        ),
-        const SizedBox(width: 8),
-        OutlinedButton.icon(
-          onPressed: onPressed,
-          icon: const Icon(Icons.calendar_today_rounded),
-          label: const Text('Scegli'),
-        ),
-      ],
+    final content = ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(label, style: theme.textTheme.labelLarge),
+      subtitle: Text(valueLabel, style: theme.textTheme.bodyMedium),
+      trailing: IconButton(
+        onPressed: onClear,
+        icon: const Icon(Icons.clear_rounded),
+      ),
+      onTap: onPressed,
+    );
+    final button = OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: const Icon(Icons.calendar_today_rounded),
+      label: const Text('Scegli'),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 360) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [content, const SizedBox(height: 8), button],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: content),
+            const SizedBox(width: 8),
+            button,
+          ],
+        );
+      },
     );
   }
 }

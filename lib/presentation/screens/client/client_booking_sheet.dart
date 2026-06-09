@@ -34,6 +34,7 @@ class ClientBookingSheet extends ConsumerStatefulWidget {
     this.onCompleted,
     this.onDismiss,
     this.showCloseButton = false,
+    this.showPageHeader = true,
     this.overrideTitle,
   });
 
@@ -44,6 +45,7 @@ class ClientBookingSheet extends ConsumerStatefulWidget {
   final ValueChanged<Appointment>? onCompleted;
   final VoidCallback? onDismiss;
   final bool showCloseButton;
+  final bool showPageHeader;
   final String? overrideTitle;
 
   static Future<Appointment?> show(
@@ -657,6 +659,7 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
           return DialogActionLayout(
             footer: footer,
             actions: const [],
+            showCloseButton: widget.showPageHeader,
             body: SafeArea(
               top: !widget.showCloseButton,
               bottom: false,

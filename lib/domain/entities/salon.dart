@@ -109,6 +109,7 @@ class Salon {
     this.loyaltySettings = const LoyaltySettings(),
     this.featureFlags = const SalonFeatureFlags(),
     this.isPublished = false,
+    this.showPublicCatalog = true,
     this.dashboardSections = const SalonDashboardSections(),
     this.clientRegistration = const ClientRegistrationSettings(),
     this.stripeAccountId,
@@ -137,6 +138,7 @@ class Salon {
   final LoyaltySettings loyaltySettings;
   final SalonFeatureFlags featureFlags;
   final bool isPublished;
+  final bool showPublicCatalog;
   final SalonDashboardSections dashboardSections;
   final ClientRegistrationSettings clientRegistration;
   final String? stripeAccountId;
@@ -170,6 +172,7 @@ class Salon {
     LoyaltySettings? loyaltySettings,
     SalonFeatureFlags? featureFlags,
     bool? isPublished,
+    bool? showPublicCatalog,
     SalonDashboardSections? dashboardSections,
     ClientRegistrationSettings? clientRegistration,
     Object? stripeAccountId = _sentinel,
@@ -199,6 +202,7 @@ class Salon {
       loyaltySettings: loyaltySettings ?? this.loyaltySettings,
       featureFlags: featureFlags ?? this.featureFlags,
       isPublished: isPublished ?? this.isPublished,
+      showPublicCatalog: showPublicCatalog ?? this.showPublicCatalog,
       dashboardSections: dashboardSections ?? this.dashboardSections,
       clientRegistration: clientRegistration ?? this.clientRegistration,
       stripeAccountId:

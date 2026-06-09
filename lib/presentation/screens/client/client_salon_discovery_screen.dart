@@ -30,7 +30,6 @@ class _ClientSalonDiscoveryScreenState
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   String? _joiningSalonId;
-  bool _redirectingToSignIn = false;
   bool _initialLocationRequestScheduled = false;
   Position? _devicePosition;
   _ClientLocationStatus _locationStatus = _ClientLocationStatus.idle;
@@ -304,27 +303,7 @@ class _ClientSalonDiscoveryScreenState
     final user = session.user;
     final userId = session.uid;
     final requiresEmailVerification = session.requiresEmailVerification;
-
-    if (user == null || requiresEmailVerification) {
-      if (!_redirectingToSignIn) {
-        _redirectingToSignIn = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) {
-            return;
-          }
-          final hasDraft = ref.read(clientRegistrationDraftProvider) != null;
-          final shouldShowNotice = hasDraft || requiresEmailVerification;
-          context.goNamed(
-            'sign_in',
-            queryParameters:
-                shouldShowNotice
-                    ? const {verifyEmailQueryParam: '1'}
-                    : const <String, String>{},
-          );
-        });
-      }
-      return const SizedBox.shrink();
-    }
+    final isGuest = user == null || requiresEmailVerification;
 
     final discoverableSalons = data.discoverableSalons;
     final fallbackSalons = data.salons
@@ -345,7 +324,7 @@ class _ClientSalonDiscoveryScreenState
                 .where((request) => request.userId == userId)
                 .toList(growable: false);
 
-    final pendingBySalon = <String, SalonAccessRequest>{
+    final rawPendingBySalon = <String, SalonAccessRequest>{
       for (final request in requests.where(
         (request) => request.status == SalonAccessRequestStatus.pending,
       ))
@@ -357,21 +336,54 @@ class _ClientSalonDiscoveryScreenState
       ))
         request.salonId: request,
     };
+    final approvedBySalon = <String, SalonAccessRequest>{
+      for (final request in requests.where(
+        (request) =>
+            request.status == SalonAccessRequestStatus.approved &&
+            (request.clientId?.trim().isNotEmpty ?? false),
+      ))
+        request.salonId: request,
+    };
 
-    final approvedSalonIds = session.availableSalonIds.toSet();
+    final approvedSalonIds = <String>{
+      ...session.availableSalonIds,
+      ...approvedBySalon.keys,
+    };
+    final pendingBySalon = <String, SalonAccessRequest>{
+      for (final entry in rawPendingBySalon.entries)
+        if (!approvedSalonIds.contains(entry.key)) entry.key: entry.value,
+    };
     final hasSalons = results.isNotEmpty;
     final useCardGrid = results.length <= 5;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Scegli il tuo salone'),
+        title: Text(isGuest ? 'Scopri i saloni' : 'Scegli il tuo salone'),
         automaticallyImplyLeading: false,
         actions: [
-          IconButton(
-            tooltip: 'Logout',
-            icon: const Icon(Icons.logout_rounded),
-            onPressed: () => _signOut(context),
-          ),
+          if (isGuest) ...[
+            TextButton(
+              onPressed:
+                  () => context.goNamed(
+                    'sign_in',
+                    queryParameters: const {redirectQueryParam: '/client'},
+                  ),
+              child: const Text('Accedi'),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: FilledButton.tonalIcon(
+                onPressed: () => context.go('/register'),
+                icon: const Icon(Icons.person_add_alt_1_rounded),
+                label: const Text('Registrati'),
+              ),
+            ),
+          ] else
+            IconButton(
+              tooltip: 'Logout',
+              icon: const Icon(Icons.logout_rounded),
+              onPressed: () => _signOut(context),
+            ),
         ],
       ),
       body: SafeArea(
@@ -381,14 +393,18 @@ class _ClientSalonDiscoveryScreenState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Benvenuto${user.displayName != null ? ', ${user.displayName!.split(' ').first}' : ''}!',
+                isGuest
+                    ? 'Saloni disponibili su YouBook'
+                    : 'Benvenuto${user.displayName != null ? ', ${user.displayName!.split(' ').first}' : ''}!',
                 style: theme.textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
               ),
               const SizedBox(height: 8),
               Text(
-                'Mostriamo prima i saloni vicini a te. Puoi cercare manualmente per nome o telefono.',
+                isGuest
+                    ? 'Puoi cercare liberamente i saloni per nome o telefono. L\'account serve solo per richiedere l\'accesso e gestire prenotazioni personali.'
+                    : 'Mostriamo prima i saloni vicini a te. Puoi cercare manualmente per nome o telefono.',
                 style: theme.textTheme.bodyMedium,
               ),
               const SizedBox(height: 20),
@@ -444,7 +460,7 @@ class _ClientSalonDiscoveryScreenState
                           crossAxisCount: crossAxisCount,
                           mainAxisSpacing: 16,
                           crossAxisSpacing: 16,
-                          mainAxisExtent: 280,
+                          mainAxisExtent: crossAxisCount == 1 ? 464 : 440,
                         ),
                         itemCount: results.length,
                         itemBuilder: (context, index) {
@@ -453,7 +469,8 @@ class _ClientSalonDiscoveryScreenState
                           final isApproved = approvedSalonIds.contains(
                             salon.id,
                           );
-                          final pendingRequest = pendingBySalon[salon.id];
+                          final pendingRequest =
+                              isApproved ? null : pendingBySalon[salon.id];
                           final rejectedRequest = rejectedBySalon[salon.id];
                           return _SalonCard(
                             salon: salon,
@@ -464,6 +481,7 @@ class _ClientSalonDiscoveryScreenState
                             isProcessing: _joiningSalonId == salon.id,
                             pendingRequest: pendingRequest,
                             rejectedRequest: rejectedRequest,
+                            isGuest: isGuest,
                             onRequestAccess:
                                 () => _startRequestFlow(context, salon, user),
                             onEnter: () => _enterSalon(salon.id),
@@ -482,7 +500,8 @@ class _ClientSalonDiscoveryScreenState
                       final result = results[index];
                       final salon = result.salon;
                       final isApproved = approvedSalonIds.contains(salon.id);
-                      final pendingRequest = pendingBySalon[salon.id];
+                      final pendingRequest =
+                          isApproved ? null : pendingBySalon[salon.id];
                       final rejectedRequest = rejectedBySalon[salon.id];
                       return _SalonCard(
                         salon: salon,
@@ -493,6 +512,7 @@ class _ClientSalonDiscoveryScreenState
                         isProcessing: _joiningSalonId == salon.id,
                         pendingRequest: pendingRequest,
                         rejectedRequest: rejectedRequest,
+                        isGuest: isGuest,
                         onRequestAccess:
                             () => _startRequestFlow(context, salon, user),
                         onEnter: () => _enterSalon(salon.id),
@@ -587,10 +607,9 @@ class _ClientSalonDiscoveryScreenState
     final session = ref.read(sessionControllerProvider);
     final userId = session.uid;
     if (userId == null) {
-      ScaffoldMessenger.of(context).showAppSnackBar(
-        const SnackBar(
-          content: Text('Sessione scaduta. Accedi nuovamente per proseguire.'),
-        ),
+      context.goNamed(
+        'sign_in',
+        queryParameters: const {redirectQueryParam: '/client'},
       );
       return;
     }
@@ -1065,6 +1084,7 @@ class _SalonCard extends StatelessWidget {
     required this.isProcessing,
     required this.pendingRequest,
     required this.rejectedRequest,
+    required this.isGuest,
     required this.onRequestAccess,
     required this.onEnter,
   });
@@ -1076,6 +1096,7 @@ class _SalonCard extends StatelessWidget {
   final bool isProcessing;
   final SalonAccessRequest? pendingRequest;
   final SalonAccessRequest? rejectedRequest;
+  final bool isGuest;
   final VoidCallback onRequestAccess;
   final VoidCallback onEnter;
 
@@ -1088,7 +1109,7 @@ class _SalonCard extends StatelessWidget {
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1177,6 +1198,18 @@ class _SalonCard extends StatelessWidget {
               ),
               const SizedBox(height: 6),
             ],
+            _PublicCatalogPreview(
+              services:
+                  salon.isPublished && salon.showPublicCatalog
+                      ? salon.publicServices
+                      : const <PublicSalonService>[],
+              packages:
+                  salon.isPublished && salon.showPublicCatalog
+                      ? salon.publicPackages
+                      : const <PublicSalonPackage>[],
+              isGuest: isGuest,
+              isApproved: isApproved,
+            ),
             const Spacer(),
             Row(
               children: [
@@ -1223,10 +1256,14 @@ class _SalonCard extends StatelessWidget {
                 else
                   Expanded(
                     child: FilledButton.icon(
-                      icon: const Icon(Icons.send_rounded),
+                      icon: Icon(
+                        isGuest ? Icons.login_rounded : Icons.send_rounded,
+                      ),
                       onPressed: onRequestAccess,
                       label: Text(
-                        status == _CardStatus.rejected
+                        isGuest
+                            ? 'Accedi per richiedere accesso'
+                            : status == _CardStatus.rejected
                             ? 'Invia di nuovo la richiesta'
                             : 'Richiedi accesso',
                       ),
@@ -1262,6 +1299,311 @@ class _SalonCard extends StatelessWidget {
       return '${kilometers.toStringAsFixed(1).replaceAll('.', ',')} km';
     }
     return '${kilometers.round()} km';
+  }
+}
+
+class _PublicCatalogPreview extends StatelessWidget {
+  const _PublicCatalogPreview({
+    required this.services,
+    required this.packages,
+    required this.isGuest,
+    required this.isApproved,
+  });
+
+  final List<PublicSalonService> services;
+  final List<PublicSalonPackage> packages;
+  final bool isGuest;
+  final bool isApproved;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasServices = services.isNotEmpty;
+    final hasPackages = packages.isNotEmpty;
+    if (!hasServices && !hasPackages) {
+      return const SizedBox.shrink();
+    }
+
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    const maxPreviewItems = 3;
+    final visibleServices = services
+        .take(maxPreviewItems)
+        .toList(growable: false);
+    final remainingPreviewSlots = maxPreviewItems - visibleServices.length;
+    final visiblePackages = packages
+        .take(remainingPreviewSlots)
+        .toList(growable: false);
+    final hiddenCount =
+        (services.length - visibleServices.length) +
+        (packages.length - visiblePackages.length);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 10),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: scheme.outlineVariant),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Catalogo',
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _showCatalogSheet(context),
+                  style: TextButton.styleFrom(
+                    minimumSize: Size.zero,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text('Vedi tutto'),
+                ),
+              ],
+            ),
+            if (hasServices) ...[
+              const SizedBox(height: 8),
+              ...visibleServices.map((service) {
+                return _PublicCatalogRow(
+                  icon: Icons.spa_outlined,
+                  title: service.name,
+                  trailing: currency.format(service.price),
+                  subtitle: _serviceSubtitle(service),
+                );
+              }),
+            ],
+            if (hasPackages) ...[
+              const SizedBox(height: 8),
+              ...visiblePackages.map((pkg) {
+                return _PublicCatalogRow(
+                  icon: Icons.local_offer_outlined,
+                  title: pkg.name,
+                  trailing: currency.format(pkg.price),
+                  subtitle: _packageSubtitle(pkg),
+                );
+              }),
+            ],
+            if (hiddenCount > 0) ...[
+              const SizedBox(height: 4),
+              Text(
+                '+$hiddenCount altri elementi',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _serviceSubtitle(PublicSalonService service) {
+    final parts = <String>[
+      if (service.category.trim().isNotEmpty) service.category.trim(),
+      if (service.durationMinutes > 0) '${service.durationMinutes} min',
+    ];
+    return parts.join(' • ');
+  }
+
+  String _packageSubtitle(PublicSalonPackage pkg) {
+    final parts = <String>[
+      if (pkg.sessionCount != null && pkg.sessionCount! > 0)
+        '${pkg.sessionCount} sessioni',
+      if (pkg.validDays != null && pkg.validDays! > 0)
+        'validita ${pkg.validDays} giorni',
+      if (pkg.discountPercentage != null && pkg.discountPercentage! > 0)
+        '-${pkg.discountPercentage!.toStringAsFixed(0)}%',
+    ];
+    return parts.join(' • ');
+  }
+
+  void _showCatalogSheet(BuildContext context) {
+    final theme = Theme.of(context);
+    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.72,
+            minChildSize: 0.4,
+            maxChildSize: 0.92,
+            builder: (context, scrollController) {
+              return ListView(
+                controller: scrollController,
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                children: [
+                  Text(
+                    'Catalogo pubblico',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    isApproved
+                        ? 'Entra nel salone per prenotare o acquistare.'
+                        : isGuest
+                        ? 'Accedi per prenotare o acquistare.'
+                        : 'Richiedi accesso per prenotare o acquistare.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  if (services.isNotEmpty) ...[
+                    const SizedBox(height: 20),
+                    Text('Servizi', style: theme.textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    ...services.map((service) {
+                      return _PublicCatalogSheetTile(
+                        icon: Icons.spa_outlined,
+                        title: service.name,
+                        subtitle: [
+                          _serviceSubtitle(service),
+                          if (service.description?.trim().isNotEmpty == true)
+                            service.description!.trim(),
+                        ].where((value) => value.isNotEmpty).join('\n'),
+                        price: currency.format(service.price),
+                      );
+                    }),
+                  ],
+                  if (packages.isNotEmpty) ...[
+                    const SizedBox(height: 20),
+                    Text('Pacchetti', style: theme.textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    ...packages.map((pkg) {
+                      return _PublicCatalogSheetTile(
+                        icon: Icons.local_offer_outlined,
+                        title: pkg.name,
+                        subtitle: [
+                          _packageSubtitle(pkg),
+                          if (pkg.description?.trim().isNotEmpty == true)
+                            pkg.description!.trim(),
+                        ].where((value) => value.isNotEmpty).join('\n'),
+                        price: currency.format(pkg.price),
+                      );
+                    }),
+                  ],
+                ],
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PublicCatalogRow extends StatelessWidget {
+  const _PublicCatalogRow({
+    required this.icon,
+    required this.title,
+    required this.trailing,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String trailing;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: scheme.onSurfaceVariant),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (subtitle.isNotEmpty)
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            trailing,
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PublicCatalogSheetTile extends StatelessWidget {
+  const _PublicCatalogSheetTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.price,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String price;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ListTile(
+        leading: Icon(icon, color: scheme.primary),
+        title: Text(title),
+        subtitle: subtitle.isEmpty ? null : Text(subtitle),
+        trailing: Text(
+          price,
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
   }
 }
 

@@ -23,3 +23,12 @@
 - Ottimizzare le prestazioni caricando in lazy le anteprime e sfruttando cache locale per switch rapidi tra set e collage.
 - L editor collage deve essere responsive: su tablet usare layout split, su desktop due pannelli con anteprima grande; su mobile limitarsi a funzioni base e rimandare all app desktop.
 - Loggare tutte le operazioni di upload, modifica e salvataggio per audit trail e per ripristino in caso di errori.
+
+## Privacy e responsabilita salone
+
+- La conferma privacy del salone viene richiesta una volta per sessione di lavoro sull archivio foto, non per ogni singola foto.
+- Ogni foto deve salvare finalita, base giuridica dichiarata, utente che conferma, data conferma e versione del testo.
+- Le foto restano dati personali del cliente trattati dal salone come titolare; YouBook opera come responsabile tecnico del trattamento.
+- Le foto non devono essere usate per riconoscimento biometrico automatico, training AI, marketing o pubblicazione senza finalita e consenso/base giuridica dedicati.
+- L admin deve poter eliminare singola foto, collage e intero set fotografico, inclusi i file su cloud storage.
+- Il riferimento operativo completo e in `YoubookDoc/privacy/privacy_clienti_salone.md`.

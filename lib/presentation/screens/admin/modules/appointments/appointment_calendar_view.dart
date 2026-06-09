@@ -633,6 +633,58 @@ class AppointmentCalendarView extends StatefulWidget {
       _AppointmentCalendarViewState();
 }
 
+class _EmptyStaffPrompt extends StatelessWidget {
+  const _EmptyStaffPrompt({this.compact = false});
+
+  final bool compact;
+
+  void _openStaffModule(BuildContext context) {
+    ProviderScope.containerOf(context)
+        .read(adminDashboardIntentProvider.notifier)
+        .state = const AdminDashboardIntent(moduleId: 'staff');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final textStyle =
+        compact
+            ? theme.textTheme.bodySmall
+            : theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600);
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.groups_2_rounded,
+              color: scheme.primary,
+              size: compact ? 22 : 32,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Aggiungi membri dello staff per pianificare appuntamenti.',
+              style: textStyle?.copyWith(
+                color: scheme.onSurfaceVariant.withValues(alpha: 0.86),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: () => _openStaffModule(context),
+              icon: const Icon(Icons.person_add_alt_1_rounded),
+              label: const Text('Vai allo staff'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 enum _StaffDayActionType {
   addShift,
   editShift,
@@ -1350,11 +1402,7 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
   @override
   Widget build(BuildContext context) {
     if (widget.staff.isEmpty) {
-      return const Center(
-        child: Text(
-          'Aggiungi membri dello staff per pianificare appuntamenti.',
-        ),
-      );
+      return const _EmptyStaffPrompt();
     }
     final clientsById = {
       for (final client in widget.clients) client.id: client,
@@ -2004,20 +2052,8 @@ class _DaySchedule extends StatelessWidget {
                                       staffCount == 0
                                           ? SizedBox(
                                             height: gridHeight,
-                                            child: Center(
-                                              child: Text(
-                                                'Aggiungi membri dello staff per pianificare.',
-                                                style: theme.textTheme.bodySmall
-                                                    ?.copyWith(
-                                                      color: theme
-                                                          .colorScheme
-                                                          .onSurfaceVariant
-                                                          .withValues(
-                                                            alpha: 0.7,
-                                                          ),
-                                                    ),
-                                                textAlign: TextAlign.center,
-                                              ),
+                                            child: const _EmptyStaffPrompt(
+                                              compact: true,
                                             ),
                                           )
                                           : Container(
@@ -5119,15 +5155,7 @@ class _WeekCompactView extends StatelessWidget {
     if (staffCount == 0) {
       return SizedBox(
         height: gridHeight,
-        child: Center(
-          child: Text(
-            'Aggiungi membri dello staff per pianificare.',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ),
+        child: const _EmptyStaffPrompt(compact: true),
       );
     }
     final enforceMinWidth = layout?.enforceMinWidth ?? false;

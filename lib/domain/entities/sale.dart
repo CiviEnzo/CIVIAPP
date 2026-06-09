@@ -273,6 +273,17 @@ class SaleItem {
   }
 }
 
+extension SaleItemSessionCreditX on SaleItem {
+  bool get isServiceSessionCredit {
+    if (referenceType != SaleReferenceType.service || referenceId.isEmpty) {
+      return false;
+    }
+    return totalSessions != null ||
+        remainingSessions != null ||
+        remainingPackageServiceSessions.isNotEmpty;
+  }
+}
+
 const Object _unset = Object();
 
 enum PackagePurchaseStatus { active, completed, cancelled }

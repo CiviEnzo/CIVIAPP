@@ -159,6 +159,10 @@ Salon salonFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     loyaltySettings: _mapToLoyaltySettings(loyaltyRaw),
     featureFlags: SalonFeatureFlags.fromMap(featureFlagsRaw),
     isPublished: _coerceToBool(data['isPublished']),
+    showPublicCatalog:
+        data.containsKey('showPublicCatalog')
+            ? _coerceToBool(data['showPublicCatalog'])
+            : true,
     dashboardSections: SalonDashboardSections.fromMap(dashboardSectionsRaw),
     clientRegistration: _mapToClientRegistrationSettings(clientRegistrationRaw),
     stripeAccountId: data['stripeAccountId'] as String?,
@@ -185,6 +189,7 @@ Map<String, dynamic> salonToMap(Salon salon) {
     'description': salon.description,
     'status': salon.status.name,
     'isPublished': salon.isPublished,
+    'showPublicCatalog': salon.showPublicCatalog,
     'rooms':
         salon.rooms
             .map(
@@ -1429,6 +1434,7 @@ Map<String, dynamic> clientQuestionnaireToMap(
 ClientPhoto clientPhotoFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final data = doc.data() ?? <String, dynamic>{};
   final rawSetType = data['setType'] as String?;
+  final privacyRaw = data['privacy'];
   ClientPhotoSetType? setType;
   if (rawSetType != null && rawSetType.isNotEmpty) {
     for (final candidate in ClientPhotoSetType.values) {
@@ -1454,6 +1460,10 @@ ClientPhoto clientPhotoFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     setVersionIndex: (data['setVersionIndex'] as num?)?.toInt(),
     isSetActiveVersion: data['isSetActiveVersion'] as bool? ?? true,
     archivedAt: _timestampToDate(data['archivedAt']),
+    privacy:
+        privacyRaw is Map<String, dynamic>
+            ? _clientPhotoPrivacyFromMap(privacyRaw)
+            : null,
   );
 }
 
@@ -1489,8 +1499,68 @@ Map<String, dynamic> clientPhotoToMap(ClientPhoto photo) {
   if (photo.archivedAt != null) {
     map['archivedAt'] = Timestamp.fromDate(photo.archivedAt!);
   }
+  if (photo.privacy != null) {
+    map['privacy'] = _clientPhotoPrivacyToMap(photo.privacy!);
+  }
 
   return map;
+}
+
+ClientPhotoPrivacyConfirmation _clientPhotoPrivacyFromMap(
+  Map<String, dynamic> data,
+) {
+  return ClientPhotoPrivacyConfirmation(
+    purpose: _clientPhotoPurposeFromString(data['purpose'] as String?),
+    legalBasis: _clientPhotoLegalBasisFromString(data['legalBasis'] as String?),
+    confirmedAt: _timestampToDate(data['confirmedAt']) ?? DateTime.now(),
+    confirmedBy: data['confirmedBy'] as String? ?? '',
+    confirmationVersion:
+        data['confirmationVersion'] as String? ??
+        data['policyVersion'] as String? ??
+        'photo-privacy-v1',
+    consentId: data['consentId'] as String?,
+    deleteAfter: _timestampToDate(data['deleteAfter']),
+    specialCategoryRisk: data['specialCategoryRisk'] as bool? ?? true,
+    biometricProcessing: data['biometricProcessing'] as bool? ?? false,
+  );
+}
+
+Map<String, dynamic> _clientPhotoPrivacyToMap(
+  ClientPhotoPrivacyConfirmation privacy,
+) {
+  return <String, dynamic>{
+    'purpose': privacy.purpose.name,
+    'legalBasis': privacy.legalBasis.name,
+    'confirmedAt': Timestamp.fromDate(privacy.confirmedAt),
+    'confirmedBy': privacy.confirmedBy,
+    'confirmationVersion': privacy.confirmationVersion,
+    if (privacy.consentId != null && privacy.consentId!.isNotEmpty)
+      'consentId': privacy.consentId,
+    if (privacy.deleteAfter != null)
+      'deleteAfter': Timestamp.fromDate(privacy.deleteAfter!),
+    'specialCategoryRisk': privacy.specialCategoryRisk,
+    'biometricProcessing': privacy.biometricProcessing,
+  };
+}
+
+ClientPhotoPrivacyPurpose _clientPhotoPurposeFromString(String? value) {
+  if (value == null || value.isEmpty) {
+    return ClientPhotoPrivacyPurpose.treatmentDocumentation;
+  }
+  return ClientPhotoPrivacyPurpose.values.firstWhere(
+    (candidate) => candidate.name == value,
+    orElse: () => ClientPhotoPrivacyPurpose.treatmentDocumentation,
+  );
+}
+
+ClientPhotoLegalBasis _clientPhotoLegalBasisFromString(String? value) {
+  if (value == null || value.isEmpty) {
+    return ClientPhotoLegalBasis.contractOrPrecontract;
+  }
+  return ClientPhotoLegalBasis.values.firstWhere(
+    (candidate) => candidate.name == value,
+    orElse: () => ClientPhotoLegalBasis.contractOrPrecontract,
+  );
 }
 
 ClientPhotoCollage clientPhotoCollageFromDoc(
@@ -1590,6 +1660,7 @@ Service serviceFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
       minutes: (data['extraDurationMinutes'] as num?)?.toInt() ?? 0,
     ),
     isActive: data['isActive'] as bool? ?? true,
+    showOnPublicProfile: data['showOnPublicProfile'] as bool? ?? true,
   );
 }
 
@@ -1605,6 +1676,7 @@ Map<String, dynamic> serviceToMap(Service service) {
     'requiredEquipmentIds': service.requiredEquipmentIds,
     'extraDurationMinutes': service.extraDuration.inMinutes,
     'isActive': service.isActive,
+    'showOnPublicProfile': service.showOnPublicProfile,
   };
   if (service.categoryId != null) {
     map['categoryId'] = service.categoryId;
@@ -1685,6 +1757,12 @@ ServicePackage packageFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
         data.containsKey('showOnClientDashboard')
             ? _coerceToBool(data['showOnClientDashboard'])
             : true,
+    showOnPublicProfile:
+        data.containsKey('showOnPublicProfile')
+            ? _coerceToBool(data['showOnPublicProfile'])
+            : data.containsKey('showOnClientDashboard')
+            ? _coerceToBool(data['showOnClientDashboard'])
+            : true,
     isGeneratedFromServiceBuilder: _coerceToBool(
       data['isGeneratedFromServiceBuilder'],
     ),
@@ -1702,6 +1780,7 @@ Map<String, dynamic> packageToMap(ServicePackage pkg) {
     'sessionCount': pkg.sessionCount,
     'validDays': pkg.validDays,
     'showOnClientDashboard': pkg.showOnClientDashboard,
+    'showOnPublicProfile': pkg.showOnPublicProfile,
     'isGeneratedFromServiceBuilder': pkg.isGeneratedFromServiceBuilder,
   };
   if (pkg.discountPercentage != null) {

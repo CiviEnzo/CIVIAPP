@@ -75,6 +75,21 @@ class StaffModule extends ConsumerWidget {
     final salonsById = {for (final salon in salons) salon.id: salon};
     final canCreateStaff = primarySalon != null;
 
+    Future<void> openCreateStaff() {
+      final salon = primarySalon;
+      if (salon == null) {
+        return Future<void>.value();
+      }
+      return _openStaffForm(
+        context,
+        ref,
+        salons: [salon],
+        roles: staffRoles,
+        defaultSalonId: salon.id,
+        defaultRoleId: staffRoles.firstOrNull?.id,
+      );
+    }
+
     bool _hasStaffAccess(StaffMember staff) {
       final staffEmail = staff.email?.trim().toLowerCase();
       for (final user in data.users) {
@@ -128,7 +143,7 @@ class StaffModule extends ConsumerWidget {
 
     return ListView.separated(
       padding: const EdgeInsets.all(16),
-      itemCount: staffMembers.length + 1,
+      itemCount: staffMembers.isEmpty ? 2 : staffMembers.length + 1,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
         if (index == 0) {
@@ -144,7 +159,7 @@ class StaffModule extends ConsumerWidget {
                           ? null
                           : () => StaffOrderSheet.show(
                             context,
-                            salons: [primarySalon!],
+                            salons: [primarySalon],
                             selectedSalonId: primarySalon.id,
                           ),
                   icon: const Icon(Icons.sort_rounded),
@@ -162,22 +177,19 @@ class StaffModule extends ConsumerWidget {
                   label: const Text('Gestione ruoli'),
                 ),
                 FilledButton.icon(
-                  onPressed:
-                      !canCreateStaff
-                          ? null
-                          : () => _openStaffForm(
-                            context,
-                            ref,
-                            salons: [primarySalon!],
-                            roles: staffRoles,
-                            defaultSalonId: primarySalon.id,
-                            defaultRoleId: staffRoles.firstOrNull?.id,
-                          ),
+                  onPressed: !canCreateStaff ? null : () => openCreateStaff(),
                   icon: const Icon(Icons.person_add_alt_1_rounded),
                   label: const Text('Nuovo membro'),
                 ),
               ],
             ),
+          );
+        }
+
+        if (staffMembers.isEmpty) {
+          return _EmptyStaffState(
+            canCreateStaff: canCreateStaff,
+            onCreateStaff: canCreateStaff ? () => openCreateStaff() : null,
           );
         }
 
@@ -630,8 +642,9 @@ class StaffModule extends ConsumerWidget {
                             final theme = Theme.of(context);
                             final isLight =
                                 theme.brightness == Brightness.light;
-                            final tabController =
-                                DefaultTabController.of(context)!;
+                            final tabController = DefaultTabController.of(
+                              context,
+                            );
                             final weekLabel =
                                 '${_shortDateLabel.format(weekStart)} - ${_shortDateLabel.format(weekStart.add(const Duration(days: 6)))}';
                             final isWeekCompact = constraints.maxWidth < 720;
@@ -1598,6 +1611,138 @@ class StaffModule extends ConsumerWidget {
     const workdayMinutes = 8 * 60;
     final minutes = end.difference(start).inMinutes;
     return minutes / workdayMinutes;
+  }
+}
+
+class _EmptyStaffState extends StatelessWidget {
+  const _EmptyStaffState({
+    required this.canCreateStaff,
+    required this.onCreateStaff,
+  });
+
+  final bool canCreateStaff;
+  final VoidCallback? onCreateStaff;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final guidance =
+        canCreateStaff
+            ? 'Crea una scheda staff, assegna un ruolo e poi aggiungi turni o assenze: l\'agenda userà questi dati per le prenotazioni.'
+            : 'Crea prima un salone: poi potrai aggiungere i membri dello staff.';
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 380),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Card(
+            elevation: 0,
+            color: StaffModule._softSurface(context, blend: 0.2),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+              side: BorderSide(
+                color: scheme.outlineVariant.withValues(alpha: 0.55),
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircleAvatar(
+                    radius: 28,
+                    backgroundColor: scheme.primaryContainer,
+                    foregroundColor: scheme.onPrimaryContainer,
+                    child: const Icon(Icons.groups_2_rounded),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Configura il primo membro dello staff',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    guidance,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      height: 1.4,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 18),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: const [
+                      _EmptyStaffStepChip(
+                        icon: Icons.badge_rounded,
+                        label: 'Profilo',
+                      ),
+                      _EmptyStaffStepChip(
+                        icon: Icons.tune_rounded,
+                        label: 'Ruolo',
+                      ),
+                      _EmptyStaffStepChip(
+                        icon: Icons.calendar_month_rounded,
+                        label: 'Turni',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 22),
+                  FilledButton.icon(
+                    onPressed: onCreateStaff,
+                    icon: const Icon(Icons.person_add_alt_1_rounded),
+                    label: const Text('Nuovo membro'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyStaffStepChip extends StatelessWidget {
+  const _EmptyStaffStepChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.secondaryContainer.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: scheme.onSecondaryContainer),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: scheme.onSecondaryContainer,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

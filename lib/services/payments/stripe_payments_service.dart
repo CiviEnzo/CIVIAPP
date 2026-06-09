@@ -35,10 +35,12 @@ class StripeCheckoutResult {
   const StripeCheckoutResult({
     required this.paymentIntentId,
     required this.clientSecret,
+    this.connectedAccountId,
   });
 
   final String paymentIntentId;
   final String clientSecret;
+  final String? connectedAccountId;
 }
 
 class StripePaymentsService {
@@ -73,7 +75,9 @@ class StripePaymentsService {
     if (salonStripeAccountId != null) {
       requestBody['salonStripeAccountId'] = salonStripeAccountId;
     }
-    if (customerId != null && customerId.isNotEmpty) {
+    if (customerId != null &&
+        customerId.isNotEmpty &&
+        salonStripeAccountId == null) {
       requestBody['customerId'] = customerId;
     }
 
@@ -99,7 +103,9 @@ class StripePaymentsService {
     }
 
     String? ephemeralKeySecret;
-    if (customerId != null && customerId.isNotEmpty) {
+    if (customerId != null &&
+        customerId.isNotEmpty &&
+        salonStripeAccountId == null) {
       final keyResponse = await _postJson(
         path: 'createStripeEphemeralKey',
         body: <String, dynamic>{
@@ -113,6 +119,7 @@ class StripePaymentsService {
 
     await _initPaymentSheet(
       clientSecret: clientSecret,
+      stripeAccountId: salonStripeAccountId,
       customerId: customerId,
       customerEphemeralKeySecret: ephemeralKeySecret,
     );
@@ -122,6 +129,7 @@ class StripePaymentsService {
     return StripeCheckoutResult(
       paymentIntentId: paymentIntentId,
       clientSecret: clientSecret,
+      connectedAccountId: salonStripeAccountId,
     );
   }
 
@@ -188,7 +196,9 @@ class StripePaymentsService {
     if (salonStripeAccountId != null && salonStripeAccountId.isNotEmpty) {
       requestBody['salonStripeAccountId'] = salonStripeAccountId;
     }
-    if (customerId != null && customerId.isNotEmpty) {
+    if (customerId != null &&
+        customerId.isNotEmpty &&
+        salonStripeAccountId == null) {
       requestBody['customerId'] = customerId;
     }
 
@@ -205,7 +215,9 @@ class StripePaymentsService {
     }
 
     String? ephemeralKeySecret;
-    if (customerId != null && customerId.isNotEmpty) {
+    if (customerId != null &&
+        customerId.isNotEmpty &&
+        salonStripeAccountId == null) {
       final keyResponse = await _postJson(
         path: 'createStripeEphemeralKey',
         body: <String, dynamic>{'customerId': customerId, 'clientId': clientId},
@@ -216,6 +228,7 @@ class StripePaymentsService {
 
     await _initPaymentSheet(
       clientSecret: clientSecret,
+      stripeAccountId: salonStripeAccountId,
       customerId: customerId,
       customerEphemeralKeySecret: ephemeralKeySecret,
     );
@@ -225,6 +238,7 @@ class StripePaymentsService {
     return StripeCheckoutResult(
       paymentIntentId: paymentIntentId,
       clientSecret: clientSecret,
+      connectedAccountId: salonStripeAccountId,
     );
   }
 
@@ -268,10 +282,12 @@ class StripePaymentsService {
 
   Future<void> _initPaymentSheet({
     required String clientSecret,
+    String? stripeAccountId,
     String? customerId,
     String? customerEphemeralKeySecret,
   }) async {
     try {
+      await _applyStripeAccount(stripeAccountId);
       await Stripe.instance.initPaymentSheet(
         paymentSheetParameters: SetupPaymentSheetParameters(
           merchantDisplayName: _merchantDisplayNameDefine,
@@ -299,6 +315,18 @@ class StripePaymentsService {
         message: 'Configurazione pagamento non riuscita: $error',
       );
     }
+  }
+
+  Future<void> _applyStripeAccount(String? stripeAccountId) async {
+    final normalized =
+        stripeAccountId != null && stripeAccountId.trim().isNotEmpty
+            ? stripeAccountId.trim()
+            : null;
+    if (Stripe.stripeAccountId == normalized) {
+      return;
+    }
+    Stripe.stripeAccountId = normalized;
+    await Stripe.instance.applySettings();
   }
 
   Future<void> _presentPaymentSheet() async {

@@ -15,6 +15,13 @@ function readString(value: unknown): string | undefined {
   return undefined;
 }
 
+function readBoolean(value: unknown, fallback = false): boolean {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  return fallback;
+}
+
 function readNumber(value: unknown): number | undefined {
   if (typeof value === 'number' && !Number.isNaN(value)) {
     return value;
@@ -26,6 +33,31 @@ function readNumber(value: unknown): number | undefined {
     }
   }
   return undefined;
+}
+
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => (typeof item === 'string' ? item.trim() : String(item ?? '').trim()))
+    .filter((item) => item.length > 0);
+}
+
+function readIntMap(value: unknown): Record<string, number> {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+
+  const result: Record<string, number> = {};
+  Object.entries(value as Record<string, unknown>).forEach(([key, raw]) => {
+    const parsed = readNumber(raw);
+    if (!key.trim() || parsed === undefined) {
+      return;
+    }
+    result[key] = Math.max(0, Math.floor(parsed));
+  });
+  return result;
 }
 
 function sanitizeSocialLinks(input: unknown): Record<string, string> {
@@ -71,10 +103,113 @@ function sanitizeClientRegistration(input: unknown): Record<string, unknown> {
   };
 }
 
-function buildPublicSalonPayload(
+async function loadPublicServices(salonId: string): Promise<Record<string, unknown>[]> {
+  const snapshot = await firestore()
+    .collection('services')
+    .where('salonId', '==', salonId)
+    .get();
+
+  const services = snapshot.docs
+    .map((doc) => {
+      const data = doc.data();
+      if (!readBoolean(data.isActive, true) || !readBoolean(data.showOnPublicProfile, true)) {
+        return null;
+      }
+      const payload: Record<string, unknown> = {
+        id: doc.id,
+        name: readString(data.name) ?? '',
+        category: readString(data.category) ?? 'Generale',
+        durationMinutes: Math.max(0, Math.floor(readNumber(data.durationMinutes) ?? 0)),
+        price: readNumber(data.price) ?? 0,
+        description: readString(data.description),
+      };
+      Object.keys(payload).forEach((key) => {
+        if (payload[key] === undefined) {
+          delete payload[key];
+        }
+      });
+      return payload;
+    })
+    .filter((item): item is Record<string, unknown> => item !== null);
+
+  services.sort((left, right) => {
+    const categoryCompare = String(left.category ?? '').localeCompare(
+      String(right.category ?? ''),
+      'it',
+    );
+    if (categoryCompare !== 0) {
+      return categoryCompare;
+    }
+    return String(left.name ?? '').localeCompare(String(right.name ?? ''), 'it');
+  });
+  return services;
+}
+
+async function loadPublicPackages(salonId: string): Promise<Record<string, unknown>[]> {
+  const snapshot = await firestore()
+    .collection('packages')
+    .where('salonId', '==', salonId)
+    .get();
+
+  const packages = snapshot.docs
+    .map((doc) => {
+      const data = doc.data();
+      const showOnClientDashboard = readBoolean(data.showOnClientDashboard, true);
+      const showOnPublicProfile = readBoolean(
+        data.showOnPublicProfile,
+        showOnClientDashboard,
+      );
+      if (!showOnClientDashboard || !showOnPublicProfile) {
+        return null;
+      }
+
+      const serviceSessionCounts = readIntMap(data.serviceSessionCounts);
+      const computedSessions = Object.values(serviceSessionCounts).reduce(
+        (sum, value) => sum + value,
+        0,
+      );
+      const sessionCount =
+        readNumber(data.sessionCount) ??
+        (computedSessions > 0 ? computedSessions : undefined);
+
+      const payload: Record<string, unknown> = {
+        id: doc.id,
+        name: readString(data.name) ?? '',
+        price: readNumber(data.price) ?? 0,
+        fullPrice: readNumber(data.fullPrice) ?? readNumber(data.price) ?? 0,
+        discountPercentage: readNumber(data.discountPercentage),
+        description: readString(data.description),
+        serviceIds: readStringArray(data.serviceIds),
+        sessionCount,
+        validDays: readNumber(data.validDays),
+      };
+      Object.keys(payload).forEach((key) => {
+        if (payload[key] === undefined) {
+          delete payload[key];
+        }
+      });
+      return payload;
+    })
+    .filter((item): item is Record<string, unknown> => item !== null);
+
+  packages.sort((left, right) =>
+    String(left.name ?? '').localeCompare(String(right.name ?? ''), 'it'),
+  );
+  return packages;
+}
+
+async function buildPublicSalonPayload(
   salonId: string,
   data: SalonSnapshot,
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
+  const showPublicCatalog = readBoolean(data.showPublicCatalog, true);
+  const [publicServices, publicPackages] = showPublicCatalog
+    ? await Promise.all([
+        loadPublicServices(salonId),
+        loadPublicPackages(salonId),
+      ])
+    : [[], []];
+
   const payload: Record<string, unknown> = {
     salonId,
     name: readString(data.name) ?? '',
@@ -90,6 +225,9 @@ function buildPublicSalonPayload(
     clientRegistration: sanitizeClientRegistration(data.clientRegistration),
     latitude: readNumber(data.latitude),
     longitude: readNumber(data.longitude),
+    showPublicCatalog,
+    publicServices,
+    publicPackages,
     coverImageUrl:
       readString(
         (data.coverImageUrl as unknown) ?? (data.imageUrl as unknown),
@@ -107,6 +245,62 @@ function buildPublicSalonPayload(
   });
 
   return payload;
+}
+
+async function refreshPublicSalonCatalog(salonId: string): Promise<void> {
+  if (!salonId.trim()) {
+    return;
+  }
+
+  const salonRef = firestore().collection('salons').doc(salonId);
+  const salonSnapshot = await salonRef.get();
+  if (!salonSnapshot.exists) {
+    await firestore().collection(COLLECTION_PUBLIC_SALONS).doc(salonId).delete();
+    return;
+  }
+
+  const salonData = salonSnapshot.data() ?? {};
+  if (!readBoolean(salonData.isPublished, false)) {
+    await firestore().collection(COLLECTION_PUBLIC_SALONS).doc(salonId).delete();
+    return;
+  }
+
+  const showPublicCatalog = readBoolean(salonData.showPublicCatalog, true);
+  const [publicServices, publicPackages] = showPublicCatalog
+    ? await Promise.all([
+        loadPublicServices(salonId),
+        loadPublicPackages(salonId),
+      ])
+    : [[], []];
+
+  await firestore()
+    .collection(COLLECTION_PUBLIC_SALONS)
+    .doc(salonId)
+    .set(
+      {
+        showPublicCatalog,
+        publicServices,
+        publicPackages,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+}
+
+async function refreshCatalogForChangedSalonIds(
+  before: admin.firestore.DocumentData | null,
+  after: admin.firestore.DocumentData | null,
+): Promise<void> {
+  const salonIds = new Set<string>();
+  const beforeSalonId = readString(before?.salonId);
+  const afterSalonId = readString(after?.salonId);
+  if (beforeSalonId) {
+    salonIds.add(beforeSalonId);
+  }
+  if (afterSalonId) {
+    salonIds.add(afterSalonId);
+  }
+  await Promise.all(Array.from(salonIds).map(refreshPublicSalonCatalog));
 }
 
 export const syncPublicSalonDirectory = functionsEU.firestore
@@ -131,7 +325,7 @@ export const syncPublicSalonDirectory = functionsEU.firestore
       return;
     }
 
-    const payload = buildPublicSalonPayload(salonId, after);
+    const payload = await buildPublicSalonPayload(salonId, after);
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
     payload.updatedAt = timestamp;
 
@@ -142,4 +336,20 @@ export const syncPublicSalonDirectory = functionsEU.firestore
     }
 
     await publicRef.set(payload, { merge: true });
+  });
+
+export const syncPublicSalonCatalogOnServiceWrite = functionsEU.firestore
+  .document('services/{serviceId}')
+  .onWrite(async (change) => {
+    const before = change.before.exists ? change.before.data() ?? null : null;
+    const after = change.after.exists ? change.after.data() ?? null : null;
+    await refreshCatalogForChangedSalonIds(before, after);
+  });
+
+export const syncPublicSalonCatalogOnPackageWrite = functionsEU.firestore
+  .document('packages/{packageId}')
+  .onWrite(async (change) => {
+    const before = change.before.exists ? change.before.data() ?? null : null;
+    const after = change.after.exists ? change.after.data() ?? null : null;
+    await refreshCatalogForChangedSalonIds(before, after);
   });

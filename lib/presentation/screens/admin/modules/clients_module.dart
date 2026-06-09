@@ -568,14 +568,43 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     if (_processingRequests.contains(request.id)) {
       return;
     }
+    final preview = _buildApprovalPreview(
+      request,
+      ref.read(appDataProvider).clients,
+    );
+    final blockingMessage = preview.blockingMessage;
+    if (blockingMessage != null) {
+      await showDialog<void>(
+        context: context,
+        builder:
+            (dialogContext) => AlertDialog(
+              title: const Text('Contatti duplicati'),
+              content: Text(blockingMessage),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Ok'),
+                ),
+              ],
+            ),
+      );
+      return;
+    }
+    final confirmed = await _confirmApproval(context, preview);
+    if (confirmed != true) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
     setState(() => _processingRequests.add(request.id));
-    final messenger = ScaffoldMessenger.of(context);
+    final messenger = ScaffoldMessenger.of(this.context);
     try {
       await ref
           .read(appDataProvider.notifier)
           .approveSalonAccessRequest(request: request);
       messenger.showAppSnackBar(
-        const SnackBar(content: Text('Richiesta approvata.')),
+        SnackBar(content: Text(preview.successMessage)),
       );
     } catch (error) {
       messenger.showAppSnackBar(
@@ -586,6 +615,92 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
         setState(() => _processingRequests.remove(request.id));
       }
     }
+  }
+
+  Future<bool?> _confirmApproval(
+    BuildContext context,
+    _AccessRequestApprovalPreview preview,
+  ) {
+    return showDialog<bool>(
+      context: context,
+      builder:
+          (dialogContext) => AlertDialog(
+            title: const Text('Conferma approvazione'),
+            content: Text(preview.confirmationMessage),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Annulla'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Approva'),
+              ),
+            ],
+          ),
+    );
+  }
+
+  _AccessRequestApprovalPreview _buildApprovalPreview(
+    SalonAccessRequest request,
+    List<Client> clients,
+  ) {
+    final salonClients = clients
+        .where((client) => client.salonId == request.salonId)
+        .toList(growable: false);
+    final normalizedEmail = _normalizeEmail(request.email);
+    final normalizedPhone = _normalizePhone(request.phone);
+    final emailMatches =
+        normalizedEmail == null
+            ? const <Client>[]
+            : salonClients
+                .where(
+                  (client) => _normalizeEmail(client.email) == normalizedEmail,
+                )
+                .toList(growable: false);
+    final phoneMatches =
+        normalizedPhone.isEmpty
+            ? const <Client>[]
+            : salonClients
+                .where(
+                  (client) => _normalizePhone(client.phone) == normalizedPhone,
+                )
+                .toList(growable: false);
+
+    if (emailMatches.isNotEmpty && phoneMatches.isNotEmpty) {
+      final phoneIds = phoneMatches.map((client) => client.id).toSet();
+      final overlap = emailMatches
+          .where((client) => phoneIds.contains(client.id))
+          .toList(growable: false);
+      if (overlap.isEmpty) {
+        return _AccessRequestApprovalPreview.blocked(
+          'Email e telefono risultano associati a clienti diversi. '
+          'Correggi o unisci i clienti prima di approvare la richiesta.',
+        );
+      }
+      return _AccessRequestApprovalPreview.existing(overlap.first);
+    }
+
+    final matchesById = <String, Client>{
+      for (final client in emailMatches) client.id: client,
+      for (final client in phoneMatches) client.id: client,
+    };
+    if (matchesById.isNotEmpty) {
+      return _AccessRequestApprovalPreview.existing(matchesById.values.first);
+    }
+    return const _AccessRequestApprovalPreview.newClient();
+  }
+
+  static String? _normalizeEmail(Object? value) {
+    if (value == null) {
+      return null;
+    }
+    final normalized = value.toString().trim().toLowerCase();
+    return normalized.isEmpty ? null : normalized;
+  }
+
+  static String _normalizePhone(String value) {
+    return value.replaceAll(RegExp(r'[^0-9]'), '');
   }
 
   Future<void> _rejectRequest(
@@ -1933,6 +2048,39 @@ class _ClientTableEntry {
   final int visits;
   final DateTime? lastVisit;
   final double totalSpent;
+}
+
+class _AccessRequestApprovalPreview {
+  const _AccessRequestApprovalPreview.newClient()
+    : client = null,
+      blockingMessage = null;
+
+  const _AccessRequestApprovalPreview.existing(this.client)
+    : blockingMessage = null;
+
+  const _AccessRequestApprovalPreview.blocked(this.blockingMessage)
+    : client = null;
+
+  final Client? client;
+  final String? blockingMessage;
+
+  String get confirmationMessage {
+    final existing = client;
+    if (existing == null) {
+      return 'La richiesta verra approvata e verra creato un nuovo cliente nel salone. '
+          'Il cliente potra completare l\'attivazione dall\'app.';
+    }
+    return 'La richiesta verra approvata e collegata al cliente esistente '
+        '${existing.fullName}. I dati del cliente potranno essere aggiornati con i contatti inviati nella richiesta.';
+  }
+
+  String get successMessage {
+    final existing = client;
+    if (existing == null) {
+      return 'Richiesta approvata e nuovo cliente creato.';
+    }
+    return 'Richiesta approvata e collegata a ${existing.fullName}.';
+  }
 }
 
 class _ClientsSummaryCard extends StatelessWidget {

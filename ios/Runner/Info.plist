@@ -64,12 +64,16 @@
 		</array>
 		<key>NSCameraUsageDescription</key>
 		<string>Consentiamo allo staff di scattare foto per documentare i trattamenti effettuati.</string>
+		<key>NSCalendarsUsageDescription</key>
+		<string>Usiamo l'accesso al calendario solo se scegli di aggiungere o sincronizzare appuntamenti con il calendario del dispositivo.</string>
 		<key>NSPhotoLibraryUsageDescription</key>
 		<string>Necessitiamo dell'accesso alla libreria per permetterti di visualizzare e salvare le foto condivise dal salone.</string>
 		<key>NSPhotoLibraryAddUsageDescription</key>
 		<string>Richiediamo il permesso di aggiungere immagini per salvare gli scatti dei tuoi trattamenti.</string>
 		<key>NSLocationWhenInUseUsageDescription</key>
 		<string>Usiamo la tua posizione per mostrarti i saloni piu' vicini.</string>
+		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+		<string>Usiamo la tua posizione per mostrarti i saloni piu' vicini quando cerchi saloni nell'app.</string>
 		<key>UIStatusBarHidden</key>
 		<false/>
 		<key>ITSAppUsesNonExemptEncryption</key>

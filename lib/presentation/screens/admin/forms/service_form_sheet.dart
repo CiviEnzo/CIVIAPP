@@ -42,6 +42,7 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
   String? _salonId;
   String? _categoryId;
   bool _isActive = true;
+  bool _showOnPublicProfile = true;
 
   @override
   void initState() {
@@ -76,6 +77,7 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
       _category.text = matchedCategory.name;
     }
     _isActive = initial?.isActive ?? true;
+    _showOnPublicProfile = initial?.showOnPublicProfile ?? true;
     _retainValidEquipment();
     _category.addListener(_handleCategoryNameChanged);
   }
@@ -262,7 +264,26 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
               subtitle: const Text(
                 'Se disattivato non sarà visibile per nuove prenotazioni, ma resta disponibile negli appuntamenti esistenti.',
               ),
-              onChanged: (value) => setState(() => _isActive = value),
+              onChanged:
+                  (value) => setState(() {
+                    _isActive = value;
+                    if (!value) {
+                      _showOnPublicProfile = false;
+                    }
+                  }),
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile.adaptive(
+              value: _showOnPublicProfile,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Mostra nel profilo pubblico'),
+              subtitle: const Text(
+                'Se attivo, nome, categoria, durata, prezzo e descrizione saranno visibili anche senza accesso.',
+              ),
+              onChanged:
+                  _isActive
+                      ? (value) => setState(() => _showOnPublicProfile = value)
+                      : null,
             ),
             const SizedBox(height: 12),
             if (hasRoles)
@@ -379,6 +400,7 @@ class _ServiceFormSheetState extends State<ServiceFormSheet> {
       staffRoles: List<String>.unmodifiable(_roles),
       requiredEquipmentIds: List<String>.unmodifiable(_requiredEquipment),
       isActive: _isActive,
+      showOnPublicProfile: _showOnPublicProfile,
     );
 
     Navigator.of(context).pop(service);

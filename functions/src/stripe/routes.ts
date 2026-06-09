@@ -10,7 +10,6 @@ import { coerceLoyaltySettings } from '../loyalty/utils';
 import {
   stripeSecretKey,
   stripeWebhookSecret,
-  stripeApplicationFeeAmount,
   stripePlatformName,
   stripeAllowedOrigin,
 } from './config';
@@ -31,7 +30,6 @@ const PAYMENT_TICKETS_COLLECTION = 'payment_tickets';
 
 const getCorsOrigin = (): string => stripeAllowedOrigin.value() || '*';
 const getPlatformName = (): string => stripePlatformName.value() || 'CIVIAPP';
-const getApplicationFeeAmount = (): number => stripeApplicationFeeAmount.value();
 
 type StripeRequestUserContext = {
   uid: string;
@@ -2435,17 +2433,9 @@ export const createStripePaymentIntent = onRequest(
       if (body.type) {
         metadata.type = body.type;
       }
-      const applicationFeeAmount = getApplicationFeeAmount();
-
       const params: Stripe.PaymentIntentCreateParams = {
         amount: amount as number,
         currency,
-        customer: body.customerId || undefined,
-        on_behalf_of: stripeAccountId,
-        transfer_data: {
-          destination: stripeAccountId,
-        },
-        application_fee_amount: applicationFeeAmount > 0 ? applicationFeeAmount : undefined,
         metadata,
       };
 
@@ -2469,11 +2459,16 @@ export const createStripePaymentIntent = onRequest(
         currency,
       });
 
-      const intent = await stripe.paymentIntents.create(params, { idempotencyKey });
+      const intent = await stripe.paymentIntents.create(params, {
+        idempotencyKey,
+        stripeAccount: stripeAccountId,
+      });
 
       res.status(200).json({
         clientSecret: intent.client_secret,
         paymentIntentId: intent.id,
+        stripeAccountId,
+        chargeMode: 'direct',
       });
     } catch (error) {
       if (error instanceof Stripe.errors.StripeError) {
@@ -2621,6 +2616,7 @@ export const handleStripeWebhook = onRequest(
 
 type FinalizeQuotePayload = {
   paymentIntentId?: string;
+  stripeAccountId?: string;
 };
 
 export const finalizeQuotePaymentIntent = functions
@@ -2639,10 +2635,15 @@ export const finalizeQuotePaymentIntent = functions
           'paymentIntentId is required.',
         );
       }
+      const stripeAccountId = normalizeString(data.stripeAccountId);
 
       try {
         const stripe = getStripeClient();
-        const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+        const paymentIntent = await stripe.paymentIntents.retrieve(
+          paymentIntentId,
+          undefined,
+          stripeAccountId ? { stripeAccount: stripeAccountId } : undefined,
+        );
         if (!paymentIntent) {
           throw new functions.https.HttpsError(
             'not-found',

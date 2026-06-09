@@ -7,6 +7,7 @@ import 'package:you_book/presentation/screens/admin/admin_dashboard_screen.dart'
 import 'package:you_book/presentation/screens/auth/account_deletion_screen.dart';
 import 'package:you_book/presentation/screens/auth/center_registration_screen.dart';
 import 'package:you_book/presentation/screens/auth/client_registration_screen.dart';
+import 'package:you_book/presentation/screens/auth/first_password_change_screen.dart';
 import 'package:you_book/presentation/screens/auth/onboarding_screen.dart';
 import 'package:you_book/presentation/screens/auth/password_reset_screen.dart';
 import 'package:you_book/presentation/screens/auth/sign_in_screen.dart';
@@ -61,6 +62,11 @@ GoRouter createRouter(Ref ref) {
             ),
       ),
       GoRoute(
+        path: '/first-password-change',
+        name: 'first_password_change',
+        builder: (context, state) => const FirstPasswordChangeScreen(),
+      ),
+      GoRoute(
         path: '/eliminazione-account',
         name: 'account_deletion',
         builder: (context, state) => const AccountDeletionScreen(),
@@ -104,10 +110,14 @@ GoRouter createRouter(Ref ref) {
       final registering = state.matchedLocation == '/register';
       final registeringCenter = state.matchedLocation == '/register-center';
       final resettingPassword = state.matchedLocation == '/password-reset';
+      final changingPassword =
+          state.matchedLocation == '/first-password-change';
       final deletingAccount = state.matchedLocation == '/eliminazione-account';
+      final browsingClientSalons = state.matchedLocation == '/client';
       final onboarding = state.matchedLocation == '/onboarding';
       final requiresProfile = session.requiresProfile;
       final requiresEmailVerification = session.requiresEmailVerification;
+      final requiresPasswordChange = session.requiresPasswordChange;
       final selectedSalonId = session.salonId;
       final hasClientProfile = session.user?.clientId != null;
       final isAdminDisabled =
@@ -143,7 +153,8 @@ GoRouter createRouter(Ref ref) {
         if (loggingIn ||
             registering ||
             registeringCenter ||
-            resettingPassword) {
+            resettingPassword ||
+            browsingClientSalons) {
           return null;
         }
         return Uri(
@@ -164,11 +175,20 @@ GoRouter createRouter(Ref ref) {
         return verifyRedirect;
       }
 
+      if (requiresPasswordChange) {
+        return changingPassword ? null : '/first-password-change';
+      }
+
       if (requiresProfile) {
         return onboarding ? null : '/onboarding';
       }
 
       final destination = _pathForRole(session.role);
+
+      if (changingPassword) {
+        return destination;
+      }
+
       if (loggingIn) {
         final redirectPath = _safeInternalRedirect(
           state.uri.queryParameters[redirectQueryParam],

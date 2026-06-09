@@ -34,6 +34,7 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
   bool _hasUserEditedProfile = false;
   bool _isSavingProfile = false;
   bool _isSendingReset = false;
+  bool _isSigningOut = false;
   bool _isLeavingSalon = false;
   bool _preparingSalonSwitch = false;
   bool _reminderNotificationsEnabled = true;
@@ -651,6 +652,28 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
                               ),
                               const SizedBox(height: 16),
                               _SettingsActionTile(
+                                icon: Icons.logout_rounded,
+                                color: theme.colorScheme.primary,
+                                title: 'Scollegati',
+                                subtitle:
+                                    'Esci dal tuo account su questo dispositivo',
+                                trailing:
+                                    _isSigningOut
+                                        ? const SizedBox(
+                                          height: 20,
+                                          width: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                        : null,
+                                onTap:
+                                    _isSigningOut
+                                        ? null
+                                        : () => _signOut(themedContext),
+                              ),
+                              const SizedBox(height: 12),
+                              _SettingsActionTile(
                                 icon: Icons.delete_forever_rounded,
                                 color: theme.colorScheme.error,
                                 title: 'Eliminazione account',
@@ -756,6 +779,54 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
 
   void _openAccountDeletionFlow(BuildContext context) {
     GoRouter.of(context).go('/eliminazione-account');
+  }
+
+  Future<void> _signOut(BuildContext context) async {
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) {
+            return AlertDialog(
+              title: const Text('Confermi il logout?'),
+              content: const Text(
+                'Verrai riportato alla schermata di accesso e dovrai reinserire le tue credenziali.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Annulla'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  child: const Text('Esci'),
+                ),
+              ],
+            );
+          },
+        ) ??
+        false;
+    if (!confirmed) {
+      return;
+    }
+
+    setState(() {
+      _isSigningOut = true;
+    });
+
+    try {
+      await performSignOut(ref);
+    } on Exception catch (error) {
+      if (!mounted) {
+        return;
+      }
+      scaffoldMessenger.showAppSnackBar(
+        SnackBar(content: Text('Logout non riuscito: $error')),
+      );
+      setState(() {
+        _isSigningOut = false;
+      });
+    }
   }
 
   Future<void> _handleSalonSwitch(

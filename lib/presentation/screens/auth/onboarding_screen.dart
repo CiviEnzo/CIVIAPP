@@ -252,10 +252,18 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             : data.salonAccessRequests
                 .where((request) => request.userId == user.uid)
                 .toList(growable: false);
+    final approvedRequests = pendingRequests
+        .where(
+          (request) =>
+              request.status == SalonAccessRequestStatus.approved &&
+              (request.clientId?.trim().isNotEmpty ?? false),
+        )
+        .toList(growable: false);
+    final firstApprovedRequest = approvedRequests.firstOrNull;
     final pendingRequestsPending =
         pendingRequests.where((request) => request.isPending).toList();
     if (userPendingSalonId != null &&
-        pendingRequestsPending.every(
+        pendingRequests.every(
           (request) => request.salonId != userPendingSalonId,
         )) {
       final syntheticExtra = <String, dynamic>{};
@@ -301,12 +309,16 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       );
     }
     final hasPendingRequest = pendingRequestsPending.isNotEmpty;
+    final hasApprovedRequest = firstApprovedRequest != null;
     final firstPendingSalonId =
         pendingRequestsPending.isEmpty
             ? null
             : pendingRequestsPending.first.salonId;
     final selectedSalonId =
-        _selectedSalon ?? userPendingSalonId ?? firstPendingSalonId;
+        _selectedSalon ??
+        firstApprovedRequest?.salonId ??
+        userPendingSalonId ??
+        firstPendingSalonId;
     final selectedSalon =
         selectedSalonId == null
             ? null
@@ -334,6 +346,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     }
 
     final instructions = () {
+      if (hasApprovedRequest) {
+        return 'La tua richiesta è stata approvata. Apri la schermata saloni per completare l\'attivazione.';
+      }
       if (hasPendingRequest) {
         return 'La tua richiesta di accesso è stata inviata. Il salone ti abiliterà non appena la valuterà.';
       }
@@ -351,6 +366,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         !roleLocked &&
         !_isSaving &&
         !hasPendingRequest &&
+        !hasApprovedRequest &&
         _canAutoSubmit(role, user, salons);
 
     if (shouldAutoSubmit) {
@@ -393,7 +409,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(instructions, style: theme.textTheme.bodyMedium),
-                    if (hasPendingRequest) ...[
+                    if (hasApprovedRequest) ...[
+                      const SizedBox(height: 16),
+                      _buildApprovedRequestCard(
+                        theme,
+                        firstApprovedRequest,
+                        salons,
+                      ),
+                      const SizedBox(height: 24),
+                    ] else if (hasPendingRequest) ...[
                       const SizedBox(height: 16),
                       _buildPendingRequestCard(
                         theme,
@@ -439,7 +463,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                         )
                       else ...[
                         IgnorePointer(
-                          ignoring: hasPendingRequest,
+                          ignoring: hasPendingRequest || hasApprovedRequest,
                           child: DropdownMenu<String>(
                             controller: _salonSearchController,
                             initialSelection: selectedSalonId,
@@ -512,7 +536,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     const SizedBox(height: 32),
                     FilledButton(
                       onPressed:
-                          _isSaving || hasPendingRequest ? null : _submit,
+                          _isSaving
+                              ? null
+                              : hasApprovedRequest
+                              ? () => context.go('/client')
+                              : hasPendingRequest
+                              ? null
+                              : _submit,
                       child:
                           _isSaving
                               ? const SizedBox(
@@ -525,12 +555,16 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                               : Text(
                                 hasPendingRequest
                                     ? 'Richiesta in attesa di approvazione'
+                                    : hasApprovedRequest
+                                    ? 'Apri i saloni'
                                     : 'Invia richiesta di accesso',
                               ),
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      hasPendingRequest
+                      hasApprovedRequest
+                          ? 'Nella schermata saloni troverai il pulsante per entrare nel salone approvato.'
+                          : hasPendingRequest
                           ? 'Puoi chiudere l\'app: riceverai una conferma quando il salone completerà l\'attivazione.'
                           : 'I dati inseriti saranno inviati al salone selezionato per permettere l\'attivazione del tuo account.',
                       style: theme.textTheme.bodySmall,
@@ -570,6 +604,41 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       }
       setState(() => _staffRoleId = fallback.id);
     });
+  }
+
+  Widget _buildApprovedRequestCard(
+    ThemeData theme,
+    SalonAccessRequest request,
+    List<PublicSalon> salons,
+  ) {
+    final salonName =
+        salons.firstWhereOrNull((salon) => salon.id == request.salonId)?.name ??
+        request.salonId;
+
+    return Card(
+      color: theme.colorScheme.primaryContainer.withOpacity(0.45),
+      elevation: 0,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.verified_rounded, color: theme.colorScheme.primary),
+                const SizedBox(width: 8),
+                Text('Richiesta approvata', style: theme.textTheme.titleMedium),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Il salone $salonName ha approvato la richiesta. Puoi aprire la schermata saloni e completare l\'attivazione.',
+              style: theme.textTheme.bodyMedium,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildPendingRequestCard(

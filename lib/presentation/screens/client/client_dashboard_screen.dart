@@ -1882,9 +1882,13 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
 
       try {
         final functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
-        await functions.httpsCallable('finalizeQuotePaymentIntent').call(
-          <String, dynamic>{'paymentIntentId': checkoutResult.paymentIntentId},
-        );
+        await functions
+            .httpsCallable('finalizeQuotePaymentIntent')
+            .call(<String, dynamic>{
+              'paymentIntentId': checkoutResult.paymentIntentId,
+              if (checkoutResult.connectedAccountId != null)
+                'stripeAccountId': checkoutResult.connectedAccountId,
+            });
       } on FirebaseFunctionsException catch (error) {
         if (mounted && kDebugMode) {
           debugPrint(
@@ -1905,32 +1909,30 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
           ),
         ),
       );
-      if (checkoutResult != null) {
-        unawaited(
-          ref
-              .read(appDataProvider.notifier)
-              .logClientAppMovement(
-                type: ClientAppMovementType.purchase,
-                salonId: salon.id,
-                clientId: client.id,
-                channel: 'client_app:quote',
-                metadata: {
-                  'quoteId': quote.id,
-                  'quoteNumber': quote.number,
-                  'quoteTitle': quote.title,
-                  'totalAmount': quote.total,
-                  'paymentIntentId': checkoutResult.paymentIntentId,
-                },
-                label: 'Preventivo accettato',
-                description:
-                    'Il cliente ha pagato un preventivo dall\'app clienti.',
-              )
-              .catchError((error, stackTrace) {
-                debugPrint('Unable to log quote purchase: $error');
-                debugPrintStack(stackTrace: stackTrace);
-              }),
-        );
-      }
+      unawaited(
+        ref
+            .read(appDataProvider.notifier)
+            .logClientAppMovement(
+              type: ClientAppMovementType.purchase,
+              salonId: salon.id,
+              clientId: client.id,
+              channel: 'client_app:quote',
+              metadata: {
+                'quoteId': quote.id,
+                'quoteNumber': quote.number,
+                'quoteTitle': quote.title,
+                'totalAmount': quote.total,
+                'paymentIntentId': checkoutResult.paymentIntentId,
+              },
+              label: 'Preventivo accettato',
+              description:
+                  'Il cliente ha pagato un preventivo dall\'app clienti.',
+            )
+            .catchError((error, stackTrace) {
+              debugPrint('Unable to log quote purchase: $error');
+              debugPrintStack(stackTrace: stackTrace);
+            }),
+      );
     } on StripePaymentsException catch (error) {
       if (mounted) {
         messenger.showAppSnackBar(SnackBar(content: Text(error.message)));
@@ -3082,6 +3084,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       child: ClientBookingSheet(
         key: ValueKey(seed),
         client: client,
+        showPageHeader: false,
         onCompleted: (appointment) {
           if (!mounted) {
             return;

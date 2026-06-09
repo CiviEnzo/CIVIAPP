@@ -3,6 +3,7 @@ import 'package:you_book/domain/entities/user_role.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:you_book/presentation/screens/auth/legal_links.dart';
 import 'package:you_book/presentation/common/app_version_badge.dart';
 
 class SignInScreen extends ConsumerStatefulWidget {
@@ -94,12 +95,12 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              'Inserisci le tue credenziali. Il ruolo (Admin / Operatore / Cliente) viene assegnato dal tuo profilo Firebase.',
+                              'Usa l\'email collegata al tuo salone o al tuo profilo cliente. Dopo l\'accesso ti porteremo automaticamente nell\'area corretta.',
                               style: theme.textTheme.bodyMedium,
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              'Per i clienti: dopo l\'accesso potrai scegliere il salone di riferimento e inviare la richiesta di registrazione, che verrà approvata dall\'amministratore.',
+                              'Se sei un cliente puoi anche cercare un salone senza account e registrarti quando vuoi prenotare.',
                               style: theme.textTheme.bodySmall,
                             ),
                             const SizedBox(height: 24),
@@ -177,6 +178,17 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                               onPressed:
                                   _isLoading
                                       ? null
+                                      : () => context.go('/client'),
+                              icon: const Icon(Icons.search_rounded),
+                              label: const Text(
+                                'Scopri i saloni senza account',
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed:
+                                  _isLoading
+                                      ? null
                                       : () => context.go('/register'),
                               icon: const Icon(Icons.person_add_alt_1_rounded),
                               label: const Text('Registrati come cliente'),
@@ -192,9 +204,12 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                         ),
                         const SizedBox(height: 12),*/
                             Text(
-                              'Per accedere come Admin o Operatore assicurati che un amministratore abbia creato l\'utente in Firebase Authentication e configurato il documento in /users/<uid> con il relativo ruolo.',
+                              'Accesso riservato a clienti, operatori e amministratori abilitati. Se il tuo account non e\' ancora attivo, contatta il salone.',
                               style: theme.textTheme.bodySmall,
+                              textAlign: TextAlign.center,
                             ),
+                            const SizedBox(height: 12),
+                            const LegalLinksRow(),
                           ],
                         ),
                       ),
@@ -308,6 +323,9 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
 
   String _destinationForSession(SessionState session) {
     final redirectPath = _safeInternalRedirect(widget.redirectPath);
+    if (session.requiresPasswordChange) {
+      return '/first-password-change';
+    }
     if (redirectPath != null && !session.requiresProfile) {
       return redirectPath;
     }
@@ -371,11 +389,13 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
     if (message.contains('admin-not-enabled')) {
       return 'Account in attesa di abilitazione.';
     }
-    if (message.contains('email-not-verified')) {
-      return 'Email non verificata. Controlla la posta e conferma l\'indirizzo prima di accedere.';
+    if (message.contains('user-profile-not-found') ||
+        message.contains('user-profile-email-mismatch') ||
+        message.contains('user-profile-check-failed')) {
+      return 'Account non autorizzato. Contatta l\'amministratore.';
     }
     if (message.contains('email-not-verified')) {
-      return 'Email non verificata. Ti abbiamo inviato un nuovo link di conferma.';
+      return 'Email non verificata. Controlla la posta e conferma l\'indirizzo prima di accedere.';
     }
     return 'Accesso non riuscito: $message';
   }

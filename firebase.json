@@ -57,6 +57,38 @@
         "destination": "/richiesta-eliminazione-account/index.html"
       },
       {
+        "source": "/assistenza",
+        "destination": "/assistenza/index.html"
+      },
+      {
+        "source": "/marketing",
+        "destination": "/marketing/index.html"
+      },
+      {
+        "source": "/privacy",
+        "destination": "/privacy/index.html"
+      },
+      {
+        "source": "/informativa-privacy",
+        "destination": "/privacy/index.html"
+      },
+      {
+        "source": "/termini",
+        "destination": "/termini/index.html"
+      },
+      {
+        "source": "/termini-utilizzo",
+        "destination": "/termini/index.html"
+      },
+      {
+        "source": "/terms",
+        "destination": "/termini/index.html"
+      },
+      {
+        "source": "/terms-of-use",
+        "destination": "/termini/index.html"
+      },
+      {
         "source": "/login-whatsapp",
         "destination": "/login-whatsapp/index.html"
       },

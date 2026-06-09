@@ -12,6 +12,7 @@ class ServicePackage {
     this.validDays,
     this.serviceSessionCounts = const {},
     this.showOnClientDashboard = true,
+    this.showOnPublicProfile = true,
     this.isGeneratedFromServiceBuilder = false,
   });
 
@@ -27,6 +28,7 @@ class ServicePackage {
   final int? validDays;
   final Map<String, int> serviceSessionCounts;
   final bool showOnClientDashboard;
+  final bool showOnPublicProfile;
   final bool isGeneratedFromServiceBuilder;
 
   int? get totalConfiguredSessions {
@@ -52,6 +54,7 @@ class ServicePackage {
     int? validDays,
     Map<String, int>? serviceSessionCounts,
     bool? showOnClientDashboard,
+    bool? showOnPublicProfile,
     bool? isGeneratedFromServiceBuilder,
   }) {
     return ServicePackage(
@@ -73,6 +76,7 @@ class ServicePackage {
           Map<String, int>.from(this.serviceSessionCounts),
       showOnClientDashboard:
           showOnClientDashboard ?? this.showOnClientDashboard,
+      showOnPublicProfile: showOnPublicProfile ?? this.showOnPublicProfile,
       isGeneratedFromServiceBuilder:
           isGeneratedFromServiceBuilder ?? this.isGeneratedFromServiceBuilder,
     );

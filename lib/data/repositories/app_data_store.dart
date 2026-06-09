@@ -134,9 +134,13 @@ class AppDataStore extends StateNotifier<AppDataState> {
              ),
        ) {
     final firestore = _firestore;
-    if (firestore != null && currentUser != null) {
-      _subscriptions = _initializeSubscriptions(currentUser);
-      _ensurePublicMirrorsIfNeeded(currentUser);
+    if (firestore != null) {
+      if (currentUser != null) {
+        _subscriptions = _initializeSubscriptions(currentUser);
+        _ensurePublicMirrorsIfNeeded(currentUser);
+      } else {
+        _subscriptions = _initializeAnonymousSubscriptions();
+      }
     }
 
     if (_firestore == null) {
@@ -710,13 +714,21 @@ class AppDataStore extends StateNotifier<AppDataState> {
           _listenCollection<SalonAccessRequest>(
             firestore
                 .collection(_salonAccessRequestsCollection)
-                .where('userId', isEqualTo: userId)
-                .orderBy('createdAt', descending: true),
+                .where('userId', isEqualTo: userId),
             salonAccessRequestFromDoc,
-            (items) =>
-                state = state.copyWith(
-                  salonAccessRequests: List.unmodifiable(items),
-                ),
+            (items) {
+              final sorted =
+                  items.toList()..sort((a, b) {
+                    final left =
+                        a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+                    final right =
+                        b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+                    return right.compareTo(left);
+                  });
+              state = state.copyWith(
+                salonAccessRequests: List.unmodifiable(sorted),
+              );
+            },
           ),
         );
       } else {
@@ -1001,6 +1013,20 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
 
     return subscriptions;
+  }
+
+  List<StreamSubscription> _initializeAnonymousSubscriptions() {
+    final firestore = _firestore;
+    if (firestore == null) {
+      return <StreamSubscription>[];
+    }
+    return <StreamSubscription>[
+      _listenCollection<PublicSalon>(
+        firestore.collection('public_salons'),
+        publicSalonFromDoc,
+        (items) => state = state.copyWith(discoverableSalons: items),
+      ),
+    ];
   }
 
   List<StreamSubscription> _listenReminderSettingsBySalonIds({
@@ -1628,6 +1654,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
   }
 
   void _refreshFeatureFilteredCollections() {
+    if (!mounted) {
+      return;
+    }
     final sortedPromotions =
         _cachedPromotions.toList()..sort((a, b) {
           final priorityCompare = b.priority.compareTo(a.priority);
@@ -1844,6 +1873,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
   }
 
   Future<void> upsertSalon(Salon salon) async {
+    if (!mounted) {
+      return;
+    }
     final firestore = _firestore;
     if (firestore == null) {
       _upsertLocal(salons: [salon]);
@@ -1860,6 +1892,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
           SetOptions(merge: true),
         );
     await _ensureCurrentUserLinkedToSalon(salon.id);
+    if (!mounted) {
+      return;
+    }
     _upsertLocal(salons: <Salon>[salon]);
     _syncPublicSalonLocally(salon);
     _refreshFeatureFilteredCollections();
@@ -1896,6 +1931,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
           (current) => current.copyWith(
             status: source.status,
             isPublished: source.isPublished,
+            showPublicCatalog: source.showPublicCatalog,
             schedule: source.schedule,
             closures: source.closures,
           ),
@@ -2600,7 +2636,10 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
   }
 
-  Future<String?> _ensureClientUser(Client client) async {
+  Future<String?> _ensureClientUser(
+    Client client, {
+    String? targetUserId,
+  }) async {
     final rawEmail = client.email?.trim();
     if (rawEmail == null || rawEmail.isEmpty) {
       return null;
@@ -2615,13 +2654,18 @@ class AppDataStore extends StateNotifier<AppDataState> {
     try {
       final functions = FirebaseFunctions.instanceFor(region: 'europe-west3');
       final callable = functions.httpsCallable('createClientAccount');
+      final payload = <String, dynamic>{
+        'email': email,
+        'salonId': client.salonId,
+        'clientId': client.id,
+        'displayName': client.fullName.trim(),
+      };
+      final sanitizedTargetUserId = targetUserId?.trim();
+      if (sanitizedTargetUserId != null && sanitizedTargetUserId.isNotEmpty) {
+        payload['userId'] = sanitizedTargetUserId;
+      }
       final result = await callable
-          .call(<String, dynamic>{
-            'email': email,
-            'salonId': client.salonId,
-            'clientId': client.id,
-            'displayName': client.fullName.trim(),
-          })
+          .call(payload)
           .timeout(_kClientCallableTimeout);
 
       final data = result.data;
@@ -2697,7 +2741,10 @@ class AppDataStore extends StateNotifier<AppDataState> {
     return null;
   }
 
-  Future<ClientUpsertResult> upsertClient(Client client) async {
+  Future<ClientUpsertResult> upsertClient(
+    Client client, {
+    String? targetUserId,
+  }) async {
     final prepared = await _ensureClientNumber(client);
     final now = DateTime.now();
     final sanitizedAddress = () {
@@ -2731,7 +2778,10 @@ class AppDataStore extends StateNotifier<AppDataState> {
         .collection('clients')
         .doc(enriched.id)
         .set(clientToMap(enriched));
-    final warningMessage = await _ensureClientUser(enriched);
+    final warningMessage = await _ensureClientUser(
+      enriched,
+      targetUserId: targetUserId,
+    );
     return ClientUpsertResult(client: enriched, warningMessage: warningMessage);
   }
 
@@ -2997,6 +3047,19 @@ class AppDataStore extends StateNotifier<AppDataState> {
   String _normalizePhoneDisplay(String value) {
     final trimmed = value.trim();
     return trimmed.replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  String? _normalizeEmailForComparison(Object? value) {
+    if (value == null) {
+      return null;
+    }
+    final normalized = value.toString().trim().toLowerCase();
+    return normalized.isEmpty ? null : normalized;
+  }
+
+  String? _normalizedEmailForStorage(String value) {
+    final normalized = value.trim().toLowerCase();
+    return normalized.isEmpty ? null : normalized;
   }
 
   String? _resolveImportNotes(String? raw) {
@@ -3519,16 +3582,23 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
 
     final collection = firestore.collection(_salonAccessRequestsCollection);
-    final pendingSnapshot =
-        await collection
-            .where('salonId', isEqualTo: salonId)
-            .where('userId', isEqualTo: userId)
-            .where('status', isEqualTo: 'pending')
-            .limit(1)
-            .get();
+    final userRequestsSnapshot =
+        await collection.where('userId', isEqualTo: userId).get();
+    final sameSalonRequests = userRequestsSnapshot.docs
+        .where((doc) => doc.data()['salonId'] == salonId)
+        .toList(growable: false);
+    final approvedRequest = sameSalonRequests.firstWhereOrNull(
+      (doc) => doc.data()['status'] == 'approved',
+    );
+    if (approvedRequest != null) {
+      return;
+    }
+    final pendingRequest = sameSalonRequests.firstWhereOrNull(
+      (doc) => doc.data()['status'] == 'pending',
+    );
     final timestamp = FieldValue.serverTimestamp();
-    if (pendingSnapshot.docs.isNotEmpty) {
-      final docRef = pendingSnapshot.docs.first.reference;
+    if (pendingRequest != null) {
+      final docRef = pendingRequest.reference;
       final updateData = <String, dynamic>{
         'firstName': firstName,
         'lastName': lastName,
@@ -3588,60 +3658,104 @@ class AppDataStore extends StateNotifier<AppDataState> {
     required SalonAccessRequest request,
   }) async {
     final firestore = _firestore;
+    final now = DateTime.now();
+    var effectiveRequest = request;
+    DocumentReference<Map<String, dynamic>>? requestRef;
+
     if (firestore == null) {
-      final updatedRequests = state.salonAccessRequests
-          .map((item) {
-            if (item.id != request.id) {
-              return item;
-            }
-            return item.copyWith(
-              status: SalonAccessRequestStatus.approved,
-              clientId: request.clientId,
-              updatedAt: DateTime.now(),
-            );
-          })
-          .toList(growable: false);
-      state = state.copyWith(
-        salonAccessRequests: List.unmodifiable(updatedRequests),
+      final client = _buildClientForApprovedAccessRequest(
+        request: effectiveRequest,
+        now: now,
+      );
+      final result = await upsertClient(client, targetUserId: request.userId);
+      final approvedClient = result.client;
+      _markSalonAccessRequestApprovedLocally(
+        request.id,
+        clientId: approvedClient.id,
+        updatedAt: now,
       );
       return;
     }
 
+    requestRef = firestore
+        .collection(_salonAccessRequestsCollection)
+        .doc(request.id);
+    final requestSnapshot = await requestRef.get();
+    final requestData = requestSnapshot.data();
+    if (requestData == null) {
+      throw StateError('Richiesta di accesso non trovata.');
+    }
+
+    final remoteStatus = requestData['status'] as String?;
+    final remoteClientId = _stringOrNull(requestData['clientId']);
+    if (remoteStatus == 'approved') {
+      _markSalonAccessRequestApprovedLocally(
+        request.id,
+        clientId: remoteClientId ?? request.clientId,
+        updatedAt: now,
+      );
+      return;
+    }
+    if (remoteStatus != 'pending') {
+      throw StateError('La richiesta non è più in attesa di approvazione.');
+    }
+    if (remoteClientId != null) {
+      effectiveRequest = request.copyWith(clientId: remoteClientId);
+    }
+
+    final client = _buildClientForApprovedAccessRequest(
+      request: effectiveRequest,
+      now: now,
+    );
+    final result = await upsertClient(client, targetUserId: request.userId);
+    final approvedClient = result.client;
+
+    await requestRef.update(<String, dynamic>{
+      'status': 'approved',
+      'clientId': approvedClient.id,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    _upsertLocal(clients: <Client>[approvedClient]);
+    _markSalonAccessRequestApprovedLocally(
+      request.id,
+      clientId: approvedClient.id,
+      updatedAt: now,
+    );
+  }
+
+  Client _buildClientForApprovedAccessRequest({
+    required SalonAccessRequest request,
+    required DateTime now,
+  }) {
+    final existing = _findExistingClientForAccessRequest(request);
+    if (existing != null) {
+      return _mergeClientWithAccessRequest(existing, request, now: now);
+    }
+
     final salons = state.salons;
     final salon = salons.firstWhereOrNull((item) => item.id == request.salonId);
-    final now = DateTime.now();
-    final clientId = request.clientId ?? const Uuid().v4();
-    final assignedNumber = await _reserveClientNumber(request.salonId);
     final loyaltyInitial =
         (salon?.loyaltySettings.enabled ?? false)
             ? salon!.loyaltySettings.initialBalance
             : 0;
-    final address = _stringOrNull(request.extraData['address']);
-    final profession = _stringOrNull(request.extraData['profession']);
-    final referral = _stringOrNull(request.extraData['referralSource']);
-    final notes = _stringOrNull(request.extraData['notes']);
-    final rawCity = _stringOrNull(request.extraData['city']);
-    final gender = _stringOrNull(request.extraData['gender']);
-    final inferredCity =
-        rawCity != null && rawCity.isNotEmpty
-            ? rawCity
-            : (address?.isNotEmpty == true ? address : null);
+    final fields = _AccessRequestClientFields.from(request);
+    final requestedClientId = _stringOrNull(request.clientId);
 
-    final client = Client(
-      id: clientId,
+    return Client(
+      id: requestedClientId ?? const Uuid().v4(),
       salonId: request.salonId,
-      firstName: request.firstName,
-      lastName: request.lastName,
-      phone: request.phone,
-      gender: gender,
-      email: request.email,
-      clientNumber: assignedNumber,
+      firstName: request.firstName.trim(),
+      lastName: request.lastName.trim(),
+      phone: _normalizePhoneDisplay(request.phone),
+      gender: fields.gender,
+      email: _normalizedEmailForStorage(request.email),
       dateOfBirth: request.dateOfBirth,
-      address: address?.isEmpty == true ? null : address,
-      city: inferredCity?.isEmpty == true ? null : inferredCity,
-      profession: profession?.isEmpty == true ? null : profession,
-      referralSource: referral?.isEmpty == true ? null : referral,
-      notes: notes?.isEmpty == true ? null : notes,
+      address: fields.address,
+      city: fields.city,
+      profession: fields.profession,
+      referralSource: fields.referralSource,
+      notes: fields.notes,
       loyaltyInitialPoints: loyaltyInitial,
       loyaltyPoints: loyaltyInitial,
       loyaltyUpdatedAt: loyaltyInitial > 0 ? now : null,
@@ -3650,28 +3764,148 @@ class AppDataStore extends StateNotifier<AppDataState> {
       firstLoginAt: now,
       createdAt: now,
     );
+  }
 
-    await upsertClient(client);
+  Client? _findExistingClientForAccessRequest(SalonAccessRequest request) {
+    final requestedClientId = _stringOrNull(request.clientId);
+    final salonClients = state.clients
+        .where((client) => client.salonId == request.salonId)
+        .toList(growable: false);
 
-    await firestore
-        .collection(_salonAccessRequestsCollection)
-        .doc(request.id)
-        .update(<String, dynamic>{
-          'status': 'approved',
-          'clientId': clientId,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
+    if (requestedClientId != null) {
+      final requestedClient = salonClients.firstWhereOrNull(
+        (client) => client.id == requestedClientId,
+      );
+      if (requestedClient != null) {
+        return requestedClient;
+      }
+    }
 
-    await firestore.collection('users').doc(request.userId).set(
-      <String, dynamic>{
-        'role': UserRole.client.name,
-        'salonIds': FieldValue.arrayUnion(<String>[request.salonId]),
-        'salonId': request.salonId,
-        'clientId': clientId,
-        'roles': FieldValue.arrayUnion(<String>[UserRole.client.name]),
-        'displayName': '${request.firstName} ${request.lastName}',
-      },
-      SetOptions(merge: true),
+    final normalizedEmail = _normalizeEmailForComparison(request.email);
+    final normalizedPhone = _normalizePhoneForComparison(request.phone);
+
+    final emailMatches =
+        normalizedEmail == null
+            ? const <Client>[]
+            : salonClients
+                .where(
+                  (client) =>
+                      _normalizeEmailForComparison(client.email) ==
+                      normalizedEmail,
+                )
+                .toList(growable: false);
+    final phoneMatches =
+        normalizedPhone.isEmpty
+            ? const <Client>[]
+            : salonClients
+                .where(
+                  (client) =>
+                      _normalizePhoneForComparison(client.phone) ==
+                      normalizedPhone,
+                )
+                .toList(growable: false);
+
+    if (emailMatches.isNotEmpty && phoneMatches.isNotEmpty) {
+      final phoneIds = phoneMatches.map((client) => client.id).toSet();
+      final overlap = emailMatches
+          .where((client) => phoneIds.contains(client.id))
+          .toList(growable: false);
+      if (overlap.isEmpty) {
+        throw StateError(
+          'Email e telefono risultano associati a clienti diversi. '
+          'Unisci o correggi i contatti prima di approvare la richiesta.',
+        );
+      }
+      return _preferredClientMatch(overlap);
+    }
+
+    final matchesById = <String, Client>{
+      for (final client in emailMatches) client.id: client,
+      for (final client in phoneMatches) client.id: client,
+    };
+    if (matchesById.isEmpty) {
+      return null;
+    }
+    return _preferredClientMatch(matchesById.values);
+  }
+
+  Client _preferredClientMatch(Iterable<Client> matches) {
+    final sorted = matches.toList(growable: false);
+    sorted.sort((a, b) {
+      final createdCompare = _nullableDateSortValue(
+        a.createdAt,
+      ).compareTo(_nullableDateSortValue(b.createdAt));
+      if (createdCompare != 0) {
+        return createdCompare;
+      }
+      final numberCompare = _nullableClientNumberSortValue(
+        a.clientNumber,
+      ).compareTo(_nullableClientNumberSortValue(b.clientNumber));
+      if (numberCompare != 0) {
+        return numberCompare;
+      }
+      return a.id.compareTo(b.id);
+    });
+    return sorted.first;
+  }
+
+  int _nullableDateSortValue(DateTime? value) {
+    return value?.millisecondsSinceEpoch ?? 0x7fffffffffffffff;
+  }
+
+  int _nullableClientNumberSortValue(String? value) {
+    final parsed = int.tryParse(value ?? '');
+    return parsed ?? 0x7fffffff;
+  }
+
+  Client _mergeClientWithAccessRequest(
+    Client existing,
+    SalonAccessRequest request, {
+    required DateTime now,
+  }) {
+    final fields = _AccessRequestClientFields.from(request);
+    final firstName = request.firstName.trim();
+    final lastName = request.lastName.trim();
+    final phone = _normalizePhoneDisplay(request.phone);
+    final email = _normalizedEmailForStorage(request.email);
+
+    return existing.copyWith(
+      firstName: firstName.isNotEmpty ? firstName : existing.firstName,
+      lastName: lastName.isNotEmpty ? lastName : existing.lastName,
+      phone: phone.isNotEmpty ? phone : existing.phone,
+      email: email ?? existing.email,
+      gender: fields.gender ?? existing.gender,
+      dateOfBirth: request.dateOfBirth ?? existing.dateOfBirth,
+      address: fields.address ?? existing.address,
+      city: fields.city ?? existing.city ?? fields.address,
+      profession: fields.profession ?? existing.profession,
+      referralSource: fields.referralSource ?? existing.referralSource,
+      notes: fields.notes ?? existing.notes,
+      onboardingStatus: ClientOnboardingStatus.onboardingCompleted,
+      firstLoginAt: existing.firstLoginAt ?? now,
+      onboardingCompletedAt: existing.onboardingCompletedAt ?? now,
+    );
+  }
+
+  void _markSalonAccessRequestApprovedLocally(
+    String requestId, {
+    required String? clientId,
+    required DateTime updatedAt,
+  }) {
+    final updatedRequests = state.salonAccessRequests
+        .map((item) {
+          if (item.id != requestId) {
+            return item;
+          }
+          return item.copyWith(
+            status: SalonAccessRequestStatus.approved,
+            clientId: clientId,
+            updatedAt: updatedAt,
+          );
+        })
+        .toList(growable: false);
+    state = state.copyWith(
+      salonAccessRequests: List.unmodifiable(updatedRequests),
     );
   }
 
@@ -3864,9 +4098,14 @@ class AppDataStore extends StateNotifier<AppDataState> {
       }
       final packages = await packagesQuery.get();
       for (final doc in packages.docs) {
-        final current = List<String>.from(
-          doc.data()['serviceIds'] as List<dynamic>,
-        );
+        final serviceIdsRaw = doc.data()['serviceIds'];
+        final current =
+            serviceIdsRaw is Iterable
+                ? serviceIdsRaw
+                    .map((id) => id.toString().trim())
+                    .where((id) => id.isNotEmpty)
+                    .toList(growable: false)
+                : <String>[];
         current.removeWhere((id) => id == serviceId);
         await doc.reference.update({'serviceIds': current});
       }
@@ -4495,7 +4734,6 @@ class AppDataStore extends StateNotifier<AppDataState> {
       );
     }
 
-    final publicView = _publicViewOfAppointment(resolvedAppointment);
     final now = DateTime.now();
     if (resolvedAppointment.end.isAfter(now)) {
       final blockingAppointments =
@@ -4537,13 +4775,20 @@ class AppDataStore extends StateNotifier<AppDataState> {
             resolvedAppointment.packageId != null) &&
         resolvedAppointment.status == AppointmentStatus.completed &&
         (previous == null || previous.status != AppointmentStatus.completed);
+    var billableAppointment = resolvedAppointment;
     if (shouldConsumeSession) {
-      await _consumePackageSession(resolvedAppointment);
+      final consumptionResult = await _consumePackageSession(
+        resolvedAppointment,
+      );
+      billableAppointment = _appointmentWithActualPackageConsumptions(
+        resolvedAppointment,
+        consumptionResult,
+      );
     }
 
-    final uncoveredTotals = _calculateUncoveredTotals(resolvedAppointment);
+    final uncoveredTotals = _calculateUncoveredTotals(billableAppointment);
     final shouldCreateTicket = _shouldCreatePaymentTicket(
-      appointment: resolvedAppointment,
+      appointment: billableAppointment,
       previous: previous,
       uncoveredAmount: uncoveredTotals.amountDue,
     );
@@ -4553,16 +4798,17 @@ class AppDataStore extends StateNotifier<AppDataState> {
     final ticket =
         shouldCreateTicket
             ? _buildPaymentTicket(
-              resolvedAppointment,
+              billableAppointment,
               uncoveredTotals.amountDue,
               uncoveredTotals.uncoveredByService,
             )
             : null;
+    final publicView = _publicViewOfAppointment(billableAppointment);
 
     final firestore = _firestore;
     if (firestore == null) {
       _upsertLocal(
-        appointments: <Appointment>[resolvedAppointment],
+        appointments: <Appointment>[billableAppointment],
         publicAppointments: <Appointment>[publicView],
         paymentTickets: ticket != null ? [ticket] : null,
       );
@@ -4571,18 +4817,18 @@ class AppDataStore extends StateNotifier<AppDataState> {
       }
       await _markLastMinuteSlotBooking(
         slotId: consumeLastMinuteSlotId,
-        appointment: resolvedAppointment,
+        appointment: billableAppointment,
       );
       logMovementIfNeeded();
       return;
     }
     await firestore
         .collection('appointments')
-        .doc(resolvedAppointment.id)
-        .set(appointmentToMap(resolvedAppointment));
+        .doc(billableAppointment.id)
+        .set(appointmentToMap(billableAppointment));
     await firestore
         .collection('public_appointments')
-        .doc(resolvedAppointment.id)
+        .doc(billableAppointment.id)
         .set(publicAppointmentToMap(publicView));
     if (ticket != null) {
       await upsertPaymentTicket(ticket);
@@ -4592,7 +4838,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
     await _markLastMinuteSlotBooking(
       slotId: consumeLastMinuteSlotId,
-      appointment: resolvedAppointment,
+      appointment: billableAppointment,
     );
     logMovementIfNeeded();
   }
@@ -4850,7 +5096,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
     return allocations;
   }
 
-  Future<void> _consumePackageSession(Appointment appointment) async {
+  Future<_PackageConsumptionResult> _consumePackageSession(
+    Appointment appointment,
+  ) async {
     final plans = <_PlannedPackageConsumption>[];
     if (appointment.hasPackageConsumptions) {
       for (final allocation in appointment.serviceAllocations) {
@@ -4887,13 +5135,84 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
 
     if (plans.isEmpty) {
-      return;
+      return _PackageConsumptionResult.empty();
     }
 
-    await _applyPackageConsumptionPlans(appointment: appointment, plans: plans);
+    return _applyPackageConsumptionPlans(
+      appointment: appointment,
+      plans: plans,
+    );
   }
 
-  Future<void> _applyPackageConsumptionPlans({
+  Appointment _appointmentWithActualPackageConsumptions(
+    Appointment appointment,
+    _PackageConsumptionResult result,
+  ) {
+    final sourceAllocations =
+        appointment.serviceAllocations.isNotEmpty
+            ? appointment.serviceAllocations
+            : _legacyAllocationsForAppointment(appointment);
+    if (sourceAllocations.isEmpty) {
+      return appointment;
+    }
+
+    var hasActualConsumptions = false;
+    final adjustedAllocations = <AppointmentServiceAllocation>[];
+    for (final allocation in sourceAllocations) {
+      final orderedPackageIds = <String>[];
+      void addPackageId(String packageId) {
+        if (packageId.isEmpty || orderedPackageIds.contains(packageId)) {
+          return;
+        }
+        orderedPackageIds.add(packageId);
+      }
+
+      for (final consumption in allocation.packageConsumptions) {
+        addPackageId(consumption.packageReferenceId);
+      }
+      for (final packageId in result.packageIdsForService(
+        allocation.serviceId,
+      )) {
+        addPackageId(packageId);
+      }
+
+      final actualConsumptions = <AppointmentPackageConsumption>[];
+      for (final packageId in orderedPackageIds) {
+        final quantity = result.consumedQuantity(
+          serviceId: allocation.serviceId,
+          packageId: packageId,
+        );
+        if (quantity <= 0) {
+          continue;
+        }
+        final originalConsumption = allocation.packageConsumptions
+            .firstWhereOrNull(
+              (consumption) => consumption.packageReferenceId == packageId,
+            );
+        actualConsumptions.add(
+          AppointmentPackageConsumption(
+            packageReferenceId: packageId,
+            sessionTypeId: originalConsumption?.sessionTypeId,
+            quantity: quantity,
+          ),
+        );
+      }
+
+      if (actualConsumptions.isNotEmpty) {
+        hasActualConsumptions = true;
+      }
+      adjustedAllocations.add(
+        allocation.copyWith(packageConsumptions: actualConsumptions),
+      );
+    }
+
+    return appointment.copyWith(
+      serviceAllocations: adjustedAllocations,
+      packageId: hasActualConsumptions ? appointment.packageId : null,
+    );
+  }
+
+  Future<_PackageConsumptionResult> _applyPackageConsumptionPlans({
     required Appointment appointment,
     required List<_PlannedPackageConsumption> plans,
   }) async {
@@ -4904,12 +5223,13 @@ class AppDataStore extends StateNotifier<AppDataState> {
     );
 
     if (relevantSales.isEmpty) {
-      return;
+      return _PackageConsumptionResult.empty();
     }
 
     final packageIndex = {for (final pkg in state.packages) pkg.id: pkg};
     final salesById = {for (final sale in relevantSales) sale.id: sale};
     final updatedSales = <String, Sale>{};
+    final consumedByServiceAndPackage = <String, Map<String, int>>{};
 
     for (final plan in plans) {
       var remaining = plan.quantity;
@@ -4940,6 +5260,13 @@ class AppDataStore extends StateNotifier<AppDataState> {
           break;
         }
         final sessionsToConsume = remaining < available ? remaining : available;
+        consumedByServiceAndPackage
+            .putIfAbsent(plan.serviceId, () => <String, int>{})
+            .update(
+              plan.packageId,
+              (value) => value + sessionsToConsume,
+              ifAbsent: () => sessionsToConsume,
+            );
         int nextOverallRemaining;
         Map<String, int>? nextRemainingByService;
         if (hasServiceBreakdown) {
@@ -4948,7 +5275,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
               nextServiceRemaining < 0 ? 0 : nextServiceRemaining;
           nextOverallRemaining = remainingByService.values.fold<int>(
             0,
-            (sum, value) => sum + value,
+            (total, value) => total + value,
           );
           nextRemainingByService = remainingByService;
         } else {
@@ -4986,12 +5313,14 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
 
     if (updatedSales.isEmpty) {
-      return;
+      return _PackageConsumptionResult.empty();
     }
 
     for (final sale in updatedSales.values) {
       await upsertSale(sale);
     }
+
+    return _PackageConsumptionResult(consumedByServiceAndPackage);
   }
 
   _PackageConsumptionCandidate? _findPackageConsumptionCandidate({
@@ -5006,14 +5335,17 @@ class AppDataStore extends StateNotifier<AppDataState> {
       final sale = overrides[entry.key] ?? entry.value;
       for (var index = 0; index < sale.items.length; index++) {
         final item = sale.items[index];
-        if (item.referenceType != SaleReferenceType.package) {
+        final isPackageItem = item.referenceType == SaleReferenceType.package;
+        final isServiceCredit = item.isServiceSessionCredit;
+        if (!isPackageItem && !isServiceCredit) {
           continue;
         }
         if (item.referenceId != packageId) {
           continue;
         }
 
-        final matchedPackage = packageIndex[item.referenceId];
+        final matchedPackage =
+            isPackageItem ? packageIndex[item.referenceId] : null;
         if (!_packageSupportsService(item, matchedPackage, serviceId)) {
           continue;
         }
@@ -5085,11 +5417,21 @@ class AppDataStore extends StateNotifier<AppDataState> {
       return item.totalSessions;
     }
 
+    if (item.isServiceSessionCredit) {
+      if (item.remainingPackageServiceSessions.isNotEmpty) {
+        return item.remainingPackageServiceSessions.values.fold<int>(
+          0,
+          (total, value) => total + value,
+        );
+      }
+      return item.remainingSessions;
+    }
+
     int? sessionsPerPackage;
     if (item.packageServiceSessions.isNotEmpty) {
       sessionsPerPackage = item.packageServiceSessions.values.fold<int>(
         0,
-        (sum, value) => sum + value,
+        (total, value) => total + value,
       );
     }
 
@@ -5108,6 +5450,11 @@ class AppDataStore extends StateNotifier<AppDataState> {
     ServicePackage? servicePackage,
     String serviceId,
   ) {
+    if (item.isServiceSessionCredit) {
+      return item.referenceId == serviceId ||
+          item.remainingPackageServiceSessions.containsKey(serviceId);
+    }
+
     if (item.packageServiceSessions.isNotEmpty) {
       return item.packageServiceSessions.containsKey(serviceId);
     }
@@ -6143,6 +6490,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
     List<AdminSetupProgress>? setupProgress,
     List<AppointmentDayChecklist>? appointmentDayChecklists,
   }) {
+    if (!mounted) {
+      return;
+    }
     state = state.copyWith(
       salons:
           salons != null
@@ -6324,6 +6674,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
   }
 
   void _syncPublicSalonLocally(Salon salon) {
+    if (!mounted) {
+      return;
+    }
     if (!salon.isPublished) {
       _removeDiscoverableSalon(salon.id);
       return;
@@ -6333,6 +6686,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
   }
 
   void _removeDiscoverableSalon(String salonId) {
+    if (!mounted) {
+      return;
+    }
     final current = state.discoverableSalons;
     final updated = current
         .where((salon) => salon.id != salonId)
@@ -7532,6 +7888,72 @@ class _PlannedPackageConsumption {
   final String packageId;
   final String serviceId;
   final int quantity;
+}
+
+class _AccessRequestClientFields {
+  const _AccessRequestClientFields({
+    this.address,
+    this.city,
+    this.profession,
+    this.referralSource,
+    this.notes,
+    this.gender,
+  });
+
+  final String? address;
+  final String? city;
+  final String? profession;
+  final String? referralSource;
+  final String? notes;
+  final String? gender;
+
+  factory _AccessRequestClientFields.from(SalonAccessRequest request) {
+    String? stringOrNull(Object? value) {
+      if (value == null) {
+        return null;
+      }
+      final text = value.toString().trim();
+      return text.isEmpty ? null : text;
+    }
+
+    final address = stringOrNull(request.extraData['address']);
+    final rawCity = stringOrNull(request.extraData['city']);
+
+    return _AccessRequestClientFields(
+      address: address,
+      city: rawCity ?? address,
+      profession: stringOrNull(request.extraData['profession']),
+      referralSource: stringOrNull(request.extraData['referralSource']),
+      notes: stringOrNull(request.extraData['notes']),
+      gender: stringOrNull(request.extraData['gender']),
+    );
+  }
+}
+
+class _PackageConsumptionResult {
+  _PackageConsumptionResult(
+    Map<String, Map<String, int>> consumedByServiceAndPackage,
+  ) : consumedByServiceAndPackage = Map.unmodifiable(
+        consumedByServiceAndPackage.map(
+          (serviceId, packageQuantities) => MapEntry(
+            serviceId,
+            Map<String, int>.unmodifiable(packageQuantities),
+          ),
+        ),
+      );
+
+  _PackageConsumptionResult.empty()
+    : consumedByServiceAndPackage = const <String, Map<String, int>>{};
+
+  final Map<String, Map<String, int>> consumedByServiceAndPackage;
+
+  Iterable<String> packageIdsForService(String serviceId) {
+    return consumedByServiceAndPackage[serviceId]?.keys ?? const <String>[];
+  }
+
+  int consumedQuantity({required String serviceId, required String packageId}) {
+    return consumedByServiceAndPackage[serviceId]?[packageId] ?? 0;
+  }
 }
 
 class _UncoveredTotals {

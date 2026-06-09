@@ -720,7 +720,19 @@ service cloud.firestore {
           requestSalonId() != null &&
           hasSalonAccess(requestSalonId());
       allow delete: if isSignedIn() && canManageSalonDocument(resourceSalonId());
-      allow update: if false;
+      allow update: if isSignedIn() &&
+          canManageSalonDocument(resourceSalonId()) &&
+          requestSalonId() == resourceSalonId() &&
+          requestClientId() == resource.data.clientId &&
+          request.resource.data.storagePath == resource.data.storagePath &&
+          request.resource.data.uploadedBy == resource.data.uploadedBy &&
+          request.resource.data.uploadedAt == resource.data.uploadedAt &&
+          request.resource.data.diff(resource.data).changedKeys()
+              .hasOnly(['notes', 'isSetActiveVersion', 'archivedAt', 'privacy']) &&
+          request.resource.data.diff(resource.data).addedKeys()
+              .hasOnly(['notes', 'isSetActiveVersion', 'archivedAt', 'privacy']) &&
+          request.resource.data.diff(resource.data).removedKeys()
+              .hasOnly(['notes', 'archivedAt', 'privacy']);
     }
     match /client_photo_collages/{collageId} {
       allow read: if isSignedIn() && (

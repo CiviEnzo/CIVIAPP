@@ -49,6 +49,7 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
   bool _isUpdatingFinalPrice = false;
   bool _isUpdatingDiscount = false;
   late bool _showOnClientDashboard;
+  late bool _showOnPublicProfile;
   final NumberFormat _currencyFormat = NumberFormat.simpleCurrency(
     locale: 'it_IT',
   );
@@ -86,6 +87,8 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
         initial?.showOnClientDashboard ??
         widget.defaultShowOnClientDashboard ??
         true;
+    _showOnPublicProfile =
+        initial?.showOnPublicProfile ?? _showOnClientDashboard;
     _selectedServices.addAll(initial?.serviceIds ?? []);
     if (initial?.serviceSessionCounts.isNotEmpty ?? false) {
       _serviceSessions.addAll(initial!.serviceSessionCounts);
@@ -741,18 +744,47 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
                   : scheme.outlineVariant,
         ),
       ),
-      child: SwitchListTile.adaptive(
-        value: _showOnClientDashboard,
-        onChanged: (value) {
-          setState(() {
-            _showOnClientDashboard = value;
-          });
-        },
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        title: const Text('Mostra nel dashboard cliente'),
-        subtitle: const Text(
-          'Quando disattivato il pacchetto resta disponibile solo per preventivi e vendite interne.',
-        ),
+      child: Column(
+        children: [
+          SwitchListTile.adaptive(
+            value: _showOnClientDashboard,
+            onChanged: (value) {
+              setState(() {
+                _showOnClientDashboard = value;
+                if (!value) {
+                  _showOnPublicProfile = false;
+                }
+              });
+            },
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 4,
+            ),
+            title: const Text('Mostra nel dashboard cliente'),
+            subtitle: const Text(
+              'Quando disattivato il pacchetto resta disponibile solo per preventivi e vendite interne.',
+            ),
+          ),
+          SwitchListTile.adaptive(
+            value: _showOnPublicProfile,
+            onChanged:
+                _showOnClientDashboard
+                    ? (value) {
+                      setState(() {
+                        _showOnPublicProfile = value;
+                      });
+                    }
+                    : null,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 4,
+            ),
+            title: const Text('Mostra nel profilo pubblico'),
+            subtitle: const Text(
+              'Se attivo, nome, prezzo, sessioni e descrizione saranno visibili anche senza accesso.',
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1497,6 +1529,7 @@ class _PackageFormSheetState extends State<PackageFormSheet> {
               : int.tryParse(_validDays.text.trim()),
       serviceSessionCounts: serviceSessions,
       showOnClientDashboard: _showOnClientDashboard,
+      showOnPublicProfile: _showOnPublicProfile,
       isGeneratedFromServiceBuilder:
           widget.initial?.isGeneratedFromServiceBuilder ?? false,
     );

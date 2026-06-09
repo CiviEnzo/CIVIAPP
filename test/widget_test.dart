@@ -7,7 +7,7 @@ void main() {
     await tester.pumpWidget(const ProviderScope(child: CiviApp()));
     await tester.pump();
 
-    expect(find.text('Accedi a CiviApp'), findsOneWidget);
+    expect(find.text('Accedi a YouBook'), findsOneWidget);
     expect(find.text('Email'), findsOneWidget);
     expect(find.text('Password'), findsOneWidget);
     expect(find.text('Accedi'), findsOneWidget);

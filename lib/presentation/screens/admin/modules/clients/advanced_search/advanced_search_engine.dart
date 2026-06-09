@@ -1,7 +1,6 @@
 import 'dart:collection';
 import 'dart:math';
 
-import 'package:collection/collection.dart';
 import 'package:you_book/data/repositories/app_data_state.dart';
 import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/client.dart';
@@ -25,23 +24,23 @@ class AdvancedSearchEngine {
   List<Client> apply(AdvancedSearchFilters filters) {
     final salonId = filters.salonId ?? defaultSalonId;
     final normalizedFilters =
-        filters.salonId == salonId ? filters : filters.copyWith(salonId: salonId);
+        filters.salonId == salonId
+            ? filters
+            : filters.copyWith(salonId: salonId);
 
-    final baseClients = state.clients.where((client) {
-      if (salonId != null && client.salonId != salonId) {
-        return false;
-      }
-      return true;
-    }).toList(growable: false);
+    final baseClients = state.clients
+        .where((client) {
+          if (salonId != null && client.salonId != salonId) {
+            return false;
+          }
+          return true;
+        })
+        .toList(growable: false);
     if (baseClients.isEmpty) {
       return const <Client>[];
     }
 
-    var filtered = _applyClientFilters(
-      baseClients,
-      normalizedFilters,
-      now,
-    );
+    var filtered = _applyClientFilters(baseClients, normalizedFilters, now);
     if (filtered.isEmpty) {
       return filtered;
     }
@@ -52,40 +51,48 @@ class AdvancedSearchEngine {
 
     final appointments =
         requiresAppointments || requiresPackages
-            ? state.appointments.where((appointment) {
-              if (salonId != null && appointment.salonId != salonId) {
-                return false;
-              }
-              return true;
-            }).toList(growable: false)
+            ? state.appointments
+                .where((appointment) {
+                  if (salonId != null && appointment.salonId != salonId) {
+                    return false;
+                  }
+                  return true;
+                })
+                .toList(growable: false)
             : const <Appointment>[];
 
     final sales =
         requiresSales || requiresPackages
-            ? state.sales.where((sale) {
-              if (salonId != null && sale.salonId != salonId) {
-                return false;
-              }
-              return true;
-            }).toList(growable: false)
+            ? state.sales
+                .where((sale) {
+                  if (salonId != null && sale.salonId != salonId) {
+                    return false;
+                  }
+                  return true;
+                })
+                .toList(growable: false)
             : const <Sale>[];
 
     final packages =
         requiresPackages
-            ? state.packages.where((pack) {
-              if (salonId != null && pack.salonId != salonId) {
-                return false;
-              }
-              return true;
-            }).toList(growable: false)
+            ? state.packages
+                .where((pack) {
+                  if (salonId != null && pack.salonId != salonId) {
+                    return false;
+                  }
+                  return true;
+                })
+                .toList(growable: false)
             : const <ServicePackage>[];
 
-    final services = state.services.where((service) {
-      if (salonId != null && service.salonId != salonId) {
-        return false;
-      }
-      return true;
-    }).toList(growable: false);
+    final services = state.services
+        .where((service) {
+          if (salonId != null && service.salonId != salonId) {
+            return false;
+          }
+          return true;
+        })
+        .toList(growable: false);
 
     final indexes = _AdvancedSearchIndexes(
       now: now,
@@ -98,7 +105,9 @@ class AdvancedSearchEngine {
 
     if (requiresAppointments) {
       filtered = filtered
-          .where((client) => indexes.matchesAppointments(client, normalizedFilters))
+          .where(
+            (client) => indexes.matchesAppointments(client, normalizedFilters),
+          )
           .toList(growable: false);
       if (filtered.isEmpty) {
         return filtered;
@@ -130,152 +139,163 @@ class AdvancedSearchEngine {
   ) {
     final query = filters.generalQuery.trim().toLowerCase();
     final hasQuery = query.isNotEmpty;
-    final genderFilter = filters.genders.map((value) => value.trim().toLowerCase()).toSet();
+    final genderFilter =
+        filters.genders.map((value) => value.trim().toLowerCase()).toSet();
     final referralFilter =
-        filters.referralSources.map((value) => value.trim().toLowerCase()).toSet();
+        filters.referralSources
+            .map((value) => value.trim().toLowerCase())
+            .toSet();
     final cityFilter = filters.city?.trim().toLowerCase();
     final professionFilter = filters.profession?.trim().toLowerCase();
     final clientNumberExact = filters.clientNumberExact?.trim().toLowerCase();
 
-    return clients.where((client) {
-      if (filters.clientNumberExact != null) {
-        final number = client.clientNumber?.trim().toLowerCase();
-        if (number != clientNumberExact) {
-          return false;
-        }
-      }
+    return clients
+        .where((client) {
+          if (filters.clientNumberExact != null) {
+            final number = client.clientNumber?.trim().toLowerCase();
+            if (number != clientNumberExact) {
+              return false;
+            }
+          }
 
-      if (filters.clientNumberFrom != null || filters.clientNumberTo != null) {
-        final number = int.tryParse(client.clientNumber ?? '');
-        if (number == null) {
-          return false;
-        }
-        final from = filters.clientNumberFrom;
-        final to = filters.clientNumberTo;
-        if (from != null && number < from) {
-          return false;
-        }
-        if (to != null && number > to) {
-          return false;
-        }
-      }
+          if (filters.clientNumberFrom != null ||
+              filters.clientNumberTo != null) {
+            final number = int.tryParse(client.clientNumber ?? '');
+            if (number == null) {
+              return false;
+            }
+            final from = filters.clientNumberFrom;
+            final to = filters.clientNumberTo;
+            if (from != null && number < from) {
+              return false;
+            }
+            if (to != null && number > to) {
+              return false;
+            }
+          }
 
-      if (hasQuery && !_matchesQuery(client, query)) {
-        return false;
-      }
+          if (hasQuery && !_matchesQuery(client, query)) {
+            return false;
+          }
 
-      if (filters.createdAtFrom != null || filters.createdAtTo != null) {
-        final createdAt = client.createdAt;
-        if (createdAt == null) {
-          return false;
-        }
-        final from = filters.createdAtFrom;
-        if (from != null && createdAt.isBefore(from)) {
-          return false;
-        }
-        final to = filters.createdAtTo;
-        if (to != null && createdAt.isAfter(to)) {
-          return false;
-        }
-      }
+          if (filters.createdAtFrom != null || filters.createdAtTo != null) {
+            final createdAt = client.createdAt;
+            if (createdAt == null) {
+              return false;
+            }
+            final from = filters.createdAtFrom;
+            if (from != null && createdAt.isBefore(from)) {
+              return false;
+            }
+            final to = filters.createdAtTo;
+            if (to != null && createdAt.isAfter(to)) {
+              return false;
+            }
+          }
 
-      if (!_matchesAgeFilters(client, filters, now)) {
-        return false;
-      }
+          if (!_matchesAgeFilters(client, filters, now)) {
+            return false;
+          }
 
-      if (!_matchesBirthdayShortcut(client, filters.birthdayShortcut, now)) {
-        return false;
-      }
+          if (!_matchesBirthdayShortcut(
+            client,
+            filters.birthdayShortcut,
+            now,
+          )) {
+            return false;
+          }
 
-      if (genderFilter.isNotEmpty) {
-        final gender = client.gender?.trim().toLowerCase();
-        if (gender == null || !genderFilter.contains(gender)) {
-          return false;
-        }
-      }
+          if (genderFilter.isNotEmpty) {
+            final gender = client.gender?.trim().toLowerCase();
+            if (gender == null || !genderFilter.contains(gender)) {
+              return false;
+            }
+          }
 
-      if (cityFilter != null && cityFilter.isNotEmpty) {
-        final city = client.city?.trim().toLowerCase();
-        if (city == null || !city.contains(cityFilter)) {
-          return false;
-        }
-      }
+          if (cityFilter != null && cityFilter.isNotEmpty) {
+            final city = client.city?.trim().toLowerCase();
+            if (city == null || !city.contains(cityFilter)) {
+              return false;
+            }
+          }
 
-      if (professionFilter != null && professionFilter.isNotEmpty) {
-        final profession = client.profession?.trim().toLowerCase();
-        if (profession == null || !profession.contains(professionFilter)) {
-          return false;
-        }
-      }
+          if (professionFilter != null && professionFilter.isNotEmpty) {
+            final profession = client.profession?.trim().toLowerCase();
+            if (profession == null || !profession.contains(professionFilter)) {
+              return false;
+            }
+          }
 
-      if (referralFilter.isNotEmpty) {
-        final referral = client.referralSource?.trim().toLowerCase();
-        if (referral == null || !referralFilter.contains(referral)) {
-          return false;
-        }
-      }
+          if (referralFilter.isNotEmpty) {
+            final referral = client.referralSource?.trim().toLowerCase();
+            if (referral == null || !referralFilter.contains(referral)) {
+              return false;
+            }
+          }
 
-      if (filters.hasEmail != null) {
-        final hasEmail =
-            client.email != null && client.email!.trim().isNotEmpty;
-        if (hasEmail != filters.hasEmail) {
-          return false;
-        }
-      }
+          if (filters.hasEmail != null) {
+            final hasEmail =
+                client.email != null && client.email!.trim().isNotEmpty;
+            if (hasEmail != filters.hasEmail) {
+              return false;
+            }
+          }
 
-      if (filters.hasPhone != null) {
-        final hasPhone = client.phone.trim().isNotEmpty;
-        if (hasPhone != filters.hasPhone) {
-          return false;
-        }
-      }
+          if (filters.hasPhone != null) {
+            final hasPhone = client.phone.trim().isNotEmpty;
+            if (hasPhone != filters.hasPhone) {
+              return false;
+            }
+          }
 
-      if (filters.hasNotes != null) {
-        final hasNotes =
-            client.notes != null && client.notes!.trim().isNotEmpty;
-        if (hasNotes != filters.hasNotes) {
-          return false;
-        }
-      }
+          if (filters.hasNotes != null) {
+            final hasNotes =
+                client.notes != null && client.notes!.trim().isNotEmpty;
+            if (hasNotes != filters.hasNotes) {
+              return false;
+            }
+          }
 
-      if (filters.onboardingStatuses.isNotEmpty &&
-          !filters.onboardingStatuses.contains(client.onboardingStatus)) {
-        return false;
-      }
+          if (filters.onboardingStatuses.isNotEmpty &&
+              !filters.onboardingStatuses.contains(client.onboardingStatus)) {
+            return false;
+          }
 
-      if (filters.hasFirstLogin != null) {
-        final hasFirstLogin = client.firstLoginAt != null;
-        if (hasFirstLogin != filters.hasFirstLogin) {
-          return false;
-        }
-      }
+          if (filters.hasFirstLogin != null) {
+            final hasFirstLogin = client.firstLoginAt != null;
+            if (hasFirstLogin != filters.hasFirstLogin) {
+              return false;
+            }
+          }
 
-      if (filters.hasPushToken != null) {
-        final hasPushTokens = client.fcmTokens.isNotEmpty;
-        if (hasPushTokens != filters.hasPushToken) {
-          return false;
-        }
-      }
+          if (filters.hasPushToken != null) {
+            final hasPushTokens = client.fcmTokens.isNotEmpty;
+            if (hasPushTokens != filters.hasPushToken) {
+              return false;
+            }
+          }
 
-      if (filters.loyaltyPointsMin != null &&
-          client.loyaltyPoints < filters.loyaltyPointsMin!) {
-        return false;
-      }
+          if (filters.loyaltyPointsMin != null &&
+              client.loyaltyPoints < filters.loyaltyPointsMin!) {
+            return false;
+          }
 
-      if (filters.loyaltyPointsMax != null &&
-          client.loyaltyPoints > filters.loyaltyPointsMax!) {
-        return false;
-      }
+          if (filters.loyaltyPointsMax != null &&
+              client.loyaltyPoints > filters.loyaltyPointsMax!) {
+            return false;
+          }
 
-      if (filters.loyaltyUpdatedSince != null) {
-        final updatedAt = client.loyaltyUpdatedAt;
-        if (updatedAt == null || updatedAt.isBefore(filters.loyaltyUpdatedSince!)) {
-          return false;
-        }
-      }
+          if (filters.loyaltyUpdatedSince != null) {
+            final updatedAt = client.loyaltyUpdatedAt;
+            if (updatedAt == null ||
+                updatedAt.isBefore(filters.loyaltyUpdatedSince!)) {
+              return false;
+            }
+          }
 
-      return true;
-    }).toList(growable: false);
+          return true;
+        })
+        .toList(growable: false);
   }
 
   bool _matchesQuery(Client client, String query) {
@@ -335,7 +355,8 @@ class AdvancedSearchEngine {
         birthDate.isBefore(filters.dateOfBirthFrom!)) {
       return false;
     }
-    if (filters.dateOfBirthTo != null && birthDate.isAfter(filters.dateOfBirthTo!)) {
+    if (filters.dateOfBirthTo != null &&
+        birthDate.isAfter(filters.dateOfBirthTo!)) {
       return false;
     }
 
@@ -375,7 +396,8 @@ class AdvancedSearchEngine {
 
   int? _ageInYears(DateTime birthDate, DateTime reference) {
     var years = reference.year - birthDate.year;
-    final hasNotHadBirthdayThisYear = (reference.month < birthDate.month) ||
+    final hasNotHadBirthdayThisYear =
+        (reference.month < birthDate.month) ||
         (reference.month == birthDate.month && reference.day < birthDate.day);
     if (hasNotHadBirthdayThisYear) {
       years -= 1;
@@ -392,7 +414,9 @@ class AdvancedSearchEngine {
     }
 
     var candidate = resolve(reference.year);
-    if (candidate.isBefore(DateTime(reference.year, reference.month, reference.day))) {
+    if (candidate.isBefore(
+      DateTime(reference.year, reference.month, reference.day),
+    )) {
       candidate = resolve(reference.year + 1);
     }
     return candidate;
@@ -407,11 +431,16 @@ class _AdvancedSearchIndexes {
     required List<Service> services,
     required List<ServicePackage> packages,
     required this.salonId,
-  })  : _upcomingAppointmentsByClient = _groupUpcomingAppointments(appointments, now),
-        _completedAppointmentsByClient = _groupCompletedAppointments(appointments),
-        _salesByClient = _groupSales(sales),
-        _serviceLookup = {for (final service in services) service.id: service},
-        _packages = packages;
+  }) : _upcomingAppointmentsByClient = _groupUpcomingAppointments(
+         appointments,
+         now,
+       ),
+       _completedAppointmentsByClient = _groupCompletedAppointments(
+         appointments,
+       ),
+       _salesByClient = _groupSales(sales),
+       _serviceLookup = {for (final service in services) service.id: service},
+       _packages = packages;
 
   final DateTime now;
   final String? salonId;
@@ -435,7 +464,10 @@ class _AdvancedSearchIndexes {
       if (appointment.start.isBefore(now)) {
         continue;
       }
-      final bucket = map.putIfAbsent(appointment.clientId, () => <Appointment>[]);
+      final bucket = map.putIfAbsent(
+        appointment.clientId,
+        () => <Appointment>[],
+      );
       bucket.add(appointment);
     }
     for (final entry in map.entries) {
@@ -452,7 +484,10 @@ class _AdvancedSearchIndexes {
       if (appointment.status != AppointmentStatus.completed) {
         continue;
       }
-      final bucket = map.putIfAbsent(appointment.clientId, () => <Appointment>[]);
+      final bucket = map.putIfAbsent(
+        appointment.clientId,
+        () => <Appointment>[],
+      );
       bucket.add(appointment);
     }
     for (final entry in map.entries) {
@@ -514,6 +549,18 @@ class _AdvancedSearchIndexes {
       }
     }
 
+    if (filters.completedAppointmentServiceIds.isNotEmpty ||
+        filters.completedAppointmentCategoryIds.isNotEmpty ||
+        filters.completedAppointmentFrom != null ||
+        filters.completedAppointmentTo != null) {
+      final matchesCompleted = completedAppointments.any(
+        (appointment) => _matchesCompletedAppointment(appointment, filters),
+      );
+      if (!matchesCompleted) {
+        return false;
+      }
+    }
+
     Iterable<Appointment> relevantCompleted = completedAppointments;
     if (filters.lastCompletedServiceIds.isNotEmpty ||
         filters.lastCompletedCategoryIds.isNotEmpty) {
@@ -527,9 +574,13 @@ class _AdvancedSearchIndexes {
     }
 
     if (filters.lastCompletedWithinDays != null) {
-      final threshold = now.subtract(Duration(days: filters.lastCompletedWithinDays!));
+      final threshold = now.subtract(
+        Duration(days: filters.lastCompletedWithinDays!),
+      );
       final matchesRecent = relevantCompleted.any(
-        (appointment) => appointment.end.isAfter(threshold) || appointment.end.isAtSameMomentAs(threshold),
+        (appointment) =>
+            appointment.end.isAfter(threshold) ||
+            appointment.end.isAtSameMomentAs(threshold),
       );
       if (!matchesRecent) {
         return false;
@@ -537,7 +588,9 @@ class _AdvancedSearchIndexes {
     }
 
     if (filters.lastCompletedOlderThanDays != null) {
-      final threshold = now.subtract(Duration(days: filters.lastCompletedOlderThanDays!));
+      final threshold = now.subtract(
+        Duration(days: filters.lastCompletedOlderThanDays!),
+      );
       final last = relevantCompleted.isEmpty ? null : relevantCompleted.first;
       if (last != null && !last.end.isBefore(threshold)) {
         return false;
@@ -545,6 +598,28 @@ class _AdvancedSearchIndexes {
     }
 
     return true;
+  }
+
+  bool _matchesCompletedAppointment(
+    Appointment appointment,
+    AdvancedSearchFilters filters,
+  ) {
+    if (appointment.end.isAfter(now)) {
+      return false;
+    }
+    final from = filters.completedAppointmentFrom;
+    if (from != null && appointment.end.isBefore(_startOfDay(from))) {
+      return false;
+    }
+    final to = filters.completedAppointmentTo;
+    if (to != null && appointment.end.isAfter(_endOfDay(to))) {
+      return false;
+    }
+    return _matchesAppointmentServices(
+      appointment,
+      filters.completedAppointmentServiceIds,
+      filters.completedAppointmentCategoryIds,
+    );
   }
 
   bool _matchesAppointmentServices(
@@ -622,7 +697,9 @@ class _AdvancedSearchIndexes {
     }
 
     if (filters.lastPurchaseWithinDays != null) {
-      final limit = now.subtract(Duration(days: filters.lastPurchaseWithinDays!));
+      final limit = now.subtract(
+        Duration(days: filters.lastPurchaseWithinDays!),
+      );
       final lastSale = _lastSaleDate(sales);
       if (lastSale == null || lastSale.isBefore(limit)) {
         return false;
@@ -630,7 +707,9 @@ class _AdvancedSearchIndexes {
     }
 
     if (filters.lastPurchaseOlderThanDays != null) {
-      final limit = now.subtract(Duration(days: filters.lastPurchaseOlderThanDays!));
+      final limit = now.subtract(
+        Duration(days: filters.lastPurchaseOlderThanDays!),
+      );
       final relevantSales = _filteredSalesForInclusions(sales, filters);
       final lastSale = _lastSaleDate(relevantSales);
       if (lastSale != null && !lastSale.isBefore(limit)) {
@@ -765,9 +844,10 @@ class _AdvancedSearchIndexes {
 
     if (filters.hasPackagesWithRemainingSessions != null) {
       final hasRemaining = purchases.any(
-        (purchase) => purchase.remainingSessions != null
-            ? purchase.remainingSessions! > 0
-            : purchase.effectiveRemainingSessions > 0,
+        (purchase) =>
+            purchase.remainingSessions != null
+                ? purchase.remainingSessions! > 0
+                : purchase.effectiveRemainingSessions > 0,
       );
       if (hasRemaining != filters.hasPackagesWithRemainingSessions) {
         return false;
@@ -786,6 +866,14 @@ class _AdvancedSearchIndexes {
     }
 
     return true;
+  }
+
+  DateTime _startOfDay(DateTime value) {
+    return DateTime(value.year, value.month, value.day);
+  }
+
+  DateTime _endOfDay(DateTime value) {
+    return DateTime(value.year, value.month, value.day, 23, 59, 59, 999, 999);
   }
 
   List<ClientPackagePurchase> _packagesFor(String clientId) {

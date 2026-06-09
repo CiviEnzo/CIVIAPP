@@ -111,6 +111,7 @@ class SaleFormSheet extends StatefulWidget {
     this.initialSaleId,
     this.lockServiceOperator = false,
     this.showSheetHeader = true,
+    this.serviceLinesCreateSessionsByDefault = false,
     this.onSaved,
     this.onSkipTicket,
   });
@@ -136,6 +137,7 @@ class SaleFormSheet extends StatefulWidget {
   final String? initialSaleId;
   final bool lockServiceOperator;
   final bool showSheetHeader;
+  final bool serviceLinesCreateSessionsByDefault;
   final void Function(Sale sale)? onSaved;
   final VoidCallback? onSkipTicket;
 
@@ -1597,6 +1599,12 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                 ),
               ),
             ),
+          if (line.referenceType == SaleReferenceType.service &&
+              line.referenceId != null &&
+              line.referenceId!.isNotEmpty) ...[
+            _buildServiceSessionToggle(theme, line),
+            const SizedBox(height: 12),
+          ],
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1674,6 +1682,43 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildServiceSessionToggle(ThemeData theme, _SaleLineDraft line) {
+    final palette = _SaleFormPalette.fromTheme(theme);
+    return Container(
+      decoration: BoxDecoration(
+        color: palette.inputBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: palette.border),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Row(
+        children: [
+          Icon(
+            Icons.confirmation_number_outlined,
+            size: 18,
+            color: theme.colorScheme.primary,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Sessione utilizzabile',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Switch.adaptive(
+            value: line.serviceCreatesSession,
+            onChanged: (value) {
+              line.serviceCreatesSession = value;
+              _handleLineChanged();
+            },
           ),
         ],
       ),
@@ -2914,6 +2959,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       quantity: 1,
       unitPrice: selected.price,
       catalogLabel: selected.category,
+      serviceCreatesSession: widget.serviceLinesCreateSessionsByDefault,
     );
     _registerLine(line);
   }
@@ -3168,6 +3214,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     double unitPrice = 0,
     String? catalogLabel,
     _PackageMetadata? packageMetadata,
+    bool serviceCreatesSession = false,
+    int? serviceRemainingSessions,
   }) {
     String formatQuantity(double value) {
       if (value % 1 == 0) {
@@ -3187,6 +3235,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         text: unitPrice.toStringAsFixed(2),
       ),
       packageMetadata: packageMetadata,
+      serviceCreatesSession: serviceCreatesSession,
+      serviceRemainingSessions: serviceRemainingSessions,
     );
   }
 
@@ -3233,6 +3283,9 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       packageMetadata: metadata,
+      serviceCreatesSession: item.isServiceSessionCredit,
+      serviceRemainingSessions:
+          item.isServiceSessionCredit ? item.remainingSessions : null,
     );
   }
 
@@ -3458,28 +3511,59 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       }
       final referenceId = line.referenceId ?? 'manual-${line.id}';
       final metadata = line.packageMetadata;
-      final saleItem =
-          line.referenceType == SaleReferenceType.package
-              ? SaleItem(
-                referenceId: referenceId,
-                referenceType: line.referenceType,
-                description: description,
-                quantity: quantity,
-                unitPrice: unitPrice,
-                totalSessions: metadata?.totalSessions(quantity),
-                remainingSessions: metadata?.remainingSessionsValue(quantity),
-                expirationDate: metadata?.expiration(_date),
-                packageStatus: metadata?.status,
-                packageServiceSessions:
-                    metadata?.serviceSessions ?? const <String, int>{},
-              )
-              : SaleItem(
-                referenceId: referenceId,
-                referenceType: line.referenceType,
-                description: description,
-                quantity: quantity,
-                unitPrice: unitPrice,
-              );
+      final SaleItem saleItem;
+      if (line.referenceType == SaleReferenceType.package) {
+        saleItem = SaleItem(
+          referenceId: referenceId,
+          referenceType: line.referenceType,
+          description: description,
+          quantity: quantity,
+          unitPrice: unitPrice,
+          totalSessions: metadata?.totalSessions(quantity),
+          remainingSessions: metadata?.remainingSessionsValue(quantity),
+          expirationDate: metadata?.expiration(_date),
+          packageStatus: metadata?.status,
+          packageServiceSessions:
+              metadata?.serviceSessions ?? const <String, int>{},
+        );
+      } else if (line.referenceType == SaleReferenceType.service &&
+          line.serviceCreatesSession) {
+        final sessionCount = quantity.round();
+        if ((quantity - sessionCount).abs() > 0.000001 ||
+            sessionCount <= 0 ||
+            referenceId.isEmpty) {
+          _showSnackBar(
+            'Per una sessione utilizzabile inserisci una quantità intera.',
+          );
+          return null;
+        }
+        final rawRemaining = line.serviceRemainingSessions ?? sessionCount;
+        final remainingSessions = rawRemaining.clamp(0, sessionCount).toInt();
+        saleItem = SaleItem(
+          referenceId: referenceId,
+          referenceType: line.referenceType,
+          description: description,
+          quantity: quantity,
+          unitPrice: unitPrice,
+          totalSessions: sessionCount,
+          remainingSessions: remainingSessions,
+          packageStatus:
+              remainingSessions <= 0
+                  ? PackagePurchaseStatus.completed
+                  : PackagePurchaseStatus.active,
+          remainingPackageServiceSessions: <String, int>{
+            referenceId: remainingSessions,
+          },
+        );
+      } else {
+        saleItem = SaleItem(
+          referenceId: referenceId,
+          referenceType: line.referenceType,
+          description: description,
+          quantity: quantity,
+          unitPrice: unitPrice,
+        );
+      }
       items.add(saleItem);
     }
     return items;
@@ -3507,6 +3591,28 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
               packageServiceSessions:
                   line.packageMetadata?.serviceSessions ??
                   const <String, int>{},
+            ),
+          ),
+        );
+        continue;
+      }
+      if (line.referenceType == SaleReferenceType.service &&
+          line.serviceCreatesSession) {
+        final sessionCount = quantity.round();
+        previewItems.add(
+          _CoverageLine(
+            lineId: line.id,
+            item: SaleItem(
+              referenceId: referenceId,
+              referenceType: line.referenceType,
+              description: description,
+              quantity: quantity,
+              unitPrice: unitPrice,
+              totalSessions: sessionCount,
+              remainingSessions: sessionCount,
+              remainingPackageServiceSessions: <String, int>{
+                referenceId: sessionCount,
+              },
             ),
           ),
         );
@@ -3565,7 +3671,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
 
   void _updateServiceLinePrices() {
     for (final line in _lines) {
-      if (line.referenceType != SaleReferenceType.service) {
+      if (line.referenceType != SaleReferenceType.service ||
+          line.serviceCreatesSession) {
         _lineCachedPrices.remove(line.id);
         continue;
       }
@@ -3964,6 +4071,10 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
         continue;
       }
       if (item.referenceType == SaleReferenceType.service) {
+        if (item.isServiceSessionCredit) {
+          adjustedItems.add(item);
+          continue;
+        }
         final fullyCovered = _consumeServiceFromPackages(
           serviceItem: item,
           packages: updatedPackages,
@@ -4006,7 +4117,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     }
     for (var i = 0; i < items.length; i++) {
       final item = items[i].item;
-      if (item.referenceType != SaleReferenceType.service) {
+      if (item.referenceType != SaleReferenceType.service ||
+          item.isServiceSessionCredit) {
         continue;
       }
       final fullyCovered = _consumeServiceFromPackages(
@@ -4165,6 +4277,8 @@ class _SaleLineDraft {
     required this.quantityController,
     required this.priceController,
     this.packageMetadata,
+    this.serviceCreatesSession = false,
+    this.serviceRemainingSessions,
   });
 
   final String id;
@@ -4175,6 +4289,8 @@ class _SaleLineDraft {
   final TextEditingController quantityController;
   final TextEditingController priceController;
   final _PackageMetadata? packageMetadata;
+  bool serviceCreatesSession;
+  final int? serviceRemainingSessions;
 
   void dispose() {
     descriptionController.dispose();

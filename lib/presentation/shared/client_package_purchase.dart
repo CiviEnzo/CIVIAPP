@@ -35,6 +35,9 @@ class ClientPackagePurchase {
   List<PackageDeposit> get deposits => item.deposits;
 
   double get outstandingAmount {
+    if (item.isServiceSessionCredit) {
+      return 0;
+    }
     final deposit = depositAmount;
     final outstanding = totalAmount - deposit;
     return outstanding <= 0 ? 0 : outstanding;
@@ -134,6 +137,17 @@ class ClientPackagePurchase {
   }
 
   int? totalSessionsForService(String serviceId) {
+    if (item.isServiceSessionCredit) {
+      if (item.referenceId != serviceId &&
+          !item.remainingPackageServiceSessions.containsKey(serviceId)) {
+        return null;
+      }
+      final explicit = item.totalSessions;
+      if (explicit != null) {
+        return explicit;
+      }
+    }
+
     final packageSessions = package?.serviceSessionCounts;
     if (packageSessions != null && packageSessions.isNotEmpty) {
       final configured = packageSessions[serviceId];
@@ -190,15 +204,24 @@ class ClientPackagePurchase {
   }
 
   PackagePaymentStatus get paymentStatus =>
-      item.packagePaymentStatus ??
-      (item.depositAmount > 0 && outstandingAmount > 0
-          ? PackagePaymentStatus.deposit
-          : PackagePaymentStatus.paid);
+      item.isServiceSessionCredit
+          ? (sale.outstandingAmount > 0.009
+              ? PackagePaymentStatus.deposit
+              : PackagePaymentStatus.paid)
+          : item.packagePaymentStatus ??
+              (item.depositAmount > 0 && outstandingAmount > 0
+                  ? PackagePaymentStatus.deposit
+                  : PackagePaymentStatus.paid);
 
   bool get isActive => status == PackagePurchaseStatus.active;
 
   /// Determine if the purchase can be applied to the provided service.
   bool supportsService(String serviceId) {
+    if (item.isServiceSessionCredit) {
+      return item.referenceId == serviceId ||
+          item.remainingPackageServiceSessions.containsKey(serviceId);
+    }
+
     if (item.packageServiceSessions.isNotEmpty) {
       return item.packageServiceSessions.containsKey(serviceId);
     }
@@ -284,17 +307,29 @@ List<ClientPackagePurchase> resolveClientPackagePurchases({
   )) {
     for (var index = 0; index < sale.items.length; index++) {
       final item = sale.items[index];
-      if (item.referenceType != SaleReferenceType.package) {
+      if (item.referenceType != SaleReferenceType.package &&
+          !item.isServiceSessionCredit) {
         continue;
       }
-      final package = packages.firstWhereOrNull(
-        (element) => element.id == item.referenceId,
-      );
+      final package =
+          item.referenceType == SaleReferenceType.package
+              ? packages.firstWhereOrNull(
+                (element) => element.id == item.referenceId,
+              )
+              : null;
       final consumedSessions = totalUsageByPackage[item.referenceId] ?? 0;
       final consumedByService =
           usageByPackageAndService[item.referenceId] ?? const <String, int>{};
       final sessionSource =
-          item.packageServiceSessions.isNotEmpty
+          item.isServiceSessionCredit
+              ? <String, int>{
+                item.referenceId:
+                    item.totalSessions ??
+                    item.remainingPackageServiceSessions[item.referenceId] ??
+                    item.remainingSessions ??
+                    1,
+              }
+              : item.packageServiceSessions.isNotEmpty
               ? item.packageServiceSessions
               : package?.serviceSessionCounts ?? const <String, int>{};
       final serviceNames = <String>[];

@@ -14,7 +14,8 @@ Portare live i pagamenti Stripe per YouBook usando Stripe Connect Express, in mo
   - creare Ephemeral Key;
   - gestire webhook Stripe;
   - finalizzare pagamenti preventivo.
-- Il pagamento usa `on_behalf_of` e `transfer_data.destination`, quindi l'incasso viene instradato verso l'account Stripe del salone.
+- Il pagamento usa direct charges: il `PaymentIntent` viene creato direttamente sull'account Stripe connesso del salone tramite header `Stripe-Account`.
+- Con direct charges le commissioni Stripe sono a carico dell'account connesso, non della piattaforma YouBook.
 - Il backend ricalcola e valida l'importo da carrello/preventivo prima di creare il PaymentIntent.
 - Il salone puo' accettare pagamenti solo se:
   - ha `stripeAccountId`;
@@ -61,13 +62,8 @@ Impostare i parametri:
 
 Note:
 
-- `STRIPE_APPLICATION_FEE_AMOUNT` e' un importo fisso in centesimi, non una percentuale.
-- Se YouBook deve trattenere una commissione, decidere prima modello fee:
-  - fee fissa per transazione;
-  - percentuale;
-  - abbonamento esterno;
-  - nessuna fee iniziale.
-- Se serve una fee percentuale, il backend va modificato per calcolarla dinamicamente.
+- Con direct charges non viene impostata una fee piattaforma iniziale.
+- Se in futuro YouBook deve trattenere una commissione, va reintrodotto `application_fee_amount` nel contesto dell'account connesso oppure va definito un modello di abbonamento separato.
 
 ### 3. Deploy Functions
 
@@ -278,7 +274,7 @@ Test live controllato:
 
 - Collegamento Apple Pay da validare nel Dashboard Stripe.
 - Il file locale `tool/dart_defines.json` contiene ancora placeholder per `STRIPE_PUBLISHABLE_KEY`.
-- La fee piattaforma e' solo fissa; se serve percentuale va implementata.
+- Direct charges spostano fee Stripe e dispute economiche sull'account connesso: verificare che termini e onboarding salone lo rendano chiaro.
 - Stripe non e' disponibile su web: attualmente i pagamenti sono solo mobile.
 - Runtime Cloud Functions `nodejs20` e' deprecato dal 2026-04-30 e andra' aggiornato prima del 2026-10-30.
 
@@ -289,5 +285,5 @@ Test live controllato:
 3. Collegare Apple Pay Merchant ID nel Dashboard Stripe.
 4. Verificare webhook live Stripe dal Dashboard Stripe.
 5. Fare test end-to-end in test mode.
-6. Fare un pagamento live pilota con un salone reale.
+6. Fare un pagamento live pilota con un salone reale e verificare che le commissioni siano contabilizzate sull'account connesso.
 7. Pianificare upgrade runtime Functions da Node.js 20.

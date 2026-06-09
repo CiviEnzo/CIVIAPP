@@ -13,6 +13,7 @@ class AppUser {
     this.displayName,
     this.email,
     this.availableRoles = const <UserRole>[],
+    this.mustChangePassword = false,
     this.pendingSalonId,
     this.pendingFirstName,
     this.pendingLastName,
@@ -30,6 +31,7 @@ class AppUser {
   final String? displayName;
   final String? email;
   final List<UserRole> availableRoles;
+  final bool mustChangePassword;
   final String? pendingSalonId;
   final String? pendingFirstName;
   final String? pendingLastName;
@@ -101,6 +103,13 @@ class AppUser {
       isEmailVerified: (data['emailVerified'] as bool?) ?? false,
       isEnabled: (data['enabled'] as bool?) ?? true,
       availableRoles: availableRoles,
+      mustChangePassword:
+          _boolFromAny(
+            data['mustChangePassword'] ??
+                data['forcePasswordChange'] ??
+                data['requiresPasswordChange'],
+          ) ??
+          false,
       pendingSalonId: _stringOrNull(data['pendingSalonId']),
       pendingFirstName: _stringOrNull(data['pendingFirstName']),
       pendingLastName: _stringOrNull(data['pendingLastName']),
@@ -124,6 +133,7 @@ class AppUser {
       isEmailVerified: isEmailVerified,
       isEnabled: true,
       availableRoles: const <UserRole>[],
+      mustChangePassword: false,
       pendingSalonId: null,
       pendingFirstName: null,
       pendingLastName: null,
@@ -142,6 +152,7 @@ class AppUser {
     Object? displayName = _undefined,
     Object? email = _undefined,
     Object? availableRoles = _undefined,
+    Object? mustChangePassword = _undefined,
     Object? pendingSalonId = _undefined,
     Object? pendingFirstName = _undefined,
     Object? pendingLastName = _undefined,
@@ -152,28 +163,25 @@ class AppUser {
       uid: uid,
       role: role == _undefined ? this.role : role as UserRole?,
       salonIds:
-          salonIds == _undefined
-              ? this.salonIds
-              : List<String>.from(salonIds as List<String>),
+          salonIds == _undefined ? this.salonIds : _stringListFromAny(salonIds),
       isEmailVerified:
           isEmailVerified == _undefined
               ? this.isEmailVerified
               : isEmailVerified as bool,
-      isEnabled:
-          isEnabled == _undefined ? this.isEnabled : isEnabled as bool,
-      staffId:
-          staffId == _undefined ? this.staffId : staffId as String?,
-      clientId:
-          clientId == _undefined ? this.clientId : clientId as String?,
+      isEnabled: isEnabled == _undefined ? this.isEnabled : isEnabled as bool,
+      staffId: staffId == _undefined ? this.staffId : staffId as String?,
+      clientId: clientId == _undefined ? this.clientId : clientId as String?,
       displayName:
-          displayName == _undefined
-              ? this.displayName
-              : displayName as String?,
+          displayName == _undefined ? this.displayName : displayName as String?,
       email: email == _undefined ? this.email : email as String?,
       availableRoles:
           availableRoles == _undefined
               ? this.availableRoles
-              : List<UserRole>.from(availableRoles as List<UserRole>),
+              : _userRoleListFromAny(availableRoles),
+      mustChangePassword:
+          mustChangePassword == _undefined
+              ? this.mustChangePassword
+              : mustChangePassword == true,
       pendingSalonId:
           pendingSalonId == _undefined
               ? this.pendingSalonId
@@ -216,7 +224,7 @@ List<UserRole> _parseAvailableRoles({
       if (entry == null) {
         continue;
       }
-      addRole(_roleFromName(entry.toString()));
+      addRole(entry is UserRole ? entry : _roleFromName(entry.toString()));
     }
   } else if (rawRoles is String && rawRoles.trim().isNotEmpty) {
     addRole(_roleFromName(rawRoles));
@@ -227,11 +235,32 @@ List<UserRole> _parseAvailableRoles({
   return List<UserRole>.unmodifiable(result);
 }
 
+List<String> _stringListFromAny(Object? value) {
+  if (value == null) {
+    return const <String>[];
+  }
+  if (value is Iterable) {
+    return value
+        .map((entry) => entry?.toString().trim() ?? '')
+        .where((entry) => entry.isNotEmpty)
+        .toList(growable: false);
+  }
+  final single = value.toString().trim();
+  return single.isEmpty ? const <String>[] : <String>[single];
+}
+
+List<UserRole> _userRoleListFromAny(Object? value) {
+  if (value == null) {
+    return const <UserRole>[];
+  }
+  return _parseAvailableRoles(rawRoles: value, fallbackRole: null);
+}
+
 UserRole? _roleFromName(String? value) {
   if (value == null) {
     return null;
   }
-  final normalized = value.trim().toLowerCase();
+  final normalized = value.trim().toLowerCase().split('.').last;
   if (normalized.isEmpty) {
     return null;
   }
@@ -252,6 +281,22 @@ String? _stringOrNull(Object? value) {
     return null;
   }
   return stringValue;
+}
+
+bool? _boolFromAny(Object? value) {
+  if (value is bool) {
+    return value;
+  }
+  if (value is String) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized == 'true') {
+      return true;
+    }
+    if (normalized == 'false') {
+      return false;
+    }
+  }
+  return null;
 }
 
 DateTime? _dateFromValue(Object? value) {

@@ -52,10 +52,12 @@ class AdvancedClientSearchState {
 class AdvancedClientSearchController
     extends StateNotifier<AdvancedClientSearchState> {
   AdvancedClientSearchController(this.ref, {this.salonId})
-      : super(AdvancedClientSearchState.initial(salonId: salonId));
+    : super(AdvancedClientSearchState.initial(salonId: salonId));
 
   final Ref ref;
   final String? salonId;
+
+  bool get hasSearched => state.hasSearched;
 
   void updateFilters(AdvancedSearchFilters filters, {bool autoApply = true}) {
     final normalized =
@@ -110,86 +112,94 @@ class AdvancedClientSearchController
   }
 }
 
-final advancedClientSearchControllerProvider =
-    StateNotifierProvider.autoDispose
-        .family<AdvancedClientSearchController, AdvancedClientSearchState, String?>(
-  (ref, salonId) {
-    final controller = AdvancedClientSearchController(ref, salonId: salonId);
-    ref.listen<AppDataState>(
-      appDataProvider,
-      (previous, next) {
-        if (controller.mounted && controller.state.hasSearched) {
-          controller.apply();
-        }
+final advancedClientSearchControllerProvider = StateNotifierProvider.autoDispose
+    .family<AdvancedClientSearchController, AdvancedClientSearchState, String?>(
+      (ref, salonId) {
+        final controller = AdvancedClientSearchController(
+          ref,
+          salonId: salonId,
+        );
+        ref.listen<AppDataState>(appDataProvider, (previous, next) {
+          if (controller.mounted && controller.hasSearched) {
+            controller.apply();
+          }
+        }, fireImmediately: false);
+        return controller;
       },
-      fireImmediately: false,
     );
-    return controller;
-  },
-);
 
-typedef AdvancedSearchFiltersBuilderCallback = void Function(
-  AdvancedSearchFiltersBuilder builder,
-);
+typedef AdvancedSearchFiltersBuilderCallback =
+    void Function(AdvancedSearchFiltersBuilder builder);
 
 class AdvancedSearchFiltersBuilder {
   AdvancedSearchFiltersBuilder.from(AdvancedSearchFilters filters)
-      : salonId = filters.salonId,
-        generalQuery = filters.generalQuery,
-        clientNumberExact = filters.clientNumberExact,
-        clientNumberFrom = filters.clientNumberFrom,
-        clientNumberTo = filters.clientNumberTo,
-        createdAtFrom = filters.createdAtFrom,
-        createdAtTo = filters.createdAtTo,
-        minAge = filters.minAge,
-        maxAge = filters.maxAge,
-        dateOfBirthFrom = filters.dateOfBirthFrom,
-        dateOfBirthTo = filters.dateOfBirthTo,
-        birthdayShortcut = filters.birthdayShortcut,
-        genders = Set<String>.from(filters.genders),
-        city = filters.city,
-        profession = filters.profession,
-        referralSources = Set<String>.from(filters.referralSources),
-        hasEmail = filters.hasEmail,
-        hasPhone = filters.hasPhone,
-        hasNotes = filters.hasNotes,
-        onboardingStatuses = Set<ClientOnboardingStatus>.from(
-          filters.onboardingStatuses,
-        ),
-        hasFirstLogin = filters.hasFirstLogin,
-        hasPushToken = filters.hasPushToken,
-        loyaltyPointsMin = filters.loyaltyPointsMin,
-        loyaltyPointsMax = filters.loyaltyPointsMax,
-        loyaltyUpdatedSince = filters.loyaltyUpdatedSince,
-        totalSpentMin = filters.totalSpentMin,
-        totalSpentMax = filters.totalSpentMax,
-        totalSpentFrom = filters.totalSpentFrom,
-        totalSpentTo = filters.totalSpentTo,
-        usePaidAmount = filters.usePaidAmount,
-        hasOutstandingBalance = filters.hasOutstandingBalance,
-        lastPurchaseWithinDays = filters.lastPurchaseWithinDays,
-        lastPurchaseOlderThanDays = filters.lastPurchaseOlderThanDays,
-        includeSaleServiceIds = Set<String>.from(filters.includeSaleServiceIds),
-        excludeSaleServiceIds = Set<String>.from(filters.excludeSaleServiceIds),
-        includeSaleCategoryIds = Set<String>.from(filters.includeSaleCategoryIds),
-        excludeSaleCategoryIds = Set<String>.from(filters.excludeSaleCategoryIds),
-        onlyLastMinuteSales = filters.onlyLastMinuteSales,
-        upcomingAppointmentWithinDays = filters.upcomingAppointmentWithinDays,
-        upcomingAppointmentServiceIds = Set<String>.from(
-          filters.upcomingAppointmentServiceIds,
-        ),
-        upcomingAppointmentCategoryIds = Set<String>.from(
-          filters.upcomingAppointmentCategoryIds,
-        ),
-        lastCompletedWithinDays = filters.lastCompletedWithinDays,
-        lastCompletedOlderThanDays = filters.lastCompletedOlderThanDays,
-        lastCompletedServiceIds = Set<String>.from(filters.lastCompletedServiceIds),
-        lastCompletedCategoryIds = Set<String>.from(
-          filters.lastCompletedCategoryIds,
-        ),
-        hasActivePackages = filters.hasActivePackages,
-        hasPackagesWithRemainingSessions = filters.hasPackagesWithRemainingSessions,
-        hasExpiredPackages = filters.hasExpiredPackages;
+    : salonId = filters.salonId,
+      generalQuery = filters.generalQuery,
+      clientNumberExact = filters.clientNumberExact,
+      clientNumberFrom = filters.clientNumberFrom,
+      clientNumberTo = filters.clientNumberTo,
+      createdAtFrom = filters.createdAtFrom,
+      createdAtTo = filters.createdAtTo,
+      minAge = filters.minAge,
+      maxAge = filters.maxAge,
+      dateOfBirthFrom = filters.dateOfBirthFrom,
+      dateOfBirthTo = filters.dateOfBirthTo,
+      birthdayShortcut = filters.birthdayShortcut,
+      genders = Set<String>.from(filters.genders),
+      city = filters.city,
+      profession = filters.profession,
+      referralSources = Set<String>.from(filters.referralSources),
+      hasEmail = filters.hasEmail,
+      hasPhone = filters.hasPhone,
+      hasNotes = filters.hasNotes,
+      onboardingStatuses = Set<ClientOnboardingStatus>.from(
+        filters.onboardingStatuses,
+      ),
+      hasFirstLogin = filters.hasFirstLogin,
+      hasPushToken = filters.hasPushToken,
+      loyaltyPointsMin = filters.loyaltyPointsMin,
+      loyaltyPointsMax = filters.loyaltyPointsMax,
+      loyaltyUpdatedSince = filters.loyaltyUpdatedSince,
+      totalSpentMin = filters.totalSpentMin,
+      totalSpentMax = filters.totalSpentMax,
+      totalSpentFrom = filters.totalSpentFrom,
+      totalSpentTo = filters.totalSpentTo,
+      usePaidAmount = filters.usePaidAmount,
+      hasOutstandingBalance = filters.hasOutstandingBalance,
+      lastPurchaseWithinDays = filters.lastPurchaseWithinDays,
+      lastPurchaseOlderThanDays = filters.lastPurchaseOlderThanDays,
+      includeSaleServiceIds = Set<String>.from(filters.includeSaleServiceIds),
+      excludeSaleServiceIds = Set<String>.from(filters.excludeSaleServiceIds),
+      includeSaleCategoryIds = Set<String>.from(filters.includeSaleCategoryIds),
+      excludeSaleCategoryIds = Set<String>.from(filters.excludeSaleCategoryIds),
+      onlyLastMinuteSales = filters.onlyLastMinuteSales,
+      upcomingAppointmentWithinDays = filters.upcomingAppointmentWithinDays,
+      upcomingAppointmentServiceIds = Set<String>.from(
+        filters.upcomingAppointmentServiceIds,
+      ),
+      upcomingAppointmentCategoryIds = Set<String>.from(
+        filters.upcomingAppointmentCategoryIds,
+      ),
+      completedAppointmentServiceIds = Set<String>.from(
+        filters.completedAppointmentServiceIds,
+      ),
+      completedAppointmentCategoryIds = Set<String>.from(
+        filters.completedAppointmentCategoryIds,
+      ),
+      completedAppointmentFrom = filters.completedAppointmentFrom,
+      completedAppointmentTo = filters.completedAppointmentTo,
+      lastCompletedWithinDays = filters.lastCompletedWithinDays,
+      lastCompletedOlderThanDays = filters.lastCompletedOlderThanDays,
+      lastCompletedServiceIds = Set<String>.from(
+        filters.lastCompletedServiceIds,
+      ),
+      lastCompletedCategoryIds = Set<String>.from(
+        filters.lastCompletedCategoryIds,
+      ),
+      hasActivePackages = filters.hasActivePackages,
+      hasPackagesWithRemainingSessions =
+          filters.hasPackagesWithRemainingSessions,
+      hasExpiredPackages = filters.hasExpiredPackages;
 
   String? salonId;
   String generalQuery;
@@ -232,6 +242,10 @@ class AdvancedSearchFiltersBuilder {
   int? upcomingAppointmentWithinDays;
   Set<String> upcomingAppointmentServiceIds;
   Set<String> upcomingAppointmentCategoryIds;
+  Set<String> completedAppointmentServiceIds;
+  Set<String> completedAppointmentCategoryIds;
+  DateTime? completedAppointmentFrom;
+  DateTime? completedAppointmentTo;
   int? lastCompletedWithinDays;
   int? lastCompletedOlderThanDays;
   Set<String> lastCompletedServiceIds;
@@ -283,6 +297,10 @@ class AdvancedSearchFiltersBuilder {
       upcomingAppointmentWithinDays: upcomingAppointmentWithinDays,
       upcomingAppointmentServiceIds: upcomingAppointmentServiceIds,
       upcomingAppointmentCategoryIds: upcomingAppointmentCategoryIds,
+      completedAppointmentServiceIds: completedAppointmentServiceIds,
+      completedAppointmentCategoryIds: completedAppointmentCategoryIds,
+      completedAppointmentFrom: completedAppointmentFrom,
+      completedAppointmentTo: completedAppointmentTo,
       lastCompletedWithinDays: lastCompletedWithinDays,
       lastCompletedOlderThanDays: lastCompletedOlderThanDays,
       lastCompletedServiceIds: lastCompletedServiceIds,

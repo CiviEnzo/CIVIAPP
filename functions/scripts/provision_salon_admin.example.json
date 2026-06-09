@@ -1,0 +1,34 @@
+{
+  "admins": [
+    {
+      "admin": {
+        "email": "admin3@civiapp.it",
+        "displayName": "Mario Rossi",
+        "temporaryPassword": "test2026",
+        "emailVerified": true
+      },
+      "salon": {
+        "idBase": "salon_enzo_ferrari",
+        "name": "Salone Enzo Ferrari",
+        "address": "Via Roma 1",
+        "city": "Milano",
+        "phone": "+390212345678",
+        "email": "admin3@civiapp.it",
+        "postalCode": "20121",
+        "description": "Salone pilota creato da provisioning interno.",
+        "isPublished": false,
+        "featureFlags": {
+          "clientOnlinePayments": true,
+          "clientPromotions": false,
+          "clientLastMinute": false
+        },
+        "clientRegistration": {
+          "accessMode": "approval",
+          "extraFields": []
+        }
+      },
+      "enabled": true,
+      "mustChangePassword": true
+    }
+  ]
+}

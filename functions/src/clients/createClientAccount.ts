@@ -8,6 +8,7 @@ interface CreateClientAccountPayload {
   salonId: string;
   clientId: string;
   displayName: string;
+  userId?: string;
 }
 
 function assertStringField(
@@ -20,6 +21,14 @@ function assertStringField(
   return value.trim();
 }
 
+function optionalStringField(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? undefined : trimmed;
+}
+
 export const createClientAccount = onCall({ region: 'europe-west3' }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Authentication is required.');
@@ -30,6 +39,7 @@ export const createClientAccount = onCall({ region: 'europe-west3' }, async (req
   const salonId = assertStringField(rawData.salonId, 'salonId');
   const clientId = assertStringField(rawData.clientId, 'clientId');
   const displayName = assertStringField(rawData.displayName, 'displayName');
+  const requestedUserId = optionalStringField(rawData.userId);
 
   const db = getFirestore();
   const auth = getAuth();
@@ -68,51 +78,96 @@ export const createClientAccount = onCall({ region: 'europe-west3' }, async (req
 
   let targetUid: string | undefined;
 
-  const existingByClient = await usersCollection
-    .where('clientId', '==', clientId)
-    .limit(1)
-    .get();
-  if (!existingByClient.empty) {
-    targetUid = existingByClient.docs[0].id;
+  if (requestedUserId) {
+    const targetSnapshot = await usersCollection.doc(requestedUserId).get();
+    if (!targetSnapshot.exists) {
+      throw new HttpsError(
+        'not-found',
+        'The requested client user profile was not found.',
+      );
+    }
+    const targetData = targetSnapshot.data() ?? {};
+    const targetEmail = typeof targetData.email === 'string'
+      ? targetData.email.trim().toLowerCase()
+      : '';
+    if (targetEmail && targetEmail !== email) {
+      throw new HttpsError(
+        'failed-precondition',
+        'The requested client user email does not match the client email.',
+      );
+    }
+    targetUid = requestedUserId;
   } else {
-    const existingByEmail = await usersCollection
-      .where('email', '==', email)
+    const existingByClient = await usersCollection
+      .where('clientId', '==', clientId)
       .limit(1)
       .get();
-    if (!existingByEmail.empty) {
-      targetUid = existingByEmail.docs[0].id;
+    if (!existingByClient.empty) {
+      targetUid = existingByClient.docs[0].id;
+    } else {
+      const existingByEmail = await usersCollection
+        .where('email', '==', email)
+        .limit(1)
+        .get();
+      if (!existingByEmail.empty) {
+        targetUid = existingByEmail.docs[0].id;
+      }
     }
   }
 
   let authUser = null;
-  try {
-    authUser = await auth.getUserByEmail(email);
-  } catch (error: unknown) {
-    if (error instanceof Error && 'code' in error && (error as { code: string }).code === 'auth/user-not-found') {
-      authUser = null;
-    } else {
-      throw new HttpsError('internal', `Unable to lookup auth user: ${(error as Error).message}`);
+  if (requestedUserId) {
+    try {
+      authUser = await auth.getUser(requestedUserId);
+    } catch (error: unknown) {
+      throw new HttpsError('internal', `Unable to lookup requested auth user: ${(error as Error).message}`);
+    }
+    const authEmail = typeof authUser.email === 'string'
+      ? authUser.email.trim().toLowerCase()
+      : '';
+    if (authEmail && authEmail !== email) {
+      throw new HttpsError(
+        'failed-precondition',
+        'The requested auth user email does not match the client email.',
+      );
+    }
+  } else {
+    try {
+      authUser = await auth.getUserByEmail(email);
+    } catch (error: unknown) {
+      if (error instanceof Error && 'code' in error && (error as { code: string }).code === 'auth/user-not-found') {
+        authUser = null;
+      } else {
+        throw new HttpsError('internal', `Unable to lookup auth user: ${(error as Error).message}`);
+      }
     }
   }
 
   let createdAuthUser = false;
 
   if (!authUser) {
-    const randomPasswordSeed = randomBytes(32).toString('base64').replace(/[^a-zA-Z0-9]/g, '');
-    const randomPassword = (randomPasswordSeed.length >= 12 ? randomPasswordSeed : `${Date.now()}TempUser`).slice(0, 16);
-    try {
-      authUser = await auth.createUser({
-        email,
-        password: randomPassword,
-        displayName,
-        emailVerified: false,
-      });
-      createdAuthUser = true;
-    } catch (error: unknown) {
-      if (error instanceof Error && 'code' in error && (error as { code: string }).code === 'auth/email-already-exists') {
-        authUser = await auth.getUserByEmail(email);
-      } else {
-        throw new HttpsError('internal', `Unable to create auth user: ${(error as Error).message}`);
+    if (requestedUserId) {
+      throw new HttpsError(
+        'not-found',
+        'The requested auth user was not found.',
+      );
+    } else {
+      const randomPasswordSeed = randomBytes(32).toString('base64').replace(/[^a-zA-Z0-9]/g, '');
+      const randomPassword = (randomPasswordSeed.length >= 12 ? randomPasswordSeed : `${Date.now()}TempUser`).slice(0, 16);
+      try {
+        authUser = await auth.createUser({
+          email,
+          password: randomPassword,
+          displayName,
+          emailVerified: false,
+        });
+        createdAuthUser = true;
+      } catch (error: unknown) {
+        if (error instanceof Error && 'code' in error && (error as { code: string }).code === 'auth/email-already-exists') {
+          authUser = await auth.getUserByEmail(email);
+        } else {
+          throw new HttpsError('internal', `Unable to create auth user: ${(error as Error).message}`);
+        }
       }
     }
   }

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:you_book/presentation/screens/auth/legal_links.dart';
 
 class ClientRegistrationScreen extends ConsumerStatefulWidget {
   const ClientRegistrationScreen({super.key});
@@ -28,6 +29,7 @@ class _ClientRegistrationScreenState
   bool _isPasswordObscured = true;
   bool _isConfirmObscured = true;
   bool _isLoading = false;
+  bool _hasAcceptedLegalTerms = false;
   final DateFormat _dateFormat = DateFormat('dd/MM/yyyy');
 
   @override
@@ -224,6 +226,14 @@ class _ClientRegistrationScreenState
                           return null;
                         },
                       ),
+                      const SizedBox(height: 16),
+                      LegalAcceptanceField(
+                        value: _hasAcceptedLegalTerms,
+                        enabled: !_isLoading,
+                        onChanged:
+                            (value) =>
+                                setState(() => _hasAcceptedLegalTerms = value),
+                      ),
                       const SizedBox(height: 24),
                       FilledButton.icon(
                         icon:
@@ -285,6 +295,7 @@ class _ClientRegistrationScreenState
             lastName: lastName,
             phone: phone.isEmpty ? null : phone,
             dateOfBirth: dateOfBirth,
+            acceptedLegalTerms: _hasAcceptedLegalTerms,
           );
       if (!mounted) {
         return;

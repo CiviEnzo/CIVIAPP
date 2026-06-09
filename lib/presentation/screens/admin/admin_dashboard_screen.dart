@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:collection/collection.dart';
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/app/theme_constants.dart';
+import 'package:you_book/data/models/app_user.dart';
 import 'package:you_book/data/repositories/app_data_state.dart';
 import 'package:you_book/domain/entities/client_app_movement.dart';
 import 'package:you_book/domain/entities/inventory_item.dart';
@@ -724,70 +725,6 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     await performSignOut(ref);
   }
 
-  Future<void> _showAdminAccountMenu() async {
-    final themeMode = ref.read(themeModeProvider);
-    final isDarkMode = themeMode == ThemeMode.dark;
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        final theme = Theme.of(dialogContext);
-        return AlertDialog(
-          title: const Text('Impostazioni account'),
-          contentPadding: const EdgeInsets.fromLTRB(0, 12, 0, 8),
-          content: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SwitchListTile.adaptive(
-                  secondary: Icon(
-                    isDarkMode
-                        ? Icons.dark_mode_rounded
-                        : Icons.light_mode_rounded,
-                  ),
-                  title: const Text('Tema scuro'),
-                  value: isDarkMode,
-                  onChanged: (value) {
-                    ref.read(themeModeProvider.notifier).setDarkEnabled(value);
-                    Navigator.of(dialogContext).pop();
-                  },
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: Icon(
-                    Icons.delete_forever_rounded,
-                    color: theme.colorScheme.error,
-                  ),
-                  title: const Text('Cancellazione account'),
-                  subtitle: const Text('Apri la pagina di conferma'),
-                  onTap: () {
-                    Navigator.of(dialogContext).pop();
-                    context.go('/eliminazione-account');
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.logout_rounded),
-                  title: const Text('Esci'),
-                  subtitle: const Text('Termina la sessione admin'),
-                  onTap: () {
-                    Navigator.of(dialogContext).pop();
-                    _handleSignOutRequest();
-                  },
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Chiudi'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final data = ref.watch(appDataProvider);
@@ -849,10 +786,20 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           final moduleBackground = theme.colorScheme.surfaceContainerLowest;
           final content = selectedModule.builder(context, ref, selectedSalonId);
           final showSalonSelector = selectedModule.id == 'salons';
+          final selectedSalon =
+              selectedSalonId == null
+                  ? null
+                  : salons.firstWhereOrNull(
+                    (salon) => salon.id == selectedSalonId,
+                  );
           final appointmentsToolbarHeight =
               appointmentsAppBarState == null
                   ? null
                   : (isLargeScreen ? kToolbarHeight : 118.0);
+          final endDrawerWidth =
+              constraints.maxWidth < 320
+                  ? constraints.maxWidth
+                  : math.min(420.0, constraints.maxWidth * 0.92);
 
           return Scaffold(
             key: _scaffoldKey,
@@ -872,6 +819,17 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                         ),
                       ),
                     ),
+            endDrawer: Drawer(
+              width: endDrawerWidth,
+              child: SafeArea(
+                child: _AdminAccountDrawer(
+                  selectedSalon: selectedSalon,
+                  salonCount: salons.length,
+                  onSignOut: _handleSignOutRequest,
+                  onDeleteAccount: () => context.go('/eliminazione-account'),
+                ),
+              ),
+            ),
             appBar: AppBar(
               toolbarHeight:
                   appointmentsToolbarHeight ??
@@ -1006,7 +964,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                   ),
                 IconButton(
                   tooltip: 'Impostazioni account',
-                  onPressed: () async => _showAdminAccountMenu(),
+                  onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
                   icon: const Icon(Icons.settings_rounded),
                 ),
               ],
@@ -1033,6 +991,394 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           );
         },
       ),
+    );
+  }
+}
+
+class _AdminAccountDrawer extends ConsumerWidget {
+  const _AdminAccountDrawer({
+    required this.selectedSalon,
+    required this.salonCount,
+    required this.onSignOut,
+    required this.onDeleteAccount,
+  });
+
+  final Salon? selectedSalon;
+  final int salonCount;
+  final Future<void> Function() onSignOut;
+  final VoidCallback onDeleteAccount;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final session = ref.watch(sessionControllerProvider);
+    final user = session.user;
+    final themeMode = ref.watch(themeModeProvider);
+    final isDarkMode = themeMode == ThemeMode.dark;
+    final displayName = _displayName(user);
+    final email = _trimmedOrNull(user?.email);
+    final activeSalonLabel =
+        selectedSalon?.name ??
+        (salonCount == 0 ? 'Nessun salone collegato' : 'Tutti i saloni');
+    final activeSalonDetail = _salonDetail(selectedSalon);
+    final assignedSalonsLabel =
+        salonCount == 1 ? '1 salone assegnato' : '$salonCount saloni assegnati';
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Account',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Chiudi impostazioni',
+              onPressed: () => Navigator.of(context).maybePop(),
+              icon: const Icon(Icons.close_rounded),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerHighest.withValues(alpha: 0.62),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: scheme.outlineVariant.withValues(alpha: 0.7),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 28,
+                      backgroundColor: scheme.primaryContainer,
+                      foregroundColor: scheme.onPrimaryContainer,
+                      child: Text(
+                        _initials(displayName),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: scheme.onPrimaryContainer,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            displayName,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Admin salone',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                _AdminAccountInfoRow(
+                  icon: Icons.alternate_email_rounded,
+                  label: 'Email',
+                  value: email ?? 'Non disponibile',
+                ),
+                const SizedBox(height: 12),
+                _AdminAccountInfoRow(
+                  icon: Icons.storefront_rounded,
+                  label: 'Salone attivo',
+                  value: activeSalonLabel,
+                  detail: activeSalonDetail,
+                ),
+                const SizedBox(height: 12),
+                _AdminAccountInfoRow(
+                  icon: Icons.business_center_rounded,
+                  label: 'Accesso',
+                  value: assignedSalonsLabel,
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        _AdminDrawerSectionLabel(label: 'Preferenze'),
+        const SizedBox(height: 8),
+        _AdminDrawerSurface(
+          child: SwitchListTile.adaptive(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            secondary: Icon(
+              isDarkMode ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+              color: scheme.primary,
+            ),
+            title: const Text('Tema scuro'),
+            subtitle: const Text('Applica il tema scuro alla dashboard'),
+            value: isDarkMode,
+            onChanged: ref.read(themeModeProvider.notifier).setDarkEnabled,
+          ),
+        ),
+        const SizedBox(height: 20),
+        _AdminDrawerSectionLabel(label: 'Sessione'),
+        const SizedBox(height: 8),
+        _AdminDrawerSurface(
+          child: _AdminDrawerTile(
+            icon: Icons.logout_rounded,
+            title: 'Esci',
+            subtitle: 'Termina la sessione amministratore',
+            onTap: () => _closeAndRun(context, onSignOut),
+          ),
+        ),
+        const SizedBox(height: 20),
+        _AdminDrawerSectionLabel(label: 'Avanzate'),
+        const SizedBox(height: 8),
+        _AdminDrawerSurface(
+          child: Theme(
+            data: theme.copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+              childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+              leading: Icon(
+                Icons.manage_accounts_rounded,
+                color: scheme.onSurfaceVariant,
+              ),
+              title: const Text('Gestione account'),
+              subtitle: const Text('Azioni sensibili e irreversibili'),
+              children: [
+                _AdminDrawerTile(
+                  icon: Icons.delete_outline_rounded,
+                  title: 'Eliminazione account',
+                  subtitle: 'Apri il flusso di conferma dedicato',
+                  iconColor: scheme.error,
+                  titleColor: scheme.error,
+                  onTap: () => _closeAndRun(context, onDeleteAccount),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  static Future<void> _closeAndRun(
+    BuildContext context,
+    FutureOr<void> Function() action,
+  ) async {
+    await Navigator.of(context).maybePop();
+    await action();
+  }
+
+  static String _displayName(AppUser? user) {
+    final displayName = _trimmedOrNull(user?.displayName);
+    if (displayName != null) {
+      return displayName;
+    }
+    final email = _trimmedOrNull(user?.email);
+    if (email != null && email.contains('@')) {
+      return email.split('@').first;
+    }
+    return 'Admin salone';
+  }
+
+  static String? _salonDetail(Salon? salon) {
+    if (salon == null) {
+      return null;
+    }
+    final parts = <String>[
+      if (salon.city.trim().isNotEmpty) salon.city.trim(),
+      if (salon.address.trim().isNotEmpty) salon.address.trim(),
+    ];
+    return parts.isEmpty ? null : parts.join(' - ');
+  }
+
+  static String? _trimmedOrNull(String? value) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      return null;
+    }
+    return trimmed;
+  }
+
+  static String _initials(String label) {
+    final parts = label
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .toList(growable: false);
+    if (parts.isEmpty) {
+      return 'A';
+    }
+    final first = parts.first.substring(0, 1).toUpperCase();
+    if (parts.length == 1) {
+      return first;
+    }
+    return '$first${parts.last.substring(0, 1).toUpperCase()}';
+  }
+}
+
+class _AdminAccountInfoRow extends StatelessWidget {
+  const _AdminAccountInfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.detail,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final String? detail;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: scheme.primary),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (detail != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  detail!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AdminDrawerSectionLabel extends StatelessWidget {
+  const _AdminDrawerSectionLabel({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Text(
+      label.toUpperCase(),
+      style: theme.textTheme.labelSmall?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+        fontWeight: FontWeight.w800,
+      ),
+    );
+  }
+}
+
+class _AdminDrawerSurface extends StatelessWidget {
+  const _AdminDrawerSurface({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.86),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.7)),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _AdminDrawerTile extends StatelessWidget {
+  const _AdminDrawerTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.iconColor,
+    this.titleColor,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final Color? iconColor;
+  final Color? titleColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final resolvedIconColor = iconColor ?? scheme.primary;
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: DecoratedBox(
+        decoration: BoxDecoration(
+          color: resolvedIconColor.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: SizedBox(
+          width: 40,
+          height: 40,
+          child: Icon(icon, color: resolvedIconColor, size: 22),
+        ),
+      ),
+      title: Text(
+        title,
+        style: theme.textTheme.bodyLarge?.copyWith(
+          color: titleColor,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      subtitle: Text(subtitle),
+      onTap: onTap,
     );
   }
 }

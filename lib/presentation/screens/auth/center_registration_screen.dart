@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/app/router_constants.dart';
+import 'package:you_book/presentation/screens/auth/legal_links.dart';
 
 class CenterRegistrationScreen extends ConsumerStatefulWidget {
   const CenterRegistrationScreen({super.key});
@@ -26,6 +27,7 @@ class _CenterRegistrationScreenState
   bool _isPasswordObscured = true;
   bool _isConfirmObscured = true;
   bool _isLoading = false;
+  bool _hasAcceptedLegalTerms = false;
 
   @override
   void dispose() {
@@ -244,6 +246,14 @@ class _CenterRegistrationScreenState
                           return null;
                         },
                       ),
+                      const SizedBox(height: 16),
+                      LegalAcceptanceField(
+                        value: _hasAcceptedLegalTerms,
+                        enabled: !_isLoading,
+                        onChanged:
+                            (value) =>
+                                setState(() => _hasAcceptedLegalTerms = value),
+                      ),
                       const SizedBox(height: 24),
                       FilledButton(
                         onPressed: _isLoading ? null : _register,
@@ -300,6 +310,7 @@ class _CenterRegistrationScreenState
             salonAddress: salonAddress,
             salonCity: salonCity,
             salonPhone: salonPhone,
+            acceptedLegalTerms: _hasAcceptedLegalTerms,
           );
       if (!mounted) return;
       await _resetLocalSession();
