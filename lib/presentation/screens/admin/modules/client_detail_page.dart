@@ -758,20 +758,23 @@ class _ProfileTab extends ConsumerWidget {
         LayoutBuilder(
           builder: (context, constraints) {
             final isWide = constraints.maxWidth >= 980;
-            final content = <Widget>[
-              Expanded(flex: 3, child: overviewSection),
-              SizedBox(width: isWide ? 16 : 0),
-              Expanded(flex: 2, child: const _BodyMapCard()),
-            ];
             if (isWide) {
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: content,
+                children: [
+                  Expanded(flex: 3, child: overviewSection),
+                  const SizedBox(width: 16),
+                  const Expanded(flex: 2, child: _BodyMapCard()),
+                ],
               );
             }
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [content[0], const SizedBox(height: 16), content[2]],
+              children: [
+                overviewSection,
+                const SizedBox(height: 16),
+                const _BodyMapCard(),
+              ],
             );
           },
         ),
@@ -9220,6 +9223,10 @@ class _BillingTab extends ConsumerWidget {
             subtitle: 'Residuo disponibile: ${currency.format(outstanding)}',
             outstandingAmount: outstanding,
             initialAmount: outstanding,
+            initialMethod:
+                sale.paymentMethod.isManualSelectable
+                    ? sale.paymentMethod
+                    : null,
             staff: staffOptions,
             initialStaffId: sale.staffId,
             staffName: saleStaffName,

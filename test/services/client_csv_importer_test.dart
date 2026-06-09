@@ -30,8 +30,8 @@ void main() {
 
     final second = result.candidates[1];
     expect(second.firstName, equals('Anna'));
-    expect(second.lastName, equals('Cliente'));
-    expect(second.hasWarnings, isTrue);
+    expect(second.lastName, isEmpty);
+    expect(second.hasWarnings, isFalse);
   });
 
   test('detects duplicate phone and email values', () {
@@ -58,13 +58,13 @@ void main() {
   });
 
   test('reports general issues when required columns are missing', () {
-    const csv = 'Nome;Mail\nMario Rossi;mario@example.com\n';
+    const csv = 'Nome;Note\nMario Rossi;Cliente fidelizzato\n';
     final bytes = Uint8List.fromList(utf8.encode(csv));
 
     final result = importer.parse(bytes);
 
     expect(
-      result.generalIssues.where((issue) => issue.message.contains('Telefono')),
+      result.generalIssues.where((issue) => issue.message.contains('Email')),
       isNotEmpty,
     );
     expect(result.candidates, isEmpty);

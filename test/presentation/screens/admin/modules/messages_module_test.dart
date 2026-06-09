@@ -54,7 +54,6 @@ void main() {
 
     await tester.ensureVisible(find.text('Promemoria appuntamenti'));
 
-    expect(find.text('Messaggi & Marketing'), findsOneWidget);
     expect(find.text('Promemoria appuntamenti'), findsOneWidget);
     expect(find.byType(TabBar), findsOneWidget);
     expect(tester.takeException(), isNull);

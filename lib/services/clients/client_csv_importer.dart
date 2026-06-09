@@ -366,9 +366,15 @@ class _ColumnMapping {
       }
     }
 
+    final hasExplicitLastName = lastNameIndex != null;
+    final resolvedFullNameIndex =
+        fullNameIndex ?? (!hasExplicitLastName ? firstNameIndex : null);
+    final resolvedFirstNameIndex =
+        !hasExplicitLastName && fullNameIndex == null ? null : firstNameIndex;
+
     return _ColumnMapping(
-      fullNameIndex: fullNameIndex,
-      firstNameIndex: firstNameIndex,
+      fullNameIndex: resolvedFullNameIndex,
+      firstNameIndex: resolvedFirstNameIndex,
       lastNameIndex: lastNameIndex,
       phoneIndex: phoneIndex,
       emailIndex: emailIndex,

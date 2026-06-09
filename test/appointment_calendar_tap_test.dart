@@ -248,7 +248,7 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(_kAppointmentCardKey),
-        matching: find.byIcon(Icons.check_circle_rounded),
+        matching: find.byIcon(Icons.check_rounded),
       ),
       findsOneWidget,
     );
@@ -257,11 +257,11 @@ void main() {
           .widget<Icon>(
             find.descendant(
               of: find.byKey(_kAppointmentCardKey),
-              matching: find.byIcon(Icons.check_circle_rounded),
+              matching: find.byIcon(Icons.check_rounded),
             ),
           )
           .size,
-      13,
+      16,
     );
     expect(
       find.descendant(
@@ -309,7 +309,7 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(_kAppointmentCardKey),
-        matching: find.byIcon(Icons.check_circle_rounded),
+        matching: find.byIcon(Icons.check_rounded),
       ),
       findsOneWidget,
     );
@@ -318,11 +318,11 @@ void main() {
           .widget<Icon>(
             find.descendant(
               of: find.byKey(_kAppointmentCardKey),
-              matching: find.byIcon(Icons.check_circle_rounded),
+              matching: find.byIcon(Icons.check_rounded),
             ),
           )
           .size,
-      13,
+      16,
     );
   });
 
@@ -346,7 +346,7 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(_kAppointmentCardKey),
-        matching: find.byIcon(Icons.check_circle_rounded),
+        matching: find.byIcon(Icons.warning_amber_rounded),
       ),
       findsOneWidget,
     );
@@ -452,7 +452,7 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(_kAppointmentCardKey),
-        matching: find.byIcon(Icons.check_circle_rounded),
+        matching: find.byIcon(Icons.check_rounded),
       ),
       findsOneWidget,
     );

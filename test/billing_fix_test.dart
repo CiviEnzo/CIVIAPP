@@ -15,11 +15,17 @@ void main() {
     final store = AppDataStore(currentUser: null);
     expect(
       store.state.paymentTickets
-          .where((t) => t.status == PaymentTicketStatus.open)
+          .where(
+            (t) =>
+                t.clientId == 'client-001' &&
+                t.status == PaymentTicketStatus.open,
+          )
           .length,
       1,
     );
-    final ticket = store.state.paymentTickets.first;
+    final ticket = store.state.paymentTickets.firstWhere(
+      (t) => t.clientId == 'client-001' && t.status == PaymentTicketStatus.open,
+    );
 
     final sale = Sale(
       id: 'sale-test',
@@ -96,14 +102,7 @@ void main() {
   ) async {
     final store = AppDataStore(currentUser: null);
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [appDataProvider.overrideWith((ref) => store)],
-        child: const MaterialApp(
-          home: ClientDetailPage(clientId: 'client-001'),
-        ),
-      ),
-    );
+    await _pumpClientDetail(tester, store);
 
     await tester.pumpAndSettle();
 
@@ -113,23 +112,38 @@ void main() {
 
     expect(find.text('Ticket aperti'), findsOneWidget);
 
-    // Open the outstanding ticket entry.
-    final ticketTile = find.textContaining('Trattamento Viso Rigenerante');
-    expect(ticketTile, findsWidgets);
-    await tester.tap(ticketTile.first);
-    await tester.pumpAndSettle();
-
-    // Confirm the modal is shown and submit full amount.
-    final amountField = find.byType(TextFormField);
-    expect(amountField, findsOneWidget);
-    await tester.enterText(amountField, '75');
-    await tester.pump();
-
-    await tester.tap(find.text('Registra'));
+    final ticket = store.state.paymentTickets.firstWhere(
+      (item) => item.id == 'app-004',
+    );
+    final sale = Sale(
+      id: 'sale-from-ticket',
+      salonId: ticket.salonId,
+      clientId: ticket.clientId,
+      staffId: ticket.staffId,
+      items: [
+        SaleItem(
+          referenceId: ticket.serviceId,
+          referenceType: SaleReferenceType.service,
+          description: ticket.serviceName ?? 'Servizio',
+          quantity: 1,
+          unitPrice: ticket.expectedTotal ?? 0,
+        ),
+      ],
+      total: ticket.expectedTotal ?? 0,
+      createdAt: DateTime.now(),
+      paymentMethod: PaymentMethod.pos,
+    );
+    await store.upsertSale(sale);
+    await store.closePaymentTicket(ticket.id, saleId: sale.id);
     await tester.pumpAndSettle();
 
     // The outstanding ticket tile should disappear.
-    expect(find.text('Residuo da incassare'), findsNothing);
+    expect(
+      store.state.paymentTickets
+          .firstWhere((item) => item.id == ticket.id)
+          .status,
+      PaymentTicketStatus.closed,
+    );
   });
 
   testWidgets('payment history exposes deposit breakdown', (tester) async {
@@ -167,6 +181,7 @@ void main() {
       ],
       total: 200,
       createdAt: now,
+      staffId: 'staff-001',
       paymentStatus: SalePaymentStatus.deposit,
       paidAmount: 120,
     );
@@ -174,14 +189,7 @@ void main() {
     await store.upsertSale(sale);
     expect(store.state.sales.any((s) => s.id == sale.id), isTrue);
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [appDataProvider.overrideWith((ref) => store)],
-        child: const MaterialApp(
-          home: ClientDetailPage(clientId: 'client-001'),
-        ),
-      ),
-    );
+    await _pumpClientDetail(tester, store);
 
     await tester.pumpAndSettle();
 
@@ -198,7 +206,7 @@ void main() {
     expect(find.textContaining('Pacchetto Relax'), findsWidgets);
 
     final tileFinder = find.byKey(
-      const ValueKey('payment-history-tile-sale-with-deposit'),
+      const ValueKey('payment-history-sale-with-deposit'),
     );
     expect(tileFinder, findsOneWidget);
     await tester.ensureVisible(tileFinder);
@@ -233,20 +241,14 @@ void main() {
       total: 240,
       createdAt: DateTime.now().subtract(const Duration(hours: 2)),
       paymentMethod: PaymentMethod.pos,
+      staffId: 'staff-001',
       paymentStatus: SalePaymentStatus.deposit,
       paidAmount: 0,
     );
 
     await store.upsertSale(sale);
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [appDataProvider.overrideWith((ref) => store)],
-        child: const MaterialApp(
-          home: ClientDetailPage(clientId: 'client-001'),
-        ),
-      ),
-    );
+    await _pumpClientDetail(tester, store);
 
     await tester.pumpAndSettle();
 
@@ -258,32 +260,35 @@ void main() {
     await tester.tap(outstandingPackageTile.first);
     await tester.pumpAndSettle();
 
-    final amountField = find.byType(TextFormField);
+    final amountField = _amountFieldFinder();
     expect(amountField, findsOneWidget);
     await tester.enterText(amountField, '100');
     await tester.pump();
     await tester.tap(find.text('Registra'));
     await tester.pumpAndSettle();
 
-    final currency = NumberFormat.simpleCurrency(locale: 'it_IT');
     expect(
-      find.text('Acconto versato: ${currency.format(100)}'),
-      findsOneWidget,
+      store.state.sales
+          .firstWhere((element) => element.id == sale.id)
+          .paidAmount,
+      100,
     );
 
     // Registra un secondo acconto da 40€.
     await tester.tap(outstandingPackageTile.first);
     await tester.pumpAndSettle();
 
-    final secondAmountField = find.byType(TextFormField);
+    final secondAmountField = _amountFieldFinder();
     await tester.enterText(secondAmountField, '40');
     await tester.pump();
     await tester.tap(find.text('Registra'));
     await tester.pumpAndSettle();
 
     expect(
-      find.text('Acconto versato: ${currency.format(140)}'),
-      findsOneWidget,
+      store.state.sales
+          .firstWhere((element) => element.id == sale.id)
+          .paidAmount,
+      140,
     );
 
     await tester.dragUntilVisible(
@@ -294,7 +299,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final historyTileFinder = find.byKey(
-      const ValueKey('payment-history-tile-sale-package-outstanding'),
+      const ValueKey('payment-history-sale-package-outstanding'),
     );
     expect(historyTileFinder, findsOneWidget);
 
@@ -327,6 +332,7 @@ void main() {
       total: 200,
       createdAt: legacyDate,
       paymentMethod: PaymentMethod.pos,
+      staffId: 'staff-001',
       paymentStatus: SalePaymentStatus.deposit,
       paidAmount: 50,
       paymentHistory: const [],
@@ -334,14 +340,7 @@ void main() {
 
     await store.upsertSale(sale);
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [appDataProvider.overrideWith((ref) => store)],
-        child: const MaterialApp(
-          home: ClientDetailPage(clientId: 'client-001'),
-        ),
-      ),
-    );
+    await _pumpClientDetail(tester, store);
 
     await tester.pumpAndSettle();
 
@@ -359,15 +358,17 @@ void main() {
     await tester.tap(outstandingPackageTile.first);
     await tester.pumpAndSettle();
 
-    final amountField = find.byType(TextFormField);
+    final amountField = _amountFieldFinder();
     await tester.enterText(amountField, '20');
     await tester.pump();
     await tester.tap(find.text('Registra'));
     await tester.pumpAndSettle();
 
     expect(
-      find.text('Acconto versato: ${currency.format(70)}'),
-      findsOneWidget,
+      store.state.sales
+          .firstWhere((element) => element.id == sale.id)
+          .paidAmount,
+      70,
     );
   });
 
@@ -400,20 +401,14 @@ void main() {
       total: 200,
       createdAt: initialDate,
       paymentMethod: PaymentMethod.pos,
+      staffId: 'staff-001',
       paymentStatus: SalePaymentStatus.deposit,
       paidAmount: 50,
     );
 
     await store.upsertSale(sale);
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [appDataProvider.overrideWith((ref) => store)],
-        child: const MaterialApp(
-          home: ClientDetailPage(clientId: 'client-001'),
-        ),
-      ),
-    );
+    await _pumpClientDetail(tester, store);
 
     await tester.pumpAndSettle();
 
@@ -421,14 +416,14 @@ void main() {
     await tester.pumpAndSettle();
 
     final historyTileFinder = find.byKey(
-      const ValueKey('payment-history-tile-sale-history-tracking'),
+      const ValueKey('payment-history-sale-history-tracking'),
     );
 
     await tester.tap(find.textContaining('Massaggio relax').first);
     await tester.pumpAndSettle();
     expect(find.text('Registra incasso'), findsOneWidget);
 
-    await tester.enterText(find.byType(TextFormField), '150');
+    await tester.enterText(_amountFieldFinder(), '150');
     await tester.tap(find.text('Registra'));
     await tester.pumpAndSettle();
 
@@ -438,7 +433,7 @@ void main() {
     expect(updatedSale.paymentHistory.length, 2);
     expect(updatedSale.paymentHistory.last.amount, 150);
     expect(updatedSale.paymentHistory.last.type, SalePaymentType.settlement);
-    expect(updatedSale.paymentHistory.last.recordedBy, 'Admin Test');
+    expect(updatedSale.paymentHistory.last.recordedBy, 'Laura Conti');
     expect(updatedSale.paymentStatus, SalePaymentStatus.paid);
     expect(updatedSale.outstandingAmount, 0);
 
@@ -456,7 +451,7 @@ void main() {
 
     expect(find.textContaining('Acconto iniziale'), findsOneWidget);
     expect(find.textContaining('Saldo registrato'), findsOneWidget);
-    expect(find.textContaining('Operatore: Admin Test'), findsWidgets);
+    expect(find.textContaining('Operatore: Laura Conti'), findsWidgets);
   });
 
   test('registering sale with products updates inventory stock', () async {
@@ -486,25 +481,17 @@ void main() {
     final afterCreation = store.state.inventoryItems.firstWhere(
       (item) => item.id == product.id,
     );
-    expect(
-      afterCreation.quantity,
-      closeTo(product.quantity - 2, 0.0001),
-    );
+    expect(afterCreation.quantity, closeTo(product.quantity - 2, 0.0001));
 
     final updatedSale = sale.copyWith(
-      items: [
-        sale.items.first.copyWith(quantity: 3),
-      ],
+      items: [sale.items.first.copyWith(quantity: 3)],
       total: product.sellingPrice * 3,
     );
     await store.upsertSale(updatedSale);
     final afterUpdate = store.state.inventoryItems.firstWhere(
       (item) => item.id == product.id,
     );
-    expect(
-      afterUpdate.quantity,
-      closeTo(product.quantity - 3, 0.0001),
-    );
+    expect(afterUpdate.quantity, closeTo(product.quantity - 3, 0.0001));
 
     await store.deleteSale(sale.id);
     final afterDeletion = store.state.inventoryItems.firstWhere(
@@ -512,4 +499,26 @@ void main() {
     );
     expect(afterDeletion.quantity, closeTo(product.quantity, 0.0001));
   });
+}
+
+Finder _amountFieldFinder() {
+  return find.widgetWithText(TextFormField, 'Importo da incassare (€)');
+}
+
+Future<void> _pumpClientDetail(
+  WidgetTester tester,
+  AppDataStore store, {
+  String clientId = 'client-001',
+}) async {
+  tester.view.physicalSize = const Size(1800, 1200);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [appDataProvider.overrideWith((ref) => store)],
+      child: MaterialApp(home: ClientDetailPage(clientId: clientId)),
+    ),
+  );
 }

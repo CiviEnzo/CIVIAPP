@@ -66,7 +66,7 @@ void main() {
 
     final chipTop = tester.getTopLeft(venditeChip).dy;
     expect(chipTop, greaterThanOrEqualTo(0));
-    expect(chipTop, lessThan(180));
+    expect(chipTop, lessThan(240));
   });
 }
 

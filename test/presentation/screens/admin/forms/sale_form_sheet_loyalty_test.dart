@@ -115,12 +115,12 @@ void main() {
       );
       expect(loyaltyField.controller?.text, '30');
 
-      await tester.tap(find.text('Conferma vendita'));
+      await _tapFilledButton(tester, 'Conferma vendita');
       await tester.pumpAndSettle();
 
-      expect(find.text('Riepilogo vendita'), findsOneWidget);
+      expect(find.text('Pagamenti'), findsOneWidget);
 
-      await tester.tap(find.text('Salva vendita'));
+      await _tapFilledButton(tester, 'Salva vendita');
       await tester.pumpAndSettle();
 
       expect(capturedSale, isNotNull);
@@ -195,18 +195,13 @@ void main() {
               initialItems: [initialItem],
               initialClientId: client.id,
               defaultSalonId: salon.id,
-              initialStaffId: equipment.id,
+              initialStaffId: operator.id,
             ),
           ),
         ),
       );
 
       await tester.pumpAndSettle();
-
-      expect(
-        find.text('VacuFIT (Macchinario)', skipOffstage: false),
-        findsOneWidget,
-      );
 
       await tester.tap(find.byType(DropdownButtonFormField<String>));
       await tester.pumpAndSettle();
@@ -222,12 +217,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Conferma vendita'));
+      await _tapFilledButton(tester, 'Conferma vendita');
       await tester.pumpAndSettle();
 
       expect(
         find.text('VacuFIT (Macchinario)', skipOffstage: false),
-        findsOneWidget,
+        findsNothing,
       );
 
       await tester.tap(find.byType(DropdownButtonFormField<String>));
@@ -236,7 +231,7 @@ void main() {
       expect(find.text('Giulia Rossi', skipOffstage: false), findsWidgets);
       expect(
         find.text('VacuFIT (Macchinario)', skipOffstage: false),
-        findsAtLeastNWidgets(1),
+        findsNothing,
       );
     },
   );
@@ -305,17 +300,17 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      expect(find.text('Riepilogo vendita'), findsNothing);
+      expect(find.text('Pagamenti'), findsNothing);
 
-      await tester.tap(find.text('Conferma vendita'));
+      await _tapFilledButton(tester, 'Conferma vendita');
       await tester.pumpAndSettle();
 
-      expect(find.text('Riepilogo vendita'), findsOneWidget);
+      expect(find.text('Pagamenti'), findsOneWidget);
       expect(find.text('Stato pagamento'), findsNothing);
       expect(find.text('Metodo di pagamento'), findsNothing);
       expect(find.text('REGISTRATO DA'), findsOneWidget);
 
-      await tester.tap(find.text('Salva vendita'));
+      await _tapFilledButton(tester, 'Salva vendita');
       await tester.pumpAndSettle();
 
       expect(capturedSale, isNotNull);
@@ -595,4 +590,10 @@ void main() {
       expect(find.text('Mario Rossi'), findsOneWidget);
     },
   );
+}
+
+Future<void> _tapFilledButton(WidgetTester tester, String label) async {
+  final button = find.widgetWithText(FilledButton, label);
+  await tester.ensureVisible(button);
+  await tester.tap(button);
 }
