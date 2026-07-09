@@ -135,6 +135,83 @@ void main() {
   );
 
   testWidgets(
+    'SaleFormSheet disables usable session toggle for completed appointment services',
+    (tester) async {
+      tester.view.physicalSize = const Size(1400, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final salon = Salon(
+        id: 'salon-1',
+        name: 'Salon Test',
+        address: 'Via Roma 1',
+        city: 'Roma',
+        phone: '+39000000000',
+        email: 'salon@test.com',
+      );
+
+      final client = Client(
+        id: 'client-1',
+        salonId: salon.id,
+        firstName: 'Mario',
+        lastName: 'Rossi',
+        phone: '+393400000000',
+      );
+
+      final operator = StaffMember(
+        id: 'staff-1',
+        salonId: salon.id,
+        firstName: 'Giulia',
+        lastName: 'Rossi',
+      );
+
+      final initialItem = SaleItem(
+        referenceId: 'service-1',
+        referenceType: SaleReferenceType.service,
+        description: 'Servizio erogato',
+        quantity: 1,
+        unitPrice: 50,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SaleFormSheet(
+              salons: [salon],
+              clients: [client],
+              staff: [operator],
+              services: const [],
+              packages: const [],
+              inventoryItems: const [],
+              sales: const [],
+              initialItems: [initialItem],
+              initialClientId: client.id,
+              defaultSalonId: salon.id,
+              initialStaffId: operator.id,
+              lockInitialServiceSessionToggle: true,
+            ),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Sessione utilizzabile'), findsOneWidget);
+      expect(
+        find.text(
+          'Servizio gia erogato: non puo creare una sessione disponibile.',
+        ),
+        findsOneWidget,
+      );
+
+      final switchWidget = tester.widget<Switch>(find.byType(Switch));
+      expect(switchWidget.value, isFalse);
+      expect(switchWidget.onChanged, isNull);
+    },
+  );
+
+  testWidgets(
     'SaleFormSheet allows equipment as service provider but not as recorder',
     (tester) async {
       tester.view.physicalSize = const Size(1400, 1600);

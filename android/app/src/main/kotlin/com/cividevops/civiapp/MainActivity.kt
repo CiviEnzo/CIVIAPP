@@ -1,4 +1,4 @@
-package com.civiapp.youbook
+package com.cividevops.civiapp
 
 import android.app.NotificationChannel
 import android.app.NotificationManager

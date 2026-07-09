@@ -3748,7 +3748,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
 
     return SafeArea(
       child: ListView.separated(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
         itemBuilder: (context, index) => cards[index],
         separatorBuilder: (_, __) => const SizedBox(height: 16),
         itemCount: cards.length,

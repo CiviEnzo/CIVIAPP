@@ -110,6 +110,7 @@ class SaleFormSheet extends StatefulWidget {
     this.initialStaffId,
     this.initialSaleId,
     this.lockServiceOperator = false,
+    this.lockInitialServiceSessionToggle = false,
     this.showSheetHeader = true,
     this.serviceLinesCreateSessionsByDefault = false,
     this.onSaved,
@@ -136,6 +137,7 @@ class SaleFormSheet extends StatefulWidget {
   final String? initialStaffId;
   final String? initialSaleId;
   final bool lockServiceOperator;
+  final bool lockInitialServiceSessionToggle;
   final bool showSheetHeader;
   final bool serviceLinesCreateSessionsByDefault;
   final void Function(Sale sale)? onSaved;
@@ -1698,6 +1700,7 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
             Icons.confirmation_number_outlined,
@@ -1706,19 +1709,38 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              'Sessione utilizzabile',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Sessione utilizzabile',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (line.serviceSessionToggleLocked &&
+                    line.serviceSessionToggleLockMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      line.serviceSessionToggleLockMessage!,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           Switch.adaptive(
             value: line.serviceCreatesSession,
-            onChanged: (value) {
-              line.serviceCreatesSession = value;
-              _handleLineChanged();
-            },
+            onChanged:
+                line.serviceSessionToggleLocked
+                    ? null
+                    : (value) {
+                      line.serviceCreatesSession = value;
+                      _handleLineChanged();
+                    },
           ),
         ],
       ),
@@ -3216,6 +3238,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
     _PackageMetadata? packageMetadata,
     bool serviceCreatesSession = false,
     int? serviceRemainingSessions,
+    bool serviceSessionToggleLocked = false,
+    String? serviceSessionToggleLockMessage,
   }) {
     String formatQuantity(double value) {
       if (value % 1 == 0) {
@@ -3237,6 +3261,8 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       packageMetadata: packageMetadata,
       serviceCreatesSession: serviceCreatesSession,
       serviceRemainingSessions: serviceRemainingSessions,
+      serviceSessionToggleLocked: serviceSessionToggleLocked,
+      serviceSessionToggleLockMessage: serviceSessionToggleLockMessage,
     );
   }
 
@@ -3286,6 +3312,16 @@ class _SaleFormSheetState extends State<SaleFormSheet> {
       serviceCreatesSession: item.isServiceSessionCredit,
       serviceRemainingSessions:
           item.isServiceSessionCredit ? item.remainingSessions : null,
+      serviceSessionToggleLocked:
+          widget.lockInitialServiceSessionToggle &&
+          item.referenceType == SaleReferenceType.service &&
+          !item.isServiceSessionCredit,
+      serviceSessionToggleLockMessage:
+          widget.lockInitialServiceSessionToggle &&
+                  item.referenceType == SaleReferenceType.service &&
+                  !item.isServiceSessionCredit
+              ? 'Servizio gia erogato: non puo creare una sessione disponibile.'
+              : null,
     );
   }
 
@@ -4279,6 +4315,8 @@ class _SaleLineDraft {
     this.packageMetadata,
     this.serviceCreatesSession = false,
     this.serviceRemainingSessions,
+    this.serviceSessionToggleLocked = false,
+    this.serviceSessionToggleLockMessage,
   });
 
   final String id;
@@ -4291,6 +4329,8 @@ class _SaleLineDraft {
   final _PackageMetadata? packageMetadata;
   bool serviceCreatesSession;
   final int? serviceRemainingSessions;
+  final bool serviceSessionToggleLocked;
+  final String? serviceSessionToggleLockMessage;
 
   void dispose() {
     descriptionController.dispose();

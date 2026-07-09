@@ -37,6 +37,7 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
     for (final section in ReportAnalyticsSection.values) section: GlobalKey(),
   };
   bool _restoredFromQuery = false;
+  String? _lastReportQuerySignature;
   bool _isExportingPdf = false;
   final Set<ReportExportDataset> _exportingDatasets = <ReportExportDataset>{};
   bool _exportingAllCsv = false;
@@ -57,6 +58,7 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final routerState = GoRouterState.of(context);
+    final reportQuerySignature = _reportQuerySignature(routerState.uri);
     final restoredFilters = ReportFilters.fromUri(
       routerState.uri,
       defaultSalonId: widget.salonId ?? _filters.salonId,
@@ -69,8 +71,14 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
       _filters = restoredFilters;
       _activeTab = restoredTab;
       _restoredFromQuery = true;
+      _lastReportQuerySignature = reportQuerySignature;
       return;
     }
+
+    if (_lastReportQuerySignature == reportQuerySignature) {
+      return;
+    }
+    _lastReportQuerySignature = reportQuerySignature;
 
     if (_filters != restoredFilters || _activeTab != restoredTab) {
       setState(() {
@@ -349,7 +357,9 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 180),
             child: KeyedSubtree(
-              key: ValueKey<String>('reports_${_activeTab.name}'),
+              key: ValueKey<String>(
+                'reports_${_activeTab.name}_${_filters.hashCode}',
+              ),
               child: body,
             ),
           ),
@@ -1253,6 +1263,21 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
           nextParams.isEmpty ? null : Map<String, dynamic>.from(nextParams),
     );
     router.replace(updatedUri.toString());
+  }
+
+  static String _reportQuerySignature(Uri uri) {
+    final entries =
+        uri.queryParameters.entries
+            .where((entry) => entry.key.startsWith(ReportsQueryKeys.prefix))
+            .toList()
+          ..sort((a, b) => a.key.compareTo(b.key));
+    return entries
+        .map(
+          (entry) =>
+              '${Uri.encodeQueryComponent(entry.key)}='
+              '${Uri.encodeQueryComponent(entry.value)}',
+        )
+        .join('&');
   }
 
   Future<void> _exportExecutivePdf(ReportsSnapshot snapshot) async {
@@ -2773,6 +2798,7 @@ class _DropdownField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final field = DropdownButtonFormField<String?>(
+      key: ValueKey<String>('reports_dropdown_${label}_${value ?? 'all'}'),
       initialValue: value,
       items: items,
       onChanged: items.length > 1 ? onChanged : null,

@@ -14,6 +14,9 @@ class SalonProfileSheet extends StatefulWidget {
 }
 
 class _SalonProfileSheetState extends State<SalonProfileSheet> {
+  late TextEditingController _name;
+  late TextEditingController _phone;
+  late TextEditingController _email;
   late TextEditingController _address;
   late TextEditingController _city;
   late TextEditingController _postalCode;
@@ -27,6 +30,9 @@ class _SalonProfileSheetState extends State<SalonProfileSheet> {
   void initState() {
     super.initState();
     final salon = widget.salon;
+    _name = TextEditingController(text: salon.name);
+    _phone = TextEditingController(text: salon.phone);
+    _email = TextEditingController(text: salon.email);
     _address = TextEditingController(text: salon.address);
     _city = TextEditingController(text: salon.city);
     _postalCode = TextEditingController(text: salon.postalCode ?? '');
@@ -42,6 +48,9 @@ class _SalonProfileSheetState extends State<SalonProfileSheet> {
 
   @override
   void dispose() {
+    _name.dispose();
+    _phone.dispose();
+    _email.dispose();
     _address.dispose();
     _city.dispose();
     _postalCode.dispose();
@@ -53,6 +62,18 @@ class _SalonProfileSheetState extends State<SalonProfileSheet> {
   }
 
   void _submit() {
+    final name = _name.text.trim();
+    if (name.isEmpty) {
+      _showError('Inserisci il nome del salone.');
+      return;
+    }
+
+    final email = _email.text.trim();
+    if (email.isNotEmpty && !_isValidEmail(email)) {
+      _showError('Inserisci un indirizzo email valido.');
+      return;
+    }
+
     double? latitude;
     if (_latitude.text.trim().isNotEmpty) {
       latitude = double.tryParse(_latitude.text.trim().replaceAll(',', '.'));
@@ -72,6 +93,9 @@ class _SalonProfileSheetState extends State<SalonProfileSheet> {
     }
 
     final updated = widget.salon.copyWith(
+      name: name,
+      phone: _phone.text.trim(),
+      email: email,
       address: _address.text.trim(),
       city: _city.text.trim(),
       postalCode:
@@ -87,6 +111,10 @@ class _SalonProfileSheetState extends State<SalonProfileSheet> {
     );
 
     Navigator.of(context).pop(updated);
+  }
+
+  bool _isValidEmail(String value) {
+    return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value);
   }
 
   void _showError(String message) {
@@ -194,6 +222,25 @@ class _SalonProfileSheetState extends State<SalonProfileSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          TextField(
+            controller: _name,
+            decoration: const InputDecoration(labelText: 'Nome salone'),
+            textCapitalization: TextCapitalization.words,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _phone,
+            decoration: const InputDecoration(labelText: 'Telefono'),
+            keyboardType: TextInputType.phone,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _email,
+            decoration: const InputDecoration(labelText: 'Email'),
+            keyboardType: TextInputType.emailAddress,
+            textCapitalization: TextCapitalization.none,
+          ),
+          const SizedBox(height: 12),
           TextField(
             controller: _address,
             decoration: const InputDecoration(

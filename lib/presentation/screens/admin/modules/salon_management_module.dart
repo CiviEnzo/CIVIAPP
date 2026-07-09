@@ -5,9 +5,7 @@ import 'package:you_book/data/repositories/app_data_state.dart';
 import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/salon_setup_progress.dart';
-import 'package:you_book/domain/entities/user_role.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
-import 'package:you_book/presentation/screens/admin/forms/salon_create_essential_dialog.dart';
 import 'package:you_book/presentation/screens/admin/forms/salon_profile_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/salon_operations_sheet.dart';
 import 'package:you_book/presentation/screens/admin/forms/salon_client_registration_sheet.dart';
@@ -22,13 +20,57 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-class SalonManagementModule extends ConsumerWidget {
+class SalonManagementModule extends ConsumerStatefulWidget {
   const SalonManagementModule({super.key, this.selectedSalonId});
 
   final String? selectedSalonId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SalonManagementModule> createState() =>
+      _SalonManagementModuleState();
+}
+
+class _SalonManagementModuleState extends ConsumerState<SalonManagementModule> {
+  String? _pendingSalonId;
+  String? _pendingSalonName;
+  Timer? _pendingClearTimer;
+
+  @override
+  void dispose() {
+    _pendingClearTimer?.cancel();
+    super.dispose();
+  }
+
+  void _handleSalonSelected(Salon salon) {
+    final currentSalonId = ref.read(sessionControllerProvider).selectedSalonId;
+    if (currentSalonId == salon.id && _pendingSalonId == null) {
+      return;
+    }
+
+    _pendingClearTimer?.cancel();
+    setState(() {
+      _pendingSalonId = salon.id;
+      _pendingSalonName = salon.name;
+    });
+    ref.read(sessionControllerProvider.notifier).setSalon(salon.id);
+
+    _pendingClearTimer = Timer(const Duration(milliseconds: 900), () {
+      if (!mounted) {
+        return;
+      }
+      final selected = ref.read(sessionControllerProvider).selectedSalonId;
+      if (selected != salon.id || _pendingSalonId != salon.id) {
+        return;
+      }
+      setState(() {
+        _pendingSalonId = null;
+        _pendingSalonName = null;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final session = ref.watch(sessionControllerProvider);
     final data = ref.watch(appDataProvider);
     final theme = Theme.of(context);
@@ -58,11 +100,6 @@ class SalonManagementModule extends ConsumerWidget {
             : allSalons;
 
     if (salons.isEmpty) {
-      if (session.selectedSalonId != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          ref.read(sessionControllerProvider.notifier).setSalon(null);
-        });
-      }
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -70,12 +107,6 @@ class SalonManagementModule extends ConsumerWidget {
             Text(
               'Nessun salone configurato',
               style: theme.textTheme.titleMedium,
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: () => _startCreateFlow(context, ref),
-              icon: const Icon(Icons.add_business_rounded),
-              label: const Text('Crea salone'),
             ),
           ],
         ),
@@ -98,41 +129,41 @@ class SalonManagementModule extends ConsumerWidget {
       return null;
     }
 
-    final currentSalonId = session.selectedSalonId;
-    String? effectiveSalonId = currentSalonId ?? selectedSalonId;
-    final matchingSalon = findSalonById(effectiveSalonId);
-
-    if (matchingSalon != null) {
-      effectiveSalonId = matchingSalon.id;
-      if (matchingSalon.id != currentSalonId) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          ref
-              .read(sessionControllerProvider.notifier)
-              .setSalon(matchingSalon.id);
-        });
-      }
-    } else if (effectiveSalonId != null) {
-      final fallbackId = salons.isNotEmpty ? salons.first.id : null;
-      effectiveSalonId = fallbackId;
-      if (fallbackId != currentSalonId) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          ref.read(sessionControllerProvider.notifier).setSalon(fallbackId);
-        });
-      }
-    } else {
-      effectiveSalonId = salons.first.id;
-      if (effectiveSalonId != currentSalonId) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          ref
-              .read(sessionControllerProvider.notifier)
-              .setSalon(effectiveSalonId);
-        });
-      }
+    bool hasSalonAccess(String salonId) {
+      final trimmed = salonId.trim();
+      return !shouldFilterBySalonIds ||
+          rawSalonIdSet.contains(salonId) ||
+          (trimmed.isNotEmpty && normalizedSalonIds.contains(trimmed));
     }
+
+    final activePendingSalonId =
+        _pendingSalonId == null ||
+                session.selectedSalonId == null ||
+                session.selectedSalonId == _pendingSalonId
+            ? _pendingSalonId
+            : null;
+    final requestedSalonId =
+        activePendingSalonId ??
+        session.selectedSalonId ??
+        widget.selectedSalonId;
+    final matchingSalon = findSalonById(requestedSalonId);
+    final shouldWaitForRequested =
+        requestedSalonId != null &&
+        matchingSalon == null &&
+        hasSalonAccess(requestedSalonId);
+    final effectiveSalonId =
+        matchingSalon?.id ??
+        (shouldWaitForRequested ? requestedSalonId : salons.first.id);
     final selected =
-        effectiveSalonId == null
-            ? salons
+        matchingSalon != null
+            ? <Salon>[matchingSalon]
+            : shouldWaitForRequested
+            ? const <Salon>[]
             : salons.where((salon) => salon.id == effectiveSalonId).toList();
+    final isSwitchingSalon =
+        activePendingSalonId != null || shouldWaitForRequested;
+    final switchingSalonName =
+        _pendingSalonName ?? matchingSalon?.name ?? requestedSalonId;
 
     final screenWidth = MediaQuery.of(context).size.width;
     final isCompactLayout = screenWidth < 720;
@@ -148,19 +179,18 @@ class SalonManagementModule extends ConsumerWidget {
         bottomPadding,
       ),
       children: [
-        _SalonModuleHeader(
-          compact: isCompactLayout,
-          onCreateSalon: () => _startCreateFlow(context, ref),
-        ),
+        const _SalonModuleHeader(),
         SizedBox(height: isCompactLayout ? 18 : 24),
         _SalonTabsBar(
           salons: salons,
           selectedSalonId: effectiveSalonId,
-          onSelected:
-              (salonId) => ref
-                  .read(sessionControllerProvider.notifier)
-                  .setSalon(salonId),
+          pendingSalonId: isSwitchingSalon ? effectiveSalonId : null,
+          onSelected: _handleSalonSelected,
         ),
+        if (isSwitchingSalon) ...[
+          const SizedBox(height: 12),
+          _SalonSwitchingNotice(salonName: switchingSalonName),
+        ],
         SizedBox(height: isCompactLayout ? 16 : 20),
         for (final salon in selected) ...[
           _SalonDashboard(salon: salon),
@@ -172,39 +202,13 @@ class SalonManagementModule extends ConsumerWidget {
 }
 
 class _SalonModuleHeader extends StatelessWidget {
-  const _SalonModuleHeader({
-    required this.compact,
-    required this.onCreateSalon,
-  });
-
-  final bool compact;
-  final VoidCallback onCreateSalon;
+  const _SalonModuleHeader();
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final action = FilledButton.icon(
-      onPressed: onCreateSalon,
-      icon: const Icon(Icons.add_rounded, size: 18),
-      label: const Text('Aggiungi Salone'),
-      style: FilledButton.styleFrom(
-        padding: EdgeInsets.symmetric(
-          horizontal: compact ? 18 : 22,
-          vertical: compact ? 16 : 18,
-        ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        textStyle: theme.textTheme.titleSmall?.copyWith(
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-
-    return AdminResponsiveHeader(
+    return const AdminResponsiveHeader(
       title: 'Saloni',
       subtitle: 'Gestione e configurazione saloni',
-      stackBreakpoint: kAdminStackBreakpoint,
-      trailing: action,
-      trailingFullWidthOnStack: compact,
     );
   }
 }
@@ -308,12 +312,14 @@ class _SalonTabsBar extends StatelessWidget {
   const _SalonTabsBar({
     required this.salons,
     required this.selectedSalonId,
+    required this.pendingSalonId,
     required this.onSelected,
   });
 
   final List<Salon> salons;
   final String? selectedSalonId;
-  final ValueChanged<String> onSelected;
+  final String? pendingSalonId;
+  final ValueChanged<Salon> onSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -334,13 +340,15 @@ class _SalonTabsBar extends StatelessWidget {
         children:
             salons.map((salon) {
               final isSelected = selectedSalonId == salon.id;
+              final isPending = pendingSalonId == salon.id;
               final foreground =
                   isSelected
                       ? theme.colorScheme.onPrimary
                       : theme.colorScheme.onSurface;
               return InkWell(
+                key: ValueKey('salon_tab_${salon.id}'),
                 borderRadius: BorderRadius.circular(14),
-                onTap: () => onSelected(salon.id),
+                onTap: () => onSelected(salon),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 180),
                   padding: const EdgeInsets.symmetric(
@@ -375,6 +383,17 @@ class _SalonTabsBar extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      if (isPending) ...[
+                        SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: foreground,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
                       Icon(
                         Icons.storefront_rounded,
                         size: 16,
@@ -393,6 +412,75 @@ class _SalonTabsBar extends StatelessWidget {
                 ),
               );
             }).toList(),
+      ),
+    );
+  }
+}
+
+class _SalonSwitchingNotice extends StatelessWidget {
+  const _SalonSwitchingNotice({this.salonName});
+
+  final String? salonName;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final name = salonName?.trim();
+    final targetLabel =
+        name == null || name.isEmpty ? 'il salone selezionato' : name;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.20)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.2,
+                    color: scheme.onPrimaryContainer,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Cambio salone in corso',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: scheme.onPrimaryContainer,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Sto caricando $targetLabel.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onPrimaryContainer.withValues(alpha: 0.82),
+              ),
+            ),
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                minHeight: 3,
+                color: scheme.primary,
+                backgroundColor: scheme.primary.withValues(alpha: 0.18),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2560,40 +2648,4 @@ IconData _statusIcon(SalonStatus status) {
     case SalonStatus.archived:
       return Icons.inventory_2_rounded;
   }
-}
-
-Future<void> _startCreateFlow(BuildContext context, WidgetRef ref) async {
-  final created = await showDialog<Salon>(
-    context: context,
-    barrierDismissible: false,
-    builder: (ctx) => const SalonCreateEssentialDialog(),
-  );
-  if (created == null) {
-    return;
-  }
-
-  final store = ref.read(appDataProvider.notifier);
-  await store.upsertSalon(created);
-  await store.initializeSalonSetupProgress(salonId: created.id);
-
-  final session = ref.read(sessionControllerProvider);
-  final currentUser = session.user;
-  if (currentUser != null &&
-      currentUser.role == UserRole.admin &&
-      !currentUser.salonIds.contains(created.id)) {
-    final updatedUser = currentUser.copyWith(
-      salonIds: [...currentUser.salonIds, created.id],
-    );
-    ref.read(sessionControllerProvider.notifier).updateUser(updatedUser);
-  }
-
-  ref.read(sessionControllerProvider.notifier).setSalon(created.id);
-
-  if (!context.mounted) return;
-
-  await showDialog<void>(
-    context: context,
-    barrierDismissible: false,
-    builder: (ctx) => SalonSetupChecklistDialog(salonId: created.id),
-  );
 }

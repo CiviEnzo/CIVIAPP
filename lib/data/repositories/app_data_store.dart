@@ -1335,6 +1335,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
     }
 
     final aggregated = <String, T>{};
+    final initializedDocIds = <String>{};
     final subscriptions = <StreamSubscription>[];
 
     void emit() {
@@ -1351,17 +1352,19 @@ class AppDataStore extends StateNotifier<AppDataState> {
     for (final docId in normalizedIds) {
       final reference = firestore.collection(collectionPath).doc(docId);
       final subscription = _listenDocument<T>(reference, fromDoc, (item) {
+        initializedDocIds.add(docId);
         if (item == null) {
           aggregated.remove(docId);
         } else {
           aggregated[docId] = item;
         }
-        emit();
+        if (initializedDocIds.length == normalizedIds.length) {
+          emit();
+        }
       });
       subscriptions.add(subscription);
     }
 
-    emit();
     return subscriptions;
   }
 
@@ -1909,6 +1912,9 @@ class AppDataStore extends StateNotifier<AppDataState> {
       fallback: source,
       update:
           (current) => current.copyWith(
+            name: source.name,
+            phone: source.phone,
+            email: source.email,
             address: source.address,
             city: source.city,
             postalCode: source.postalCode,
@@ -1927,14 +1933,20 @@ class AppDataStore extends StateNotifier<AppDataState> {
     return _updateSalonSection(
       salonId: salonId,
       fallback: source,
-      update:
-          (current) => current.copyWith(
-            status: source.status,
-            isPublished: source.isPublished,
-            showPublicCatalog: source.showPublicCatalog,
-            schedule: source.schedule,
-            closures: source.closures,
-          ),
+      update: (current) {
+        final nextStatus =
+            current.status == SalonStatus.archived ||
+                    source.status == SalonStatus.archived
+                ? current.status
+                : source.status;
+        return current.copyWith(
+          status: nextStatus,
+          isPublished: source.isPublished,
+          showPublicCatalog: source.showPublicCatalog,
+          schedule: source.schedule,
+          closures: source.closures,
+        );
+      },
     );
   }
 
@@ -3850,7 +3862,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
   }
 
   int _nullableDateSortValue(DateTime? value) {
-    return value?.millisecondsSinceEpoch ?? 0x7fffffffffffffff;
+    return value?.millisecondsSinceEpoch ?? 8640000000000000;
   }
 
   int _nullableClientNumberSortValue(String? value) {

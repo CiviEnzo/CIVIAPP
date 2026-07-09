@@ -132,13 +132,17 @@ class _ClientAppMovementsModuleState
           selectedTypes: _selectedTypes,
           onRangeChanged: _handleRangeChanged,
           onToggleType: _handleToggleType,
+          onSelectAllTypes: _handleSelectAllTypes,
           searchController: _searchController,
         ),
         const SizedBox(height: 16),
         Expanded(
           child:
               filtered.isEmpty
-                  ? _EmptyMovementsState(searchQuery: query, range: _range)
+                  ? _EmptyMovementsState(
+                    searchQuery: query,
+                    hasTypeSelection: _selectedTypes.isNotEmpty,
+                  )
                   : ListView.builder(
                     padding: const EdgeInsets.only(bottom: 24),
                     itemCount: sortedDays.length,
@@ -181,11 +185,14 @@ class _ClientAppMovementsModuleState
       } else {
         _selectedTypes.remove(type);
       }
-      if (_selectedTypes.isEmpty) {
-        _selectedTypes = Set<ClientAppMovementType>.from(
-          ClientAppMovementType.values,
-        );
-      }
+    });
+  }
+
+  void _handleSelectAllTypes() {
+    setState(() {
+      _selectedTypes = Set<ClientAppMovementType>.from(
+        ClientAppMovementType.values,
+      );
     });
   }
 
@@ -698,16 +705,6 @@ class _ClientAppMovementsModuleState
     }
   }
 
-  String _movementSignature(
-    ClientAppMovementType type, {
-    required String clientId,
-    String? appointmentId,
-    String? saleId,
-    String? lastMinuteSlotId,
-  }) {
-    return '${type.name}::$clientId::${appointmentId ?? ''}::${saleId ?? ''}::${lastMinuteSlotId ?? ''}';
-  }
-
   List<String> _resolveServiceNames({
     Appointment? appointment,
     required Map<String, Service> servicesById,
@@ -877,7 +874,7 @@ class _ClientAppMovementsModuleState
     final serviceNames =
         appointment.serviceAllocations
             .map((allocation) => servicesById[allocation.serviceId]?.name)
-            .whereNotNull()
+            .nonNulls
             .toList();
     final staff = staffById[appointment.staffId];
     final client = clientsById[appointment.clientId];
@@ -1316,13 +1313,14 @@ class _MovementDetail {
   final DateTime? agendaTarget;
 }
 
-class _FiltersBar extends StatefulWidget {
+class _FiltersBar extends StatelessWidget {
   const _FiltersBar({
     required this.range,
     required this.counts,
     required this.selectedTypes,
     required this.onRangeChanged,
     required this.onToggleType,
+    required this.onSelectAllTypes,
     required this.searchController,
   });
 
@@ -1331,70 +1329,12 @@ class _FiltersBar extends StatefulWidget {
   final Set<ClientAppMovementType> selectedTypes;
   final void Function(DateTimeRange) onRangeChanged;
   final void Function(ClientAppMovementType, bool) onToggleType;
+  final VoidCallback onSelectAllTypes;
   final TextEditingController searchController;
-
-  @override
-  State<_FiltersBar> createState() => _FiltersBarState();
-}
-
-class _FiltersBarState extends State<_FiltersBar> {
-  final ScrollController _typesScrollController = ScrollController();
-  bool _canScrollLeft = false;
-  bool _canScrollRight = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _typesScrollController.addListener(_updateArrowState);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _updateArrowState());
-  }
-
-  @override
-  void didUpdateWidget(covariant _FiltersBar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _updateArrowState());
-  }
-
-  @override
-  void dispose() {
-    _typesScrollController.removeListener(_updateArrowState);
-    _typesScrollController.dispose();
-    super.dispose();
-  }
-
-  void _updateArrowState() {
-    if (!_typesScrollController.hasClients || !mounted) return;
-    final position = _typesScrollController.position;
-    final canLeft = position.pixels > 0.5;
-    final canRight = position.pixels < (position.maxScrollExtent - 0.5);
-    if (canLeft != _canScrollLeft || canRight != _canScrollRight) {
-      setState(() {
-        _canScrollLeft = canLeft;
-        _canScrollRight = canRight;
-      });
-    }
-  }
-
-  Future<void> _scrollTypesBy(double delta) async {
-    if (!_typesScrollController.hasClients) return;
-    final position = _typesScrollController.position;
-    final target = (position.pixels + delta).clamp(
-      position.minScrollExtent,
-      position.maxScrollExtent,
-    );
-    await _typesScrollController.animateTo(
-      target.toDouble(),
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-    );
-  }
 
   Future<void> _pickRange(BuildContext context) async {
     final now = DateTime.now();
-    final initialRange = DateTimeRange(
-      start: widget.range.start,
-      end: widget.range.end,
-    );
+    final initialRange = DateTimeRange(start: range.start, end: range.end);
     final picked = await showDateRangePicker(
       context: context,
       firstDate: DateTime(now.year - 1),
@@ -1410,7 +1350,7 @@ class _FiltersBarState extends State<_FiltersBar> {
       },
     );
     if (picked != null) {
-      widget.onRangeChanged(picked);
+      onRangeChanged(picked);
     }
   }
 
@@ -1486,104 +1426,320 @@ class _FiltersBarState extends State<_FiltersBar> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
     final rangeLabel =
-        '${DateFormat('dd/MM/yy').format(widget.range.start)} → ${DateFormat('dd/MM/yy').format(widget.range.end)}';
+        '${DateFormat('dd/MM/yy').format(range.start)} → ${DateFormat('dd/MM/yy').format(range.end)}';
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final stackTopControls = constraints.maxWidth < 420;
+          final stackAllControls = constraints.maxWidth < 540;
+          final stackSearchAndTypes = constraints.maxWidth < 760;
+          final typeMenuWidth = constraints.maxWidth < 620 ? 172.0 : 216.0;
           final rangeControl = _MovementRangeButton(
             label: rangeLabel,
             onPressed: () => _pickRange(context),
           );
           final searchField = _MovementSearchField(
-            controller: widget.searchController,
+            controller: searchController,
+          );
+          final typeMenu = _MovementTypeFilterMenu(
+            counts: counts,
+            selectedTypes: selectedTypes,
+            onToggleType: onToggleType,
+            onSelectAllTypes: onSelectAllTypes,
           );
           return Column(
             key: const ValueKey('client_app_movements_filters_bar'),
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (stackTopControls) ...[
+              if (stackAllControls) ...[
                 rangeControl,
                 const SizedBox(height: 10),
                 searchField,
+                const SizedBox(height: 10),
+                typeMenu,
+              ] else if (stackSearchAndTypes) ...[
+                rangeControl,
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(child: searchField),
+                    const SizedBox(width: 10),
+                    SizedBox(width: typeMenuWidth, child: typeMenu),
+                  ],
+                ),
               ] else
                 Row(
                   children: [
-                    Expanded(flex: 7, child: rangeControl),
+                    Expanded(flex: 5, child: rangeControl),
                     const SizedBox(width: 12),
-                    Expanded(flex: 5, child: searchField),
+                    Expanded(flex: 4, child: searchField),
+                    const SizedBox(width: 12),
+                    SizedBox(width: typeMenuWidth, child: typeMenu),
                   ],
                 ),
-              const SizedBox(height: 12),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerHighest.withValues(alpha: 0.28),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: scheme.outlineVariant),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 6,
-                  ),
-                  child: Row(
-                    children: [
-                      _MovementScrollButton(
-                        tooltip: 'Scorri filtri a sinistra',
-                        icon: Icons.chevron_left_rounded,
-                        enabled: _canScrollLeft,
-                        onPressed:
-                            _canScrollLeft ? () => _scrollTypesBy(-220) : null,
-                      ),
-                      Expanded(
-                        child: SizedBox(
-                          height: 48,
-                          child: ListView.separated(
-                            controller: _typesScrollController,
-                            scrollDirection: Axis.horizontal,
-                            padding: const EdgeInsets.symmetric(horizontal: 2),
-                            itemCount: ClientAppMovementType.values.length,
-                            separatorBuilder:
-                                (context, index) => const SizedBox(width: 8),
-                            itemBuilder: (context, index) {
-                              final type = ClientAppMovementType.values[index];
-                              final isSelected = widget.selectedTypes.contains(
-                                type,
-                              );
-                              final count = widget.counts[type] ?? 0;
-                              return _MovementTypePill(
-                                label: type.label,
-                                count: count,
-                                selected: isSelected,
-                                onSelected:
-                                    (value) => widget.onToggleType(type, value),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                      _MovementScrollButton(
-                        tooltip: 'Scorri filtri a destra',
-                        icon: Icons.chevron_right_rounded,
-                        enabled: _canScrollRight,
-                        onPressed:
-                            _canScrollRight ? () => _scrollTypesBy(220) : null,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
               Divider(
-                height: 24,
+                height: 20,
                 thickness: 1,
-                color: theme.colorScheme.surfaceVariant,
+                color: theme.colorScheme.surfaceContainerHighest,
               ),
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _MovementTypeFilterMenu extends StatelessWidget {
+  const _MovementTypeFilterMenu({
+    required this.counts,
+    required this.selectedTypes,
+    required this.onToggleType,
+    required this.onSelectAllTypes,
+  });
+
+  final Map<ClientAppMovementType, int> counts;
+  final Set<ClientAppMovementType> selectedTypes;
+  final void Function(ClientAppMovementType, bool) onToggleType;
+  final VoidCallback onSelectAllTypes;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final types = ClientAppMovementType.values;
+    final totalTypes = types.length;
+    final selectedCount = selectedTypes.length;
+    final allSelected = selectedCount == totalTypes;
+    final totalCount = types.fold<int>(
+      0,
+      (sum, type) => sum + (counts[type] ?? 0),
+    );
+    final selectedMovementsCount = types
+        .where(selectedTypes.contains)
+        .fold<int>(0, (sum, type) => sum + (counts[type] ?? 0));
+    final label = _selectionLabel(types, selectedCount, totalTypes);
+
+    return MenuAnchor(
+      alignmentOffset: const Offset(0, 8),
+      builder: (context, controller, child) {
+        final hasCustomSelection = !allSelected;
+        return OutlinedButton(
+          onPressed: () {
+            if (controller.isOpen) {
+              controller.close();
+            } else {
+              controller.open();
+            }
+          },
+          style: OutlinedButton.styleFrom(
+            alignment: Alignment.centerLeft,
+            minimumSize: const Size.fromHeight(52),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            backgroundColor:
+                hasCustomSelection
+                    ? scheme.primaryContainer.withValues(alpha: 0.22)
+                    : scheme.surface,
+            foregroundColor: scheme.onSurface,
+            side: BorderSide(
+              color:
+                  hasCustomSelection
+                      ? scheme.primary.withValues(alpha: 0.55)
+                      : scheme.outlineVariant,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.filter_list_rounded,
+                size: 20,
+                color:
+                    hasCustomSelection
+                        ? scheme.primary
+                        : scheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (selectedMovementsCount > 0) ...[
+                const SizedBox(width: 8),
+                _MovementCountBadge(
+                  label: '$selectedMovementsCount',
+                  highlighted: hasCustomSelection,
+                ),
+              ],
+              const SizedBox(width: 6),
+              Icon(
+                controller.isOpen
+                    ? Icons.expand_less_rounded
+                    : Icons.expand_more_rounded,
+                size: 20,
+                color: scheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        );
+      },
+      menuChildren: [
+        ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 280, maxWidth: 340),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _MovementTypeMenuItem(
+                  icon: Icons.select_all_rounded,
+                  label: 'Tutti i tipi',
+                  count: totalCount,
+                  selected: allSelected,
+                  onTap: onSelectAllTypes,
+                ),
+                Divider(height: 10, color: scheme.outlineVariant),
+                for (final type in types)
+                  _MovementTypeMenuItem(
+                    icon: _MovementCard._iconForType(type),
+                    label: type.label,
+                    count: counts[type] ?? 0,
+                    selected: selectedTypes.contains(type),
+                    onTap:
+                        () => onToggleType(type, !selectedTypes.contains(type)),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _selectionLabel(
+    List<ClientAppMovementType> types,
+    int selectedCount,
+    int totalTypes,
+  ) {
+    if (selectedCount == totalTypes) {
+      return 'Tipi: tutti';
+    }
+    if (selectedCount == 0) {
+      return 'Tipi: nessuno';
+    }
+    if (selectedCount == 1) {
+      final type = types.firstWhere(selectedTypes.contains);
+      return 'Tipi: ${type.label}';
+    }
+    return 'Tipi: $selectedCount/$totalTypes';
+  }
+}
+
+class _MovementTypeMenuItem extends StatelessWidget {
+  const _MovementTypeMenuItem({
+    required this.icon,
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final checkColor = selected ? scheme.primary : scheme.onSurfaceVariant;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Icon(
+                selected
+                    ? Icons.check_box_rounded
+                    : Icons.check_box_outline_blank_rounded,
+                size: 20,
+                color: checkColor,
+              ),
+              const SizedBox(width: 10),
+              Icon(icon, size: 18, color: scheme.onSurfaceVariant),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              _MovementCountBadge(label: '$count', compact: true),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MovementCountBadge extends StatelessWidget {
+  const _MovementCountBadge({
+    required this.label,
+    this.highlighted = false,
+    this.compact = false,
+  });
+
+  final String label;
+  final bool highlighted;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final background =
+        highlighted
+            ? scheme.primary.withValues(alpha: 0.12)
+            : scheme.surfaceContainerHighest;
+    final foreground = highlighted ? scheme.primary : scheme.onSurfaceVariant;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 7 : 8,
+          vertical: compact ? 2 : 3,
+        ),
+        child: Text(
+          label,
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: foreground,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
       ),
     );
   }
@@ -1680,157 +1836,22 @@ class _MovementSearchField extends StatelessWidget {
   }
 }
 
-class _MovementScrollButton extends StatelessWidget {
-  const _MovementScrollButton({
-    required this.tooltip,
-    required this.icon,
-    required this.enabled,
-    required this.onPressed,
-  });
-
-  final String tooltip;
-  final IconData icon;
-  final bool enabled;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return IconButton(
-      tooltip: tooltip,
-      onPressed: onPressed,
-      style: IconButton.styleFrom(
-        minimumSize: const Size(38, 38),
-        padding: const EdgeInsets.all(8),
-        backgroundColor:
-            enabled
-                ? theme.colorScheme.surface
-                : theme.colorScheme.surfaceContainerHighest.withValues(
-                  alpha: 0.2,
-                ),
-        foregroundColor:
-            enabled
-                ? theme.colorScheme.onSurface
-                : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
-        side: BorderSide(
-          color:
-              enabled
-                  ? theme.colorScheme.outlineVariant
-                  : theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
-        ),
-      ),
-      icon: Icon(icon, size: 20),
-    );
-  }
-}
-
-class _MovementTypePill extends StatelessWidget {
-  const _MovementTypePill({
-    required this.label,
-    required this.count,
-    required this.selected,
-    required this.onSelected,
-  });
-
-  final String label;
-  final int count;
-  final bool selected;
-  final ValueChanged<bool> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final backgroundColor =
-        selected ? const Color(0xFF111111) : theme.colorScheme.surface;
-    final foregroundColor =
-        selected ? Colors.white : theme.colorScheme.onSurface;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(999),
-        onTap: () => onSelected(!selected),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            color: backgroundColor,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color:
-                  selected
-                      ? const Color(0xFF111111)
-                      : theme.colorScheme.outlineVariant,
-            ),
-            boxShadow:
-                selected
-                    ? const [
-                      BoxShadow(
-                        color: Color(0x26000000),
-                        blurRadius: 10,
-                        offset: Offset(0, 4),
-                      ),
-                    ]
-                    : null,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (selected) ...[
-                const Icon(Icons.check_rounded, size: 16, color: Colors.white),
-                const SizedBox(width: 6),
-              ],
-              Text(
-                label,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  color: foregroundColor,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              if (count > 0) ...[
-                const SizedBox(width: 8),
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    color:
-                        selected
-                            ? Colors.white.withValues(alpha: 0.14)
-                            : theme.colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    child: Text(
-                      '$count',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: foregroundColor,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _EmptyMovementsState extends StatelessWidget {
-  const _EmptyMovementsState({required this.searchQuery, required this.range});
+  const _EmptyMovementsState({
+    required this.searchQuery,
+    required this.hasTypeSelection,
+  });
 
   final String searchQuery;
-  final DateTimeRange range;
+  final bool hasTypeSelection;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final subtitle =
-        searchQuery.isEmpty
+        !hasTypeSelection
+            ? 'Seleziona almeno un tipo di movimento per vedere i risultati.'
+            : searchQuery.isEmpty
             ? 'Non ci sono movimenti registrati nel periodo selezionato.'
             : 'Nessun risultato per "$searchQuery" nel periodo selezionato.';
     return Center(
@@ -1842,7 +1863,7 @@ class _EmptyMovementsState extends StatelessWidget {
             Icon(
               Icons.timeline_rounded,
               size: 48,
-              color: theme.colorScheme.surfaceVariant,
+              color: theme.colorScheme.surfaceContainerHighest,
             ),
             const SizedBox(height: 16),
             Text(

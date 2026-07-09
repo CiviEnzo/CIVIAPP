@@ -107,6 +107,36 @@ Non committare file reali con password temporanee.
 
 ---
 
+## Provisioning cliente test
+
+Per creare rapidamente un account cliente di test con utente Firebase Auth,
+documento `/users/{uid}` e documento `/clients/{clientId}`:
+
+```bash
+node functions/scripts/provision_test_client.js --projectId=civiapp-38b51 --salonId=salon-001 --email=cliente.test@example.com --password=test2026 --dryRun
+node functions/scripts/provision_test_client.js --projectId=civiapp-38b51 --salonId=salon-001 --email=cliente.test@example.com --password=test2026
+```
+
+Oppure tramite npm:
+
+```bash
+npm --prefix functions run provision:test-client -- --projectId=civiapp-38b51 --salonId=civi_salon_1761682486357 --email=cliente.test@example.com --password=test2026 --dryRun
+```
+
+Flag utili:
+
+- `--clientId`: collega l'utenza a un cliente esistente oppure usa quell'ID per crearne uno.
+- `--firstName`, `--lastName`, `--phone`: personalizzano il profilo cliente.
+- `--forcePassword`: aggiorna la password se l'utente Auth esiste gia'.
+- `--forceRole`: permette di riscrivere a `client` un documento `users/{uid}` esistente con altro ruolo.
+- `--forceClient`: permette di ricollegare un documento `clients/{clientId}` gia' associato a un altro salone.
+
+Lo script crea l'utente Auth con `emailVerified: true`, imposta il ruolo `client`,
+sincronizza `salonIds`/`clientId` e marca il cliente come `onboardingCompleted`,
+cosi' l'account puo' entrare direttamente nella dashboard cliente.
+
+---
+
 ## Backfill setup saloni esistenti
 
 Quando dobbiamo migrare saloni già attivi al nuovo flusso di onboarding (card checklist + reminder dashboard) usa:

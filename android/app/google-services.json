@@ -9,7 +9,7 @@
       "client_info": {
         "mobilesdk_app_id": "1:442062945154:android:e97a840ba6fd0b554e6d9b",
         "android_client_info": {
-          "package_name": "com.civiapp.youbook"
+          "package_name": "com.cividevops.civiapp"
         }
       },
       "oauth_client": [
@@ -34,7 +34,7 @@
               "client_id": "442062945154-3p8knknp5djvrhaiqov1fuofq94l2mc3.apps.googleusercontent.com",
               "client_type": 2,
               "ios_info": {
-                "bundle_id": "com.civiapp.youbook"
+                "bundle_id": "com.cividevops.civiapp"
               }
             }
           ]

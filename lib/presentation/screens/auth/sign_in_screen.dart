@@ -1,10 +1,12 @@
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/domain/entities/user_role.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:you_book/presentation/screens/auth/legal_links.dart';
 import 'package:you_book/presentation/common/app_version_badge.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class SignInScreen extends ConsumerStatefulWidget {
   const SignInScreen({super.key, this.notice, this.redirectPath});
@@ -17,10 +19,13 @@ class SignInScreen extends ConsumerStatefulWidget {
 }
 
 class _SignInScreenState extends ConsumerState<SignInScreen> {
+  static const _supportEmail = 'info@civiapp.it';
+
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _passwordFocusNode = FocusNode();
+  late final TapGestureRecognizer _supportEmailTapRecognizer;
   bool _isObscured = true;
   bool _isLoading = false;
   bool _noticeScheduled = false;
@@ -31,6 +36,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _passwordFocusNode.dispose();
+    _supportEmailTapRecognizer.dispose();
     _closeSessionSubscription();
     super.dispose();
   }
@@ -38,6 +44,8 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
   @override
   void initState() {
     super.initState();
+    _supportEmailTapRecognizer =
+        TapGestureRecognizer()..onTap = _openSupportEmail;
     _scheduleNotice();
   }
 
@@ -103,10 +111,18 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                               'Se sei un cliente puoi anche cercare un salone senza account e registrarti quando vuoi prenotare.',
                               style: theme.textTheme.bodySmall,
                             ),
+                            const SizedBox(height: 20),
+                            FilledButton.tonalIcon(
+                              onPressed:
+                                  _isLoading
+                                      ? null
+                                      : () => context.go('/register'),
+                              icon: const Icon(Icons.person_add_alt_1_rounded),
+                              label: const Text('Registrati come cliente'),
+                            ),
                             const SizedBox(height: 24),
                             TextFormField(
                               controller: _emailController,
-                              autofocus: true,
                               decoration: const InputDecoration(
                                 labelText: 'Email',
                                 prefixIcon: Icon(Icons.email_outlined),
@@ -185,15 +201,6 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                               ),
                             ),
                             const SizedBox(height: 12),
-                            OutlinedButton.icon(
-                              onPressed:
-                                  _isLoading
-                                      ? null
-                                      : () => context.go('/register'),
-                              icon: const Icon(Icons.person_add_alt_1_rounded),
-                              label: const Text('Registrati come cliente'),
-                            ),
-                            const SizedBox(height: 12),
                             /*OutlinedButton.icon(
                           onPressed:
                               _isLoading
@@ -203,8 +210,24 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                           label: const Text('Registrati come centro'),
                         ),
                         const SizedBox(height: 12),*/
-                            Text(
-                              'Accesso riservato a clienti, operatori e amministratori abilitati. Se il tuo account non e\' ancora attivo, contatta il salone.',
+                            Text.rich(
+                              TextSpan(
+                                text:
+                                    'Accesso riservato a clienti, operatori e amministratori abilitati. Se il tuo account non e\' ancora attivo, contatta il salone; se sei amministratore di salone, scrivi a ',
+                                children: [
+                                  TextSpan(
+                                    text: _supportEmail,
+                                    style: TextStyle(
+                                      color: theme.colorScheme.primary,
+                                      decoration: TextDecoration.underline,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    recognizer: _supportEmailTapRecognizer,
+                                    mouseCursor: SystemMouseCursors.click,
+                                  ),
+                                  const TextSpan(text: '.'),
+                                ],
+                              ),
                               style: theme.textTheme.bodySmall,
                               textAlign: TextAlign.center,
                             ),
@@ -370,6 +393,19 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
       params['email'] = email;
     }
     context.goNamed('password_reset', queryParameters: params);
+  }
+
+  Future<void> _openSupportEmail() async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final launched = await launchUrl(
+      Uri(scheme: 'mailto', path: _supportEmail),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!launched && messenger != null && messenger.mounted) {
+      messenger.showAppSnackBar(
+        const SnackBar(content: Text('Impossibile aprire il client email.')),
+      );
+    }
   }
 
   String _friendlyError(Exception error) {

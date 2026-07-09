@@ -733,22 +733,23 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     final salons = data.salons;
 
     final salonIds = salons.map((salon) => salon.id).toSet();
+    final availableSalonIds =
+        session.availableSalonIds
+            .map((id) => id.trim())
+            .where((id) => id.isNotEmpty)
+            .toSet();
+    final requestedSalonId = session.selectedSalonId ?? session.salonId;
     String? selectedSalonId;
 
-    if (session.salonId != null && salonIds.contains(session.salonId)) {
-      selectedSalonId = session.salonId;
+    if (requestedSalonId != null && salonIds.contains(requestedSalonId)) {
+      selectedSalonId = requestedSalonId;
+    } else if (requestedSalonId != null &&
+        availableSalonIds.contains(requestedSalonId.trim())) {
+      selectedSalonId = requestedSalonId;
     } else if (salons.isNotEmpty) {
       selectedSalonId = salons.first.id;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ref.read(sessionControllerProvider.notifier).setSalon(selectedSalonId);
-      });
     } else {
-      selectedSalonId = null;
-      if (session.salonId != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          ref.read(sessionControllerProvider.notifier).setSalon(null);
-        });
-      }
+      selectedSalonId = requestedSalonId;
     }
     _currentSalonId = selectedSalonId;
     final badgeCounts = _moduleBadgeCounts(data, selectedSalonId);
@@ -775,7 +776,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
 
     final mediaQuery = MediaQuery.of(context);
     final baseScale = mediaQuery.textScaler.scale(1);
-    final effectiveScale = baseScale * adminTextScaleFactor;
+    final adminScaleFactor = resolveAdminTextScaleFactor(mediaQuery.size.width);
+    final effectiveScale = baseScale * adminScaleFactor;
 
     return MediaQuery(
       data: mediaQuery.copyWith(textScaler: TextScaler.linear(effectiveScale)),
@@ -785,7 +787,6 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           final isLargeScreen = constraints.maxWidth >= 1080;
           final moduleBackground = theme.colorScheme.surfaceContainerLowest;
           final content = selectedModule.builder(context, ref, selectedSalonId);
-          final showSalonSelector = selectedModule.id == 'salons';
           final selectedSalon =
               selectedSalonId == null
                   ? null
@@ -898,48 +899,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                             module: selectedModule,
                             badgeCount: selectedBadgeCount,
                           ),
-                          if (showSalonSelector) ...[
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: LayoutBuilder(
-                                builder: (context, constraints) {
-                                  final maxWidth = constraints.maxWidth.clamp(
-                                    160.0,
-                                    320.0,
-                                  );
-                                  return Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: ConstrainedBox(
-                                      constraints: BoxConstraints(
-                                        maxWidth: maxWidth,
-                                      ),
-                                      child: _SalonSelector(
-                                        salons: salons,
-                                        selectedSalonId: selectedSalonId,
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ],
                         ],
-                      )
-                      : showSalonSelector
-                      ? LayoutBuilder(
-                        builder: (context, constraints) {
-                          final maxWidth = constraints.maxWidth.clamp(
-                            160.0,
-                            320.0,
-                          );
-                          return ConstrainedBox(
-                            constraints: BoxConstraints(maxWidth: maxWidth),
-                            child: _SalonSelector(
-                              salons: salons,
-                              selectedSalonId: selectedSalonId,
-                            ),
-                          );
-                        },
                       )
                       : _ModuleBadge(
                         module: selectedModule,
@@ -2806,39 +2766,6 @@ class _InlineCountBadge extends StatelessWidget {
             fontWeight: FontWeight.w700,
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _SalonSelector extends ConsumerWidget {
-  const _SalonSelector({required this.salons, required this.selectedSalonId});
-
-  final List<Salon> salons;
-  final String? selectedSalonId;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return DropdownButtonHideUnderline(
-      child: DropdownButton<String?>(
-        isExpanded: true,
-        value: selectedSalonId,
-        hint: const Text('Tutti i saloni'),
-        items: [
-          const DropdownMenuItem<String?>(
-            value: null,
-            child: Text('Tutti i saloni'),
-          ),
-          ...salons.map(
-            (salon) => DropdownMenuItem<String?>(
-              value: salon.id,
-              child: Text(salon.name),
-            ),
-          ),
-        ],
-        onChanged: (value) {
-          ref.read(sessionControllerProvider.notifier).setSalon(value);
-        },
       ),
     );
   }

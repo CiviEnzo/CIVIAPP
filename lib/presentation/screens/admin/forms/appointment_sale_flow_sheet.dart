@@ -278,6 +278,7 @@ class _AppointmentSaleFlowSheetState
       initialDate: ticket.appointmentEnd,
       initialStaffId: ticket.staffId,
       lockServiceOperator: true,
+      lockInitialServiceSessionToggle: true,
       showSheetHeader: false,
       onSaved: _handleSaleSaved,
       onSkipTicket: _closeFlow,

@@ -1269,6 +1269,8 @@ Future<void> openSaleForm(
       ticket == null
           ? null
           : _initialItemsFromTicket(ticket, appointment, services);
+  final lockInitialServiceSessionToggle =
+      appointment?.status == AppointmentStatus.completed;
   final sale = await showAppModalSheet<Sale>(
     context: context,
     includeCloseButton: false,
@@ -1288,6 +1290,7 @@ Future<void> openSaleForm(
           initialNotes: ticket?.notes,
           initialDate: ticket?.appointmentEnd,
           initialStaffId: ticket?.staffId,
+          lockInitialServiceSessionToggle: lockInitialServiceSessionToggle,
         ),
   );
   if (sale != null) {

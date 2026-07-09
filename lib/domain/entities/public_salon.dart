@@ -18,6 +18,7 @@ class PublicSalon {
     this.socialLinks = const <String, String>{},
     this.publicServices = const <PublicSalonService>[],
     this.publicPackages = const <PublicSalonPackage>[],
+    this.schedule = const <SalonDailySchedule>[],
     this.status = SalonStatus.active,
     this.clientRegistration = const ClientRegistrationSettings(),
     this.isPublished = false,
@@ -40,6 +41,7 @@ class PublicSalon {
   final Map<String, String> socialLinks;
   final List<PublicSalonService> publicServices;
   final List<PublicSalonPackage> publicPackages;
+  final List<SalonDailySchedule> schedule;
   final SalonStatus status;
   final ClientRegistrationSettings clientRegistration;
   final bool isPublished;
@@ -62,6 +64,7 @@ class PublicSalon {
     Map<String, String>? socialLinks,
     List<PublicSalonService>? publicServices,
     List<PublicSalonPackage>? publicPackages,
+    List<SalonDailySchedule>? schedule,
     SalonStatus? status,
     ClientRegistrationSettings? clientRegistration,
     bool? isPublished,
@@ -108,6 +111,10 @@ class PublicSalon {
           publicPackages == null
               ? this.publicPackages
               : List<PublicSalonPackage>.unmodifiable(publicPackages),
+      schedule:
+          schedule == null
+              ? this.schedule
+              : List<SalonDailySchedule>.unmodifiable(schedule),
       status: status ?? this.status,
       clientRegistration: clientRegistration ?? this.clientRegistration,
       isPublished: isPublished ?? this.isPublished,
@@ -129,6 +136,7 @@ class PublicSalon {
       latitude: salon.latitude,
       longitude: salon.longitude,
       socialLinks: Map<String, String>.unmodifiable(salon.socialLinks),
+      schedule: List<SalonDailySchedule>.unmodifiable(salon.schedule),
       status: salon.status,
       clientRegistration: salon.clientRegistration,
       isPublished: salon.isPublished,
@@ -167,6 +175,7 @@ class PublicSalon {
       socialLinks: socialLinks,
       publicServices: _mapPublicServices(data['publicServices']),
       publicPackages: _mapPublicPackages(data['publicPackages']),
+      schedule: _mapPublicSchedule(data['schedule']),
       status: _stringToSalonStatus(data['status'] as String?),
       clientRegistration: _mapClientRegistration(data['clientRegistration']),
       isPublished: data['isPublished'] as bool? ?? true,
@@ -270,6 +279,35 @@ List<PublicSalonPackage> _mapPublicPackages(Object? value) {
       return PublicSalonPackage.fromMap(Map<String, dynamic>.from(item));
     }),
   );
+}
+
+List<SalonDailySchedule> _mapPublicSchedule(Object? value) {
+  if (value is! List) {
+    return const <SalonDailySchedule>[];
+  }
+  final entries = <SalonDailySchedule>[];
+  for (final item in value.whereType<Map>()) {
+    final data = Map<String, dynamic>.from(item);
+    final weekday = (data['weekday'] as num?)?.toInt() ?? DateTime.monday;
+    final isOpen = data['isOpen'] as bool? ?? false;
+    final openMinuteOfDay = (data['openMinuteOfDay'] as num?)?.toInt();
+    final closeMinuteOfDay = (data['closeMinuteOfDay'] as num?)?.toInt();
+    if (isOpen &&
+        (openMinuteOfDay == null ||
+            closeMinuteOfDay == null ||
+            openMinuteOfDay >= closeMinuteOfDay)) {
+      continue;
+    }
+    entries.add(
+      SalonDailySchedule(
+        weekday: weekday,
+        isOpen: isOpen,
+        openMinuteOfDay: openMinuteOfDay,
+        closeMinuteOfDay: closeMinuteOfDay,
+      ),
+    );
+  }
+  return List<SalonDailySchedule>.unmodifiable(entries);
 }
 
 SalonStatus _stringToSalonStatus(String? value) {

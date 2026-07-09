@@ -26,6 +26,8 @@ class _SalonOperationsSheetState extends State<SalonOperationsSheet> {
   late bool _isPublished;
   late bool _showPublicCatalog;
 
+  bool get _isArchived => widget.salon.status == SalonStatus.archived;
+
   @override
   void initState() {
     super.initState();
@@ -73,6 +75,13 @@ class _SalonOperationsSheetState extends State<SalonOperationsSheet> {
   }
 
   void _submit() {
+    if (!_isArchived && _status == SalonStatus.archived) {
+      _showError(
+        'Solo un amministratore di piattaforma può archiviare un salone.',
+      );
+      return;
+    }
+
     final schedule = <SalonDailySchedule>[];
     for (final entry in _schedule) {
       final opening = _timeOfDayToMinutes(entry.open);
@@ -248,6 +257,10 @@ class _SalonOperationsSheetState extends State<SalonOperationsSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final bodyMedium = theme.textTheme.bodyMedium;
+    const editableStatuses = <SalonStatus>[
+      SalonStatus.active,
+      SalonStatus.suspended,
+    ];
 
     return DialogActionLayout(
       title: 'Stato operativo',
@@ -258,25 +271,28 @@ class _SalonOperationsSheetState extends State<SalonOperationsSheet> {
         mainAxisSize: MainAxisSize.min,
         children: [
           const SizedBox(height: 4),
-          DropdownButtonFormField<SalonStatus>(
-            isExpanded: true,
-            value: _status,
-            decoration: const InputDecoration(labelText: 'Stato del salone'),
-            items:
-                SalonStatus.values
-                    .map(
-                      (status) => DropdownMenuItem(
-                        value: status,
-                        child: Text(status.label),
-                      ),
-                    )
-                    .toList(),
-            onChanged: (value) {
-              if (value != null) {
-                setState(() => _status = value);
-              }
-            },
-          ),
+          if (_isArchived)
+            _ArchivedStatusNotice(status: _status)
+          else
+            DropdownButtonFormField<SalonStatus>(
+              isExpanded: true,
+              initialValue: _status,
+              decoration: const InputDecoration(labelText: 'Stato del salone'),
+              items:
+                  editableStatuses
+                      .map(
+                        (status) => DropdownMenuItem(
+                          value: status,
+                          child: Text(status.label),
+                        ),
+                      )
+                      .toList(),
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() => _status = value);
+                }
+              },
+            ),
           const SizedBox(height: 16),
           SwitchListTile.adaptive(
             contentPadding: EdgeInsets.zero,
@@ -351,6 +367,59 @@ class _SalonOperationsSheetState extends State<SalonOperationsSheet> {
         ),
         FilledButton(onPressed: _submit, child: const Text('Salva')),
       ],
+    );
+  }
+}
+
+class _ArchivedStatusNotice extends StatelessWidget {
+  const _ArchivedStatusNotice({required this.status});
+
+  final SalonStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.archive_outlined,
+            size: 20,
+            color: colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Stato del salone: ${status.label}',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Questo salone è archiviato. Lo stato può essere modificato solo da un amministratore di piattaforma.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

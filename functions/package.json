@@ -10,7 +10,9 @@
     "build": "tsc -p tsconfig.json",
     "clean": "rimraf lib",
     "lint": "eslint src --ext .ts",
+    "delete:salon": "node scripts/delete_salon.js",
     "provision:salon-admin": "node scripts/provision_salon_admin.js",
+    "provision:test-client": "node scripts/provision_test_client.js",
     "test": "npm run build && node --test lib",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

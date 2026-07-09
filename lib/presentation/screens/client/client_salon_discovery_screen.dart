@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/app/router_constants.dart';
@@ -16,6 +17,12 @@ import 'package:you_book/domain/entities/public_salon.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/salon_access_request.dart';
 import 'package:you_book/domain/entities/user_role.dart';
+
+const _instagramLogoAsset = 'assets/social_logo/instagram.PNG';
+const _tiktokLogoAsset = 'assets/social_logo/tiktok.PNG';
+const _facebookLogoAsset = 'assets/social_logo/facebook.PNG';
+const _whatsappLogoAsset = 'assets/social_logo/whatsapp.PNG';
+const _mapsLogoAsset = 'assets/social_logo/maps.PNG';
 
 class ClientSalonDiscoveryScreen extends ConsumerStatefulWidget {
   const ClientSalonDiscoveryScreen({super.key});
@@ -354,7 +361,6 @@ class _ClientSalonDiscoveryScreenState
         if (!approvedSalonIds.contains(entry.key)) entry.key: entry.value,
     };
     final hasSalons = results.isNotEmpty;
-    final useCardGrid = results.length <= 5;
 
     return Scaffold(
       appBar: AppBar(
@@ -403,8 +409,8 @@ class _ClientSalonDiscoveryScreenState
               const SizedBox(height: 8),
               Text(
                 isGuest
-                    ? 'Puoi cercare liberamente i saloni per nome o telefono. L\'account serve solo per richiedere l\'accesso e gestire prenotazioni personali.'
-                    : 'Mostriamo prima i saloni vicini a te. Puoi cercare manualmente per nome o telefono.',
+                    ? 'Cerca per nome o telefono.'
+                    : 'Mostriamo prima i saloni vicini a te. Cerca per nome o telefono.',
                 style: theme.textTheme.bodyMedium,
               ),
               const SizedBox(height: 20),
@@ -444,56 +450,10 @@ class _ClientSalonDiscoveryScreenState
                     ),
                   ),
                 )
-              else if (useCardGrid)
-                Expanded(
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final width = constraints.maxWidth;
-                      final crossAxisCount =
-                          width >= 840
-                              ? 3
-                              : width >= 520
-                              ? 2
-                              : 1;
-                      return GridView.builder(
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: crossAxisCount,
-                          mainAxisSpacing: 16,
-                          crossAxisSpacing: 16,
-                          mainAxisExtent: crossAxisCount == 1 ? 464 : 440,
-                        ),
-                        itemCount: results.length,
-                        itemBuilder: (context, index) {
-                          final result = results[index];
-                          final salon = result.salon;
-                          final isApproved = approvedSalonIds.contains(
-                            salon.id,
-                          );
-                          final pendingRequest =
-                              isApproved ? null : pendingBySalon[salon.id];
-                          final rejectedRequest = rejectedBySalon[salon.id];
-                          return _SalonCard(
-                            salon: salon,
-                            distanceMeters: result.distanceMeters,
-                            hasAddressAndCoordinates:
-                                result.hasAddressAndCoordinates,
-                            isApproved: isApproved,
-                            isProcessing: _joiningSalonId == salon.id,
-                            pendingRequest: pendingRequest,
-                            rejectedRequest: rejectedRequest,
-                            isGuest: isGuest,
-                            onRequestAccess:
-                                () => _startRequestFlow(context, salon, user),
-                            onEnter: () => _enterSalon(salon.id),
-                          );
-                        },
-                      );
-                    },
-                  ),
-                )
               else
                 Expanded(
                   child: ListView.separated(
+                    padding: const EdgeInsets.only(bottom: 8),
                     itemCount: results.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 16),
                     itemBuilder: (context, index) {
@@ -513,6 +473,19 @@ class _ClientSalonDiscoveryScreenState
                         pendingRequest: pendingRequest,
                         rejectedRequest: rejectedRequest,
                         isGuest: isGuest,
+                        onViewDetails:
+                            () => _openSalonDetails(
+                              salon: salon,
+                              distanceMeters: result.distanceMeters,
+                              hasAddressAndCoordinates:
+                                  result.hasAddressAndCoordinates,
+                              isApproved: isApproved,
+                              isProcessing: _joiningSalonId == salon.id,
+                              pendingRequest: pendingRequest,
+                              rejectedRequest: rejectedRequest,
+                              isGuest: isGuest,
+                              user: user,
+                            ),
                         onRequestAccess:
                             () => _startRequestFlow(context, salon, user),
                         onEnter: () => _enterSalon(salon.id),
@@ -542,6 +515,37 @@ class _ClientSalonDiscoveryScreenState
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Future<void> _openSalonDetails({
+    required PublicSalon salon,
+    required double? distanceMeters,
+    required bool hasAddressAndCoordinates,
+    required bool isApproved,
+    required bool isProcessing,
+    required SalonAccessRequest? pendingRequest,
+    required SalonAccessRequest? rejectedRequest,
+    required bool isGuest,
+    required AppUser? user,
+  }) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder:
+            (detailsContext) => _PublicSalonDetailsPage(
+              salon: salon,
+              distanceMeters: distanceMeters,
+              hasAddressAndCoordinates: hasAddressAndCoordinates,
+              isApproved: isApproved,
+              isProcessing: isProcessing,
+              pendingRequest: pendingRequest,
+              rejectedRequest: rejectedRequest,
+              isGuest: isGuest,
+              onRequestAccess:
+                  () => _startRequestFlow(detailsContext, salon, user),
+              onEnter: () => _enterSalon(salon.id),
+            ),
       ),
     );
   }
@@ -1075,8 +1079,8 @@ class _ClientSalonDiscoveryScreenState
   }
 }
 
-class _SalonCard extends StatelessWidget {
-  const _SalonCard({
+class _PublicSalonDetailsPage extends StatelessWidget {
+  const _PublicSalonDetailsPage({
     required this.salon,
     required this.distanceMeters,
     required this.hasAddressAndCoordinates,
@@ -1097,6 +1101,804 @@ class _SalonCard extends StatelessWidget {
   final SalonAccessRequest? pendingRequest;
   final SalonAccessRequest? rejectedRequest;
   final bool isGuest;
+  final VoidCallback onRequestAccess;
+  final VoidCallback onEnter;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final status = _resolveStatus();
+    final cards = _buildCards(context);
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Dettagli salone')),
+      body: SafeArea(
+        child: ListView.separated(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+          itemCount: cards.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 16),
+          itemBuilder: (context, index) => cards[index],
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: _buildPrimaryAction(context, status),
+        ),
+      ),
+      backgroundColor: scheme.surface,
+    );
+  }
+
+  List<Widget> _buildCards(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final description = salon.description?.trim();
+    final locationDescription = _locationDescription();
+    final mapsUri = _buildMapsUri(locationDescription);
+    final socialEntries =
+        salon.socialLinks.entries
+            .map(
+              (entry) => MapEntry(
+                _normalizeSocialLabel(entry.key),
+                entry.value.trim(),
+              ),
+            )
+            .where((entry) => entry.key.isNotEmpty && entry.value.isNotEmpty)
+            .toList()
+          ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
+
+    MapEntry<String, String>? whatsappEntry;
+    final whatsappIndex = socialEntries.indexWhere(
+      (entry) => entry.key.toLowerCase().contains('whatsapp'),
+    );
+    if (whatsappIndex != -1) {
+      whatsappEntry = socialEntries.removeAt(whatsappIndex);
+    }
+
+    final cards = <Widget>[
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      salon.name,
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  _StatusChip(status: _resolveStatus()),
+                ],
+              ),
+              if (locationDescription.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                _IconTextLine(
+                  icon: Icons.place_outlined,
+                  text: locationDescription.replaceAll('\n', ', '),
+                ),
+              ] else if (!hasAddressAndCoordinates) ...[
+                const SizedBox(height: 12),
+                const _IconTextLine(
+                  icon: Icons.place_outlined,
+                  text: 'Indirizzo non disponibile',
+                ),
+              ],
+              if (distanceMeters != null) ...[
+                const SizedBox(height: 8),
+                _IconTextLine(
+                  icon: Icons.near_me_outlined,
+                  text: _formatDistance(distanceMeters!),
+                ),
+              ],
+              if (description != null && description.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                Text(description, style: theme.textTheme.bodyMedium),
+              ],
+            ],
+          ),
+        ),
+      ),
+    ];
+
+    final contactTiles = <Widget>[];
+    final phone = salon.phone.trim();
+    Uri? whatsappUri;
+    String? whatsappSubtitle;
+    if (whatsappEntry != null) {
+      whatsappUri = _tryParseExternalUrl(whatsappEntry.value);
+      whatsappSubtitle = whatsappEntry.value;
+    }
+    if (whatsappUri == null && phone.isNotEmpty) {
+      whatsappUri = _buildWhatsAppUri(phone, salon.name);
+      whatsappSubtitle = phone;
+    }
+    if (whatsappUri != null) {
+      final uri = whatsappUri;
+      contactTiles.add(
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: _publicSalonInfoCircleIcon(
+            scheme.primary,
+            Icons.chat_rounded,
+            assetPath: _whatsappLogoAsset,
+          ),
+          title: const Text('WhatsApp'),
+          subtitle: Text(whatsappSubtitle ?? ''),
+          trailing: Icon(Icons.open_in_new_rounded, color: scheme.primary),
+          onTap: () => _launchExternalUrl(context, uri),
+        ),
+      );
+    }
+    if (phone.isNotEmpty) {
+      contactTiles.add(
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: _publicSalonInfoCircleIcon(
+            scheme.primary,
+            Icons.phone_rounded,
+          ),
+          title: const Text('Telefono'),
+          subtitle: Text(phone),
+          onTap:
+              () => _launchExternalUrl(
+                context,
+                Uri(scheme: 'tel', path: _normalizePhone(phone)),
+              ),
+        ),
+      );
+    }
+    final email = salon.email.trim();
+    if (email.isNotEmpty) {
+      contactTiles.add(
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: _publicSalonInfoCircleIcon(
+            scheme.primary,
+            Icons.mail_outline_rounded,
+          ),
+          title: const Text('Email'),
+          subtitle: Text(email),
+          onTap:
+              () => _launchExternalUrl(
+                context,
+                Uri(scheme: 'mailto', path: email),
+              ),
+        ),
+      );
+    }
+    final bookingUri = _tryParseExternalUrl(salon.bookingLink?.trim() ?? '');
+    if (bookingUri != null) {
+      contactTiles.add(
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: _publicSalonInfoCircleIcon(
+            scheme.primary,
+            Icons.event_available_rounded,
+          ),
+          title: const Text('Prenotazioni online'),
+          subtitle: Text(bookingUri.toString()),
+          trailing: Icon(Icons.open_in_new_rounded, color: scheme.primary),
+          onTap: () => _launchExternalUrl(context, bookingUri),
+        ),
+      );
+    }
+    if (contactTiles.isNotEmpty) {
+      cards.add(
+        _PublicSalonInfoCard(
+          icon: Icons.call_rounded,
+          title: 'Contatti principali',
+          children: contactTiles,
+        ),
+      );
+    }
+
+    final socialButtons = <Widget>[];
+    for (final entry in socialEntries) {
+      final uri = _tryParseExternalUrl(entry.value);
+      if (uri == null) {
+        continue;
+      }
+      socialButtons.add(
+        _PublicSalonSocialIconButton(
+          color: scheme.primary,
+          label: _displaySocialLabel(entry.key),
+          icon: _socialIconFor(entry.key),
+          assetPath: _socialAssetFor(entry.key),
+          onTap: () => _launchExternalUrl(context, uri),
+        ),
+      );
+    }
+    if (socialButtons.isNotEmpty) {
+      cards.add(
+        _PublicSalonInfoCard(
+          icon: Icons.public_rounded,
+          title: 'Canali social',
+          children: [
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 12,
+              runSpacing: 12,
+              children: socialButtons,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final scheduleRows = _buildScheduleRows(context);
+    if (scheduleRows.isNotEmpty) {
+      cards.add(
+        _PublicSalonInfoCard(
+          icon: Icons.access_time_rounded,
+          title: 'Orari di apertura',
+          children: scheduleRows,
+        ),
+      );
+    }
+
+    if (locationDescription.isNotEmpty) {
+      cards.add(
+        _PublicSalonInfoCard(
+          icon: Icons.map_rounded,
+          title: 'Dove trovarci',
+          children: [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: _publicSalonInfoCircleIcon(
+                scheme.primary,
+                Icons.location_on_rounded,
+                assetPath: _mapsLogoAsset,
+              ),
+              title: const Text('Indirizzo'),
+              subtitle: Text(locationDescription),
+              trailing:
+                  mapsUri == null
+                      ? null
+                      : Icon(Icons.open_in_new_rounded, color: scheme.primary),
+              onTap:
+                  mapsUri == null
+                      ? null
+                      : () => _launchExternalUrl(context, mapsUri),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (salon.isPublished &&
+        salon.showPublicCatalog &&
+        (salon.publicServices.isNotEmpty || salon.publicPackages.isNotEmpty)) {
+      cards.add(
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: _PublicCatalogPreview(
+              services: salon.publicServices,
+              packages: salon.publicPackages,
+              isGuest: isGuest,
+              isApproved: isApproved,
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (cards.length == 1) {
+      cards.add(
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Text(
+              'Non sono ancora disponibili altre informazioni pubbliche sul salone.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return cards;
+  }
+
+  Widget _buildPrimaryAction(BuildContext context, _CardStatus status) {
+    if (status == _CardStatus.approved) {
+      return FilledButton.icon(
+        onPressed: isProcessing ? null : onEnter,
+        icon:
+            isProcessing
+                ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+                : const Icon(Icons.arrow_forward_rounded),
+        label: Text(isProcessing ? 'Accesso in corso' : 'Entra nel salone'),
+      );
+    }
+    if (status == _CardStatus.pending) {
+      return OutlinedButton.icon(
+        onPressed: null,
+        icon: const Icon(Icons.hourglass_top_rounded),
+        label: const Text('Richiesta in elaborazione'),
+      );
+    }
+    return FilledButton.icon(
+      onPressed: onRequestAccess,
+      icon: Icon(isGuest ? Icons.login_rounded : Icons.send_rounded),
+      label: Text(
+        isGuest
+            ? 'Accedi per richiedere accesso'
+            : status == _CardStatus.rejected
+            ? 'Invia di nuovo la richiesta'
+            : 'Richiedi accesso',
+      ),
+    );
+  }
+
+  _CardStatus _resolveStatus() {
+    if (isApproved) {
+      return _CardStatus.approved;
+    }
+    if (pendingRequest != null) {
+      return _CardStatus.pending;
+    }
+    if (rejectedRequest != null) {
+      return _CardStatus.rejected;
+    }
+    return _CardStatus.available;
+  }
+
+  String _locationDescription() {
+    final lines = <String>[];
+    final address = salon.address.trim();
+    if (address.isNotEmpty) {
+      lines.add(address);
+    }
+    final city = salon.city.trim();
+    if (city.isNotEmpty) {
+      lines.add(city);
+    }
+    return lines.join('\n');
+  }
+
+  Uri? _buildMapsUri(String locationDescription) {
+    if (salon.latitude != null && salon.longitude != null) {
+      return Uri.https('www.google.com', '/maps/search/', {
+        'api': '1',
+        'query': '${salon.latitude},${salon.longitude}',
+      });
+    }
+    if (locationDescription.isEmpty) {
+      return null;
+    }
+    return Uri.https('www.google.com', '/maps/search/', {
+      'api': '1',
+      'query': locationDescription.replaceAll('\n', ' '),
+    });
+  }
+
+  List<Widget> _buildScheduleRows(BuildContext context) {
+    if (salon.schedule.isEmpty) {
+      return const <Widget>[];
+    }
+    final theme = Theme.of(context);
+    final localizations = MaterialLocalizations.of(context);
+    final closedStyle = theme.textTheme.bodyMedium?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    final scheduleMap = {
+      for (final entry in salon.schedule) entry.weekday: entry,
+    };
+    final rows = <Widget>[];
+    for (var index = 0; index < 7; index++) {
+      final weekday = DateTime.monday + index;
+      final entry = scheduleMap[weekday];
+      final isOpen = entry?.isOpen ?? false;
+      final range =
+          isOpen
+              ? _formatScheduleRange(
+                localizations,
+                entry?.openMinuteOfDay,
+                entry?.closeMinuteOfDay,
+              )
+              : 'Chiuso';
+      rows.add(
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _weekdayLabel(weekday),
+                  style: isOpen ? theme.textTheme.bodyMedium : closedStyle,
+                ),
+              ),
+              Text(
+                range,
+                style: isOpen ? theme.textTheme.bodyMedium : closedStyle,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return rows;
+  }
+}
+
+class _PublicSalonInfoCard extends StatelessWidget {
+  const _PublicSalonInfoCard({
+    required this.icon,
+    required this.title,
+    required this.children,
+  });
+
+  final IconData icon;
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _PublicSalonSectionHeader(
+              icon: icon,
+              title: title,
+              color: scheme.primary,
+            ),
+            const SizedBox(height: 12),
+            for (var i = 0; i < children.length; i++) ...[
+              if (i > 0)
+                Divider(
+                  height: 16,
+                  color: scheme.primary.withValues(alpha: 0.08),
+                ),
+              children[i],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PublicSalonSectionHeader extends StatelessWidget {
+  const _PublicSalonSectionHeader({
+    required this.icon,
+    required this.title,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String title;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        _publicSalonInfoCircleIcon(color, icon),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            title,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _IconTextLine extends StatelessWidget {
+  const _IconTextLine({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: theme.colorScheme.onSurfaceVariant),
+        const SizedBox(width: 8),
+        Expanded(child: Text(text, style: theme.textTheme.bodyMedium)),
+      ],
+    );
+  }
+}
+
+class _PublicSalonSocialIconButton extends StatelessWidget {
+  const _PublicSalonSocialIconButton({
+    required this.color,
+    required this.label,
+    required this.icon,
+    required this.onTap,
+    this.assetPath,
+  });
+
+  final Color color;
+  final String label;
+  final IconData icon;
+  final String? assetPath;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final iconWidget =
+        assetPath != null
+            ? Image.asset(
+              assetPath!,
+              width: 48,
+              height: 48,
+              fit: BoxFit.contain,
+            )
+            : Icon(icon, color: color, size: 32);
+
+    return Tooltip(
+      message: label,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: Ink(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Center(child: iconWidget),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Widget _publicSalonInfoCircleIcon(
+  Color color,
+  IconData icon, {
+  String? assetPath,
+}) {
+  if (assetPath != null) {
+    return SizedBox(
+      width: 40,
+      height: 40,
+      child: Image.asset(assetPath, fit: BoxFit.contain),
+    );
+  }
+  return CircleAvatar(
+    radius: 20,
+    backgroundColor: color.withValues(alpha: 0.12),
+    child: Icon(icon, color: color, size: 24),
+  );
+}
+
+String _formatDistance(double meters) {
+  if (meters < 1000) {
+    return '${meters.round()} m';
+  }
+  final kilometers = meters / 1000;
+  if (kilometers < 10) {
+    return '${kilometers.toStringAsFixed(1).replaceAll('.', ',')} km';
+  }
+  return '${kilometers.round()} km';
+}
+
+String _normalizePhone(String phone) {
+  return phone.replaceAll(RegExp(r'[^0-9+]+'), '');
+}
+
+Uri? _buildWhatsAppUri(String phone, String salonName) {
+  final normalized = _normalizePhone(phone);
+  if (normalized.isEmpty) {
+    return null;
+  }
+  final digits =
+      normalized.startsWith('+') ? normalized.substring(1) : normalized;
+  if (digits.isEmpty) {
+    return null;
+  }
+  final message = Uri.encodeComponent(
+    'Ciao ${salonName.trim()}, vorrei prenotare un appuntamento.',
+  );
+  return Uri.parse('https://wa.me/$digits?text=$message');
+}
+
+Uri? _tryParseExternalUrl(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) {
+    return null;
+  }
+  Uri? uri = Uri.tryParse(trimmed);
+  if (uri == null) {
+    return null;
+  }
+  if (!uri.hasScheme) {
+    uri = Uri.tryParse('https://$trimmed');
+  }
+  if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+    return null;
+  }
+  return uri;
+}
+
+Future<void> _launchExternalUrl(BuildContext context, Uri uri) async {
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+  if (!launched && messenger != null && messenger.mounted) {
+    messenger.showAppSnackBar(
+      SnackBar(content: Text('Impossibile aprire ${uri.toString()}')),
+    );
+  }
+}
+
+String _weekdayLabel(int weekday) {
+  switch (weekday) {
+    case DateTime.monday:
+      return 'Lunedì';
+    case DateTime.tuesday:
+      return 'Martedì';
+    case DateTime.wednesday:
+      return 'Mercoledì';
+    case DateTime.thursday:
+      return 'Giovedì';
+    case DateTime.friday:
+      return 'Venerdì';
+    case DateTime.saturday:
+      return 'Sabato';
+    case DateTime.sunday:
+      return 'Domenica';
+    default:
+      return 'Giorno';
+  }
+}
+
+String _formatScheduleRange(
+  MaterialLocalizations localizations,
+  int? startMinutes,
+  int? endMinutes,
+) {
+  final startLabel = _formatTimeLabel(localizations, startMinutes);
+  final endLabel = _formatTimeLabel(localizations, endMinutes);
+  if (startLabel == null || endLabel == null) {
+    return 'Su appuntamento';
+  }
+  return '$startLabel - $endLabel';
+}
+
+String? _formatTimeLabel(MaterialLocalizations localizations, int? minutes) {
+  if (minutes == null) {
+    return null;
+  }
+  final time = TimeOfDay(hour: minutes ~/ 60, minute: minutes % 60);
+  return localizations.formatTimeOfDay(time, alwaysUse24HourFormat: true);
+}
+
+String _normalizeSocialLabel(String rawLabel) {
+  final trimmed = rawLabel.trim();
+  if (trimmed.isEmpty) {
+    return '';
+  }
+  final normalized = trimmed.toLowerCase();
+  if (normalized.contains('twitter') ||
+      normalized.contains('x.com') ||
+      normalized == 'x') {
+    return 'Instagram';
+  }
+  if (normalized == 'instagram') {
+    return 'Instagram';
+  }
+  if (normalized == 'facebook') {
+    return 'Facebook';
+  }
+  if (normalized == 'tiktok') {
+    return 'TikTok';
+  }
+  if (normalized == 'whatsapp') {
+    return 'WhatsApp';
+  }
+  return trimmed;
+}
+
+String _displaySocialLabel(String label) {
+  return _normalizeSocialLabel(label);
+}
+
+IconData _socialIconFor(String label) {
+  final normalized = label.toLowerCase();
+  if (normalized.contains('instagram') || normalized.contains('twitter')) {
+    return Icons.camera_alt_rounded;
+  }
+  if (normalized.contains('facebook')) {
+    return Icons.facebook;
+  }
+  if (normalized.contains('tiktok')) {
+    return Icons.music_note_rounded;
+  }
+  if (normalized.contains('youtube')) {
+    return Icons.ondemand_video_rounded;
+  }
+  if (normalized.contains('whatsapp')) {
+    return Icons.chat_rounded;
+  }
+  if (normalized.contains('telegram')) {
+    return Icons.send_rounded;
+  }
+  if (normalized.contains('linkedin')) {
+    return Icons.work_outline_rounded;
+  }
+  if (normalized.contains('pinterest')) {
+    return Icons.push_pin_rounded;
+  }
+  return Icons.language_rounded;
+}
+
+String? _socialAssetFor(String label) {
+  final normalized = label.toLowerCase();
+  if (normalized.contains('instagram') || normalized.contains('twitter')) {
+    return _instagramLogoAsset;
+  }
+  if (normalized.contains('facebook')) {
+    return _facebookLogoAsset;
+  }
+  if (normalized.contains('tiktok')) {
+    return _tiktokLogoAsset;
+  }
+  if (normalized.contains('whatsapp')) {
+    return _whatsappLogoAsset;
+  }
+  return null;
+}
+
+class _SalonCard extends StatelessWidget {
+  const _SalonCard({
+    required this.salon,
+    required this.distanceMeters,
+    required this.hasAddressAndCoordinates,
+    required this.isApproved,
+    required this.isProcessing,
+    required this.pendingRequest,
+    required this.rejectedRequest,
+    required this.isGuest,
+    required this.onViewDetails,
+    required this.onRequestAccess,
+    required this.onEnter,
+  });
+
+  final PublicSalon salon;
+  final double? distanceMeters;
+  final bool hasAddressAndCoordinates;
+  final bool isApproved;
+  final bool isProcessing;
+  final SalonAccessRequest? pendingRequest;
+  final SalonAccessRequest? rejectedRequest;
+  final bool isGuest;
+  final VoidCallback onViewDetails;
   final VoidCallback onRequestAccess;
   final VoidCallback onEnter;
 
@@ -1210,7 +2012,16 @@ class _SalonCard extends StatelessWidget {
               isGuest: isGuest,
               isApproved: isApproved,
             ),
-            const Spacer(),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.info_outline_rounded),
+                onPressed: onViewDetails,
+                label: const Text('Dettagli salone'),
+              ),
+            ),
+            const SizedBox(height: 8),
             Row(
               children: [
                 if (status == _CardStatus.approved)
@@ -1815,7 +2626,7 @@ class _StatusChip extends StatelessWidget {
 
     switch (status) {
       case _CardStatus.available:
-        background = scheme.surfaceVariant;
+        background = scheme.surfaceContainerHighest;
         foreground = scheme.onSurfaceVariant;
         label = 'Disponibile';
         icon = Icons.meeting_room_outlined;
@@ -1879,9 +2690,9 @@ class _StatusInfoBanner extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
